@@ -7,6 +7,6 @@ export interface AccordionTuiHost {
 	folding(): boolean;
 	conductors(): ActiveConductorMeta[];
 	activeConductor(): ActiveConductorMeta | null;
-	command(command: WireCommand): { results: OpResult[]; rev: number };
+	command(command: WireCommand): { results: OpResult[]; rev: number; refused?: "read-only" };
 	subscribe(listener: () => void): () => void;
 }

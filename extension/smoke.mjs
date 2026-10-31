@@ -75,6 +75,7 @@ function readOnlyEntry() {
 // ── mock pi ──────────────────────────────────────────────────────────────────
 const handlers = {};
 let accordionCmd = null;
+let accordionWebCmd = null;
 let unfoldTool = null;
 let recallTool = null;
 const flags = new Map();
@@ -85,6 +86,7 @@ const pi = {
 	getFlag: (name) => flags.get(name),
 	registerCommand: (name, def) => {
 		if (name === "accordion") accordionCmd = def.handler;
+		if (name === "accordion-web") accordionWebCmd = def.handler;
 	},
 	registerTool: (def) => {
 		if (def && def.name === "unfold") unfoldTool = def;
@@ -92,7 +94,19 @@ const pi = {
 	},
 	appendEntry: () => {},
 };
-accordionLive(pi);
+accordionLive(pi, {
+	openPanel: async (_ctx, host) => {
+		const before = host.truth()?.budget;
+		if (before === undefined) { fails.push("native panel did not receive a Truth"); return; }
+		host.command({ kind: "setBudget", value: 800 });
+		if (host.truth()?.budget !== 800) fails.push("native panel did not steer the authoritative Truth");
+		host.command({ kind: "setBudget", value: before });
+		const now = Date.now();
+		fs.writeFileSync(CONTROLLER_PATH, JSON.stringify({ registryProtocol: 1, surfaceId: "other-surface", label: "Other", claimedAt: now, heartbeatAt: now }));
+		const result = host.command({ kind: "setFolding", value: true });
+		if (result.refused !== "read-only" || host.folding()) fails.push("native panel must refuse a command after another surface takes control");
+	},
+});
 const ctx = {
 	ui: { setStatus() {}, notify(message, type) { notifications.push({ message, type }); }, theme: { fg: (_c, s) => s } },
 	model: { id: "test/model", contextWindow: 1000 },
@@ -129,25 +143,39 @@ const messagesPlus = [...messages, { role: "user", content: "and another", times
 	if (ret !== undefined) fails.push("context hook altered messages with no client attached / folding off");
 }
 
-// /accordion writes a one-shot focus request + surfaces the browser token
+// Headless sessions report status rather than trying to open a terminal component.
 if (accordionCmd) {
 	await Promise.resolve(accordionCmd("", ctx));
-	if (!fs.existsSync(FOCUS_PATH)) fails.push("/accordion did not write a focus request");
+	if (!notifications.at(-1)?.message.includes("Open /accordion in the Pi TUI")) fails.push("/accordion did not report its headless status");
+} else {
+	fails.push("accordion command was not registered");
+}
+
+// The native panel operates the live Truth and loses write access when another surface takes control.
+if (accordionCmd) {
+	await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true }));
+	fs.unlinkSync(CONTROLLER_PATH);
+}
+
+// /accordion-web keeps the optional desktop/browser entry point.
+if (accordionWebCmd) {
+	await Promise.resolve(accordionWebCmd("", ctx));
+	if (!fs.existsSync(FOCUS_PATH)) fails.push("/accordion-web did not write a focus request");
 	else {
 		const req = JSON.parse(fs.readFileSync(FOCUS_PATH, "utf8"));
 		if (req.sessionId !== entry.sessionId) fails.push("focus request sessionId mismatch");
 	}
 	const note = notifications.at(-1);
 	if (note?.type !== "warning" || !note.message.includes("ACCORDION_APP_PATH does not point to an executable"))
-		fails.push("/accordion did not warn for an invalid explicit ACCORDION_APP_PATH");
+		fails.push("/accordion-web did not warn for an invalid explicit ACCORDION_APP_PATH");
 } else {
-	fails.push("accordion command was not registered");
+	fails.push("accordion-web command was not registered");
 }
 
-// Recover the browser token from the /accordion notify line for the token-gated surfaces below.
+// Recover the browser token from the /accordion-web notify line for the token-gated surfaces below.
 const browserLine = notifications.map((n) => n.message).reverse().find((m) => m.includes("Browser: http"));
 const TOKEN = browserLine && (browserLine.match(/token=([0-9a-f]+)/) || [])[1];
-if (!TOKEN) fails.push("/accordion did not surface a Browser URL carrying a token");
+if (!TOKEN) fails.push("/accordion-web did not surface a Browser URL carrying a token");
 
 // ── browser-served HTTP surface (unchanged from before) ─────────────────────
 {

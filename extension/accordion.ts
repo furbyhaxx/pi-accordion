@@ -77,6 +77,8 @@ import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHos
 import { catalogMeta, type RegistryEntry } from "../core/conductor/registry";
 import type { CompletionRequest, CompletionResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath } from "./conductorReadiness";
+import { openAccordionPanel } from "./tui/panel";
+import type { AccordionTuiHost } from "./tui/host";
 import {
 	REGISTRY_PROTOCOL,
 	REGISTRY_DIR,
@@ -163,6 +165,7 @@ type CompletionFunction = (
 ) => Promise<any>;
 interface RuntimeDependencies {
 	complete?: CompletionFunction;
+	openPanel?: typeof openAccordionPanel;
 }
 // Vite's fixed localhost:1420 Origin is browser-obtainable, unlike Tauri's production custom
 // origins. Trust it only for an explicit local development session; shipped installs stay closed.
@@ -455,6 +458,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// GUI `setFolding` command; disabled ⇒ the model call is untouched. Broadcast on change and
 	// carried in every snapshot so a reconnecting client sees the current arm.
 	let foldingEnabled = false;
+	const nativeListeners = new Set<() => void>();
+	let nativeSurfaceId: string | null = null;
 
 	// The last full messages array the Truth was reconciled against (an authoritative `context`
 	// snapshot, extended by message_end / agent_end deltas). pi's next `event.messages` is compared
@@ -536,6 +541,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Send a message to every connected client (Phase B fan-out). */
 	function broadcast(m: ServerMessage): void {
 		for (const ws of clients.keys()) if (ws.readyState === 1 /* OPEN */) send(ws, m);
+		for (const listener of nativeListeners) {
+			try { listener(); } catch { /* a presentation failure must not affect the session */ }
+		}
 	}
 
 	/** Forward a host Truth event to every replica as a replayable `event` (null ⇒ nothing to replay). */
@@ -1808,7 +1816,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!lease) return;
 		// Only refresh the heartbeat if the FRESH on-disk holder is a surface connected to THIS
 		// extension; we write back that exact holder (never a different surfaceId than the file's).
-		let holderConnected = false;
+		let holderConnected = nativeSurfaceId === lease.surfaceId;
 		for (const info of clients.values()) if (info.surfaceId && info.surfaceId === lease.surfaceId) { holderConnected = true; break; }
 		if (!holderConnected) return;
 		writeControllerLease({ ...lease, heartbeatAt: Date.now() });
@@ -2458,7 +2466,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		buildTruth(readSessionMessages(ctx));
 		startServer();
 		try {
-			ctx.ui.setStatus("accordion", ctx.ui.theme.fg("accent", "\u{1FA97} accordion"));
+			ctx.ui.setStatus("accordion", ctx.ui.theme.fg("accent", "accordion"));
 		} catch {
 			/* status API optional */
 		}
@@ -2783,9 +2791,54 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		latestCtx = null;
 	});
 
-	// ── /accordion : focus the app on this session + show status ────────────────
+	// ── /accordion : open the native context panel ─────────────────────────────
 	pi.registerCommand("accordion", {
-		description: "Open/focus Accordion on this pi session",
+		description: "Open the Accordion context panel for this session",
+		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+			if (ctx.mode !== "tui" || !ctx.hasUI) {
+				ctx.ui.notify(`Accordion: ${truth?.blocks.length ?? 0} blocks · folding ${foldingEnabled ? "on" : "off"}. Open /accordion in the Pi TUI to manage context.`, "info");
+				return;
+			}
+			const surfaceId = `tui-${crypto.randomBytes(16).toString("hex")}`;
+			const openedSessionId = sessionId;
+			const current = reloadControllerLease().lease;
+			const contested = current && isFreshLease(current, Date.now());
+			const takeControl = !contested || await ctx.ui.confirm("Take Accordion control?", `${current.label} currently controls Accordion. Opening this panel for steering will make that surface read-only.`);
+			if (takeControl) {
+				const now = Date.now();
+				writeControllerLease({ registryProtocol: REGISTRY_PROTOCOL, surfaceId, label: "Pi TUI", claimedAt: now, heartbeatAt: now });
+				nativeSurfaceId = surfaceId;
+				maybeBroadcastController();
+			}
+			const host: AccordionTuiHost = {
+				truth: () => truth,
+				folding: () => foldingEnabled,
+				conductors: () => catalogMeta(readinessOf),
+				activeConductor: () => liveHost.activeMeta(),
+				command: (command) => {
+					const lease = reloadControllerLease().lease;
+					if (sessionId !== openedSessionId || !lease || lease.surfaceId !== surfaceId || !isFreshLease(lease, Date.now())) {
+						return { results: [], rev: truth?.rev ?? 0, refused: "read-only" };
+					}
+					return applyCommand(command);
+				},
+				subscribe: (listener) => {
+					nativeListeners.add(listener);
+					return () => nativeListeners.delete(listener);
+				},
+			};
+			try {
+				await (dependencies.openPanel ?? openAccordionPanel)(ctx, host);
+			} finally {
+				if (nativeSurfaceId === surfaceId) nativeSurfaceId = null;
+				const lease = reloadControllerLease().lease;
+				if (lease?.surfaceId === surfaceId) writeControllerLease({ ...lease, heartbeatAt: 0 });
+			}
+		},
+	});
+
+	pi.registerCommand("accordion-web", {
+		description: "Open or focus the optional Accordion browser or desktop interface",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			writeFocusRequest();
 			// If the app is already attached to THIS session, its discovery poll will consume
