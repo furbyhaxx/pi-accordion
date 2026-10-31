@@ -19,8 +19,7 @@
 
 ---
 
-Accordion is a [pi](https://github.com/earendil-works/pi) extension that shows you
-your agent's entire context window at a glance and lets you manage it manually or with intelligence through a conductor.
+This fork of [Accordion](https://github.com/a-Fig/Accordion) is a Pi extension for inspecting and managing an agent's context inside the terminal, manually or with an automatic conductor.
 
 <div align="center">
 
@@ -198,115 +197,50 @@ groups, no replay. That's the build ahead.
 
 ## Quick start
 
-### Part 1 — Browser (no Rust, no desktop app)
+This fork runs Accordion's context controls inside the Pi TUI. The extension starts its
+local session service automatically; no desktop app is required.
+
+From a checkout:
 
 ```bash
-pi install npm:@a-fig/accordion
+npm install --legacy-peer-deps
+pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
-restart pi if it is already running, then inside of pi run:
+
+Run `/accordion` in the session to open its context panel. Folding is **off by default**:
+turn it on in the panel after reviewing the context and conductor. Changes affect the
+messages sent to the model, not the stored session transcript. The protected working
+tail and per-block restrictions remain enforced by the shared engine.
+
+The fork is also a Pi package and can be installed from Git once this branch is published:
 
 ```bash
-/accordion
+pi-bolt install git:github.com/furbyhaxx/pi-accordion
 ```
 
-That's it, assuming you have [pi](https://github.com/earendil-works/pi). The extension
-serves the UI and prints a local URL (`http://127.0.0.1:24317/...`). It is the same URL
-every time, and it keeps working when the session that printed it ends, so you don't have
-to go fish a fresh one out of pi's output. The page connects to your running session, and
-any other live pi session on the machine shows up in the sidebar.
+Remove the upstream Accordion package before installing this fork to avoid registering
+the same commands, tools and context hook twice. Restart Pi after installing it.
 
-Folding starts **off**. Accordion just watches until you flip the **Folding** toggle in the
-header, then you can pick a conductor or steer by hand.
+### Optional browser and desktop interfaces
 
----
-
-### Part 2 — Desktop app (Optional - full feature set)
-
-The desktop app adds **read-only browsing of saved Claude Code transcripts** (which needs
-the native Rust layer) and the `/accordion` command that foregrounds the right session
-automatically. Running from a checkout is also what makes the out-of-process conductors
-(`thermocline`, `triptych`) selectable. It requires Node 20+ and Rust.
-
-> **Don't double-register the extension.** Part 1's `pi install npm:@a-fig/accordion`
-> already registered the extension (the `/accordion` command, the `unfold`/`recall`
-> tools, and the skills all come from the npm package). That same extension is what the
-> local `extension/accordion.ts` builds into. **Adding `extension/accordion.ts` to
-> `extensions` while the npm package is still installed loads it twice** — a duplicate
-> `/accordion` command, duplicate tool registration, and a duplicate context hook. Pick
-> **one** of the two paths below; don't do both.
-
-**Prerequisites:** install [Node 20 LTS](https://nodejs.org) and
-[Rust via rustup](https://rustup.rs), then follow the one-time platform setup at
-**https://v2.tauri.app/start/prerequisites/** (WebView2 + MSVC on Windows, Xcode CLT on
-macOS).
-
-#### Path A — Place a built binary (recommended; keeps the npm package)
-
-`/accordion` launches a **pre-built binary** from disk — it does not connect to a dev
-server. So all you need is a built `app` binary in one of the locations the extension
-scans. If you already ran Part 1, this is the only step: no `settings.json` edit, no
-duplicate extension.
+The existing browser and desktop interfaces remain available through `/accordion-web`.
+The browser assets must be built from the checkout first:
 
 ```bash
-git clone https://github.com/a-Fig/accordion.git
-cd accordion/app && npm install
-npm run tauri build -- --no-bundle   # builds target/release/app(.exe); --no-bundle
-                                     # skips the slower MSI/NSIS/.dmg installers
+npm ci --prefix app
+npm --prefix app run build
+npm ci --prefix extension
+npm --prefix extension run build:client
 ```
 
-Then drop the binary where the extension looks for an installed bundle:
+The command prints a token-bearing loopback URL. Treat it as a credential. The desktop
+app additionally supports read-only Claude Code transcript browsing; see
+[CONTRIBUTING.md](CONTRIBUTING.md) for its build prerequisites. Only one surface can
+steer at a time; the others are read-only until they take control.
 
-| OS | Path |
-|---|---|
-| **Windows** | `%LOCALAPPDATA%\Programs\Accordion\Accordion.exe` |
-| **macOS** | `/Applications/Accordion.app` |
-| **Linux** | `~/.local/share/Accordion/accordion` |
-
-(Without an installed bundle, `/accordion` falls back to the repo build outputs
-`app/src-tauri/target/release/app` then `…/debug/app`.) Run `/accordion` in any pi
-session and it launches (or focuses, via single-instance) the desktop app on that session.
-
-#### Path B — Register the local extension (for extension development)
-
-Only choose this if you'll edit the extension itself. Remove the npm package first, then
-point pi at your checkout instead. From `~/.pi/agent/settings.json`, drop
-`"npm:@a-fig/accordion"` from `packages` and add to `extensions`:
-
-```json
-{ "extensions": ["<absolute-path-to-repo>/extension/accordion.ts"] }
-```
-
-The extension has its own runtime deps, so install them too:
-
-```bash
-cd accordion/extension && npm install
-```
-
-#### Run the app + live session
-
-```bash
-npm run tauri dev   # opens the native window; hot-reloads on save
-```
-
-> `npm run tauri dev` is a Vite dev server for UI iteration. It is **not** what
-> `/accordion` connects to — `/accordion` always launches a built binary
-> (`target/release/app`). To produce that binary, run
-> `npm run tauri build -- --no-bundle`. Both `npm run dev` and `npm run tauri dev` want
-> **port 1420**; run only one at a time.
-
-Run pi in any project. It advertises itself in `~/.accordion/sessions/` and appears in
-Accordion's **Sessions** sidebar within ~1s. Click it (or run `/accordion` in that
-terminal) and its context populates live.
-
-Only one surface steers at a time, machine-wide across every session — the rest are live
-mirrors. If you open Accordion from a second tab or window while another is already
-driving, you'll see a one-time prompt to take control; everywhere else stays
-**READ-ONLY** with a **TAKE CONTROL** button, never a silent write race between two open
-surfaces.
-
-To refresh the binary after `main` moves (close any open Accordion window first so the
-file isn't locked, then `git pull`, `npm install`, and rebuild): see
-**[CONTRIBUTING.md](CONTRIBUTING.md)**.
+The in-process conductors need no separate server. Thermocline and Triptych run as
+separate processes; Triptych also needs its local tree-sitter dependencies installed.
+See [the conductor catalog](conductors/README.md).
 
 ## Contributing
 

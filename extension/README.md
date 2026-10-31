@@ -19,41 +19,27 @@ Accordion is a [pi](https://github.com/earendil-works/pi) extension that shows y
 agent's entire context window at a glance and lets you manage it — manually or with
 intelligence through a **conductor**.
 
-This package ships the **pi extension** (it holds your session's context state and is the
-live link to it) plus a **browser-served UI**, so you can run Accordion with `pi install`
-alone — no Rust, no desktop app required.
+The extension hosts the context state and provides a native Pi terminal panel. Browser and desktop interfaces remain optional.
 
 ## Install
 
-```bash
-pi install npm:@a-fig/accordion
-```
-
-That adds the package to `~/.pi/agent/settings.json`. Restart pi, then in any project:
+For this fork, use the Pi package at the repository root. From a checkout:
 
 ```bash
-/accordion
+npm install --legacy-peer-deps
+pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-The extension HTTP-serves the Accordion UI and prints the URL (also opens it) — a single
-stable link (`http://127.0.0.1:24317/...`) that one extension holds at a time and that
-survives any one pi session ending, so you don't need to re-copy a fresh URL out of pi's
-output every time. The page auto-connects to the running session. Folding is **off by
-default** — flip the **Folding** toggle in the header to start steering what the agent
-sees.
+Run `/accordion` to manage the current session in Pi's terminal. Folding starts off;
+enable it explicitly before it changes model context. The extension starts its local
+service with the session. No desktop application is required.
 
-Only one surface steers at a time. Opening Accordion from a second tab/window while
-another is already driving prompts you once to take control; every other surface is a
-live, strictly read-only mirror — a **READ-ONLY** chip with a **TAKE CONTROL** button,
-never two surfaces silently racing to steer the same session.
+The optional browser and desktop entry point is `/accordion-web`. The browser assets
+must first be built as described in the [project README](https://github.com/furbyhaxx/pi-accordion).
+Only one surface may steer at a time; another surface may ask to take control.
 
-> **Multi-session, browser-served — no desktop app required.** The extension serves the UI
-> in your browser and exposes every live pi session on the machine over a token-gated
-> endpoint; the browser polls it and lists them all in the sidebar, so you can switch
-> between sessions the same way the desktop app does. The one thing that's still
-> desktop-only is browsing **Claude Code** transcripts (`~/.claude`), since that needs the
-> native Rust layer. For that, conductors that need local model resources, or the native
-> window, build the [desktop app](https://github.com/a-Fig/Accordion) from source.
+Do not load this fork and `npm:@a-fig/accordion` together: both register the same
+tools and context hook.
 
 ## How it works
 
