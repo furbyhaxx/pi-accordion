@@ -76,6 +76,7 @@ function readOnlyEntry() {
 const handlers = {};
 let accordionCmd = null;
 let accordionWebCmd = null;
+let nativeProbeMode = "control";
 let unfoldTool = null;
 let recallTool = null;
 const flags = new Map();
@@ -96,6 +97,11 @@ const pi = {
 };
 accordionLive(pi, {
 	openPanel: async (_ctx, host) => {
+		if (nativeProbeMode === "read-only") {
+			const result = host.command({ kind: "setFolding", value: true });
+			if (result.refused !== "read-only" || host.folding()) fails.push("declining controller takeover must leave the panel read-only");
+			return;
+		}
 		const before = host.truth()?.budget;
 		if (before === undefined) { fails.push("native panel did not receive a Truth"); return; }
 		host.command({ kind: "setBudget", value: 800 });
@@ -154,6 +160,10 @@ if (accordionCmd) {
 // The native panel operates the live Truth and loses write access when another surface takes control.
 if (accordionCmd) {
 	await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true }));
+	nativeProbeMode = "read-only";
+	let asked = false;
+	await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true, ui: { ...ctx.ui, confirm: async () => { asked = true; return false; } } }));
+	if (!asked || JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8")).surfaceId !== "other-surface") fails.push("native panel did not respect declined takeover");
 	fs.unlinkSync(CONTROLLER_PATH);
 }
 
