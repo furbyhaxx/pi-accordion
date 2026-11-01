@@ -208,7 +208,8 @@ pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
 Run `/accordion` in the session to open its context panel. Press `?` for all keys;
-`o` toggles folding, `c` selects a conductor, and Enter inspects a block. Folding is
+`o` toggles folding, `c` selects a conductor, and Enter inspects a block. Use
+`/accordion sessions` to choose another live Pi session on the same machine. Folding is
 **off by default**. Changes affect the messages sent to the model, not the stored
 session transcript. The protected working tail and per-block restrictions remain
 enforced by the shared engine.

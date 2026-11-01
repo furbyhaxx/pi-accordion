@@ -30,8 +30,9 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` to manage the current session in Pi's terminal. Folding starts off;
-enable it explicitly before it changes model context. The extension starts its local
+Run `/accordion` to manage the current session in Pi's terminal, or `/accordion sessions`
+to choose another live local session. Folding starts off; enable it explicitly before
+it changes model context. The extension starts its local
 service with the session. No desktop application is required.
 
 The optional browser and desktop entry point is `/accordion-web`. The browser assets
