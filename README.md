@@ -19,7 +19,7 @@ folding agent context in the terminal. Run `/accordion` for the current session 
 
 <sub>Your whole context window split in 2 sections. The lower section represents your agent's most recent context and is protected against any interference</sub>
 
-[get-accordion.dev](https://get-accordion.dev/) &nbsp;·&nbsp; [npm](https://www.npmjs.com/package/@a-fig/accordion) &nbsp;·&nbsp; [VISION.md](VISION.md)
+[Upstream project](https://get-accordion.dev/) &nbsp;·&nbsp; [VISION.md](VISION.md)
 </div>
 
 ---

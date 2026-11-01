@@ -1,9 +1,9 @@
 {
-  "name": "@a-fig/accordion",
+  "name": "@furbyhaxx/pi-accordion",
   "version": "0.1.2",
   "type": "module",
   "engines": { "node": ">=22.19.0" },
-  "description": "Accordion live link — a pi extension that hosts the session's context Truth and serves a replica + remote-control protocol to the Accordion GUI.",
+  "description": "Pi-native context visualization and reversible folding.",
   "keywords": ["pi-package"],
   "scripts": {
     "build:app": "npm --prefix ../app run build",
