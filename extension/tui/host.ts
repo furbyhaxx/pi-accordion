@@ -4,6 +4,7 @@ import type { OpResult } from "../../core/ops";
 
 export interface AccordionTuiHost {
 	truth(): Truth | null;
+	sessionLabel?(): string;
 	folding(): boolean;
 	conductors(): ActiveConductorMeta[];
 	activeConductor(): ActiveConductorMeta | null;

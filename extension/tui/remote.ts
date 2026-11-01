@@ -95,7 +95,7 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 	const ws = new WebSocket(url, { maxPayload: MAX_FRAME, handshakeTimeout: TIMEOUT });
 	let truth: Truth | null = null, meta: SessionMeta | null = null;
 	let folding = false, catalog: ActiveConductorMeta[] = [], active: ActiveConductorMeta | null = null;
-	let waiting = true, closed = false, seq = 0;
+	let waiting = true, closed = false, controlling = false, seq = 0;
 	const listeners = new Set<() => void>();
 	const pending = new Map<number, { resolve: (result: { results: OpResult[]; rev: number; refused?: "read-only" }) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 	let readyResolve: (host: AccordionTuiHost & { claim(): void; close(): void }) => void = () => {};
@@ -123,10 +123,12 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 	}
 	const host: AccordionTuiHost & { claim(): void; close(): void } = {
 		truth: () => truth, folding: () => folding, conductors: () => catalog, activeConductor: () => active,
+		canSteer: () => !closed && controlling,
 		subscribe: (listener) => { if (!closed) listeners.add(listener); return () => { listeners.delete(listener); }; },
 		claim: () => send({ type: "claimController" }), close: () => fail(new Error("Remote session closed")),
 		command: (cmd: WireCommand) => new Promise((resolve, reject) => {
 			if (closed || ws.readyState !== WebSocket.OPEN) { reject(new Error("Remote session disconnected")); return; }
+			if (waiting) { reject(new Error("Remote session is resynchronizing")); return; }
 			const id = ++seq;
 			const timeout = setTimeout(() => { pending.delete(id); reject(new Error("Command timeout")); }, TIMEOUT);
 			pending.set(id, { resolve, reject, timer: timeout });
@@ -144,6 +146,7 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 				if (meta || msg.protocolVersion !== PROTOCOL_VERSION || msg.role !== "gui" || (msg.sessionId !== undefined && msg.sessionId !== entry.sessionId) || !record(msg.meta) || msg.meta.format !== "pi" || !string(msg.meta.title) || !string(msg.meta.cwd) || !string(msg.meta.model) || !nullable(msg.meta.contextWindow, num) || (msg.conductors !== undefined && (!Array.isArray(msg.conductors) || !msg.conductors.every(conductor)))) throw new Error("Protocol mismatch or invalid hello");
 				meta = msg.meta as unknown as SessionMeta;
 				catalog = (msg.conductors ?? []) as ActiveConductorMeta[];
+				controlling = record(msg.controller) && msg.controller.surfaceId === surfaceId && msg.controller.fresh === true;
 			} else if (msg.type === "snapshot") {
 				if (!meta || !snapshot(msg.state)) throw new Error("Invalid snapshot");
 				truth = hydrateSnapshot(meta, msg.state); folding = msg.state.foldingEnabled; waiting = false;
@@ -154,7 +157,7 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 				if (!event(msg.event)) throw new Error("Invalid event");
 				if (msg.event.kind !== "reset") applyWireEvent(truth, msg.event);
 				if (msg.event.kind === "reset" || truth.rev !== msg.event.rev) {
-					waiting = true; send({ type: "resnapshot" });
+					waiting = true; truth = null; notify(); send({ type: "resnapshot" });
 					timer = setTimeout(() => fail(new Error("Resnapshot timeout")), TIMEOUT);
 				} else notify();
 			} else if (msg.type === "folding") {
@@ -163,6 +166,9 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 			} else if (msg.type === "conductorState") {
 				if (msg.active !== null && !conductor(msg.active)) throw new Error("Invalid conductor frame");
 				active = msg.active as ActiveConductorMeta | null; notify();
+			} else if (msg.type === "controller") {
+				if (!string(msg.surfaceId) || !string(msg.label)) throw new Error("Invalid controller frame");
+				controlling = msg.surfaceId === surfaceId; notify();
 			} else if (msg.type === "commandResult") {
 				if (!rev(msg.seq) || !rev(msg.rev) || !Array.isArray(msg.results) || !msg.results.every(result) || (msg.refused !== undefined && msg.refused !== "read-only")) throw new Error("Invalid command result");
 				const p = pending.get(msg.seq as number);

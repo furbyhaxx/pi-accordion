@@ -33,7 +33,7 @@ async function setup() {
 		expect(url.searchParams.get("surface")).toBe("my-surface");
 		expect(url.searchParams.get("label")).toBe("Pi TUI");
 		ws.on("message", (data) => { messages.push(JSON.parse(data.toString())); wake(); });
-		ws.send(JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId: "test", role: "gui", meta, conductors: [conductor] }));
+		ws.send(JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId: "test", role: "gui", meta, conductors: [conductor], controller: { surfaceId: "my-surface", label: "Pi TUI", fresh: true } }));
 		ws.send(JSON.stringify({ type: "snapshot", state: serializeSnapshot(truth, false) }));
 	});
 	const host = await connectRemoteSession(entry, "my-surface");
@@ -56,6 +56,7 @@ describe("remote TUI host", () => {
 	test("replays events, handles refusal, explicit claim and revision-gap resnapshot", async () => {
 		const s = await setup();
 		expect(s.host.truth()?.rev).toBe(s.truth.rev);
+		expect(s.host.canSteer?.()).toBe(true);
 		expect(s.host.conductors()).toEqual([conductor]);
 		const first = s.host.command({ kind: "setBudget", value: 2000 });
 		const command = await s.next();
@@ -76,6 +77,8 @@ describe("remote TUI host", () => {
 		s.truth.setBudget(4000); s.truth.setBudget(5000);
 		s.send({ type: "event", event: { kind: "config", budget: 5000, rev: s.truth.rev } });
 		expect(await s.next()).toEqual({ type: "resnapshot" });
+		expect(s.host.truth()).toBeNull();
+		await expect(s.host.command({ kind: "setFolding", value: true })).rejects.toThrow("resynchronizing");
 		s.send({ type: "event", event: { kind: "config", budget: 6000, rev: s.truth.rev + 1 } });
 		changed = update(s.host);
 		s.send({ type: "snapshot", state: serializeSnapshot(s.truth, true) });
@@ -87,6 +90,8 @@ describe("remote TUI host", () => {
 		expect(s.host.activeConductor()).toEqual(conductor);
 		changed = update(s.host); s.send({ type: "folding", enabled: false }); await changed;
 		expect(s.host.folding()).toBe(false);
+		changed = update(s.host); s.send({ type: "controller", surfaceId: "other", label: "Other" }); await changed;
+		expect(s.host.canSteer?.()).toBe(false);
 		s.host.close();
 	});
 	test("rejects pending commands on disconnect", async () => {

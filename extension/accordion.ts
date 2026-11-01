@@ -79,6 +79,7 @@ import type { CompletionRequest, CompletionResult } from "../core/conductor/cont
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath } from "./conductorReadiness";
 import { openAccordionPanel } from "./tui/panel";
 import type { AccordionTuiHost } from "./tui/host";
+import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
 import {
 	REGISTRY_PROTOCOL,
 	REGISTRY_DIR,
@@ -462,6 +463,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let nativeSurfaceId: string | null = null;
 	let lastNativeSurfaceId: string | null = null;
 	let controllerWasFresh = false;
+	const nativeRemotes = new Set<{ close(): void }>();
 
 	// The last full messages array the Truth was reconciled against (an authoritative `context`
 	// snapshot, extended by message_end / agent_end deltas). pi's next `event.messages` is compared
@@ -2776,6 +2778,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		truth = null;
 		nativeSurfaceId = null;
 		sessionId = "";
+		for (const remote of nativeRemotes) remote.close();
+		nativeRemotes.clear();
 		notifyNative();
 		for (const ws of clients.keys()) {
 			try {
@@ -2804,14 +2808,35 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// ── /accordion : open the native context panel ─────────────────────────────
 	pi.registerCommand("accordion", {
-		description: "Open the Accordion context panel for this session",
-		handler: async (_args: string, ctx: ExtensionCommandContext) => {
+		description: "[sessions] — open the Accordion context panel",
+		getArgumentCompletions: (text: string) => "sessions".startsWith(text.trim()) ? [{ value: "sessions", label: "sessions", description: "Choose a live session" }] : null,
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				ctx.ui.notify(`Accordion: ${truth?.blocks.length ?? 0} blocks · folding ${foldingEnabled ? "on" : "off"}. Open /accordion in the Pi TUI to manage context.`, "info");
 				return;
 			}
-			const surfaceId = `tui-${crypto.randomBytes(16).toString("hex")}`;
 			const openedSessionId = sessionId;
+			let target: SessionEntry | undefined;
+			const argument = args.trim();
+			if (argument && argument !== "sessions") {
+				ctx.ui.notify("Usage: /accordion [sessions]", "warning");
+				return;
+			}
+			if (argument === "sessions") {
+				let entries: SessionEntry[];
+				try { entries = await discoverNativeSessions(); }
+				catch (error) { ctx.ui.notify(`Cannot discover Accordion sessions: ${error instanceof Error ? error.message : String(error)}`, "error"); return; }
+				if (sessionId !== openedSessionId) return;
+				entries = entries.filter((entry) => entry.sessionId !== openedSessionId && entry.protocolVersion === PROTOCOL_VERSION);
+				const safe = (value: string) => value.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ").slice(0, 120);
+				const options = ["Current session", ...entries.map((entry) => `${safe(entry.title || "Pi session")} · ${safe(entry.cwd)} · ${safe(entry.sessionId)}`)];
+				const selected = await ctx.ui.select("Accordion session", options);
+				if (sessionId !== openedSessionId || selected === undefined) return;
+				const index = options.indexOf(selected);
+				if (index < 0) return;
+				target = index > 0 ? entries[index - 1] : undefined;
+			}
+			const surfaceId = `tui-${crypto.randomBytes(16).toString("hex")}`;
 			refreshControllerNow();
 			const current = controllerLease;
 			const contested = current && current.surfaceId !== lastNativeSurfaceId && isFreshLease(current, Date.now());
@@ -2830,8 +2855,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					ctx.ui.notify(controlError, "warning");
 				}
 			}
-			const host: AccordionTuiHost = {
+			let host: AccordionTuiHost = {
 				truth: () => sessionId === openedSessionId ? truth : null,
+				sessionLabel: () => "current session",
 				folding: () => foldingEnabled,
 				conductors: () => catalogMeta(readinessOf),
 				activeConductor: () => liveHost.activeMeta(),
@@ -2850,9 +2876,38 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return () => nativeListeners.delete(listener);
 				},
 			};
+			let remote: Awaited<ReturnType<typeof connectRemoteSession>> | undefined;
 			try {
+				if (target) {
+					const fresh = (await discoverNativeSessions()).find((entry) => entry.sessionId === target?.sessionId);
+					if (!fresh) throw new Error("The selected session is no longer available; reopen /accordion sessions");
+					target = fresh;
+					remote = await connectRemoteSession(fresh, surfaceId);
+					if (sessionId !== openedSessionId) return;
+					nativeRemotes.add(remote);
+					const localHost = host;
+					const remoteHost = remote;
+					host = {
+						...remoteHost,
+						truth: () => sessionId === openedSessionId ? remoteHost.truth() : null,
+						sessionLabel: () => `${target?.title || "Pi session"} · ${target?.cwd || ""}`,
+						canSteer: () => !!localHost.canSteer?.() && !!remoteHost.canSteer?.(),
+						controlMessage: () => localHost.controlMessage?.() ?? null,
+						command: (command) => sessionId === openedSessionId
+							? remoteHost.command(command)
+							: { results: [], rev: 0, refused: "read-only" },
+						subscribe: (listener) => {
+							const unsubscribeLocal = localHost.subscribe(listener);
+							const unsubscribeRemote = remoteHost.subscribe(listener);
+							return () => { unsubscribeLocal(); unsubscribeRemote(); };
+						},
+					};
+				}
 				await (dependencies.openPanel ?? openAccordionPanel)(ctx, host);
+			} catch (error) {
+				ctx.ui.notify(`Accordion session unavailable: ${error instanceof Error ? error.message : String(error)}`, "error");
 			} finally {
+				if (remote) { nativeRemotes.delete(remote); remote.close(); }
 				if (nativeSurfaceId === surfaceId) nativeSurfaceId = null;
 			}
 		},

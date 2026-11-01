@@ -74,7 +74,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				const block = current();
 				const bodyRows = Math.max(1, Math.min(12, tui.terminal.rows - 9));
 				const stats = truth?.stats();
-				const header = readOnly ? "READ-ONLY · Accordion" : `Accordion · folding ${host.folding() ? "on" : "off"} · conductor ${host.activeConductor()?.label ?? "none"}`;
+				const header = readOnly ? `READ-ONLY · folding ${host.folding() ? "on" : "off"} · ${host.sessionLabel?.() ?? "Accordion"}` : `Accordion · folding ${host.folding() ? "on" : "off"} · ${host.sessionLabel?.() ?? "session"} · conductor ${host.activeConductor()?.label ?? "none"}`;
 				const summary = stats ? `Tokens ${stats.liveTokens}/${stats.fullTokens} · budget ${stats.budget} · tail ${stats.protectTokens}${stats.contextWindow === null ? "" : ` · window ${stats.contextWindow}`}` : "No session context yet";
 				let body: string[] = [];
 				let hint = "↑↓ select · enter inspect · f fold · p pin · a auto · o folding · g group · c conductor · b budget · t tail · esc close";
