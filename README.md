@@ -1,3 +1,8 @@
+# pi-accordion
+
+A Pi-native fork of [Accordion](https://github.com/a-Fig/Accordion) for inspecting and
+folding agent context in the terminal. Run `/accordion` for the current session or
+`/accordion sessions` to choose another. See [Quick start](#quick-start).
 
 <div align="center">
 
