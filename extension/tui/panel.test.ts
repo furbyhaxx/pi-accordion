@@ -81,6 +81,9 @@ describe("accordion panel", () => {
 		for (let i = 0; i < 5; i++) await Promise.resolve();
 		expect(s.commands).toEqual([]);
 		expect(s.panel.render(100).join("\n")).toContain("changed while editing; retry");
+		s.onEditor(() => {}); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.editorPrefill()).toBe("edited digest");
 		s.close(); await s.opening;
 	});
 
@@ -155,6 +158,19 @@ describe("accordion panel", () => {
 		s.truth.setLocks(["human-steering"], "conductor"); s.panel.handleInput("e");
 		for (let i = 0; i < 5; i++) await Promise.resolve();
 		expect(s.panel.render(100).join("\n")).toContain("locked");
+		s.close(); await s.opening;
+	});
+
+	test("navigates the context map and switches to the list", async () => {
+		const s = setup();
+		expect(s.panel.render(36).join("\n")).toContain("[A1P]");
+		s.panel.handleInput("\u001b[C");
+		expect(s.panel.render(36).join("\n")).toContain("[A1P]");
+		s.panel.handleInput("f");
+		await Promise.resolve();
+		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["b"] }] });
+		s.panel.handleInput("m");
+		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
 		s.close(); await s.opening;
 	});
 

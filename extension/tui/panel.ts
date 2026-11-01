@@ -4,6 +4,7 @@ import type { WireCommand } from "../../core/protocol";
 import type { Op, OpResult } from "../../core/ops";
 import { EMPTY_DIGEST, stripFoldTags } from "../../core/digest";
 import type { AccordionTuiHost } from "./host";
+import { buildContextMap } from "./map";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
@@ -33,6 +34,9 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 	let numberInput = "";
 	let message = "";
 	let readOnly = host.canSteer ? !host.canSteer() : false;
+	let mapMode = true;
+	let mapColumns = 1;
+	const digestDrafts = new Map<string, string>();
 	while (true) {
 	const action = await ctx.ui.custom<DigestAction | undefined>((tui, theme, keys, done) => {
 		let pending = false;
@@ -92,12 +96,18 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 						return `${start + i === index ? "❯" : " "} ${b.kind} ${flags} · ${b.tokens} tok · ${b.toolName ?? b.id} · ${b.text}`;
 					});
 					if (!body.length) body = ["  No blocks yet"];
+					if (mapMode && truth && bodyRows >= 3) {
+						const selected = body.find((row) => row.startsWith("❯")) ?? "  No blocks yet";
+						const map = buildContextMap(truth, selectedId, width, bodyRows - 2);
+						mapColumns = map.columns;
+						body = [selected, "S system · U user · A answer · H thinking · C call · R result", ...map.lines];
+					} else mapColumns = 1;
 					if (rangeId) hint = "↑↓ select end · g create group · r cancel range · esc close";
 					else if (block && truth?.groupOf(block)) hint = "↑↓ select · enter inspect · f fold · p pin · a auto · x group expand/collapse · d delete group · r range · c conductor · o folding · b budget · t tail · esc close";
 					else hint = "↑↓ select · enter inspect · f fold · p pin · a auto · r range · c conductor · o folding · b budget · t tail · esc close";
-					hint = `e edit · D auto digest · ? help · ${hint}`;
+					hint = `m ${mapMode ? "list" : "map"} · ? help · ${hint}`;
 				} else if (screen === "help") {
-					const lines = ["↑/↓ select block · Enter inspect text; v toggles digest", "e edit folded digest · D restore engine digest", "Human-authored summaries cannot be unfolded by the agent.", "f fold/unfold · p pin/unpin · a return to auto", "o toggle folding on/off", "r mark range start · move · g create group", "x expand/collapse selected group · d delete group", "b set budget · t set protected tail", "c choose or detach conductor · Esc close/back"]
+					const lines = ["m switch map/list · arrows select · Enter inspect", "Map: S system, U user, A answer, H thinking, C call, R result", "1–6 token weight · lowercase folded · ! bolted · * pinned · P protected · G grouped", "v toggles original text and digest in the inspector", "e edit folded digest · D restore engine digest", "Human-authored summaries cannot be unfolded by the agent.", "f fold/unfold · p pin/unpin · a return to auto", "o toggle folding on/off", "r mark range start · move · g create group", "x expand/collapse selected group · d delete group", "b set budget · t set protected tail", "c choose or detach conductor · Esc close/back"]
 						.flatMap((row) => wrapTextWithAnsi(clean(row), Math.max(1, width)));
 					inspectOffset = Math.min(inspectOffset, Math.max(0, lines.length - bodyRows));
 					body = lines.slice(inspectOffset, inspectOffset + bodyRows);
@@ -174,12 +184,14 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					if (/^\d$/.test(key) && numberInput.length < 12) numberInput += key;
 					else if (matchesKey(data, "backspace")) numberInput = numberInput.slice(0, -1);
 					else if (confirm && numberInput) { void send({ kind: screen === "budget" ? "setBudget" : "setProtect", value: Number(numberInput) }); screen = "blocks"; }
-				} else if (up || down) {
+				} else if (up || down || (mapMode && (matchesKey(data, "left") || matchesKey(data, "right")))) {
 					const blocks = truth?.blocks ?? [];
-					index = Math.max(0, Math.min(blocks.length - 1, index + (up ? -1 : 1)));
+					const step = up ? -mapColumns : down ? mapColumns : matchesKey(data, "left") ? -1 : 1;
+					index = Math.max(0, Math.min(blocks.length - 1, index + step));
 					selectedId = blocks[index]?.id;
 				} else if (confirm && block) { screen = "inspect"; inspectOffset = 0; inspectDigest = false; }
 				else if (key === "?") { screen = "help"; inspectOffset = 0; }
+				else if (key === "m") { mapMode = !mapMode; mapColumns = 1; }
 				else if (key === "o") void send({ kind: "setFolding", value: !host.folding() });
 				else if (key === "c") { conductorIndex = 0; screen = "conductors"; }
 				else if (key === "b" || key === "t") { screen = key === "b" ? "budget" : "protect"; numberInput = ""; }
@@ -214,11 +226,13 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		};
 	});
 	if (!action) return;
+	const draftKey = action.groupId ? `group:${action.groupId}` : `block:${action.blockId}`;
 	let draft: string | undefined;
 	if (action.kind === "edit") {
-		draft = await ctx.ui.editor("Edit digest · human text cannot be unfolded by the agent", action.text);
+		draft = await ctx.ui.editor("Edit digest · human text cannot be unfolded by the agent", digestDrafts.get(draftKey) ?? action.text);
 		if (draft === undefined) { message = "Edit cancelled"; continue; }
-		if (draft === action.text) { message = "No changes"; continue; }
+		if (draft === action.text) { digestDrafts.delete(draftKey); message = "No changes"; continue; }
+		digestDrafts.set(draftKey, draft);
 		if (action.groupId && !stripFoldTags(draft.trim()).trim()) {
 			const confirmed = await ctx.ui.confirm("Drop group content?", "An empty summary removes group messages from the wire where safe; tool-pair and role safety may retain content. Continue?");
 			if (!confirmed) { message = "Edit cancelled"; continue; }
@@ -239,6 +253,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 	try {
 		const result = await host.command({ kind: "ops", ops, baseRev: action.rev });
 		if (result.refused === "read-only") readOnly = true;
+		if (!result.refused && result.results.every((item) => item.applied && !item.clamped)) digestDrafts.delete(draftKey);
 		message = commandMessage(result);
 	} catch (error) {
 		message = `Command failed: ${error instanceof Error ? error.message : String(error)}`;
