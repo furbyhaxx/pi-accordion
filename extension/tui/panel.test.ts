@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Truth } from "../../core/truth";
+import { foldTag } from "../../core/digest";
 import type { Block } from "../../core/types";
 import type { ActiveConductorMeta, WireCommand } from "../../core/protocol";
 import { visibleWidth } from "@earendil-works/pi-tui";
@@ -14,6 +15,7 @@ function block(id: string, order: number): Block {
 function setup(delayed = false) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
+	let currentTruth: Truth | null = truth;
 	let listener = () => {};
 	let disposed = false;
 	let refuse = false;
@@ -22,7 +24,7 @@ function setup(delayed = false) {
 	let resolveCommand = () => {};
 	const conductor: ActiveConductorMeta = { id: "exclusive", label: "Exclusive", locks: ["human-steering"], tailTokens: 0, holdWireUpToMs: 0, remote: false, readiness: { state: "ready" } };
 	const host: AccordionTuiHost = {
-		truth: () => truth, folding: () => false,
+		truth: () => currentTruth, folding: () => false,
 		conductors: () => [conductor],
 		activeConductor: () => null,
 		canSteer: () => steering,
@@ -35,16 +37,127 @@ function setup(delayed = false) {
 	};
 	let component: { handleInput(data: string): void; render(width: number): string[]; dispose?(): void } | undefined;
 	let finish = () => {};
-	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<void>((resolve) => {
-		finish = resolve;
-		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value }, { matches: (data: string, action: string) => ({ "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "esc", "tui.select.confirm": "enter" } as Record<string, string>)[action] === data }, resolve);
-	}) } } as unknown as ExtensionContext;
+	let editorResult: string | undefined = "edited digest";
+	let editorPrefill = "";
+	let editorHook = () => {};
+	let confirmResult = true;
+	let confirmations: string[] = [];
+	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
+		finish = () => { component?.dispose?.(); resolve(undefined); };
+		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value }, { matches: (data: string, action: string) => ({ "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "esc", "tui.select.confirm": "enter" } as Record<string, string>)[action] === data }, (value: unknown) => { component?.dispose?.(); resolve(value); });
+	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host);
 	if (!component) throw new Error("panel did not open");
-	return { truth, conductor, commands, panel: component, opening, close: () => { component?.dispose?.(); finish(); }, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { truth, conductor, commands, get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 describe("accordion panel", () => {
+	test("edits a folded block and retains its selection", async () => {
+		const s = setup();
+		s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["b"] }], "you");
+		s.panel.handleInput("down");
+		s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.editorPrefill()).toContain("FOLDED");
+		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "fold", ids: ["b"], digest: "edited digest" }] }]);
+		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
+		s.close(); await s.opening;
+	});
+	test("cancel leaves the digest untouched and keeps selection", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["b"] }], "you");
+		s.setEditor(undefined); s.panel.handleInput("down"); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands).toEqual([]);
+		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
+		s.close(); await s.opening;
+	});
+
+	test("refuses an edit when truth changes while the editor is open", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
+		s.onEditor(() => s.truth.setBudget(1234)); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands).toEqual([]);
+		expect(s.panel.render(100).join("\n")).toContain("changed while editing; retry");
+		s.close(); await s.opening;
+	});
+
+	test("refuses an edit when the session disappears during editing", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
+		s.onEditor(s.changeSession); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands).toEqual([]);
+		expect(s.panel.render(100).join("\n")).toContain("changed while editing; retry");
+		s.close(); await s.opening;
+	});
+
+	test("does not author an unchanged generated digest", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
+		s.setEditor(s.truth.digestOf(s.truth.blocks[0])); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands).toEqual([]);
+		expect(s.panel.render(100).join("\n")).toContain("No changes");
+		s.close(); await s.opening;
+	});
+
+	test("uses the empty digest sentinel and restores the block default", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
+		s.setEditor("  "); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"], digest: "{empty}" }] });
+		s.panel.handleInput("D");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"] }] });
+		expect(s.truth.digestOf(s.truth.blocks[0])).toContain("FOLDED");
+		s.close(); await s.opening;
+	});
+
+	test("confirms a tag-only group drop and restores its default", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "group", ids: ["a", "b"] }], "you");
+		const group = s.truth.groups[0];
+		s.setEditor(foldTag(group.id));
+		s.setConfirm(false); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.confirmations()[0]).toContain("removes group messages");
+		expect(s.commands).toEqual([]);
+		s.setConfirm(true); s.panel.handleInput("e");
+		for (let i = 0; i < 6; i++) await Promise.resolve();
+		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"], summary: null }] });
+		expect(s.truth.groups[0].digest).toBeNull();
+		s.panel.handleInput("D");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"] }] });
+		expect(s.truth.groupSummary(s.truth.groups[0])).toContain("FOLDED");
+		s.close(); await s.opening;
+	});
+
+	test("awaits an asynchronous digest command and reports refusal", async () => {
+		const s = setup(true); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
+		s.setRefuse(); s.panel.handleInput("e");
+		for (let i = 0; i < 3; i++) await Promise.resolve();
+		expect(s.commands).toHaveLength(1);
+		s.resolveCommand();
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.panel.render(100).join("\n")).toContain("read-only");
+		s.close(); await s.opening;
+	});
+
+	test("surfaces a lock clamp on a digest edit", async () => {
+		const s = setup(); s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "auto");
+		s.truth.setLocks(["human-steering"], "conductor"); s.panel.handleInput("e");
+		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.panel.render(100).join("\n")).toContain("locked");
+		s.close(); await s.opening;
+	});
+
 	test("targets selected block and displays protected refusal", async () => {
 		const s = setup();
 		s.panel.handleInput("down");

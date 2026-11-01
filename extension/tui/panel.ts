@@ -1,29 +1,40 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { decodeKittyPrintable, matchesKey, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { WireCommand } from "../../core/protocol";
-import type { Op } from "../../core/ops";
+import type { Op, OpResult } from "../../core/ops";
+import { EMPTY_DIGEST, stripFoldTags } from "../../core/digest";
 import type { AccordionTuiHost } from "./host";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
 type Screen = "blocks" | "inspect" | "help" | "conductors" | "consent" | "budget" | "protect";
+type DigestAction = { kind: "edit" | "default"; truth: NonNullable<ReturnType<AccordionTuiHost["truth"]>>; rev: number; blockId: string; groupId?: string; members?: string[]; text: string };
+
+function commandMessage(result: { results: OpResult[]; refused?: "read-only" }): string {
+	if (result.refused === "read-only") return "read-only: close and reopen /accordion to request control again";
+	const failures = result.results.flatMap((item) => item.perId?.some((entry) => entry.reason)
+		? item.perId.filter((entry) => entry.reason).map((entry) => `${entry.id}: ${entry.reason}`)
+		: item.clamped ? [item.clamped] : []);
+	return failures.length ? `Refused: ${failures.join(", ")}` : "Command sent";
+}
 
 /** Open the current session's interactive context panel in Pi's TUI. */
 export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionTuiHost): Promise<void> {
 	if (ctx.mode !== "tui" || !ctx.hasUI) return;
-	await ctx.ui.custom<void>((tui, theme, keys, done) => {
-		let selectedId: string | undefined;
-		let index = 0;
-		let screen: Screen = "blocks";
-		let conductorIndex = 0;
-		let consentId: string | null = null;
-		let consentLocks: string[] = [];
-		let rangeId: string | undefined;
-		let inspectOffset = 0;
-		let inspectDigest = false;
-		let numberInput = "";
-		let message = "";
-		let readOnly = host.canSteer ? !host.canSteer() : false;
+	let selectedId: string | undefined;
+	let index = 0;
+	let screen: Screen = "blocks";
+	let conductorIndex = 0;
+	let consentId: string | null = null;
+	let consentLocks: string[] = [];
+	let rangeId: string | undefined;
+	let inspectOffset = 0;
+	let inspectDigest = false;
+	let numberInput = "";
+	let message = "";
+	let readOnly = host.canSteer ? !host.canSteer() : false;
+	while (true) {
+	const action = await ctx.ui.custom<DigestAction | undefined>((tui, theme, keys, done) => {
 		let pending = false;
 		let disposed = false;
 		const update = () => {
@@ -50,15 +61,8 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 			try {
 				const result = await host.command(command);
 				if (disposed) return;
-				if (result.refused === "read-only") {
-					readOnly = true;
-					message = "read-only: close and reopen /accordion to request control again";
-				} else {
-					const failures = result.results.flatMap((item) => item.perId?.some((entry) => entry.reason)
-						? item.perId.filter((entry) => entry.reason).map((entry) => `${entry.id}: ${entry.reason}`)
-						: item.clamped ? [item.clamped] : []);
-					message = failures.length ? `Refused: ${failures.join(", ")}` : "Command sent";
-				}
+				if (result.refused === "read-only") readOnly = true;
+				message = commandMessage(result);
 			} catch (error) {
 				if (!disposed) message = `Command failed: ${error instanceof Error ? error.message : String(error)}`;
 			} finally {
@@ -91,9 +95,9 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					if (rangeId) hint = "↑↓ select end · g create group · r cancel range · esc close";
 					else if (block && truth?.groupOf(block)) hint = "↑↓ select · enter inspect · f fold · p pin · a auto · x group expand/collapse · d delete group · r range · c conductor · o folding · b budget · t tail · esc close";
 					else hint = "↑↓ select · enter inspect · f fold · p pin · a auto · r range · c conductor · o folding · b budget · t tail · esc close";
-					hint = `? help · ${hint}`;
+					hint = `e edit · D auto digest · ? help · ${hint}`;
 				} else if (screen === "help") {
-					const lines = ["↑/↓ select block · Enter inspect text; v toggles digest", "f fold/unfold · p pin/unpin · a return to auto", "o toggle folding on/off", "r mark range start · move · g create group", "x expand/collapse selected group · d delete group", "b set budget · t set protected tail", "c choose or detach conductor · Esc close/back"]
+					const lines = ["↑/↓ select block · Enter inspect text; v toggles digest", "e edit folded digest · D restore engine digest", "Human-authored summaries cannot be unfolded by the agent.", "f fold/unfold · p pin/unpin · a return to auto", "o toggle folding on/off", "r mark range start · move · g create group", "x expand/collapse selected group · d delete group", "b set budget · t set protected tail", "c choose or detach conductor · Esc close/back"]
 						.flatMap((row) => wrapTextWithAnsi(clean(row), Math.max(1, width)));
 					inspectOffset = Math.min(inspectOffset, Math.max(0, lines.length - bodyRows));
 					body = lines.slice(inspectOffset, inspectOffset + bodyRows);
@@ -128,14 +132,14 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				return [theme.fg("accent", line(header, width)), theme.fg("muted", line(summary, width)), ...body.map((row) => row.startsWith("❯") ? theme.fg("accent", line(row, width)) : line(row, width)), theme.fg(message ? "warning" : "dim", line(message || (readOnly ? host.controlMessage?.() ?? "Close and reopen /accordion to request control" : ""), width)), theme.fg("dim", line(hint, width))];
 			},
 			handleInput(data: string): void {
-				if (matchesKey(data, "ctrl+c")) { done(); return; }
+				if (matchesKey(data, "ctrl+c")) { done(undefined); return; }
 				const cancel = keys.matches(data, "tui.select.cancel");
 				const confirm = keys.matches(data, "tui.select.confirm");
 				const up = keys.matches(data, "tui.select.up");
 				const down = keys.matches(data, "tui.select.down");
 				const key = decodeKittyPrintable(data) ?? data;
 				if (cancel) {
-					if (screen === "blocks") { done(); return; }
+					if (screen === "blocks") { done(undefined); return; }
 					screen = screen === "consent" ? "conductors" : "blocks"; message = ""; update(); return;
 				}
 				if (pending) { message = "Command pending"; update(); return; }
@@ -180,7 +184,16 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				else if (key === "c") { conductorIndex = 0; screen = "conductors"; }
 				else if (key === "b" || key === "t") { screen = key === "b" ? "budget" : "protect"; numberInput = ""; }
 				else if (block && truth) {
-					if (key === "f") op({ kind: truth.isFolded(block) ? "unfold" : "fold", ids: [block.id] });
+					if (key === "e" || key === "D") {
+						const group = truth.groupOf(block);
+						const foldedGroup = group?.folded ? group : undefined;
+						if (readOnly || (host.canSteer && !host.canSteer())) message = "read-only: cannot edit digest";
+						else if (!foldedGroup && !truth.isFolded(block)) message = "Select a folded block or group";
+						else {
+							done({ kind: key === "e" ? "edit" : "default", truth, rev: truth.rev, blockId: block.id, groupId: foldedGroup?.id, members: foldedGroup ? [...foldedGroup.memberIds] : undefined, text: foldedGroup ? (truth.isDropGroup(foldedGroup) ? "" : truth.groupSummary(foldedGroup)) : truth.digestOf(block) });
+							return;
+						}
+					} else if (key === "f") op({ kind: truth.isFolded(block) ? "unfold" : "fold", ids: [block.id] });
 					else if (key === "p") op({ kind: block.override === "pinned" ? "unpin" : "pin", ids: [block.id] });
 					else if (key === "a") op({ kind: "auto", ids: [block.id] });
 					else if (key === "r") rangeId = rangeId ? undefined : block.id;
@@ -200,4 +213,35 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 			dispose() { if (!disposed) { disposed = true; unsubscribe(); } },
 		};
 	});
+	if (!action) return;
+	let draft: string | undefined;
+	if (action.kind === "edit") {
+		draft = await ctx.ui.editor("Edit digest · human text cannot be unfolded by the agent", action.text);
+		if (draft === undefined) { message = "Edit cancelled"; continue; }
+		if (draft === action.text) { message = "No changes"; continue; }
+		if (action.groupId && !stripFoldTags(draft.trim()).trim()) {
+			const confirmed = await ctx.ui.confirm("Drop group content?", "An empty summary removes group messages from the wire where safe; tool-pair and role safety may retain content. Continue?");
+			if (!confirmed) { message = "Edit cancelled"; continue; }
+		}
+	}
+	const truth = host.truth();
+	const block = truth?.blocks.find((item) => item.id === action.blockId);
+	const group = block && truth?.groupOf(block);
+	if (truth !== action.truth || truth?.rev !== action.rev || !block || (action.groupId ? group?.id !== action.groupId || !group.folded || group.memberIds.join("\0") !== action.members?.join("\0") : !!group?.folded || !truth.isFolded(block))) {
+		message = "Context changed while editing; retry";
+		continue;
+	}
+	if (host.canSteer && !host.canSteer()) { readOnly = true; message = "read-only: cannot edit digest"; continue; }
+	const text = draft === undefined ? undefined : stripFoldTags(draft.trim()).trim();
+	const ops: Op[] = action.groupId && action.members
+		? [{ kind: "ungroup", groupId: action.groupId }, { kind: "group", ids: [action.members[0], action.members[action.members.length - 1]], ...(text === undefined ? {} : { summary: text || null }) }]
+		: [{ kind: "fold", ids: [action.blockId], ...(text === undefined ? {} : { digest: text || EMPTY_DIGEST }) }];
+	try {
+		const result = await host.command({ kind: "ops", ops });
+		if (result.refused === "read-only") readOnly = true;
+		message = commandMessage(result);
+	} catch (error) {
+		message = `Command failed: ${error instanceof Error ? error.message : String(error)}`;
+	}
+	}
 }
