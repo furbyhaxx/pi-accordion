@@ -42,11 +42,11 @@ class Session {
 		this.turn++;
 		return this.push({ id: `u:${1000 + this.order}`, kind: "user", text });
 	}
-	step(p: { think?: string; say?: string; calls?: Call[] }): StepIds {
+	step(p: { think?: string; signed?: boolean; say?: string; calls?: Call[] }): StepIds {
 		const r = ++this.resp;
 		let j = 0;
 		const ids: StepIds = { calls: [] };
-		if (p.think !== undefined) ids.think = this.push({ id: `a:resp${r}:p${j++}`, kind: "thinking", text: p.think });
+		if (p.think !== undefined) ids.think = this.push({ id: `a:resp${r}:p${j++}`, kind: "thinking", text: p.think, signed: p.signed });
 		if (p.say !== undefined) ids.say = this.push({ id: `a:resp${r}:p${j++}`, kind: "text", text: p.say });
 		const calls = p.calls ?? [];
 		const callIds = calls.map((c, n) => {
@@ -229,6 +229,88 @@ describe("keel-lite · hysteresis", () => {
 		expect(() => new KeelLiteConductor({ high: 0.6, low: 0.7 })).toThrow(RangeError);
 		expect(() => new KeelLiteConductor({ high: 1.2 })).toThrow(RangeError);
 		expect(() => new KeelLiteConductor({ low: 0 })).toThrow(RangeError);
+	});
+});
+
+describe("keel-lite · signed thinking", () => {
+	it("leaves signed thoughts unmodified and ungrouped when saturated", async () => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ think: thought(4000), signed: true }).think!;
+		const host = setup(s, { protect: 0, budget: 100 });
+		new KeelLiteConductor().attach(host);
+		await host.commitTurn();
+		expect(isFolded(host, id)).toBe(false);
+		expect(isGrouped(host, id)).toBe(false);
+		expect(host.statusLog.at(-1)?.metrics).toMatchObject({ saturated: true });
+	});
+});
+
+describe("keel-lite · codemode", () => {
+	it("folds nested reads superseded by a later nested write", async () => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.read({path: "src/a.ts"})' }, out: lines(100) }] }).calls[0].result;
+		s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.edit({path: "src/a.ts", oldText: "a", newText: "b"})' }, out: "edited" }] });
+		const host = setup(s, { protect: 0, budgetFactor: 0.9 });
+		new KeelLiteConductor({ readFoldMinTokens: 100000, deepFoldMinTokens: 100000 }).attach(host);
+		await host.commitTurn();
+		expect(isFolded(host, id)).toBe(true);
+		expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R2");
+	});
+
+	it.each([
+		['await tools.read("src/a.ts")', 'await tools.write({path: "src/a.ts", content: "new"})'],
+		['await tools.bash({command: "cat src/a.ts"})', 'await tools.read("src/a.ts")'],
+	])("tracks nested read and bash paths through later calls", async (first, second) => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ calls: [{ tool: "codemode", args: { code: first }, out: lines(100) }] }).calls[0].result;
+		s.step({ calls: [{ tool: "codemode", args: { code: second }, out: "done" }] });
+		const host = setup(s, { protect: 0, budgetFactor: 0.9 });
+		new KeelLiteConductor({ readFoldMinTokens: 100000, deepFoldMinTokens: 100000 }).attach(host);
+		await host.commitTurn();
+		expect(isFolded(host, id)).toBe(true);
+		expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R2");
+	});
+
+	it("trims codemode bash output", async () => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.bash({command: "ls"})' }, out: lines(100) }] }).calls[0].result;
+		const host = setup(s, { protect: 0, budgetFactor: 0.9 });
+		new KeelLiteConductor().attach(host);
+		await host.commitTurn();
+		expect(substOf(host, id)).toContain("elided");
+		expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R3");
+	});
+
+	it("skeletonizes a single code section and folds a multi-section batch", async () => {
+		for (const multi of [false, true]) {
+			const s = new Session();
+			s.user("Solve.");
+			const code = multi ? 'text(await tools.read({path: "src/a.py"})); text(await tools.read({path: "src/b.py"}))' : 'text(await tools.read({path: "src/a.py"}))';
+			const out = `==> text 1/${multi ? 2 : 1} <==\n${pySource(20)}${multi ? `\n==> text 2/2 <==\n${pySource(20)}` : ""}`;
+			const id = s.step({ calls: [{ tool: "codemode", args: { code }, out }] }).calls[0].result;
+			const host = setup(s, { protect: 0, budgetFactor: 0.9 });
+			new KeelLiteConductor().attach(host);
+			await host.commitTurn();
+			expect(isFolded(host, id)).toBe(true);
+			if (multi) expect(substOf(host, id)).toBeUndefined();
+			else expect(substOf(host, id)).toContain("code skeleton");
+			expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R4");
+		}
+	});
+
+	it("preserves a whole-output bash exemption in a mixed batch", async () => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.bash({command: "ls"}); await tools.bash({command: "python platform_client.py guide x"})' }, out: lines(100) }] }).calls[0].result;
+		const host = setup(s, { protect: 0, budgetFactor: 0.9 });
+		new KeelLiteConductor({ deepFoldMinTokens: 100000 }).attach(host);
+		await host.commitTurn();
+		expect(substOf(host, id)).toBeUndefined();
+		expect(host.txns.flatMap((txn) => txn.ops).some((op) => op.kind === "replace")).toBe(false);
 	});
 });
 

@@ -57,7 +57,7 @@ import type { Block, Group } from "../../../core/types";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { groupDigest } from "../../../core/digest";
 import { BLOCK_OVERHEAD } from "../../../core/tokens";
-import { classifyCodeRead } from "../doorman/classify";
+import { classifyCodeRead, classifyCodemodeResult } from "../doorman/classify";
 import { detectLang, skeletonize } from "../doorman/skeletonize";
 
 // ── knobs ─────────────────────────────────────────────────────────────────────────────────
@@ -168,6 +168,7 @@ interface Analysis {
 	reads: Set<string>;
 	/** tool_results of the bash family that R3 may trim. */
 	trimmableBash: Set<string>;
+	trimmableCodemode: Set<string>;
 	callById: Map<string, ViewBlock>;
 }
 
@@ -307,7 +308,7 @@ export class KeelLiteConductor implements Conductor {
 		/** Per-block eligibility (rule 3). Demoted roots pass only when `allowDemoted`. */
 		const eligible = (b: ViewBlock, i: number, allowDemoted = false): boolean => {
 			if (i >= pfi) return false;
-			if (!FOLDABLE.has(b.kind)) return false; // system / user / tool_call
+			if (!FOLDABLE.has(b.kind) || (b.kind === "thinking" && b.signed)) return false; // system / user / tool_call
 			if (b.held || b.grouped || inAnyGroup.has(b.id)) return false;
 			if (a.roots.has(b.id)) return false;
 			if (a.demoted.has(b.id) && !allowDemoted) return false;
@@ -353,7 +354,7 @@ export class KeelLiteConductor implements Conductor {
 			[
 				3,
 				(b, i) => {
-					if (!a.trimmableBash.has(b.id) || !eligible(b, i) || stateOf(b) !== "live") return;
+					if ((!a.trimmableBash.has(b.id) && !a.trimmableCodemode.has(b.id)) || !eligible(b, i) || stateOf(b) !== "live") return;
 					if (b.tokens <= this.k.bashTrimMinTokens) return;
 					const content = this.trim(host, b);
 					if (content === null) return;
@@ -432,7 +433,7 @@ export class KeelLiteConductor implements Conductor {
 	): PlannedGroup[] {
 		const groupable = (i: number): boolean => {
 			const b = blocks[i];
-			if (i >= pfi || b.held || b.grouped || inAnyGroup.has(b.id)) return false;
+			if (i >= pfi || b.held || b.grouped || inAnyGroup.has(b.id) || (b.kind === "thinking" && b.signed)) return false;
 			if (a.roots.has(b.id) || a.demoted.has(b.id)) return false;
 			return b.kind !== "system" && b.kind !== "user";
 		};
@@ -654,11 +655,17 @@ export class KeelLiteConductor implements Conductor {
 		const writes: Array<{ idx: number; path: string }> = [];
 		const readResults = new Set<string>();
 		const trimmableBash = new Set<string>();
+		const trimmableCodemode = new Set<string>();
 
 		blocks.forEach((b, i) => {
 			if (b.kind === "tool_call") {
 				const info = callInfo(b, undefined);
 				if (WRITE_TOOLS.has(info.tool) && info.path) writes.push({ idx: i, path: info.path });
+				if (info.tool === "codemode") {
+					for (const nested of codemodeCalls(b)) {
+						if (WRITE_TOOLS.has(nested.tool) && nested.path) writes.push({ idx: i, path: nested.path });
+					}
+				}
 				return;
 			}
 			if (b.kind !== "tool_result") return;
@@ -667,6 +674,21 @@ export class KeelLiteConductor implements Conductor {
 			if (READ_TOOLS.has(info.tool)) {
 				readResults.add(b.id);
 				if (info.path && !b.isError) reads.push({ idx: i, id: b.id, path: info.path, ranged: info.ranged });
+			} else if (info.tool === "codemode" && call) {
+				let wholeBash = false;
+				let hasBash = false;
+				for (const nested of codemodeCalls(call)) {
+					if (READ_TOOLS.has(nested.tool)) {
+						readResults.add(b.id);
+						if (nested.path && !b.isError) reads.push({ idx: i, id: b.id, path: nested.path, ranged: false });
+					} else if (BASH_TOOLS.has(nested.tool)) {
+						hasBash = true;
+						if (this.k.wholeBashCommand && nested.command !== undefined && this.k.wholeBashCommand.test(nested.command)) wholeBash = true;
+						const target = nested.command !== undefined ? catTarget(nested.command) : undefined;
+						if (target && !b.isError) reads.push({ idx: i, id: b.id, path: target, ranged: false });
+					}
+				}
+				if (hasBash && !wholeBash) trimmableCodemode.add(b.id);
 			} else if (BASH_TOOLS.has(info.tool)) {
 				const whole = this.k.wholeBashCommand && info.command !== undefined && this.k.wholeBashCommand.test(info.command);
 				if (!whole) trimmableBash.add(b.id);
@@ -704,7 +726,7 @@ export class KeelLiteConductor implements Conductor {
 		for (const id of roots) stale.delete(id);
 		for (const id of demoted) stale.delete(id);
 
-		return { roots, demoted, stale, reads: readResults, trimmableBash, callById };
+		return { roots, demoted, stale, reads: readResults, trimmableBash, trimmableCodemode, callById };
 	}
 
 	// ── transformations ────────────────────────────────────────────────────────────────────
@@ -735,6 +757,8 @@ export class KeelLiteConductor implements Conductor {
 
 	/** R4's code skeleton via doorman's classifier + skeletonizer and its worth-it gate. */
 	private skeleton(host: ConductorHost, b: ViewBlock, callById: Map<string, ViewBlock>): { content: string; cost: number } | null {
+		const sections = classifyCodemodeResult(b, callById);
+		if (sections !== null && sections.length !== 1) return null;
 		const info = classifyCodeRead(b, callById);
 		if (!info) return null;
 		const sk = skeletonize(info.source, detectLang(info.path, info.source));
@@ -797,6 +821,23 @@ function callInfo(call: ViewBlock | undefined, result: ViewBlock | undefined): C
 		command: str(args.command),
 		ranged: args.offset !== undefined || args.limit !== undefined || args.start_line !== undefined || args.end_line !== undefined,
 	};
+}
+
+function codemodeCalls(call: ViewBlock): CallInfo[] {
+	const code = str(parseArgs(call.text).code);
+	if (!code) return [];
+	const calls: CallInfo[] = [];
+	const pattern = /\btools\.(read|read_file|readfile|view|open|write|edit|multiedit|multi_edit|write_file|edit_file|create_file|bash|shell|sh|exec_command|run_command|execute|powershell|pwsh)\s*\(\s*(?:(['"])((?:\\.|(?!\2)[^\\])*)\2|\{([^}]*)\})/gi;
+	for (const match of code.matchAll(pattern)) {
+		const tool = match[1].toLowerCase();
+		const fields = match[4];
+		const property = fields?.match(/\b(?:path|file_path|filePath|command)\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/);
+		const value = fields === undefined ? match[3] : property?.[2];
+		if (value === undefined || value.includes("\\")) continue;
+		const isBash = BASH_TOOLS.has(tool);
+		calls.push({ tool, path: isBash ? undefined : normPath(value), command: isBash ? value : undefined, ranged: false });
+	}
+	return calls;
 }
 
 function parseArgs(text: string | undefined): Record<string, unknown> {
