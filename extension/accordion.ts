@@ -42,7 +42,7 @@
  * Register it in ~/.pi/agent/settings.json:
  *   { "extensions": ["<repo>/extension/accordion.ts"] }
  */
-import { WebSocketServer, type WebSocket } from "ws";
+import { WebSocketServer, WebSocket } from "ws";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -56,6 +56,7 @@ import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@e
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
 import { Truth } from "../core/truth";
+import { wireFoldable } from "../core/digest";
 import { estTokens } from "../core/tokens";
 import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage } from "../core/wire";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
@@ -81,6 +82,17 @@ import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath } f
 import { openAccordionPanel } from "./tui/panel";
 import type { AccordionTuiHost } from "./tui/host";
 import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
+import {
+	loadSettings,
+	saveSettings,
+	generateMemorableToken,
+	VALID_DOOR_SECRET_RE,
+	isLoopbackHost,
+	sanitizeBindHost,
+	sanitizeDoorPort,
+	sanitizeCustomToken,
+	type AccordionSettings,
+} from "./settings";
 import {
 	REGISTRY_PROTOCOL,
 	REGISTRY_DIR,
@@ -251,6 +263,9 @@ function currentControllerPollMs(): number {
 }
 
 const ACCORDION_APP_FLAG = "accordion-app";
+const ACCORDION_HOST_FLAG = "accordion-host";
+const ACCORDION_PORT_FLAG = "accordion-port";
+const ACCORDION_TOKEN_FLAG = "accordion-token";
 const ACCORDION_APP_ENV = "ACCORDION_APP_PATH";
 
 // The live link binds an OS-assigned ephemeral port on loopback (127.0.0.1) only — a
@@ -398,6 +413,123 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		description: "Path to the Accordion desktop app executable for /accordion launch/focus",
 		type: "string",
 	});
+	pi.registerFlag(ACCORDION_HOST_FLAG, {
+		description: "Bind address for the Accordion Web UI (default 127.0.0.1; e.g. 0.0.0.0 or Tailscale IP)",
+		type: "string",
+	});
+	pi.registerFlag(ACCORDION_PORT_FLAG, {
+		description: "Door port for the Accordion Web UI (default 24317, 0 to disable)",
+		type: "string",
+	});
+	pi.registerFlag(ACCORDION_TOKEN_FLAG, {
+		description: "Custom bearer token for the Accordion Web UI",
+		type: "string",
+	});
+
+	let settings: AccordionSettings = loadSettings(HOME);
+
+	function activeBindHost(): string {
+		try {
+			const flagHost = pi.getFlag?.(ACCORDION_HOST_FLAG);
+			if (typeof flagHost === "string" && flagHost.trim()) return sanitizeBindHost(flagHost);
+		} catch { /* ignore */ }
+		if (process.env.ACCORDION_HOST) return sanitizeBindHost(process.env.ACCORDION_HOST);
+		return settings.bindHost;
+	}
+
+	function activeCustomToken(): string | null {
+		try {
+			const flagTok = pi.getFlag?.(ACCORDION_TOKEN_FLAG);
+			const clean = sanitizeCustomToken(flagTok);
+			if (clean) return clean;
+		} catch { /* ignore */ }
+		if (process.env.ACCORDION_TOKEN) {
+			const clean = sanitizeCustomToken(process.env.ACCORDION_TOKEN);
+			if (clean) return clean;
+		}
+		return settings.customToken;
+	}
+
+	function resolvedDoorPort(): number | null {
+		if (process.env.ACCORDION_DOOR_PORT !== undefined) return currentDoorPort();
+		try {
+			const flagPort = pi.getFlag?.(ACCORDION_PORT_FLAG);
+			if (typeof flagPort === "string" && flagPort.trim()) {
+				const p = sanitizeDoorPort(flagPort);
+				return p > 0 ? p : null;
+			}
+		} catch { /* ignore */ }
+		return settings.doorPort > 0 ? settings.doorPort : null;
+	}
+
+	function localConnectHost(): string {
+		const h = activeBindHost();
+		return h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
+	}
+
+	function displayWebHost(): string {
+		return activeBindHost();
+	}
+
+	function activeBrowserToken(): string {
+		return activeCustomToken() || doorSecret || webToken;
+	}
+
+	function currentWebUrl(): string | null {
+		const dp = resolvedDoorPort();
+		const host = displayWebHost();
+		const tok = activeCustomToken();
+		if (dp !== null && (tok || doorSecret) && doorHeld) {
+			return `http://${host}:${dp}/?token=${tok || doorSecret}`;
+		}
+		if (port && (tok || webToken)) {
+			return `http://${host}:${port}/?token=${tok || webToken}`;
+		}
+		return null;
+	}
+
+	function regenerateSharedToken(): string {
+		const next = generateMemorableToken();
+		settings = saveSettings(HOME, { ...settings, customToken: null });
+		webToken = next;
+		doorSecret = next;
+		try {
+			fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
+			const tmp = `${DOOR_SECRET_PATH}.${process.pid}.regen.tmp`;
+			fs.writeFileSync(tmp, next, { mode: 0o600 });
+			fs.renameSync(tmp, DOOR_SECRET_PATH);
+		} catch {
+			/* best-effort */
+		}
+		notifyNative();
+		return next;
+	}
+
+	function compactNow(): { beforeTokens: number; afterTokens: number; message: string } {
+		if (!truth) return { beforeTokens: 0, afterTokens: 0, message: "No context to compact." };
+		const beforeTokens = truth.stats().liveTokens;
+		if (!foldingEnabled) setFolding(true);
+		if (!liveHost.activeMeta() && settings.defaultConductor && settings.defaultConductor !== "none") {
+			liveHost.select(settings.defaultConductor);
+		}
+		const last = truth.blocks[truth.blocks.length - 1];
+		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
+		if (truth.stats().liveTokens >= beforeTokens) {
+			const eligible = truth.blocks
+				.filter((b) => !truth!.isProtected(b) && !truth!.isFolded(b) && !truth!.held(b) && !truth!.groupOf(b) && wireFoldable(b))
+				.map((b) => b.id);
+			if (eligible.length > 0) {
+				truth.apply([{ kind: "fold", ids: eligible }], "auto");
+			}
+		}
+		const afterTokens = truth.stats().liveTokens;
+		const saved = Math.max(0, beforeTokens - afterTokens);
+		const message =
+			saved > 0
+				? `Accordion compacted context: ${beforeTokens} → ${afterTokens} tok (−${saved} tok)`
+				: `Accordion folding armed (${afterTokens} tok live; remaining blocks are protected or pinned)`;
+		return { beforeTokens, afterTokens, message };
+	}
 
 	let wss: WebSocketServer | null = null;
 	// The HTTP server that BOTH hosts the WebSocket upgrade AND serves the browser
@@ -1133,6 +1265,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 */
 	function isBearer(token: string | null | undefined): boolean {
 		if (typeof token !== "string" || !token) return false;
+		const custom = activeCustomToken();
+		if (custom && token === custom) return true;
 		if (webToken && token === webToken) return true;
 		if (doorSecret && token === doorSecret) return true;
 		return false;
@@ -1144,6 +1278,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const cookie = req.headers["cookie"];
 		if (typeof cookie !== "string") return false;
 		const parts = cookie.split(";").map((c) => c.trim());
+		const custom = activeCustomToken();
+		if (custom && (parts.includes(`${DOOR_COOKIE}=${custom}`) || parts.includes(`${accordionCookieName()}=${custom}`))) return true;
 		if (webToken && parts.includes(`${accordionCookieName()}=${webToken}`)) return true;
 		if (doorSecret && parts.includes(`${DOOR_COOKIE}=${doorSecret}`)) return true;
 		return false;
@@ -1215,10 +1351,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// session), the door secret's is the fixed DOOR_COOKIE (shared, survives a door takeover).
 			const headers: Record<string, string> = {};
 			const qtoken = u.searchParams.get("token");
+			const custom = activeCustomToken();
 			if (webToken && qtoken === webToken) {
 				headers["Set-Cookie"] = `${accordionCookieName()}=${webToken}; HttpOnly; SameSite=Strict; Path=/`;
 			} else if (doorSecret && qtoken === doorSecret) {
 				headers["Set-Cookie"] = `${DOOR_COOKIE}=${doorSecret}; HttpOnly; SameSite=Strict; Path=/`;
+			} else if (custom && qtoken === custom) {
+				headers["Set-Cookie"] = `${DOOR_COOKIE}=${custom}; HttpOnly; SameSite=Strict; Path=/`;
 			}
 
 			const root = resolveClientRoot();
@@ -1293,15 +1432,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 *  auth for its no-query asset fetches; still gated by an exact-served-Origin check at upgrade.) */
 	function hasDoorCookie(req: http.IncomingMessage): boolean {
 		const cookie = req.headers.cookie;
-		return !!doorSecret && typeof cookie === "string"
-			&& cookie.split(";").some((part) => part.trim() === `${DOOR_COOKIE}=${doorSecret}`);
+		if (typeof cookie !== "string") return false;
+		const custom = activeCustomToken();
+		return cookie.split(";").some((part) => {
+			const trimmed = part.trim();
+			return (!!doorSecret && trimmed === `${DOOR_COOKIE}=${doorSecret}`)
+				|| (!!custom && trimmed === `${DOOR_COOKIE}=${custom}`);
+		});
 	}
 
 	/**
 	 * Cookies are ambient and host-scoped, not port-scoped. Only accept Accordion's cookie when
-	 * the browser Origin exactly names this upgrade Host on a literal loopback hostname. The
-	 * literal-host requirement prevents DNS rebinding from turning matching attacker-controlled
-	 * Origin/Host strings into authority over a loopback connection.
+	 * the browser Origin exactly names this upgrade Host. On default loopback binds we also require
+	 * a literal loopback hostname; when the user explicitly binds a non-loopback address, we accept
+	 * matching Host headers for that listener.
 	 */
 	function isExactServedOrigin(req: http.IncomingMessage, origin: string): boolean {
 		const host = req.headers.host;
@@ -1311,7 +1455,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (u.protocol !== "http:" || u.username || u.password) return false;
 			if (u.host.toLowerCase() !== host.trim().toLowerCase()) return false;
 			const hostname = u.hostname.toLowerCase();
-			return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+			if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]") return true;
+			const configuredHost = activeBindHost().toLowerCase();
+			if (!isLoopbackHost(configuredHost)) {
+				return configuredHost === "0.0.0.0" || configuredHost === "::" || hostname === configuredHost;
+			}
+			return false;
 		} catch {
 			return false;
 		}
@@ -1405,7 +1554,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 */
 	function verifyWsUpgrade(info: { req: http.IncomingMessage }, cb: (res: boolean, code?: number, message?: string) => void): void {
 		const req = info.req;
-		if (!isLoopbackPeer(req.socket.remoteAddress)) {
+		const peerLoopback = isLoopbackPeer(req.socket.remoteAddress);
+		if (!peerLoopback && isLoopbackHost(activeBindHost())) {
 			cb(false, 403, "loopback connection required");
 			return;
 		}
@@ -1420,12 +1570,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 
 		// PHASE C: a conductor-role socket is authorized SOLELY by the single-use pending attach token
-		// the host minted when it spawned this runner — role confers NO privilege on its own. It skips
-		// EVERY GUI trust branch (native no-Origin, Tauri origin, cookie, sibling probe): a hostile
-		// page (or a stray native client) that guesses `?role=conductor` still needs the unguessable
-		// token, and the token is valid only for the exact spawn currently awaiting its runner. The
-		// GUI path below is byte-identical to before (PR #72 hardening must not regress).
+		// the host minted when it spawned this runner — role confers NO privilege on its own.
 		if (roleFromUrl(req.url) === "conductor") {
+			if (!peerLoopback) {
+				cb(false, 403, "conductor requires loopback");
+				return;
+			}
 			const pending = liveHost.pendingAttachToken;
 			const ok = !!pending && token === pending;
 			cb(ok, ok ? undefined : 403, ok ? undefined : "conductor attach token required");
@@ -1433,12 +1583,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 
 		const origin = req.headers.origin;
-		if (typeof origin !== "string" || origin === "") { cb(true); return; } // native client
-		if (isTrustedTauriOrigin(origin)) { cb(true); return; }
-		if (isBearer(token)) { cb(true); return; } // explicit bearer (webToken OR the shared door secret)
+		// Tokenless native/Tauri clients are allowed ONLY from loopback peers.
+		if (peerLoopback && (typeof origin !== "string" || origin === "")) { cb(true); return; } // native client
+		if (peerLoopback && isTrustedTauriOrigin(origin)) { cb(true); return; }
+		if (isBearer(token)) { cb(true); return; } // explicit bearer (webToken, doorSecret, or customToken)
 		// A page served by us (webToken cookie) OR by the door (door-secret cookie) — both still gated
 		// by an exact-served-Origin check so an ambient host-scoped cookie can't authorize cross-port.
-		if ((hasAccordionCookie(req) || hasDoorCookie(req)) && isExactServedOrigin(req, origin)) { cb(true); return; }
+		if (typeof origin === "string" && (hasAccordionCookie(req) || hasDoorCookie(req)) && isExactServedOrigin(req, origin)) { cb(true); return; }
+
+		if (!peerLoopback) {
+			cb(false, 403, "remote WebSocket requires valid token");
+			return;
+		}
 
 		// A browser page served by another live Accordion session is the one intentional
 		// cross-origin path. verifyClient supports an asynchronous callback.
@@ -1468,9 +1624,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// so the door is never up (nor its URL printable) while the bearer it would serve is empty.
 	// Retries exhausted => doorSecret stays "" (no door; the per-session webToken path is unaffected,
 	// and every bearer/cookie comparison pre-checks doorSecret so "" can never match).
-	const DOOR_SECRET_RE = /^[0-9a-f]{64}$/i;
+	const DOOR_SECRET_RE = VALID_DOOR_SECRET_RE;
 
-	/** The on-disk secret iff present AND well-formed (64 hex chars), else null. */
+	/** The on-disk secret iff present AND well-formed (8-char memorable or 64-hex), else null. */
 	function readValidDoorSecret(): string | null {
 		try {
 			const existing = fs.readFileSync(DOOR_SECRET_PATH, "utf8").trim();
@@ -1480,13 +1636,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
-	/** Attempt the atomic create (tmp + linkSync). Sets doorSecret iff WE created the file. On a
-	 *  filesystem without hard links (EPERM/ENOSYS/EXDEV/ENOTSUP -- non-NTFS edge) falls back to the
-	 *  old exclusive "wx" create-then-write; its open->write window is exactly what the reader-side
-	 *  retry exists to cover. EEXIST (either path) = a racer won -- the caller re-reads. The tmp file
-	 *  is always unlinked, success or failure. */
+	/** Attempt the atomic create (tmp + linkSync). Sets doorSecret iff WE created the file. */
 	function tryCreateDoorSecret(): void {
-		const secret = crypto.randomBytes(32).toString("hex");
+		const secret = generateMemorableToken();
 		const tmp = `${DOOR_SECRET_PATH}.${process.pid}.${Math.random().toString(16).slice(2)}.tmp`;
 		try {
 			fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
@@ -1581,8 +1733,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * must never trigger a PERMANENT door stand-down. Bounded (DOOR_PROBE_MS); never on the hook path.
 	 */
 	function probeDoor(): Promise<DoorProbe> {
-		const dp = currentDoorPort();
+		const dp = resolvedDoorPort();
 		if (dp === null) return Promise.resolve("transient");
+		const probeHost = isLoopbackHost(activeBindHost()) || activeBindHost() === "0.0.0.0" || activeBindHost() === "::" ? "127.0.0.1" : activeBindHost();
 		return new Promise((resolve) => {
 			let settled = false;
 			let request: http.ClientRequest | null = null;
@@ -1594,8 +1747,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			};
 			// A timeout means we never got a completed response — AMBIGUOUS (a busy/slow peer), not foreign.
 			const deadline = setTimeout(() => { request?.destroy(); finish("transient"); }, DOOR_PROBE_MS);
-			request = http.get({ hostname: "127.0.0.1", port: dp, path: "/__accordion/meta" }, (response) => {
-				if (!isLoopbackPeer(response.socket.remoteAddress)) { response.destroy(); finish("transient"); return; }
+			request = http.get({ hostname: probeHost, port: dp, path: "/__accordion/meta" }, (response) => {
+				if (probeHost === "127.0.0.1" && !isLoopbackPeer(response.socket.remoteAddress)) { response.destroy(); finish("transient"); return; }
 				// A COMPLETED non-200 HTTP response is a live server that isn't our (ungated, always-200)
 				// /meta contract — definitive foreign software.
 				if (response.statusCode !== 200) { response.destroy(); finish("foreign"); return; }
@@ -1653,7 +1806,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 */
 	function tryBindDoor(): void {
 		if (doorHeld || doorForeign || doorBinding) return;
-		const dp = currentDoorPort();
+		const dp = resolvedDoorPort();
 		if (dp === null) return; // door disabled (test isolation)
 		// GATED on a valid shared secret (ADR 0024 §8): never bind/advertise the door while doorSecret
 		// is "" -- a door with no bearer to serve is a door nobody can be authorized through, and the
@@ -1700,7 +1853,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// C3: verified on Windows 11 (2026-07-23) that two SEPARATE node processes racing this exact
 		// listen(PORT, "127.0.0.1") do NOT both bind — the loser cleanly gets EADDRINUSE (no SO_REUSEADDR
 		// hijack). So the EADDRINUSE probe path above is the sole arbitration; no lockfile is needed.
-		server.listen(dp, "127.0.0.1", () => {
+		server.listen(dp, activeBindHost(), () => {
 			doorBinding = false;
 			doorServer = server;
 			doorWss = dwss;
@@ -1956,6 +2109,66 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function onWsConnection(ws: WebSocket, req: http.IncomingMessage): void {
 		const role = roleFromUrl(req?.url);
 		const surface = surfaceFromUrl(req?.url); // v16: the connecting surface's sanitized identity (gui only)
+		if (role === "gui") {
+			let targetPort: number | null = null;
+			try {
+				const rawTarget = new URL(req?.url || "/", "http://accordion.local").searchParams.get("targetPort");
+				if (rawTarget !== null) {
+					const parsed = Number(rawTarget);
+					if (Number.isInteger(parsed) && parsed > 0 && parsed <= 65535 && parsed !== port) {
+						targetPort = parsed;
+					}
+				}
+			} catch {
+				/* ignore malformed URL */
+			}
+			if (targetPort !== null) {
+				const tp = targetPort;
+				const queued: string[] = [];
+				let upstream: WebSocket | null = null;
+				let closed = false;
+				const closeBoth = () => {
+					if (closed) return;
+					closed = true;
+					try { ws.close(); } catch { /* ignore */ }
+					try { upstream?.close(); } catch { /* ignore */ }
+				};
+				ws.on("message", (data: Buffer) => {
+					const str = data.toString();
+					if (upstream && upstream.readyState === WebSocket.OPEN) {
+						try { upstream.send(str); } catch { closeBoth(); }
+					} else if (queued.length < 32) {
+						queued.push(str);
+					}
+				});
+				ws.on("close", closeBoth);
+				ws.on("error", closeBoth);
+				void listLiveSessions().then((sessions) => {
+					if (closed) return;
+					if (!sessions.some((s) => s.port === tp)) {
+						closeBoth();
+						return;
+					}
+					const qs = new URLSearchParams();
+					if (surface.surfaceId) qs.set("surface", surface.surfaceId);
+					if (surface.label) qs.set("label", surface.label);
+					upstream = new WebSocket(`ws://${localConnectHost()}:${tp}/?${qs.toString()}`, { maxPayload: MAX_WS_PAYLOAD_BYTES });
+					upstream.on("open", () => {
+						for (const frame of queued.splice(0)) {
+							try { upstream?.send(frame); } catch { closeBoth(); return; }
+						}
+					});
+					upstream.on("message", (data: Buffer) => {
+						if (ws.readyState === WebSocket.OPEN) {
+							try { ws.send(data.toString()); } catch { closeBoth(); }
+						}
+					});
+					upstream.on("close", closeBoth);
+					upstream.on("error", closeBoth);
+				}, closeBoth);
+				return;
+			}
+		}
 		// PHASE C: a conductor-role socket must consume its single-use attach token before it is
 		// treated as the active conductor (the token was already verified at upgrade time; consume
 		// it here so a re-dial with the same token is rejected). It STILL joins `clients` and gets
@@ -2105,9 +2318,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function startServer(): void {
 		if (wss || httpServer) return;
 		bindError = null; // fresh attempt — clear any failure a prior call recorded
-		// Per-session token for the HTTP surface and browser WebSocket upgrades. Native/Tauri
-		// clients and verified sibling Accordion origins are the only tokenless paths.
-		webToken = crypto.randomBytes(16).toString("hex");
+		// Per-session memorable 8-char token (or custom token) for the HTTP surface and browser WS upgrades.
+		webToken = activeCustomToken() || generateMemorableToken();
 		// v16 (ADR 0024): ensure the shared door secret (accepted as a bearer everywhere the webToken
 		// is; bounded-retry, never a one-shot -- see ensureDoorSecret), start the controller lease
 		// timers, and attempt to become the door holder. tryBindDoor is gated on a valid secret; when
@@ -2136,7 +2348,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				httpServer = null;
 				wss = null;
 			});
-			httpServer.listen(0, "127.0.0.1", () => {
+			httpServer.listen(0, activeBindHost(), () => {
 				const addr = httpServer?.address();
 				if (addr && typeof addr === "object") {
 					port = addr.port;
@@ -2498,6 +2710,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// already-attached client whose GUI toggle shows "on" gets an explicit `folding:false` to
 		// resync it — connected clients are NOT dropped across a session_start, so without this a
 		// client's toggle could silently drift from the true (now-reset) internal state.
+		settings = loadSettings(HOME);
 		setFolding(false);
 		latestCtx = ctx;
 		sessionId = `s-${process.pid}-${Date.now()}`;
@@ -2514,6 +2727,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// turn still gets a correct snapshot.
 		buildTruth(readSessionMessages(ctx));
 		startServer();
+		if (settings.autoArm) {
+			setFolding(true);
+			if (settings.defaultConductor && settings.defaultConductor !== "none") {
+				liveHost.select(settings.defaultConductor);
+			}
+		}
 		try {
 			ctx.ui.setStatus("accordion", ctx.ui.theme.fg("accent", "accordion"));
 		} catch {
@@ -2739,16 +2958,40 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// paired `session_compact` handler below immediately reconciles the Truth against the compacted
 	// history (the same `ingestMessages` → `rebuildTruth` structural-divergence path the hooks use —
 	// including conductor resync via `liveHost.dispatchResync()`) and then notifies.
-	pi.on("session_before_compact", (_event, ctx: ExtensionContext) => {
-		if (foldingEnabled) {
-			try {
-				ctx.ui.notify("Accordion folding armed — native compaction suppressed.", "info");
-			} catch {
-				/* ignore */
-			}
+	pi.on("session_before_compact", (event, ctx: ExtensionContext) => {
+		if (!foldingEnabled) return;
+		if (settings.compactMode === "native") return;
+		const reason = (event as { reason?: string } | undefined)?.reason;
+		if (reason === "manual" && settings.compactMode === "accordion") {
+			const res = compactNow();
+			const note = `${res.message} — native compaction suppressed.`;
+			try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
+			broadcast({ type: "notice", text: res.message });
 			return { cancel: true };
 		}
-		// folding off (whether or not a client is attached) → let pi protect itself natively
+		if (reason === "overflow") {
+			const res = compactNow();
+			if (res.afterTokens < res.beforeTokens || settings.compactMode === "suppress") {
+				const note = `${res.message} — native compaction suppressed.`;
+				try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
+				broadcast({ type: "notice", text: res.message });
+				return { cancel: true };
+			}
+			const fallbackNote = "Accordion saturated on context overflow — falling back to native compaction.";
+			try { ctx.ui.notify(fallbackNote, "warning"); } catch { /* ignore */ }
+			broadcast({ type: "notice", text: fallbackNote });
+			return;
+		}
+		if (settings.compactMode === "accordion" && truth) {
+			const last = truth.blocks[truth.blocks.length - 1];
+			liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
+		}
+		try {
+			ctx.ui.notify("Accordion folding armed — native compaction suppressed.", "info");
+		} catch {
+			/* ignore */
+		}
+		return { cancel: true };
 	});
 
 	// ── native compaction ran while folding was off: rebuild NOW + notify ──────
@@ -2845,20 +3088,64 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		latestCtx = null;
 	});
 
+	async function handleAccordionWebCommand(ctx: ExtensionCommandContext): Promise<void> {
+		writeFocusRequest();
+		const wasAttached = attached();
+		const launch = wasAttached ? null : await launchAccordionApp(pi);
+		const action = launchResultLine(launch);
+		const portStatus = port ? String(port) : bindError ? `failed (${bindError})` : "starting";
+		const blockCount = truth ? truth.blocks.length : 0;
+		const lines = [
+			action.text,
+			`Live link: ${clients.size} client(s) · host ${displayWebHost()} · port ${portStatus} · ${blockCount} blocks · folding ${foldingEnabled ? "on" : "off"}`,
+		];
+		const dp = resolvedDoorPort();
+		const host = displayWebHost();
+		const tok = activeCustomToken();
+		const doorUp = dp !== null && (tok || doorSecret !== "") && (doorHeld || (await probeDoor()) === "accordion");
+		if (doorUp) {
+			lines.push(`Browser: http://${host}:${dp}/?token=${tok || doorSecret}`);
+		} else if (port && (tok || webToken)) {
+			lines.push(`Browser: http://${host}:${port}/?token=${tok || webToken}`);
+		} else if (bindError) {
+			lines.push(`Browser: unavailable — ${bindError}`);
+		} else {
+			lines.push("Browser: starting…");
+		}
+		ctx.ui.notify(lines.join("\n"), action.type);
+	}
+
 	// ── /accordion : open the native context panel ─────────────────────────────
 	pi.registerCommand("accordion", {
-		description: "[sessions] — open the Accordion context panel",
-		getArgumentCompletions: (text: string) => "sessions".startsWith(text.trim()) ? [{ value: "sessions", label: "sessions", description: "Choose a live session" }] : null,
+		description: "[sessions | compact | web] — open the Accordion context panel",
+		getArgumentCompletions: (text: string) => {
+			const q = text.trim().toLowerCase();
+			const items = [
+				{ value: "sessions", label: "sessions", description: "Choose a live Pi session to inspect/steer" },
+				{ value: "compact", label: "compact", description: "Run an immediate Accordion compression pass" },
+				{ value: "web", label: "web", description: "Show the Browser URL and focus the desktop app" },
+			].filter((it) => it.value.startsWith(q));
+			return items.length ? items : null;
+		},
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const argument = args.trim();
+			if (argument === "web") {
+				await handleAccordionWebCommand(ctx);
+				return;
+			}
+			if (argument === "compact") {
+				const res = compactNow();
+				ctx.ui.notify(res.message, "info");
+				return;
+			}
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				ctx.ui.notify(`Accordion: ${truth?.blocks.length ?? 0} blocks · folding ${foldingEnabled ? "on" : "off"}. Open /accordion in the Pi TUI to manage context.`, "info");
 				return;
 			}
 			const openedSessionId = sessionId;
 			let target: SessionEntry | undefined;
-			const argument = args.trim();
 			if (argument && argument !== "sessions") {
-				ctx.ui.notify("Usage: /accordion [sessions]", "warning");
+				ctx.ui.notify("Usage: /accordion [sessions | compact | web]", "warning");
 				return;
 			}
 			if (argument === "sessions") {
@@ -2900,12 +3187,44 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			let host: AccordionTuiHost = {
 				truth: () => sessionId === openedSessionId ? truth : null,
 				sessionLabel: () => "current session",
+				sessionId: () => sessionId,
 				folding: () => foldingEnabled,
 				conductors: () => catalogMeta(readinessOf),
 				activeConductor: () => liveHost.activeMeta(),
+				conductorStatus: () => {
+					const st = liveHost.cachedStatus();
+					return st ? { text: st.text, metrics: st.metrics } : null;
+				},
 				canSteer: () => sessionId === openedSessionId && !!controllerLease && controllerLease.surfaceId === surfaceId && isFreshLease(controllerLease, Date.now()),
 				controlMessage: () => controlError,
 				supportsConditionalOps: () => true,
+				webInfo: () => ({
+					url: currentWebUrl(),
+					bindHost: displayWebHost(),
+					port,
+					doorPort: resolvedDoorPort(),
+					token: activeBrowserToken(),
+					clients: clients.size,
+				}),
+				settings: () => ({ ...settings, bindHost: displayWebHost(), doorPort: resolvedDoorPort() ?? 0, customToken: activeCustomToken() }),
+				updateSettings: (patch) => {
+					const prevHost = settings.bindHost;
+					const prevDoor = settings.doorPort;
+					settings = saveSettings(HOME, { ...settings, ...patch });
+					if (patch.customToken !== undefined && settings.customToken) {
+						webToken = settings.customToken;
+					}
+					if ((patch.bindHost !== undefined && settings.bindHost !== prevHost) || (patch.doorPort !== undefined && settings.doorPort !== prevDoor)) {
+						closeDoor();
+						doorForeign = false;
+						tryBindDoor();
+					}
+					notifyNative();
+					return settings;
+				},
+				regenerateToken: () => regenerateSharedToken(),
+				compactNow: () => compactNow(),
+				listSessions: () => discoverNativeSessions(),
 				command: (command) => {
 					refreshControllerNow();
 					const lease = controllerLease;
@@ -2934,8 +3253,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						...remoteHost,
 						truth: () => sessionId === openedSessionId ? remoteHost.truth() : null,
 						sessionLabel: () => `${target?.title || "Pi session"} · ${target?.cwd || ""}`,
+						sessionId: () => target?.sessionId ?? "",
 						canSteer: () => !!localHost.canSteer?.() && !!remoteHost.canSteer?.(),
 						controlMessage: () => localHost.controlMessage?.() ?? null,
+						webInfo: () => localHost.webInfo!(),
+						settings: () => localHost.settings!(),
+						updateSettings: (patch) => localHost.updateSettings!(patch),
+						regenerateToken: () => localHost.regenerateToken!(),
+						listSessions: () => localHost.listSessions!(),
 						command: (command) => {
 							refreshControllerNow();
 							if (!localHost.canSteer?.()) return { results: [], rev: 0, refused: "read-only" };
@@ -2961,43 +3286,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	pi.registerCommand("accordion-web", {
 		description: "Open or focus the optional Accordion browser or desktop interface",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
-			writeFocusRequest();
-			// If the app is already attached to THIS session, its discovery poll will consume
-			// focus.json and foreground the window. If it is not attached, launching the desktop
-			// app is the only cross-process nudge we have; the app's single-instance guard turns
-			// that into "focus the existing window" when it is already running elsewhere.
-			const wasAttached = attached();
-			const launch = wasAttached ? null : await launchAccordionApp(pi);
-			const action = launchResultLine(launch);
-			// Port status: the real port once bound, a captured bind FAILURE (no more eternal
-			// "starting…" on an EADDRINUSE-type error — see startServer's httpServer "error"
-			// handler), or "starting" while the async listen() is still pending.
-			const portStatus = port ? String(port) : bindError ? `failed (${bindError})` : "starting";
-			const blockCount = truth ? truth.blocks.length : 0;
-			const lines = [
-				action.text,
-				`Live link: ${clients.size} client(s) · port ${portStatus} · ${blockCount} blocks · folding ${foldingEnabled ? "on" : "off"}`,
-			];
-			// Browser entry point (v16, ADR 0024): prefer the STABLE door URL. If a live Accordion door
-			// is up — us or any other extension — print `http://127.0.0.1:<door>/?token=<door-secret>`
-			// (a single well-known link that survives any one session's death). Otherwise fall back to
-			// this session's own ephemeral token URL as before (the door-occupied-by-foreign case).
-			const dp = currentDoorPort();
-			// Only print the secret-bearing door URL when WE hold the door, or a probe confirms a MATCHING
-			// live Accordion door holds it ("accordion"). A "transient" (busy/other-version peer) or
-			// "foreign" occupant falls back to this session's own ephemeral URL — never leak the secret
-			// URL at software we could not positively identify as a compatible Accordion (C2/S3).
-			const doorUp = dp !== null && doorSecret !== "" && (doorHeld || (await probeDoor()) === "accordion");
-			if (doorUp) {
-				lines.push(`Browser: http://127.0.0.1:${dp}/?token=${doorSecret}`);
-			} else if (port && webToken) {
-				lines.push(`Browser: http://127.0.0.1:${port}/?token=${webToken}`);
-			} else if (bindError) {
-				lines.push(`Browser: unavailable — ${bindError}`);
-			} else {
-				lines.push("Browser: starting…");
-			}
-			ctx.ui.notify(lines.join("\n"), action.type);
+			await handleAccordionWebCommand(ctx);
 		},
 	});
 

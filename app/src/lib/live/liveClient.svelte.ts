@@ -281,7 +281,7 @@ function orphanReplica(): void {
 	if (session.store) session.store.setCommandSink(null);
 }
 
-export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; token?: string } = {}): void {
+export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; token?: string; targetPort?: number } = {}): void {
 	if (typeof window === "undefined" || typeof WebSocket === "undefined") return;
 	// v16 (ADR 0024): the dial must carry an id the duplicate-tab dedupe has SETTLED on. Freezing the
 	// id in the same synchronous frame as the module's init (exactly what browser-served auto-connect
@@ -301,7 +301,7 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 		live.status = "connecting";
 		live.detail = `ws://${opts.host ?? "127.0.0.1"}:${port}`;
 		live.sessionId = null;
-		live.port = port;
+		live.port = opts.targetPort ?? port;
 		const seq = ++connectSeq;
 		void surfaceIdReady().then(() => {
 			if (seq !== connectSeq || manualClose) return; // superseded during the dedupe wait
@@ -324,13 +324,14 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 	// the dedupe never re-mints it out from under this connection (surfaceId.ts).
 	const params = new URLSearchParams();
 	if (opts.token) params.set("token", opts.token);
+	if (opts.targetPort && opts.targetPort !== port) params.set("targetPort", String(opts.targetPort));
 	params.set("surface", settledSurface);
 	params.set("label", mySurfaceLabel());
 	const tokenQs = `/?${params.toString()}`;
 	live.status = "connecting";
 	live.detail = `ws://${host}:${port}`;
 	live.sessionId = null;
-	live.port = port;
+	live.port = opts.targetPort ?? port;
 	live.telemetry = freshTelemetry();
 	resetConductorState();
 	session.error = "";

@@ -85,7 +85,8 @@
 		// switch the bearer belongs to the serving session, so the target verifies the page's
 		// live Accordion Origin instead. Desktop Tauri origins are trusted tokenless.
 		if (browserServed) {
-			connectLive(s.port, { host: window.location.hostname, token: readServedToken() ?? undefined });
+			const servedPort = Number(window.location.port) || DEFAULT_PORT;
+			connectLive(servedPort, { host: window.location.hostname, token: readServedToken() ?? undefined, targetPort: s.port });
 		} else {
 			connectLive(s.port);
 		}

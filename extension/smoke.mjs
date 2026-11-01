@@ -187,8 +187,9 @@ if (accordionWebCmd) {
 
 // Recover the browser token from the /accordion-web notify line for the token-gated surfaces below.
 const browserLine = notifications.map((n) => n.message).reverse().find((m) => m.includes("Browser: http"));
-const TOKEN = browserLine && (browserLine.match(/token=([0-9a-f]+)/) || [])[1];
+const TOKEN = browserLine && (browserLine.match(/token=([A-Za-z0-9._~-]+)/) || [])[1];
 if (!TOKEN) fails.push("/accordion-web did not surface a Browser URL carrying a token");
+if (TOKEN && TOKEN.length !== 8) fails.push(`expected an 8-char memorable token by default, got ${JSON.stringify(TOKEN)}`);
 
 // ── browser-served HTTP surface (unchanged from before) ─────────────────────
 {
@@ -870,6 +871,15 @@ if (unfoldTool && foldCodeStr) {
 	const armedRet = await Promise.resolve(handlers.session_before_compact({ reason: "threshold" }, ctx));
 	if (!armedRet || armedRet.cancel !== true) fails.push("folding ON did not suppress native compaction (expected {cancel:true})");
 	if (!notifications.some((n) => n.message.includes("suppressed"))) fails.push("folding-ON suppression did not notify");
+
+	// (1b) manual /compact while folding ON triggers an immediate Accordion compression pass and suppresses native compaction.
+	notifications.length = 0;
+	const manualRet = await Promise.resolve(handlers.session_before_compact({ reason: "manual" }, ctx));
+	if (!manualRet || manualRet.cancel !== true) fails.push("manual /compact with folding ON did not return {cancel:true}");
+	if (!notifications.some((n) => n.message.includes("suppressed"))) fails.push("manual /compact did not emit suppression notice");
+	// Restore conductor to null after manual /compact attached defaultConductor so later sections start with no conductor.
+	a.sendCmd({ kind: "selectConductor", id: null });
+	await waitFor(() => (a.inbox.conductorState || []).some((m) => m.active === null), 1500, "detach after manual compact").catch(() => {});
 
 	// (2) folding OFF + client attached → NOT suppressed (owner policy: a viewer with folding off
 	//     leaves pi's own safety net intact) — pi runs its native compaction unhindered.
@@ -1605,6 +1615,22 @@ await new Promise((r) => setTimeout(r, 50));
 		const line = Y.notes.map((n) => n.message).reverse().find((msg) => msg.includes("Browser: http"));
 		if (!line || !line.includes(`http://127.0.0.1:${DOOR}/?token=`))
 			fails.push(`standing-by extension Y's /accordion did not offer the stable door URL (got ${JSON.stringify(line)})`);
+		const doorTok = line && (line.match(/token=([A-Za-z0-9._~-]+)/) || [])[1];
+		const entries = fs.readdirSync(SESSIONS_DIR).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), "utf8")));
+		const yEntry = entries.find((e) => e.sessionId && e.sessionId !== doorSid1 && e.sessionId !== entry.sessionId);
+		if (yEntry && doorTok) {
+			const proxiedHello = await new Promise((resolve) => {
+				const pws = new WebSocket(`ws://127.0.0.1:${DOOR}/?token=${doorTok}&targetPort=${yEntry.port}&surface=door-proxy-test&label=Proxy`);
+				const t = setTimeout(() => { try { pws.close(); } catch {} resolve(null); }, 2000);
+				pws.on("message", (d) => {
+					const m = JSON.parse(d.toString());
+					if (m.type === "hello") { clearTimeout(t); try { pws.close(); } catch {} resolve(m); }
+				});
+				pws.on("error", () => { clearTimeout(t); resolve(null); });
+			});
+			if (!proxiedHello || proxiedHello.sessionId !== yEntry.sessionId)
+				fails.push(`door targetPort proxy did not route to sibling session Y (expected ${yEntry.sessionId}, got ${JSON.stringify(proxiedHello?.sessionId)})`);
+		}
 	}
 
 	// (c) X exits → it releases the door → Y's retry claims it within a few ticks (holder changes).
@@ -1636,7 +1662,7 @@ await new Promise((r) => setTimeout(r, 50));
 	// unresolved the door must NOT bind (gated), with the bounded retry re-kicking the bind when it
 	// resolves.
 	const DOOR_SECRET = path.join(HOME, ".accordion", "door-secret");
-	const HEX64 = /^[0-9a-f]{64}$/i;
+	const HEX64 = /^([a-z0-9]{8}|[0-9a-f]{64})$/i;
 	const backdate = () => { const past = (Date.now() - 60_000) / 1000; fs.utimesSync(DOOR_SECRET, past, past); };
 
 	// (e) A pre-existing EMPTY door-secret (simulated crashed creator; old mtime) → the extension
