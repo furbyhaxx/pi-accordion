@@ -466,6 +466,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let lastNativeSurfaceId: string | null = null;
 	let controllerWasFresh = false;
 	const nativeRemotes = new Set<{ close(): void }>();
+	const pendingControllerClaims = new Set<WebSocket>();
+	let controllerLockWarning = false;
 
 	// The last full messages array the Truth was reconciled against (an authoritative `context`
 	// snapshot, extended by message_end / agent_end deltas). pi's next `event.messages` is compared
@@ -1783,26 +1785,26 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
-	async function claimWithControllerLeaseLock(action: () => void, active: () => boolean): Promise<void> {
-		while (active()) {
-			if (withControllerLeaseLock(action) !== "busy") return;
+	async function claimWithControllerLeaseLock(action: () => void, active: () => boolean): Promise<boolean> {
+		const deadline = Date.now() + 5_000;
+		while (active() && Date.now() < deadline) {
+			const result = withControllerLeaseLock(action);
+			if (result === "done") return true;
+			if (result === "failed") return false;
 			await new Promise<void>((resolve) => setTimeout(resolve, 25));
 		}
+		return false;
 	}
 
 	/** Atomic write-rename of controller.json (same pattern as a registry entry). Updates the in-memory
 	 *  cache so a following poll does not re-read our own write as an external change (the content compare
 	 *  in reloadControllerLease sees it as unchanged). */
 	function writeControllerLease(lease: ControllerLease): void {
-		try {
-			fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
-			const tmp = `${CONTROLLER_PATH}.${process.pid}.tmp`;
-			fs.writeFileSync(tmp, JSON.stringify(lease));
-			fs.renameSync(tmp, CONTROLLER_PATH);
-			controllerLease = lease;
-		} catch {
-			/* best-effort: a lease write never breaks a session */
-		}
+		fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
+		const tmp = `${CONTROLLER_PATH}.${process.pid}.tmp`;
+		fs.writeFileSync(tmp, JSON.stringify(lease));
+		fs.renameSync(tmp, CONTROLLER_PATH);
+		controllerLease = lease;
 	}
 
 	/** The controller field for a `hello`: the current lease + whether its heartbeat is fresh. */
@@ -1850,12 +1852,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		for (const info of clients.values()) if (info.surfaceId && info.surfaceId === lease.surfaceId) { holderConnected = true; break; }
 		if (!holderConnected) return;
 		dependencies.beforeControllerHeartbeatWrite?.();
-		withControllerLeaseLock(() => {
+		const result = withControllerLeaseLock(() => {
 			const { lease: current, changed } = reloadControllerLease();
 			if (changed) maybeBroadcastController();
 			if (!leaseEq(lease, current)) return;
 			writeControllerLease({ ...lease, heartbeatAt: Date.now() });
 		});
+		if (result === "failed" && !controllerLockWarning) {
+			controllerLockWarning = true;
+			const text = "Accordion controller lock is unavailable; check the registry permissions.";
+			try { latestCtx?.ui.notify(text, "warning"); } catch { /* UI may be unavailable */ }
+			broadcast({ type: "notice", text });
+		} else if (result === "done") controllerLockWarning = false;
 	}
 
 	/** Start the controller poll + heartbeat timers once (idempotent). Both are unref'd, best-effort. */
@@ -1913,7 +1921,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 *  last write wins on races. Writes controller.json + broadcasts the change of hands. */
 	function handleClaimController(ws: WebSocket): void {
 		const info = clients.get(ws);
-		if (!info || !info.surfaceId) return; // a surface with no identity can never hold the lease
+		if (!info || !info.surfaceId || pendingControllerClaims.has(ws)) return;
+		pendingControllerClaims.add(ws);
 		const surfaceId = info.surfaceId;
 		const claimedSession = sessionId;
 		void claimWithControllerLeaseLock(() => {
@@ -1933,7 +1942,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				heartbeatAt: now,
 			});
 			maybeBroadcastController();
-		}, () => sessionId === claimedSession && clients.has(ws));
+		}, () => sessionId === claimedSession && clients.has(ws)).then((ok) => {
+			if ((!ok || controllerLease?.surfaceId !== surfaceId) && sessionId === claimedSession && clients.has(ws)) send(ws, { type: "notice", text: "Could not acquire Accordion control; the controller registry is busy or unavailable." });
+		}).finally(() => pendingControllerClaims.delete(ws));
 	}
 
 	/**
@@ -2882,7 +2893,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					nativeSurfaceId = surfaceId;
 					lastNativeSurfaceId = surfaceId;
 				} else {
-					controlError = "Control unavailable: check the Accordion registry permissions";
+					controlError = "Control unavailable: the Accordion registry is busy or inaccessible";
 					ctx.ui.notify(controlError, "warning");
 				}
 			}

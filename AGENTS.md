@@ -3,7 +3,7 @@ Read the entirety of @CLAUDE.md for upstream engine invariants. Fork-specific be
 ## Pi-native fork
 
 - `extension/accordion.ts` owns the per-session authoritative `Truth`, controller lease, and automatically started local HTTP/WebSocket server. `/accordion` opens `extension/tui/` inside Pi; `/accordion-web` retains the optional browser and desktop entry point.
-- Keep folding opt-in, apply user actions through `Truth`, and preserve the single-controller lease across all surfaces. A session switch or shutdown must never let a stale panel steer the new session.
+- Keep folding opt-in, apply user actions through `Truth`, and preserve the single-controller lease across all surfaces. Fork sessions coordinate controller writes through a SQLite sidecar mutex; unmodified upstream writers do not participate. A session switch or shutdown must never let a stale panel steer the new session.
 - The root `package.json` declares the Git-installable Pi package. Host-provided Pi packages are `"*"` peers; runtime dependencies belong in `dependencies`.
 - Verify native changes with `bun test extension/tui/*.test.ts`, `npm --prefix extension run smoke`, `npm --prefix app run check`, and `npm --prefix app test`. Exercise UI changes in a real Pi-Bolt terminal at narrow and wide sizes.
 

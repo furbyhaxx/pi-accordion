@@ -32,7 +32,7 @@ const result = await esbuild.build({
 	bundle: true,
 	format: "esm",
 	platform: "node",
-	target: "node20",
+	target: "node22",
 	sourcemap: false,
 	// Peer-provided (pi core + typebox) and the runtime dep `ws` stay as runtime
 	// imports. @earendil-works/pi-ai is dynamically imported — leaving it

@@ -19,7 +19,7 @@ Accordion is a [pi](https://github.com/earendil-works/pi) extension that shows y
 agent's entire context window at a glance and lets you manage it — manually or with
 intelligence through a **conductor**.
 
-The extension hosts the context state and provides a native Pi terminal panel. Browser and desktop interfaces remain optional.
+The extension hosts the context state and provides a native Pi terminal panel. Browser and desktop interfaces remain optional. Use Pi-Bolt or Pi with Node.js 22.19 or newer.
 
 ## Install
 

@@ -203,7 +203,8 @@ groups, no replay. That's the build ahead.
 ## Quick start
 
 This fork runs Accordion's context controls inside the Pi TUI. The extension starts its
-local session service automatically; no desktop app is required.
+local session service automatically; no desktop app is required. It runs on Pi-Bolt or
+Pi with Node.js 22.19 or newer.
 
 From a checkout:
 
@@ -246,7 +247,9 @@ npm --prefix extension run build:client
 The command prints a token-bearing loopback URL. Treat it as a credential. The desktop
 app additionally supports read-only Claude Code transcript browsing; see
 [CONTRIBUTING.md](CONTRIBUTING.md) for its build prerequisites. Only one surface can
-steer at a time; the others are read-only until they take control.
+steer at a time; the others are read-only until they take control. Fork sessions use a
+SQLite sidecar lock to coordinate controller claims and heartbeats; unmodified upstream
+sessions do not honor that lock and may race. Avoid running both versions concurrently.
 
 The in-process conductors need no separate server. Thermocline and Triptych run as
 separate processes; Triptych also needs its local tree-sitter dependencies installed.

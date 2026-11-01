@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": { "node": ">=22.19.0" },
   "description": "Pi-native context visualization and reversible folding",
   "keywords": ["pi-package"],
   "pi": {

@@ -2,6 +2,7 @@
   "name": "@a-fig/accordion",
   "version": "0.1.2",
   "type": "module",
+  "engines": { "node": ">=22.19.0" },
   "description": "Accordion live link — a pi extension that hosts the session's context Truth and serves a replica + remote-control protocol to the Accordion GUI.",
   "keywords": ["pi-package"],
   "scripts": {

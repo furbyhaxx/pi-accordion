@@ -1272,7 +1272,30 @@ if (unfoldTool && foldCodeStr) {
 		await exited;
 	}
 	await waitFor(() => JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8")).surfaceId === SURFACE_B, 2000, "pending claim after lock-holder crash");
-	console.log("controller lease: interleaved stale heartbeat and crash recovery checked");
+	const blockedHolder = spawn(process.execPath, ["-e", `
+		const { DatabaseSync } = require("node:sqlite");
+		const db = new DatabaseSync(process.argv[1]);
+		db.exec("BEGIN IMMEDIATE");
+		process.send("locked");
+		setInterval(() => {}, 1000);
+	`, lockPath], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+	const blockedExit = new Promise((resolve) => blockedHolder.once("exit", resolve));
+	try {
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("timeout lock holder did not start")), 3000);
+			blockedHolder.once("message", () => { clearTimeout(timer); resolve(); });
+			blockedHolder.once("error", reject);
+		});
+		b.inbox.notice = [];
+		b.claim();
+		b.claim();
+		await waitFor(() => b.inbox.notice.length > 0, 6500, "bounded controller claim");
+		if (b.inbox.notice.length !== 1 || !b.inbox.notice[0].text.includes("busy or unavailable")) fails.push("blocked duplicate claims did not produce one actionable timeout notice");
+	} finally {
+		blockedHolder.kill("SIGKILL");
+		await blockedExit;
+	}
+	console.log("controller lease: interleaved stale heartbeat, bounded claims and crash recovery checked");
 }
 
 // Issue #93: the one true end-to-end path for system-prompt capture — a REAL `ExtensionContext`
