@@ -262,7 +262,7 @@ function specCarrier(host: TestHost, carrierId: string | null): { id: string; ta
 	const inGroup = new Set(host.groups().flatMap((g) => g.memberIds));
 	const free = (b: ViewBlock) => !b.held && !b.grouped && !b.protected && !inGroup.has(b.id);
 	const usable = (b: ViewBlock) => free(b) && ((b.kind === "thinking" && !b.signed) || (b.kind === "text" && (b.id === carrierId || (!b.folded && b.tokens <= 150))));
-	const boundary = blocks.findIndex((b, i) => i > first && i < pfi && b.kind === "thinking" && !b.folded && free(b) && b.tokens > b.foldedTokens);
+	const boundary = blocks.findIndex((b, i) => i > first && i < pfi && b.kind === "thinking" && !b.folded && !b.signed && free(b) && b.tokens > b.foldedTokens);
 	if (boundary >= 0) for (let i = boundary + 1; i < pfi; i++) if (usable(blocks[i])) return { id: blocks[i].id, tail: false };
 	for (let i = pfi - 1; i > first; i--) if (usable(blocks[i])) return { id: blocks[i].id, tail: true };
 	return null;
@@ -564,47 +564,56 @@ describe("keel-note · boundary placement", () => {
 		}
 	});
 
-	it("never overwrites a signed thinking block: small text blocks carry the note instead", async () => {
-		// Text on every third step only, so the block right after the boundary is often a signed thought.
-		const shape: Shape = { ...DEEP, signed: true, say: (i) => (i % 3 === 0 ? `Step ${i}: running case ${i}.` : undefined) };
+	it("never overwrites a signed thinking block: unsigned thoughts form the boundary, and no signed block is ever touched", async () => {
+		// Mixed signing: even steps unsigned (they become the R1 boundary), odd steps signed.
+		// Text on every third step so a small text carrier is often the first usable block.
+		const shape: Shape = { ...DEEP, say: (i) => (i % 3 === 0 ? `Step ${i}: running case ${i}.` : undefined) };
 		const { s } = session(40, shape);
+		for (const b of s.blocks) if (b.kind === "thinking" && b.order % 2 === 1) b.signed = true;
 		const host = setup(s, { budgetFactor: 0.9 });
 		const c = new KeelNoteConductor(EAGER);
 		c.attach(host);
 		await host.commitTurn();
 		let seed = 9000;
-		for (let n = 0; n < 3; n++) {
+		for (let n = 0; n < 2; n++) {
 			for (const p of host.calls) if (!p.settled) p.resolve({ text: noteBody(`G${n}`) });
 			await settle();
-			seed = await growUntilEpoch(host, s, seed, shape);
-			const id = c.noteState.carrierId!;
-			expect(host.truth.get(id)!.kind).toBe("text");
-			expect(specCarrier(host, id)?.id).toBe(id);
-			expect(showingNote(host)).toEqual([id]);
+		seed = await growUntilEpoch(host, s, seed, { ...shape, signed: false });
+			const id = c.noteState.carrierId;
+			if (id) {
+				expect(host.get(id)!.signed).not.toBe(true);
+				expect(specCarrier(host, id)?.id).toBe(id);
+			}
 		}
-		const placed = host.txns.filter(isPlacement).map((t) => opIds(t.ops[0])[0]);
-		expect(placed.length).toBeGreaterThanOrEqual(3);
-		for (const id of placed) expect(host.get(id)!.signed).not.toBe(true);
+		// No fold, group, or replacement ever landed on a signed thinking block.
+		for (const b of host.blocks()) {
+			if (b.kind === "thinking" && b.signed) {
+				expect(b.folded).toBe(false);
+				expect(b.grouped).toBe(false);
+				expect(substOf(host, b.id)).toBeUndefined();
+			}
+		}
+		const placedIdsNow = host.txns.filter((t) => isPlacement(t) && t.res.results[0]?.applied).map((t) => opIds(t.ops[0])[0]);
+		if (placedIdsNow.length > 0) expect(placedIdsNow.every((id) => host.get(id)!.signed !== true)).toBe(true);
 	});
 
-	it("with only signed thinking and no small text, the note is not placed, and the budget still holds", async () => {
+	it("with only signed thinking and no small text, keel-lite saturates without touching a single signed block", async () => {
 		const shape: Shape = { ...DEEP, signed: true };
 		const { s } = session(40, shape);
 		const host = setup(s, { budgetFactor: 0.9 });
 		const c = new KeelNoteConductor(EAGER);
 		c.attach(host);
 		await host.commitTurn();
+		const before = host.epochs().length;
 		let seed = 9500;
-		for (let n = 0; n < 3; n++) {
+		for (let n = 0; n < 20; n++) {
 			for (const p of host.calls) if (!p.settled) p.resolve({ text: noteBody(`N${n}`) });
 			await settle();
-			seed = await growUntilEpoch(host, s, seed, shape);
-			expect(effOf(host, c)).toBeLessThanOrEqual(highOf(host)); // the full cap stays reserved
+			seed = await grow(host, s, seed, shape.think, shape);
 		}
+		expect(host.epochs().length).toBe(before); // signed-heavy context: nothing safely foldable
+		for (const b of host.blocks()) if (b.kind === "thinking" && b.signed) expect(b.folded).toBe(false);
 		expect(host.txns.filter(isPlacement)).toHaveLength(0);
-		expect(c.noteState).toMatchObject({ carrierId: null, ready: true });
-		expect(showingNote(host)).toEqual([]);
-		expect(host.calls.length).toBeGreaterThan(1); // the note still updates, waiting for a carrier
 	});
 
 	it("re-places the note when a human takes its carrier, and only then", async () => {

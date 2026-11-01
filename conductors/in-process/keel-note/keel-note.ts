@@ -349,6 +349,7 @@ export class KeelNoteConductor implements Conductor {
 		for (let i = firstUser + 1; i < pfi; i++) {
 			const b = blocks[i];
 			if (b.kind !== "thinking" || b.folded || b.held || b.grouped || inGroup.has(b.id) || b.id === this.carrierId) continue;
+			if (b.signed) continue; // R1 no longer folds signed thinking; it is not a boundary
 			if (b.tokens <= b.foldedTokens) continue; // R1 would not fold it
 			boundary = i;
 			break;
