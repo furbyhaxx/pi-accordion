@@ -237,7 +237,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		? [{ kind: "ungroup", groupId: action.groupId }, { kind: "group", ids: [action.members[0], action.members[action.members.length - 1]], ...(text === undefined ? {} : { summary: text || null }) }]
 		: [{ kind: "fold", ids: [action.blockId], ...(text === undefined ? {} : { digest: text || EMPTY_DIGEST }) }];
 	try {
-		const result = await host.command({ kind: "ops", ops });
+		const result = await host.command({ kind: "ops", ops, baseRev: action.rev });
 		if (result.refused === "read-only") readOnly = true;
 		message = commandMessage(result);
 	} catch (error) {

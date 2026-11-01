@@ -95,7 +95,7 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 	const ws = new WebSocket(url, { maxPayload: MAX_FRAME, handshakeTimeout: TIMEOUT });
 	let truth: Truth | null = null, meta: SessionMeta | null = null;
 	let folding = false, catalog: ActiveConductorMeta[] = [], active: ActiveConductorMeta | null = null;
-	let waiting = true, closed = false, controlling = false, seq = 0;
+	let waiting = true, closed = false, controlling = false, conditionalOps = false, seq = 0;
 	const listeners = new Set<() => void>();
 	const pending = new Map<number, { resolve: (result: { results: OpResult[]; rev: number; refused?: "read-only" }) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 	let readyResolve: (host: AccordionTuiHost & { claim(): void; close(): void }) => void = () => {};
@@ -124,11 +124,13 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 	const host: AccordionTuiHost & { claim(): void; close(): void } = {
 		truth: () => truth, folding: () => folding, conductors: () => catalog, activeConductor: () => active,
 		canSteer: () => !closed && controlling,
+		supportsConditionalOps: () => conditionalOps,
 		subscribe: (listener) => { if (!closed) listeners.add(listener); return () => { listeners.delete(listener); }; },
 		claim: () => send({ type: "claimController" }), close: () => fail(new Error("Remote session closed")),
 		command: (cmd: WireCommand) => new Promise((resolve, reject) => {
 			if (closed || ws.readyState !== WebSocket.OPEN) { reject(new Error("Remote session disconnected")); return; }
 			if (waiting) { reject(new Error("Remote session is resynchronizing")); return; }
+			if (cmd.kind === "ops" && cmd.baseRev !== undefined && !conditionalOps) { reject(new Error("Remote session cannot safely apply conditional edits; update that session")); return; }
 			const id = ++seq;
 			const timeout = setTimeout(() => { pending.delete(id); reject(new Error("Command timeout")); }, TIMEOUT);
 			pending.set(id, { resolve, reject, timer: timeout });
@@ -147,6 +149,7 @@ export async function connectRemoteSession(entry: SessionEntry, surfaceId: strin
 				meta = msg.meta as unknown as SessionMeta;
 				catalog = (msg.conductors ?? []) as ActiveConductorMeta[];
 				controlling = record(msg.controller) && msg.controller.surfaceId === surfaceId && msg.controller.fresh === true;
+				conditionalOps = msg.conditionalOps === true;
 			} else if (msg.type === "snapshot") {
 				if (!meta || !snapshot(msg.state)) throw new Error("Invalid snapshot");
 				truth = hydrateSnapshot(meta, msg.state); folding = msg.state.foldingEnabled; waiting = false;

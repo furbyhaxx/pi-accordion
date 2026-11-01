@@ -1963,7 +1963,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		refreshControllerNow();
 		// hello advertises every conductor with host-computed required-capability readiness, plus the
 		// current controller lease (v16). Optional degradation remains a runtime status concern.
-		send(ws, { type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId, role, meta, conductors: catalogMeta(readinessOf), controller: controllerInfo() });
+		send(ws, { type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId, role, meta, conductors: catalogMeta(readinessOf), controller: controllerInfo(), conditionalOps: true });
 		sendSnapshot(ws);
 		// P1-6: a freshly attached REMOTE conductor gets an initial turn-committed right AFTER its
 		// snapshot — by now the spawned SDK has hydrated its replica and run `conductor.attach`, so its
@@ -2396,6 +2396,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				// be able to seize a conductor's strategy folds through the ungated kill switch. A smuggled
 				// freeze is stripped and reported back as a `locked` clamp in the commandResult.
 				const t = truth;
+				if (cmd.baseRev !== undefined && cmd.baseRev !== t.rev) {
+					return { results: cmd.ops.map((op) => ({ op, applied: false, clamped: "stale" as const })), rev: t.rev };
+				}
 				const r = applyGuardingHostOnly(Array.isArray(cmd.ops) ? cmd.ops : [], (allowed) => t.apply(allowed, "you"));
 				return { results: r.results, rev: r.rev };
 			}
@@ -2864,6 +2867,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				activeConductor: () => liveHost.activeMeta(),
 				canSteer: () => sessionId === openedSessionId && !!controllerLease && controllerLease.surfaceId === surfaceId && isFreshLease(controllerLease, Date.now()),
 				controlMessage: () => controlError,
+				supportsConditionalOps: () => true,
 				command: (command) => {
 					refreshControllerNow();
 					const lease = controllerLease;

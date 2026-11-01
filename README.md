@@ -213,11 +213,13 @@ pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
 Run `/accordion` in the session to open its context panel. Press `?` for all keys;
-`o` toggles folding, `c` selects a conductor, and Enter inspects a block. Use
-`/accordion sessions` to choose another live Pi session on the same machine. Folding is
-**off by default**. Changes affect the messages sent to the model, not the stored
+`o` toggles folding, `c` selects a conductor, Enter inspects a block, and `e` edits a
+folded digest. `D` restores the automatic digest. Use `/accordion sessions` to choose
+another live Pi session on the same machine. Folding is **off by default**. Changes affect the messages sent to the model, not the stored
 session transcript. The protected working tail and per-block restrictions remain
-enforced by the shared engine.
+enforced by the shared engine. Digest edits are revision-checked at the host; older
+upstream sessions without conditional-edit support must be upgraded before editing their
+digests from the TUI.
 
 The fork is also a Pi package and can be installed from Git once this branch is published:
 

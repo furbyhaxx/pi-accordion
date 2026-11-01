@@ -16,7 +16,7 @@ afterEach(async () => {
 		await new Promise<void>((resolve) => server.close(() => resolve()));
 	}
 });
-async function setup() {
+async function setup(conditionalOps = true) {
 	const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 	servers.push(server);
 	await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -33,7 +33,7 @@ async function setup() {
 		expect(url.searchParams.get("surface")).toBe("my-surface");
 		expect(url.searchParams.get("label")).toBe("Pi TUI");
 		ws.on("message", (data) => { messages.push(JSON.parse(data.toString())); wake(); });
-		ws.send(JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId: "test", role: "gui", meta, conductors: [conductor], controller: { surfaceId: "my-surface", label: "Pi TUI", fresh: true } }));
+		ws.send(JSON.stringify({ type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId: "test", role: "gui", meta, conductors: [conductor], controller: { surfaceId: "my-surface", label: "Pi TUI", fresh: true }, conditionalOps }));
 		ws.send(JSON.stringify({ type: "snapshot", state: serializeSnapshot(truth, false) }));
 	});
 	const host = await connectRemoteSession(entry, "my-surface");
@@ -57,6 +57,7 @@ describe("remote TUI host", () => {
 		const s = await setup();
 		expect(s.host.truth()?.rev).toBe(s.truth.rev);
 		expect(s.host.canSteer?.()).toBe(true);
+		expect(s.host.supportsConditionalOps?.()).toBe(true);
 		expect(s.host.conductors()).toEqual([conductor]);
 		const first = s.host.command({ kind: "setBudget", value: 2000 });
 		const command = await s.next();
@@ -92,6 +93,12 @@ describe("remote TUI host", () => {
 		expect(s.host.folding()).toBe(false);
 		changed = update(s.host); s.send({ type: "controller", surfaceId: "other", label: "Other" }); await changed;
 		expect(s.host.canSteer?.()).toBe(false);
+		s.host.close();
+	});
+	test("refuses conditional edits against an older host", async () => {
+		const s = await setup(false);
+		expect(s.host.supportsConditionalOps?.()).toBe(false);
+		await expect(s.host.command({ kind: "ops", ops: [{ kind: "resetAll" }], baseRev: 0 })).rejects.toThrow("cannot safely apply conditional edits");
 		s.host.close();
 	});
 	test("rejects pending commands on disconnect", async () => {

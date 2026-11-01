@@ -387,6 +387,8 @@ export interface HelloMessage {
 	 *  so a pre-v16-shaped literal still type-checks (the version bump is the real cross-version gate);
 	 *  a v16 host always emits it (possibly `null`). */
 	controller?: ControllerInfo | null;
+	/** Host enforces `baseRev` for conditional GUI operations. */
+	conditionalOps?: boolean;
 }
 
 /** Full state to (re)build a replica Truth. Sent right after hello and on any forced resnapshot. */
@@ -599,7 +601,8 @@ export type ServerMessage =
  * currently attached, `id: "<conductorId>"` attaches (swapping out any prior attach first).
  */
 export type WireCommand =
-	| { kind: "ops"; ops: Op[] }
+	/** With `baseRev`, reject the whole operation batch if the host revision changed. */
+	| { kind: "ops"; ops: Op[]; baseRev?: number }
 	| { kind: "setBudget"; value: number }
 	| { kind: "setProtect"; value: number }
 	| { kind: "setFolding"; value: boolean }
@@ -777,7 +780,8 @@ export function sanitizeCommand(cmd: unknown): WireCommand | null {
 	switch (c.kind) {
 		case "ops": {
 			const ops = sanitizeOps(c.ops);
-			return ops ? { kind: "ops", ops } : null;
+			if (!ops || (c.baseRev !== undefined && (!Number.isSafeInteger(c.baseRev) || (c.baseRev as number) < 0))) return null;
+			return c.baseRev === undefined ? { kind: "ops", ops } : { kind: "ops", ops, baseRev: c.baseRev as number };
 		}
 		case "setBudget": {
 			const value = sanitizeDialValue(c.value);

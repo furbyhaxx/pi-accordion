@@ -671,6 +671,16 @@ await waitFor(() => b.inbox.snapshot.length > 0, 2000, "client B snapshot").catc
 	await waitFor(() => a.inbox.controller.some((c) => c.surfaceId === SURFACE_A), 2000, "client A regains control").catch(() => fails.push("client A could not reclaim control"));
 }
 
+// Conditional digest edits must refuse an outdated revision at the authoritative host.
+{
+	a.inbox.commandResult.length = 0;
+	a.inbox.event.length = 0;
+	a.sendCmd({ kind: "ops", ops: [{ kind: "pin", ids: [ASST_ID] }], baseRev: Number.MAX_SAFE_INTEGER });
+	await waitFor(() => a.inbox.commandResult.length > 0, 2000, "stale revision refusal").catch(() => fails.push("conditional command was not answered"));
+	if (a.inbox.commandResult.at(-1)?.results?.[0]?.clamped !== "stale") fails.push("stale conditional command was not refused");
+	if (a.inbox.event.some((e) => e.event?.kind === "ops")) fails.push("stale conditional command mutated Truth");
+}
+
 // Commands: setProtect 0 (so the block is foldable), setFolding true, then fold the assistant text.
 // Each yields a commandResult to the sender AND a broadcast `event` (config / folding / ops) to ALL.
 {

@@ -180,6 +180,13 @@ describe("sanitizeCommand — numeric-dial + ops ingress gate (fix #5)", () => {
 		expect(sanitizeCommand({ kind: "setProtect", value: -5 })).toEqual({ kind: "setProtect", value: 0 });
 		expect(sanitizeCommand({ kind: "setBudget", value: 50_000 })).toEqual({ kind: "setBudget", value: 50_000 });
 	});
+	it("preserves a valid conditional revision and refuses invalid revisions", () => {
+		const ops = [{ kind: "fold", ids: ["a"] }];
+		expect(sanitizeCommand({ kind: "ops", ops, baseRev: 3 })).toEqual({ kind: "ops", ops, baseRev: 3 });
+		for (const baseRev of [-1, 1.5, null, "3", Number.MAX_SAFE_INTEGER + 1]) {
+			expect(sanitizeCommand({ kind: "ops", ops, baseRev })).toBeNull();
+		}
+	});
 	it("sanitizes an ops command (drops malformed ops), and returns null when ops is not an array", () => {
 		const out = sanitizeCommand({ kind: "ops", ops: [{ kind: "fold", ids: ["a"] }, null, { kind: "bogus" }] });
 		expect(out).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"] }] });

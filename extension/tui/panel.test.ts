@@ -60,7 +60,7 @@ describe("accordion panel", () => {
 		s.panel.handleInput("e");
 		for (let i = 0; i < 5; i++) await Promise.resolve();
 		expect(s.editorPrefill()).toContain("FOLDED");
-		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "fold", ids: ["b"], digest: "edited digest" }] }]);
+		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "fold", ids: ["b"], digest: "edited digest" }], baseRev: expect.any(Number) }]);
 		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
 		s.close(); await s.opening;
 	});
@@ -109,10 +109,10 @@ describe("accordion panel", () => {
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
 		s.setEditor("  "); s.panel.handleInput("e");
 		for (let i = 0; i < 5; i++) await Promise.resolve();
-		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"], digest: "{empty}" }] });
+		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"], digest: "{empty}" }], baseRev: expect.any(Number) });
 		s.panel.handleInput("D");
 		for (let i = 0; i < 5; i++) await Promise.resolve();
-		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"] }] });
+		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"] }], baseRev: expect.any(Number) });
 		expect(s.truth.digestOf(s.truth.blocks[0])).toContain("FOLDED");
 		s.close(); await s.opening;
 	});
@@ -128,11 +128,11 @@ describe("accordion panel", () => {
 		expect(s.commands).toEqual([]);
 		s.setConfirm(true); s.panel.handleInput("e");
 		for (let i = 0; i < 6; i++) await Promise.resolve();
-		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"], summary: null }] });
+		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"], summary: null }], baseRev: expect.any(Number) });
 		expect(s.truth.groups[0].digest).toBeNull();
 		s.panel.handleInput("D");
 		for (let i = 0; i < 5; i++) await Promise.resolve();
-		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"] }] });
+		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"] }], baseRev: expect.any(Number) });
 		expect(s.truth.groupSummary(s.truth.groups[0])).toContain("FOLDED");
 		s.close(); await s.opening;
 	});
