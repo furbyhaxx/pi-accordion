@@ -11,6 +11,8 @@
     "skills": ["./extension/skills"]
   },
   "dependencies": {
+    "tree-sitter-wasms": "0.1.13",
+    "web-tree-sitter": "0.25.10",
     "ws": "8.21.0"
   },
   "peerDependencies": {
