@@ -3,7 +3,7 @@ name: accordion-context-recall
 description: "Read this skill when you need to read the full content of a folded context block RIGHT NOW as a tool result — without opening it in your standing context. Use recall(codes) when you only need a value once and do not want to permanently restore the block. Accordion may fold older parts of your context to keep token usage within a budget; folded blocks appear as {#<code> FOLDED} markers."
 ---
 
-Accordion, an external desktop app, may be folding parts of your context to save tokens. A folded block appears as:
+Accordion, a Pi extension, may be folding parts of your context to save tokens. A folded block appears as:
 
 ```
 {#3f9a2c FOLDED} Assistant analyzed the test failures: three imports were missing…

@@ -207,10 +207,11 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` in the session to open its context panel. Folding is **off by default**:
-turn it on in the panel after reviewing the context and conductor. Changes affect the
-messages sent to the model, not the stored session transcript. The protected working
-tail and per-block restrictions remain enforced by the shared engine.
+Run `/accordion` in the session to open its context panel. Press `?` for all keys;
+`o` toggles folding, `c` selects a conductor, and Enter inspects a block. Folding is
+**off by default**. Changes affect the messages sent to the model, not the stored
+session transcript. The protected working tail and per-block restrictions remain
+enforced by the shared engine.
 
 The fork is also a Pi package and can be installed from Git once this branch is published:
 
