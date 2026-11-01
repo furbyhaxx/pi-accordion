@@ -99,7 +99,10 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					body = lines.slice(inspectOffset, inspectOffset + bodyRows);
 					hint = "↑↓ scroll · esc back";
 				} else if (screen === "inspect") {
-					const content = !block ? "Block no longer available" : inspectDigest && truth?.isFolded(block) ? truth.digestOf(block) : block.text;
+					const group = block && truth?.groupOf(block);
+					const content = !block ? "Block no longer available" : inspectDigest && group?.folded
+						? `Group summary: ${truth?.groupSummary(group) || "(empty group summary)"}`
+						: inspectDigest && truth?.isFolded(block) ? truth.digestOf(block) : block.text;
 					const lines = content.split(/\r?\n/).flatMap((part) => wrapTextWithAnsi(clean(part), Math.max(1, width)));
 					inspectOffset = Math.min(inspectOffset, Math.max(0, lines.length - bodyRows));
 					body = lines.slice(inspectOffset, inspectOffset + bodyRows);
