@@ -63,7 +63,8 @@ describe.skipIf(!nodeModulesPresent)("triptych/skeleton.mjs", () => {
       expect(langOf("foo.cjs")).toBe("js");
       expect(langOf("foo.py")).toBe("py");
       expect(langOf("foo.pyi")).toBe("py");
-      expect(langOf("foo.rs")).toBeNull();
+      expect(langOf("foo.rs")).toBe("rs");
+      expect(langOf("src/FOO.RS")).toBe("rs");
       expect(langOf("no-extension")).toBeNull();
       expect(langOf("lib.es2015.collection.d.ts")).toBe("ts");
     });
@@ -75,7 +76,17 @@ describe.skipIf(!nodeModulesPresent)("triptych/skeleton.mjs", () => {
     });
 
     it("returns null for an unsupported extension", () => {
-      expect(engine.skeletonize("foo.rs", "fn main() {}")).toBeNull();
+      expect(engine.skeletonize("foo.go", "package main")).toBeNull();
+    });
+
+    it("keeps Rust signatures and elides function bodies and comments", () => {
+      const source = `use std::fmt;\n// comment\npub struct Widget;\nimpl Widget {\n    pub fn render(&self) -> String {\n        let result = String::from("body sentinel");\n        result\n    }\n}\n/* block comment */\n`;
+      const out = engine.skeletonize("src/widget.rs", source);
+      expect(out).toContain("use std::fmt;");
+      expect(out).toContain("pub struct Widget;");
+      expect(out).toContain("pub fn render(&self) -> String { /* ... 4 lines */ }");
+      expect(out).not.toContain("body sentinel");
+      expect(out).not.toContain("comment");
     });
 
     it("returns null for a missing/empty path", () => {

@@ -86,6 +86,12 @@ const SHRINK_MAX = 0.7;
  *  eats most of the saving and the read is cheap to keep whole anyway. */
 const MIN_SKELETON_TOKENS = 700;
 
+interface CodemodeSection {
+	path?: string;
+	tool: string;
+	source: string;
+}
+
 export class TriptychConductor extends AgedSummaryConductor {
 	readonly id = "triptych";
 	readonly label = "Triptych";
@@ -293,14 +299,28 @@ export class TriptychConductor extends AgedSummaryConductor {
 		return out;
 	}
 
+	protected codemodeSections(_b: ViewBlock, _callById: Map<string, ViewBlock>): CodemodeSection[] | null {
+		// Integration replaces this with classifyCodemodeResult.
+		return null;
+	}
+
 	/** Classify → skeletonize → label → shrink-gate. Null = decline (cached, never re-parsed). */
 	private evaluateSkeleton(b: ViewBlock, callById: Map<string, ViewBlock>): string | null {
-		const info = classifyCodeRead(b, callById);
-		if (info === null) return null;
+		if (b.isError) return null;
+		const own = b.toolName?.trim().toLowerCase();
+		const call = b.callId ? callById.get(b.callId) : undefined;
+		const name = own && own !== "tool" ? own : call?.text?.trimStart().match(/^([^\s{]+)/)?.[1]?.toLowerCase();
+		const codemode = name === "codemode";
+		const sections = codemode ? this.codemodeSections(b, callById) : null;
+		const info = codemode ? (sections?.length === 1 && sections[0].tool === "read" ? sections[0] : null) : classifyCodeRead(b, callById);
+		if (info == null) return null;
 		const skeleton = this.skel.skeletonize(info.path, info.source);
 		if (skeleton === null) return null;
 		const srcLines = countLines(info.source);
-		const content = `${skeletonHeader(info.path, srcLines)}\n${skeleton}`;
+		const header = codemode
+			? `⟨code skeleton · ${info.path ?? "a code file"} · from codemode · ${srcLines} source lines⟩`
+			: skeletonHeader(info.path, srcLines);
+		const content = `${header}\n${skeleton}`;
 		// Decline gate vs the block's ORIGINAL text (wrappers included — that is what the wire pays).
 		const original = b.text ?? "";
 		if (original.length === 0 || content.length > original.length * SHRINK_MAX) return null;

@@ -58,6 +58,7 @@ const WASM_FILES = {
   tsx: "tree-sitter-tsx.wasm",
   js: "tree-sitter-javascript.wasm",
   py: "tree-sitter-python.wasm",
+  rs: "tree-sitter-rust.wasm",
 };
 
 function wasmDir() {
@@ -80,7 +81,7 @@ async function ensureParserRuntime() {
   await parserInitPromise;
 }
 
-/** Async wasm init: Parser.init() + Language.load() for ts/tsx/js/py,
+/** Async wasm init: Parser.init() + Language.load() for ts/tsx/js/py/rs,
  * resolved via createRequire(import.meta.url). Idempotent. */
 function init() {
   if (!initPromise) {
@@ -110,7 +111,7 @@ function ready() {
 /** Map a file path to a grammar key, or null if out of scope.
  * ts/mts/cts -> "ts" grammar. tsx/jsx -> "tsx" grammar (jsx deliberately
  * loads the TSX grammar, a JSX-aware superset, not the plain JS one).
- * js/mjs/cjs -> "js" (javascript) grammar. py/pyi -> "py" (python) grammar. */
+ * js/mjs/cjs -> "js" (javascript), py/pyi -> "py" (python), rs -> "rs" (rust). */
 export function langOf(p) {
   const m = /\.([a-zA-Z]+)$/.exec(String(p ?? ""));
   if (!m) return null;
@@ -119,12 +120,13 @@ export function langOf(p) {
   if (ext === "tsx" || ext === "jsx") return "tsx";
   if (ext === "js" || ext === "mjs" || ext === "cjs") return "js";
   if (ext === "py" || ext === "pyi") return "py";
+  if (ext === "rs") return "rs";
   return null;
 }
 
 // Ts/tsx/js all share the same node-type vocabulary; python is its own.
 function defsKey(lang) {
-  return lang === "py" ? "py" : "ts";
+  return lang === "py" || lang === "rs" ? lang : "ts";
 }
 
 // ---------------------------------------------------------------------------
@@ -152,8 +154,17 @@ const PY_DEFS = {
   blockType: "block",
 };
 
+const RS_DEFS = {
+  commentType: "line_comment",
+  importTypes: new Set(["use_declaration"]),
+  functionTypes: new Set(["function_item"]),
+  blockType: "block",
+};
+
 function defsFor(lang) {
-  return defsKey(lang) === "py" ? PY_DEFS : TS_DEFS;
+  if (defsKey(lang) === "py") return PY_DEFS;
+  if (defsKey(lang) === "rs") return RS_DEFS;
+  return TS_DEFS;
 }
 
 const TS_LITERAL_TYPES = new Set(["object", "array"]);
@@ -174,7 +185,7 @@ function isBlockType(t, lang) {
 // ---------------------------------------------------------------------------
 
 function isCommentNode(node, lang) {
-  return node.type === defsFor(lang).commentType;
+  return node.type === defsFor(lang).commentType || (lang === "rs" && node.type === "block_comment");
 }
 
 function isDocstringStatement(node, lang) {
@@ -375,7 +386,7 @@ function collapseBlankLines(text) {
 
 /** L2 skeleton of `source` at `path`, or null when: the engine isn't ready,
  * `path` is missing/undetectable, the extension isn't one of
- * ts/tsx/mts/cts/jsx/js/mjs/cjs/py/pyi, or an internal error occurred.
+ * ts/tsx/mts/cts/jsx/js/mjs/cjs/py/pyi/rs, or an internal error occurred.
  * NEVER throws. Byte-deterministic for identical (path, source) inputs. */
 function skeletonize(p, source) {
   let tree = null;
