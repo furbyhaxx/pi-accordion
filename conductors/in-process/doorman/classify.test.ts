@@ -7,7 +7,7 @@
  * commands, no-extension JSON/YAML, …); this file exists to pin the port, not re-litigate it.
  */
 import { describe, it, expect } from "vitest";
-import { classifyCodeRead } from "./classify";
+import { classifyCodeRead, classifyCodemodeResult, parseCodemodeSections } from "./classify";
 import type { ViewBlock } from "../../../core/conductor/contract";
 
 // ───────────────────────── builders (ported from the reference test file) ─────────────────
@@ -155,6 +155,76 @@ describe("classifyCodeRead — rejects non-code reads", () => {
 		const c = call("Read", { file_path: "/repo/widget.ts" });
 		const { res, map } = pair(c, TS_BODY, { isError: true });
 		expect(classifyCodeRead(res, map)).toBeNull();
+	});
+});
+
+describe("codemode result classification", () => {
+	it("accepts a single code read and strips tool headers and line numbers", () => {
+		const c = call("codemode", { code: `text(await tools.read({ path: "src/widget.ts" }));` });
+		const output = `Script completed\nWall time 0.3 seconds\nOutput:\n\n==> text 1/1 <==\nWall time: 0.1s\nOutput:\n${withLineNumbers(TS_BODY)}`;
+		const { res, map } = pair(c, output);
+		expect(classifyCodeRead(res, map)).toEqual({ path: "src/widget.ts", source: TS_BODY });
+	});
+
+	it("exposes ordered multi-read sections without classifying the whole result", () => {
+		const c = call("codemode", { code: `const a = await tools.read({path: 'src/a.ts'});\nconst b = await tools.read({path: "src/b.py"});\ntext(a); text(b);` });
+		const { res, map } = pair(c, `Script completed\nWall time 0.3 seconds\nOutput:\n\n==> text 1/2 <==\n${TS_BODY}\n==> text 2/2 <==\n${PY_BODY}`);
+		expect(classifyCodeRead(res, map)).toBeNull();
+		expect(classifyCodemodeResult(res, map)).toEqual([
+			{ tool: "read", path: "src/a.ts", source: TS_BODY },
+			{ tool: "read", path: "src/b.py", source: PY_BODY },
+		]);
+	});
+
+	it("consumes bash calls before reads within the same script", () => {
+		const c = call("codemode", { code: `text(await tools.bash({ command: 'cat src/a.ts' }));\ntext(await tools.read({path: 'src/b.py'}));` });
+		const { res, map } = pair(c, `==> text 1/2 <==\n${TS_BODY}\n==> text 2/2 <==\n${PY_BODY}`);
+		expect(parseCodemodeSections(res, map)).toEqual([
+			{ tool: "bash", source: TS_BODY },
+			{ tool: "read", path: "src/b.py", source: PY_BODY },
+		]);
+		expect(classifyCodeRead(res, map)).toBeNull();
+		const single = pair(call("codemode", { code: `text(await tools.bash({command: 'cat src/a.ts'}));` }), `==> text 1/1 <==\n${TS_BODY}`);
+		expect(classifyCodeRead(single.res, single.map)).toBeNull();
+	});
+
+	it("never treats grep output as a code read", () => {
+		const c = call("codemode", { code: `text(await tools.grep({ path: 'src/widget.ts', pattern: 'function' }));` });
+		const { res, map } = pair(c, `==> text 1/1 <==\n${TS_BODY}`);
+		expect(classifyCodeRead(res, map)).toBeNull();
+		expect(classifyCodemodeResult(res, map)).toEqual([{ tool: "grep", path: "src/widget.ts", source: TS_BODY }]);
+	});
+
+	it("marks unmatched sections unknown and ignores apparent calls in strings and comments", () => {
+		const c = call("codemode", { code: `// tools.read({path: 'wrong.ts'})\nconst s = "tools.read({path: 'wrong2.ts'})";\ntext(await tools.read({path: 'right.ts'}));` });
+		const { res, map } = pair(c, `==> text 1/2 <==\n${TS_BODY}\n==> text 2/2 <==\nextra`);
+		expect(parseCodemodeSections(res, map)).toEqual([
+			{ tool: "read", path: "right.ts", source: TS_BODY },
+			{ tool: "unknown", source: "extra" },
+		]);
+	});
+
+	it("does not infer a path from a dynamic expression", () => {
+		const c = call("codemode", { code: `text(await tools.read({path: 'src/base.ts' + suffix}));` });
+		const { res, map } = pair(c, `==> text 1/1 <==\n${TS_BODY}`);
+		expect(parseCodemodeSections(res, map)).toEqual([{ tool: "read", source: TS_BODY }]);
+		expect(classifyCodeRead(res, map)).toBeNull();
+	});
+
+	it("does not mistake unsupported tool calls for reads", () => {
+		const c = call("codemode", { code: `text(await tools.ls({path: 'src'})); text(await tools.read({path: 'src/a.ts'}));` });
+		const { res, map } = pair(c, `==> text 1/2 <==\nlisting\n==> text 2/2 <==\n${TS_BODY}`);
+		expect(parseCodemodeSections(res, map)).toEqual([{ tool: "unknown", source: "listing" }, { tool: "read", path: "src/a.ts", source: TS_BODY }]);
+	});
+
+	it("rejects non-codemode outputs and paths without code extensions", () => {
+		const direct = pair(call("read", { path: "src/a.ts" }), `==> text 1/1 <==\n${TS_BODY}`);
+		expect(parseCodemodeSections(direct.res, direct.map)).toBeNull();
+		const c = call("codemode", { code: `text(await tools.read({path: 'README'}));` });
+		const bare = pair(c, TS_BODY);
+		expect(parseCodemodeSections(bare.res, bare.map)).toBeNull();
+		const numbered = pair(c, `==> text 1/1 <==\n${TS_BODY}`);
+		expect(classifyCodeRead(numbered.res, numbered.map)).toBeNull();
 	});
 });
 
