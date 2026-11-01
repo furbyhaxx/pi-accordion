@@ -22,12 +22,41 @@ function setup(delayed = false) {
 	let steering = true;
 	let renders = 0;
 	let resolveCommand = () => {};
+	let settingsState = {
+		autoArm: true,
+		defaultConductor: "keel-lite",
+		compactMode: "accordion" as const,
+		bindHost: "127.0.0.1",
+		doorPort: 24317,
+		customToken: null as string | null,
+	};
+	let tokenState = "kave4ton";
 	const conductor: ActiveConductorMeta = { id: "exclusive", label: "Exclusive", locks: ["human-steering"], tailTokens: 0, holdWireUpToMs: 0, remote: false, readiness: { state: "ready" } };
 	const host: AccordionTuiHost = {
 		truth: () => currentTruth, folding: () => false,
 		conductors: () => [conductor],
 		activeConductor: () => null,
 		canSteer: () => steering,
+		settings: () => settingsState,
+		updateSettings: (patch) => {
+			settingsState = { ...settingsState, ...patch };
+			if (patch.customToken !== undefined && patch.customToken) tokenState = patch.customToken;
+			return settingsState;
+		},
+		regenerateToken: () => {
+			tokenState = "mira7pex";
+			settingsState = { ...settingsState, customToken: null };
+			return tokenState;
+		},
+		webInfo: () => ({
+			url: `http://${settingsState.bindHost}:${settingsState.doorPort}/?token=${tokenState}`,
+			bindHost: settingsState.bindHost,
+			port: 41234,
+			doorPort: settingsState.doorPort,
+			token: tokenState,
+			clients: 1,
+		}),
+		compactNow: () => ({ beforeTokens: 40, afterTokens: 20, message: "Accordion compacted context: 40 → 20 tok (−20 tok)" }),
 		command: (cmd) => {
 			commands.push(cmd);
 			const result = refuse ? { results: [], rev: truth.rev, refused: "read-only" as const } : cmd.kind === "ops" ? truth.apply(cmd.ops, "you") : { results: [], rev: truth.rev };
@@ -299,6 +328,38 @@ describe("accordion panel", () => {
 		expect(s.panel.render(120).join("\n")).toContain("reopen /accordion");
 		s.panel.handleInput("down");
 		expect(s.panel.render(36).join("\n")).toContain("reopen /accordion");
+		s.close(); await s.opening;
+	});
+
+	test("runs manual compaction pass with C and edits web settings & token in Settings tab", async () => {
+		const s = setup();
+		s.panel.handleInput("C");
+		await Promise.resolve();
+		expect(s.panel.render(100).join("\n")).toContain("Accordion compacted context: 40 → 20 tok");
+
+		s.panel.handleInput("s");
+		const settingsRender = s.panel.render(110).join("\n");
+		expect(settingsRender).toContain("Web UI Bind Address");
+		expect(settingsRender).toContain("kave4ton");
+
+		s.panel.handleInput("h");
+		await Promise.resolve();
+		expect(s.panel.render(110).join("\n")).toContain("0.0.0.0");
+
+		s.panel.handleInput("g");
+		expect(s.panel.render(110).join("\n")).toContain("mira7pex");
+
+		s.close(); await s.opening;
+	});
+
+	test("filters blocks with / search in list view", async () => {
+		const s = setup();
+		s.panel.handleInput("/");
+		s.panel.handleInput("b");
+		s.panel.handleInput("enter");
+		const lines = s.panel.render(100).join("\n");
+		expect(lines).toContain("(1/2)");
+		expect(lines).toContain("content b");
 		s.close(); await s.opening;
 	});
 });

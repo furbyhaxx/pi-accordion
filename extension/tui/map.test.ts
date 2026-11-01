@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { Truth } from "../../core/truth";
 import type { Block, BlockKind } from "../../core/types";
-import { buildContextMap } from "./map";
+import { buildContextMap, buildContextBreakdown, renderCategoryBar } from "./map";
 
 function block(id: string, order: number, kind: BlockKind = "text", tokens = 20): Block {
 	return { id, order, kind, tokens, turn: 1, text: `content ${id}`, override: null, autoFolded: false, by: null };
@@ -81,5 +81,31 @@ describe("context map", () => {
 		const empty = buildContextMap(truth([]), undefined, 20, 1);
 		expect(empty.selectedIndex).toBe(-1);
 		expect(empty.lines.join("")).toContain("No blocks");
+	});
+
+	test("computes Claude Code /context breakdown and renders Spectrum colored bar and cells", () => {
+		const t = truth([
+			block("sys:0", -1, "system", 1000),
+			block("u1", 0, "user", 500),
+			block("a1", 1, "text", 2000),
+			block("r1", 2, "tool_result", 4000),
+		]);
+		t.setProtect(0);
+		t.apply([{ kind: "fold", ids: ["r1"] }], "you");
+		const bd = buildContextBreakdown(t);
+		expect(bd.fullTokens).toBe(7500);
+		expect(bd.liveTokens).toBeLessThan(bd.fullTokens);
+		expect(bd.savedTokens).toBeGreaterThan(3000);
+		expect(bd.categories.find((c) => c.kind === "tool_result")?.foldedBlocks).toBe(1);
+
+		for (const width of [20, 36, 57, 80, 140]) {
+			const bar = renderCategoryBar(t, width);
+			expect(bar).toHaveLength(2);
+			expect(bar.every((line) => visibleWidth(line) <= width)).toBe(true);
+			const coloredMap = buildContextMap(t, "a1", width, 4, { colored: true });
+			expect(coloredMap.lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			expect(coloredMap.lines.join("\n")).toContain("[A4.]");
+			expect(coloredMap.lines.join("\n")).toContain("\x1b[38;2;");
+		}
 	});
 });

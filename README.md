@@ -213,15 +213,17 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` in the session to open its context panel. Press `?` for all keys;
-`m` switches between the compact context map and the block list; `?` explains the map
-symbols. `o` toggles folding, `c` selects a conductor, Enter inspects a block, and `e`
-edits a folded digest. `D` restores the automatic digest. Use `/accordion sessions` to choose
-another live Pi session on the same machine. Folding is **off by default**. Changes affect the messages sent to the model, not the stored
-session transcript. The protected working tail and per-block restrictions remain
-enforced by the shared engine. Digest edits are revision-checked at the host; older
-upstream sessions without conditional-edit support must be upgraded before editing their
-digests from the TUI.
+Run `/accordion` in the session to open its context panel (with tabs `1–4` / `Tab`:
+**Context Map**, **Blocks**, **Conductors**, and **Settings**). The Context view shows a
+Claude Code `/context`-style proportional category bar, token savings, and a 2D Spectrum-colored
+Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system).
+
+- `m` switches between the colored 2D context map and the searchable block list (`/` filters blocks).
+- `C` or `/accordion compact` runs an immediate Accordion compression pass.
+- Folding auto-arms with the `keel-lite` conductor by default (configurable in `~/.accordion/config.json`
+  or the `s` Settings tab), replacing Pi's native `/compact` and threshold auto-compaction with
+  reversible folding while falling back to native compaction only if a hard overflow is already saturated.
+- `/accordion sessions` selects another live Pi session on the same machine.
 
 The fork is also a Pi package and can be installed from Git once this branch is published:
 
@@ -244,7 +246,11 @@ npm ci --prefix extension
 npm --prefix extension run build:client
 ```
 
-The command prints a token-bearing loopback URL. Treat it as a credential. The desktop
+The command (or `/accordion web`) prints a Browser URL with a short, memorable 8-character
+token (e.g. `kave4ton`) or your custom static token (`ACCORDION_TOKEN` / `customToken` in
+`~/.accordion/config.json` / Settings tab). You can also bind the Web UI to another address
+(e.g. `0.0.0.0` or a Tailscale IP) via `--accordion-host`, `ACCORDION_HOST`, or the Settings tab;
+switching sessions in the browser routes over the single Door port automatically. The desktop
 app additionally supports read-only Claude Code transcript browsing; see
 [CONTRIBUTING.md](CONTRIBUTING.md) for its build prerequisites. Only one surface can
 steer at a time; the others are read-only until they take control. Fork sessions use a

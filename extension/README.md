@@ -30,12 +30,16 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` to manage the current session in Pi's terminal, or `/accordion sessions`
-to choose another live local session. Folding starts off; enable it explicitly before
-it changes model context. The extension starts its local
-service with the session. No desktop application is required.
+Run `/accordion` to manage the current session in Pi's terminal (`1–4` / `Tab` switches
+between the Claude Code `/context` Overview + Spectrum grid, searchable Blocks list, Conductors,
+and Settings), `/accordion compact` to run an immediate compression pass, or `/accordion sessions`
+to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
+in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
+Accordion pass.
 
-The optional browser and desktop entry point is `/accordion-web`. The browser assets
+The optional browser and desktop entry point is `/accordion web` (or `/accordion-web`), using
+memorable 8-character tokens (or a custom token) and an optional custom bind address (`ACCORDION_HOST`)
+with single-port Door session proxying. The browser assets
 must first be built as described in the [project README](https://github.com/furbyhaxx/pi-accordion).
 Only one surface may steer at a time; another surface may ask to take control.
 

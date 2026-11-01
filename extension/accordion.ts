@@ -478,12 +478,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function currentWebUrl(): string | null {
 		const dp = resolvedDoorPort();
 		const host = displayWebHost();
-		const tok = activeCustomToken();
-		if (dp !== null && (tok || doorSecret) && doorHeld) {
-			return `http://${host}:${dp}/?token=${tok || doorSecret}`;
+		const tok = activeBrowserToken();
+		if (dp !== null && tok && doorHeld) {
+			return `http://${host}:${dp}/?token=${tok}`;
 		}
-		if (port && (tok || webToken)) {
-			return `http://${host}:${port}/?token=${tok || webToken}`;
+		if (port && tok) {
+			return `http://${host}:${port}/?token=${tok}`;
 		}
 		return null;
 	}
@@ -516,7 +516,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
 		if (truth.stats().liveTokens >= beforeTokens) {
 			const eligible = truth.blocks
-				.filter((b) => !truth!.isProtected(b) && !truth!.isFolded(b) && !truth!.held(b) && !truth!.groupOf(b) && wireFoldable(b))
+				.filter((b) => !truth!.isProtected(b) && !truth!.isFolded(b) && !truth!.held(b) && !truth!.groupOf(b) && wireFoldable(b) && truth!.foldedTokensOf(b) < b.tokens)
 				.map((b) => b.id);
 			if (eligible.length > 0) {
 				truth.apply([{ kind: "fold", ids: eligible }], "auto");
@@ -2318,14 +2318,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function startServer(): void {
 		if (wss || httpServer) return;
 		bindError = null; // fresh attempt — clear any failure a prior call recorded
-		// Per-session memorable 8-char token (or custom token) for the HTTP surface and browser WS upgrades.
-		webToken = activeCustomToken() || generateMemorableToken();
-		// v16 (ADR 0024): ensure the shared door secret (accepted as a bearer everywhere the webToken
-		// is; bounded-retry, never a one-shot -- see ensureDoorSecret), start the controller lease
-		// timers, and attempt to become the door holder. tryBindDoor is gated on a valid secret; when
-		// the secret only resolves on a later retry tick, that tick re-kicks the bind. All idempotent +
-		// best-effort; re-run on a session swap after `closeDoor`/`stopControllerTimers`.
 		ensureDoorSecret();
+		// Per-session memorable 8-char token (or shared door/custom token) for the HTTP surface and browser WS upgrades.
+		webToken = activeCustomToken() || doorSecret || generateMemorableToken();
 		startControllerTimers();
 		tryBindDoor();
 		try {
