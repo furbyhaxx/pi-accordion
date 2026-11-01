@@ -126,7 +126,8 @@ This package registers two pi skills the agent uses to interact with folded cont
 
 ## Links
 
-- **Source & full docs:** [github.com/a-Fig/Accordion](https://github.com/a-Fig/Accordion)
+- **Fork source & docs:** [github.com/furbyhaxx/pi-accordion](https://github.com/furbyhaxx/pi-accordion)
+- **Upstream:** [github.com/a-Fig/Accordion](https://github.com/a-Fig/Accordion)
 - **Vision:** [VISION.md](https://github.com/a-Fig/Accordion/blob/main/VISION.md)
 - **pi (the harness):** [github.com/earendil-works/pi](https://github.com/earendil-works/pi)
 
