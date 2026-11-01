@@ -104,8 +104,8 @@ accordionLive(pi, {
 		}
 		const before = host.truth()?.budget;
 		if (before === undefined) { fails.push("native panel did not receive a Truth"); return; }
-		host.command({ kind: "setBudget", value: 800 });
-		if (host.truth()?.budget !== 800) fails.push("native panel did not steer the authoritative Truth");
+		host.command({ kind: "setBudget", value: 1200 });
+		if (host.truth()?.budget !== 1200) fails.push("native panel did not steer the authoritative Truth");
 		host.command({ kind: "setBudget", value: before });
 		const now = Date.now();
 		fs.writeFileSync(CONTROLLER_PATH, JSON.stringify({ registryProtocol: 1, surfaceId: "other-surface", label: "Other", claimedAt: now, heartbeatAt: now }));
@@ -1458,7 +1458,7 @@ await new Promise((r) => setTimeout(r, 50));
 			on: (name, fn) => (h[name] = fn),
 			registerFlag: (name, def) => flg.set(name, def?.default),
 			getFlag: (name) => flg.get(name),
-			registerCommand: (name, def) => { if (name === "accordion") cmd = def.handler; },
+			registerCommand: (name, def) => { if (name === "accordion-web") cmd = def.handler; },
 			registerTool: () => {},
 			appendEntry: () => {},
 		};

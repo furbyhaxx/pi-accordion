@@ -20,13 +20,19 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		let consentLocks: string[] = [];
 		let rangeId: string | undefined;
 		let inspectOffset = 0;
+		let inspectDigest = false;
 		let numberInput = "";
 		let message = "";
-		let readOnly = false;
+		let readOnly = host.canSteer ? !host.canSteer() : false;
 		let pending = false;
 		let disposed = false;
-		const update = () => { if (!disposed) tui.requestRender(); };
+		const update = () => {
+			if (disposed) return;
+			if (host.canSteer && !host.canSteer()) readOnly = true;
+			tui.requestRender();
+		};
 		const unsubscribe = host.subscribe(update);
+		const conductorChoices = () => host.conductors().filter((entry) => entry.id !== "none");
 		const current = () => {
 			const blocks = host.truth()?.blocks ?? [];
 			const existing = blocks.findIndex((block) => block.id === selectedId);
@@ -48,10 +54,9 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					readOnly = true;
 					message = "read-only: close and reopen /accordion to request control again";
 				} else {
-					const failures = result.results.flatMap((item) => [
-						...(item.clamped ? [item.clamped] : []),
-						...(item.perId ?? []).filter((entry) => entry.reason).map((entry) => `${entry.id}: ${entry.reason}`),
-					]);
+					const failures = result.results.flatMap((item) => item.perId?.some((entry) => entry.reason)
+						? item.perId.filter((entry) => entry.reason).map((entry) => `${entry.id}: ${entry.reason}`)
+						: item.clamped ? [item.clamped] : []);
 					message = failures.length ? `Refused: ${failures.join(", ")}` : "Command sent";
 				}
 			} catch (error) {
@@ -69,7 +74,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				const block = current();
 				const bodyRows = Math.max(1, Math.min(12, tui.terminal.rows - 9));
 				const stats = truth?.stats();
-				const header = readOnly ? "READ-ONLY · close and reopen /accordion for control" : `Accordion · folding ${host.folding() ? "on" : "off"} · conductor ${host.activeConductor()?.label ?? "none"}`;
+				const header = readOnly ? "READ-ONLY · Accordion" : `Accordion · folding ${host.folding() ? "on" : "off"} · conductor ${host.activeConductor()?.label ?? "none"}`;
 				const summary = stats ? `Tokens ${stats.liveTokens}/${stats.fullTokens} · budget ${stats.budget} · tail ${stats.protectTokens}${stats.contextWindow === null ? "" : ` · window ${stats.contextWindow}`}` : "No session context yet";
 				let body: string[] = [];
 				let hint = "↑↓ select · enter inspect · f fold · p pin · a auto · o folding · g group · c conductor · b budget · t tail · esc close";
@@ -79,7 +84,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					body = blocks.slice(start, start + bodyRows).map((b, i) => {
 						const group = truth?.groupOf(b);
 						const state = truth?.isFolded(b) ? "folded" : "live";
-						const flags = [state, truth?.isProtected(b) ? "protected" : "", b.override === "pinned" ? "pinned" : b.override ? `held:${b.override}` : "", group ? `group:${group.folded ? "folded" : "open"}` : "", rangeId === b.id ? "range-start" : ""].filter(Boolean).join(" ");
+						const flags = [state, b.kind === "system" ? "bolted" : truth?.isProtected(b) ? "protected" : "", b.override === "pinned" ? "pinned" : b.override ? `held:${b.override}` : "", group ? `group:${group.folded ? "folded" : "open"}` : "", rangeId === b.id ? "range-start" : ""].filter(Boolean).join(" ");
 						return `${start + i === index ? "❯" : " "} ${b.kind} ${flags} · ${b.tokens} tok · ${b.toolName ?? b.id} · ${b.text}`;
 					});
 					if (!body.length) body = ["  No blocks yet"];
@@ -88,19 +93,19 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					else hint = "↑↓ select · enter inspect · f fold · p pin · a auto · r range · c conductor · o folding · b budget · t tail · esc close";
 					hint = `? help · ${hint}`;
 				} else if (screen === "help") {
-					const lines = ["↑/↓ select block · Enter inspect full text", "f fold/unfold · p pin/unpin · a return to auto", "o toggle folding on/off", "r mark range start · move · g create group", "x expand/collapse selected group · d delete group", "b set budget · t set protected tail", "c choose or detach conductor · Esc close/back"]
+					const lines = ["↑/↓ select block · Enter inspect text; v toggles digest", "f fold/unfold · p pin/unpin · a return to auto", "o toggle folding on/off", "r mark range start · move · g create group", "x expand/collapse selected group · d delete group", "b set budget · t set protected tail", "c choose or detach conductor · Esc close/back"]
 						.flatMap((row) => wrapTextWithAnsi(clean(row), Math.max(1, width)));
 					inspectOffset = Math.min(inspectOffset, Math.max(0, lines.length - bodyRows));
 					body = lines.slice(inspectOffset, inspectOffset + bodyRows);
 					hint = "↑↓ scroll · esc back";
 				} else if (screen === "inspect") {
-					const content = block?.text ?? "Block no longer available";
+					const content = !block ? "Block no longer available" : inspectDigest && truth?.isFolded(block) ? truth.digestOf(block) : block.text;
 					const lines = content.split(/\r?\n/).flatMap((part) => wrapTextWithAnsi(clean(part), Math.max(1, width)));
 					inspectOffset = Math.min(inspectOffset, Math.max(0, lines.length - bodyRows));
 					body = lines.slice(inspectOffset, inspectOffset + bodyRows);
-					hint = `↑↓ scroll · esc back · ${inspectOffset + 1}-${Math.min(lines.length, inspectOffset + bodyRows)}/${lines.length}`;
+					hint = `↑↓ scroll · v ${inspectDigest ? "original" : "digest"} · esc back · ${inspectOffset + 1}-${Math.min(lines.length, inspectOffset + bodyRows)}/${lines.length}`;
 				} else if (screen === "conductors") {
-					const choices = host.conductors();
+					const choices = conductorChoices();
 					conductorIndex = Math.min(conductorIndex, choices.length);
 					const rows = ["Detach conductor", ...choices.map((c) => `${c.label} · ${c.readiness.state === "ready" ? "ready" : `unavailable: ${c.readiness.reason}`} · locks: ${c.locks.join(", ") || "none"}`)];
 					const start = Math.max(0, Math.min(conductorIndex - bodyRows + 1, rows.length - bodyRows));
@@ -117,9 +122,10 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					hint = "digits · backspace · enter apply · esc cancel";
 				}
 				while (body.length < bodyRows) body.push("");
-				return [theme.fg("accent", line(header, width)), theme.fg("muted", line(summary, width)), ...body.map((row) => row.startsWith("❯") ? theme.fg("accent", line(row, width)) : line(row, width)), theme.fg(message ? "warning" : "dim", line(message || (readOnly ? "Close and reopen /accordion to request control" : hint), width)), theme.fg("dim", line(hint, width))];
+				return [theme.fg("accent", line(header, width)), theme.fg("muted", line(summary, width)), ...body.map((row) => row.startsWith("❯") ? theme.fg("accent", line(row, width)) : line(row, width)), theme.fg(message ? "warning" : "dim", line(message || (readOnly ? host.controlMessage?.() ?? "Close and reopen /accordion to request control" : ""), width)), theme.fg("dim", line(hint, width))];
 			},
 			handleInput(data: string): void {
+				if (matchesKey(data, "ctrl+c")) { done(); return; }
 				const cancel = keys.matches(data, "tui.select.cancel");
 				const confirm = keys.matches(data, "tui.select.confirm");
 				const up = keys.matches(data, "tui.select.up");
@@ -136,8 +142,9 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				if (screen === "inspect" || screen === "help") {
 					if (up) inspectOffset = Math.max(0, inspectOffset - 1);
 					if (down) inspectOffset++;
+					if (screen === "inspect" && key === "v") { inspectDigest = !inspectDigest; inspectOffset = 0; }
 				} else if (screen === "conductors") {
-					const choices = host.conductors();
+					const choices = conductorChoices();
 					if (up) conductorIndex = Math.max(0, conductorIndex - 1);
 					else if (down) conductorIndex = Math.min(choices.length, conductorIndex + 1);
 					else if (confirm && conductorIndex === 0) { void send({ kind: "selectConductor", id: null }); screen = "blocks"; }
@@ -164,7 +171,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					const blocks = truth?.blocks ?? [];
 					index = Math.max(0, Math.min(blocks.length - 1, index + (up ? -1 : 1)));
 					selectedId = blocks[index]?.id;
-				} else if (confirm && block) { screen = "inspect"; inspectOffset = 0; }
+				} else if (confirm && block) { screen = "inspect"; inspectOffset = 0; inspectDigest = false; }
 				else if (key === "?") { screen = "help"; inspectOffset = 0; }
 				else if (key === "o") void send({ kind: "setFolding", value: !host.folding() });
 				else if (key === "c") { conductorIndex = 0; screen = "conductors"; }

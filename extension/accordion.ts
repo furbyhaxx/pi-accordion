@@ -460,6 +460,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let foldingEnabled = false;
 	const nativeListeners = new Set<() => void>();
 	let nativeSurfaceId: string | null = null;
+	let lastNativeSurfaceId: string | null = null;
+	let controllerWasFresh = false;
 
 	// The last full messages array the Truth was reconciled against (an authoritative `context`
 	// snapshot, extended by message_end / agent_end deltas). pi's next `event.messages` is compared
@@ -539,11 +541,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	/** Send a message to every connected client (Phase B fan-out). */
-	function broadcast(m: ServerMessage): void {
-		for (const ws of clients.keys()) if (ws.readyState === 1 /* OPEN */) send(ws, m);
+	function notifyNative(): void {
 		for (const listener of nativeListeners) {
 			try { listener(); } catch { /* a presentation failure must not affect the session */ }
 		}
+	}
+
+	function broadcast(m: ServerMessage): void {
+		for (const ws of clients.keys()) if (ws.readyState === 1 /* OPEN */) send(ws, m);
+		notifyNative();
 	}
 
 	/** Forward a host Truth event to every replica as a replayable `event` (null ⇒ nothing to replay). */
@@ -1801,6 +1807,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// maybeBroadcastController dedupes on holder, so a pure heartbeat bump (holder unchanged) is a
 		// no-op; an absent file resolves to null and is never broadcast as a "cleared" frame.
 		if (changed) maybeBroadcastController();
+		const fresh = !!controllerLease && isFreshLease(controllerLease, Date.now());
+		if (fresh !== controllerWasFresh) { controllerWasFresh = fresh; notifyNative(); }
 	}
 
 	/** ~2s heartbeat: refresh the lease's heartbeatAt IFF a connected socket IS the current holder.
@@ -2766,6 +2774,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			unsubTruth = null;
 		}
 		truth = null;
+		nativeSurfaceId = null;
+		sessionId = "";
+		notifyNative();
 		for (const ws of clients.keys()) {
 			try {
 				ws.close();
@@ -2801,22 +2812,34 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 			const surfaceId = `tui-${crypto.randomBytes(16).toString("hex")}`;
 			const openedSessionId = sessionId;
-			const current = reloadControllerLease().lease;
-			const contested = current && isFreshLease(current, Date.now());
+			refreshControllerNow();
+			const current = controllerLease;
+			const contested = current && current.surfaceId !== lastNativeSurfaceId && isFreshLease(current, Date.now());
 			const takeControl = !contested || await ctx.ui.confirm("Take Accordion control?", `${current.label} currently controls Accordion. Opening this panel for steering will make that surface read-only.`);
+			if (sessionId !== openedSessionId) return;
+			let controlError: string | null = null;
 			if (takeControl) {
 				const now = Date.now();
 				writeControllerLease({ registryProtocol: REGISTRY_PROTOCOL, surfaceId, label: "Pi TUI", claimedAt: now, heartbeatAt: now });
-				nativeSurfaceId = surfaceId;
-				maybeBroadcastController();
+				refreshControllerNow();
+				if (controllerLease?.surfaceId === surfaceId) {
+					nativeSurfaceId = surfaceId;
+					lastNativeSurfaceId = surfaceId;
+				} else {
+					controlError = "Control unavailable: check the Accordion registry permissions";
+					ctx.ui.notify(controlError, "warning");
+				}
 			}
 			const host: AccordionTuiHost = {
-				truth: () => truth,
+				truth: () => sessionId === openedSessionId ? truth : null,
 				folding: () => foldingEnabled,
 				conductors: () => catalogMeta(readinessOf),
 				activeConductor: () => liveHost.activeMeta(),
+				canSteer: () => sessionId === openedSessionId && !!controllerLease && controllerLease.surfaceId === surfaceId && isFreshLease(controllerLease, Date.now()),
+				controlMessage: () => controlError,
 				command: (command) => {
-					const lease = reloadControllerLease().lease;
+					refreshControllerNow();
+					const lease = controllerLease;
 					if (sessionId !== openedSessionId || !lease || lease.surfaceId !== surfaceId || !isFreshLease(lease, Date.now())) {
 						return { results: [], rev: truth?.rev ?? 0, refused: "read-only" };
 					}
@@ -2831,8 +2854,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				await (dependencies.openPanel ?? openAccordionPanel)(ctx, host);
 			} finally {
 				if (nativeSurfaceId === surfaceId) nativeSurfaceId = null;
-				const lease = reloadControllerLease().lease;
-				if (lease?.surfaceId === surfaceId) writeControllerLease({ ...lease, heartbeatAt: 0 });
 			}
 		},
 	});

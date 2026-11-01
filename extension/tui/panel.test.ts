@@ -17,6 +17,7 @@ function setup(delayed = false) {
 	let listener = () => {};
 	let disposed = false;
 	let refuse = false;
+	let steering = true;
 	let renders = 0;
 	let resolveCommand = () => {};
 	const conductor: ActiveConductorMeta = { id: "exclusive", label: "Exclusive", locks: ["human-steering"], tailTokens: 0, holdWireUpToMs: 0, remote: false, readiness: { state: "ready" } };
@@ -24,6 +25,7 @@ function setup(delayed = false) {
 		truth: () => truth, folding: () => false,
 		conductors: () => [conductor],
 		activeConductor: () => null,
+		canSteer: () => steering,
 		command: (cmd) => {
 			commands.push(cmd);
 			const result = refuse ? { results: [], rev: truth.rev, refused: "read-only" as const } : cmd.kind === "ops" ? truth.apply(cmd.ops, "you") : { results: [], rev: truth.rev };
@@ -39,7 +41,7 @@ function setup(delayed = false) {
 	}) } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host);
 	if (!component) throw new Error("panel did not open");
-	return { truth, conductor, commands, panel: component, opening, close: () => { component?.dispose?.(); finish(); }, update: () => listener(), setRefuse: () => { refuse = true; }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { truth, conductor, commands, panel: component, opening, close: () => { component?.dispose?.(); finish(); }, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 describe("accordion panel", () => {
@@ -49,7 +51,7 @@ describe("accordion panel", () => {
 		s.panel.handleInput("\u001b[102;1u");
 		await Promise.resolve();
 		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "fold", ids: ["b"] }] }]);
-		expect(s.panel.render(100).join("\n")).toContain("Refused: protected");
+		expect(s.panel.render(100).join("\n")).toContain("Refused: b: protected");
 		s.close(); await s.opening;
 		expect(s.disposed()).toBe(true);
 	});
@@ -75,6 +77,17 @@ describe("accordion panel", () => {
 		expect(s.truth.groups).toHaveLength(1);
 		s.panel.handleInput("x");
 		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "unfoldGroup", groupId: s.truth.groups[0].id }] });
+		s.close(); await s.opening;
+	});
+
+	test("inspects original and folded digest separately", async () => {
+		const s = setup();
+		s.truth.setProtect(0);
+		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
+		s.panel.handleInput("enter");
+		expect(s.panel.render(100).join("\n")).toContain("content a");
+		s.panel.handleInput("v");
+		expect(s.panel.render(100).join("\n")).toContain("FOLDED");
 		s.close(); await s.opening;
 	});
 
@@ -130,6 +143,14 @@ describe("accordion panel", () => {
 		s.resolveCommand(); await Promise.resolve();
 		expect(s.renders()).toBe(before);
 		expect(s.disposed()).toBe(true);
+	});
+
+	test("reports loss of controller ownership before another command", async () => {
+		const s = setup();
+		s.loseControl();
+		expect(s.panel.render(100).join("\n")).toContain("READ-ONLY");
+		expect(s.commands).toEqual([]);
+		s.close(); await s.opening;
 	});
 
 	test("surfaces loss of control for non-op commands", async () => {
