@@ -10,10 +10,12 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { Truth } from "../truth";
+import { linearize, wireToBlock } from "../wire";
 import type { Block, ParsedSession } from "../types";
 import type { ServerMessage, WireEvent } from "../protocol";
 import { serializeSnapshot, hydrateSnapshot, applyWireEvent, wireEventFromTruthEvent } from "../replica";
 import { LiveConductorHost, type LiveHostDeps, type SpawnedRunner } from "./liveHost";
+import { viewBlockOf } from "./hostAdapter";
 import { catalogMeta, entryById } from "./registry";
 import type { ConductorHost } from "./contract";
 import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
@@ -111,6 +113,34 @@ async function until(pred: () => boolean, ms = 2000): Promise<void> {
 		await new Promise((r) => setTimeout(r, 5));
 	}
 }
+
+describe("signed thinking host views", () => {
+	it.each([
+		["provider signature", { thinkingSignature: "hamb8gYb3..." }, true],
+		["field-name marker", { thinkingSignature: "reasoning_content" }, false],
+		["no signature", {}, false],
+		["redacted thinking", { redacted: true }, true],
+	])("projects %s through the adapter and host reads", (_label, extra, signed) => {
+		const [wire] = linearize([{
+			role: "assistant",
+			responseId: "r1",
+			content: [{ type: "thinking", thinking: "hmm", ...extra }],
+		}]);
+		const block = wireToBlock(wire);
+		const truth = bulk([block]);
+		const host = new LiveConductorHost(makeDeps(truth).deps);
+		const views = [viewBlockOf(truth, block), ...host.blocks(), host.get(block.id)];
+
+		expect(host.blocks()).toHaveLength(1);
+		for (const view of views) {
+			expect(view).toBeDefined();
+			if (!view) throw new Error("expected thinking block view");
+			expect(view.kind).toBe("thinking");
+			if (signed) expect(view.signed).toBe(true);
+			else expect("signed" in view).toBe(false);
+		}
+	});
+});
 
 // ── registry ──────────────────────────────────────────────────────────────────
 describe("registry", () => {
