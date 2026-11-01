@@ -658,6 +658,19 @@ await waitFor(() => b.inbox.snapshot.length > 0, 2000, "client B snapshot").catc
 		fails.push(`client B hello.controller should name surface A as the fresh controller (got ${JSON.stringify(helloB?.controller)})`);
 }
 
+// A command must recheck the shared lease before the periodic controller poll observes a takeover.
+{
+	const now = Date.now();
+	fs.writeFileSync(CONTROLLER_PATH, JSON.stringify({ registryProtocol: 1, surfaceId: SURFACE_B, label: "Browser tab", claimedAt: now, heartbeatAt: now }));
+	a.inbox.commandResult.length = 0;
+	a.sendCmd({ kind: "setFolding", value: true });
+	await waitFor(() => a.inbox.commandResult.length > 0, 2000, "stale controller refusal").catch(() => fails.push("stale controller command was not answered"));
+	if (a.inbox.commandResult.at(-1)?.refused !== "read-only") fails.push("stale controller command was not refused after takeover");
+	a.inbox.controller.length = 0;
+	a.claim();
+	await waitFor(() => a.inbox.controller.some((c) => c.surfaceId === SURFACE_A), 2000, "client A regains control").catch(() => fails.push("client A could not reclaim control"));
+}
+
 // Commands: setProtect 0 (so the block is foldable), setFolding true, then fold the assistant text.
 // Each yields a commandResult to the sender AND a broadcast `event` (config / folding / ops) to ALL.
 {

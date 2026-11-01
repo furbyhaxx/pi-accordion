@@ -2029,6 +2029,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					// fresh controller is refused BEFORE it touches the Truth (typed "read-only" clamp). A
 					// stale/absent lease counts as uncontrolled -> still refused (the client claims first;
 					// auto-claim makes this invisible in practice). resnapshot/claimController are unaffected.
+					refreshControllerNow();
 					if (!isControllerSocket(ws)) {
 						send(ws, refusedCommandResult(msg.seq, msg.cmd));
 						return;
@@ -2893,9 +2894,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						sessionLabel: () => `${target?.title || "Pi session"} · ${target?.cwd || ""}`,
 						canSteer: () => !!localHost.canSteer?.() && !!remoteHost.canSteer?.(),
 						controlMessage: () => localHost.controlMessage?.() ?? null,
-						command: (command) => sessionId === openedSessionId
-							? remoteHost.command(command)
-							: { results: [], rev: 0, refused: "read-only" },
+						command: (command) => {
+							refreshControllerNow();
+							if (!localHost.canSteer?.()) return { results: [], rev: 0, refused: "read-only" };
+							return remoteHost.command(command);
+						},
 						subscribe: (listener) => {
 							const unsubscribeLocal = localHost.subscribe(listener);
 							const unsubscribeRemote = remoteHost.subscribe(listener);
