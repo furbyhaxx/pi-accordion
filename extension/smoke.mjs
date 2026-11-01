@@ -18,6 +18,7 @@
 import { createJiti } from "jiti";
 import { WebSocket } from "ws";
 import * as fs from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import * as http from "node:http";
 import * as net from "node:net";
 import * as os from "node:os";
@@ -79,6 +80,7 @@ let accordionWebCmd = null;
 let nativeProbeMode = "control";
 let unfoldTool = null;
 let recallTool = null;
+let beforeControllerHeartbeatWrite = null;
 const flags = new Map();
 const notifications = [];
 const pi = {
@@ -96,6 +98,7 @@ const pi = {
 	appendEntry: () => {},
 };
 accordionLive(pi, {
+	beforeControllerHeartbeatWrite: () => beforeControllerHeartbeatWrite?.(),
 	openPanel: async (_ctx, host) => {
 		if (nativeProbeMode === "read-only") {
 			const result = host.command({ kind: "setFolding", value: true });
@@ -1206,6 +1209,70 @@ if (unfoldTool && foldCodeStr) {
 		if (!r || r.refused !== "read-only")
 			fails.push(`C1: after a foreign claim, local surface A's fold was not refused read-only (got ${JSON.stringify(r)})`);
 	}
+}
+
+// A separate process claims AFTER a heartbeat reads A, but BEFORE it can rename its update.
+{
+	const FOREIGN = "surface-interleaved";
+	const lockPath = `${CONTROLLER_PATH}.lock.sqlite`;
+	const childClaim = `
+		const fs = require("node:fs");
+		const { DatabaseSync } = require("node:sqlite");
+		const db = new DatabaseSync(process.argv[1]);
+		db.exec("BEGIN IMMEDIATE");
+		const now = Date.now();
+		const lease = {registryProtocol:1, surfaceId:process.argv[3], label:"Interleaved", claimedAt:now, heartbeatAt:now};
+		fs.writeFileSync(process.argv[2]+".child.tmp", JSON.stringify(lease));
+		fs.renameSync(process.argv[2]+".child.tmp", process.argv[2]);
+		db.close();
+	`;
+	a.claim();
+	await waitFor(() => JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8")).surfaceId === SURFACE_A, 2000, "interleaving initial claim");
+	let interleaved = false;
+	beforeControllerHeartbeatWrite = () => {
+		beforeControllerHeartbeatWrite = null;
+		const child = spawnSync(process.execPath, ["-e", childClaim, lockPath, CONTROLLER_PATH, FOREIGN], { encoding: "utf8", timeout: 3000 });
+		if (child.status !== 0) fails.push(`interleaving claimant failed: ${child.stderr}`);
+		interleaved = true;
+	};
+	try {
+		await waitFor(() => interleaved, 2000, "heartbeat read barrier");
+		const lease = JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8"));
+		if (lease.surfaceId !== FOREIGN) fails.push(`interleaving: stale heartbeat overwrote newer claim (${lease.surfaceId})`);
+	} finally {
+		beforeControllerHeartbeatWrite = null;
+	}
+
+	// A live writer blocks heartbeats; killing it releases the OS lock without stale-lock deletion.
+	const holder = spawn(process.execPath, ["-e", `
+		const { DatabaseSync } = require("node:sqlite");
+		const db = new DatabaseSync(process.argv[1]);
+		db.exec("BEGIN IMMEDIATE");
+		process.send("locked");
+		setInterval(() => {}, 1000);
+	`, lockPath], { stdio: ["ignore", "ignore", "pipe", "ipc"] });
+	const exited = new Promise((resolve) => holder.once("exit", (code, signal) => resolve({ code, signal })));
+	try {
+		await new Promise((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("crash lock holder did not start")), 3000);
+			holder.once("message", () => { clearTimeout(timer); resolve(); });
+			holder.once("error", reject);
+		});
+		const now = Date.now();
+		fs.writeFileSync(CONTROLLER_PATH, JSON.stringify({ registryProtocol: 1, surfaceId: SURFACE_A, label: "A", claimedAt: now, heartbeatAt: now }));
+		const before = fs.readFileSync(CONTROLLER_PATH, "utf8");
+		let attempts = 0;
+		beforeControllerHeartbeatWrite = () => { attempts++; };
+		b.claim();
+		await waitFor(() => attempts >= 2, 2000, "heartbeats while writer lock is held");
+		if (fs.readFileSync(CONTROLLER_PATH, "utf8") !== before) fails.push("heartbeat or claim wrote while another process held the lease lock");
+	} finally {
+		beforeControllerHeartbeatWrite = null;
+		holder.kill("SIGKILL");
+		await exited;
+	}
+	await waitFor(() => JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8")).surfaceId === SURFACE_B, 2000, "pending claim after lock-holder crash");
+	console.log("controller lease: interleaved stale heartbeat and crash recovery checked");
 }
 
 // Issue #93: the one true end-to-end path for system-prompt capture — a REAL `ExtensionContext`

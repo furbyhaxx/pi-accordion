@@ -48,6 +48,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as crypto from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
@@ -167,6 +168,7 @@ type CompletionFunction = (
 interface RuntimeDependencies {
 	complete?: CompletionFunction;
 	openPanel?: typeof openAccordionPanel;
+	beforeControllerHeartbeatWrite?: () => void;
 }
 // Vite's fixed localhost:1420 Origin is browser-obtainable, unlike Tauri's production custom
 // origins. Trust it only for an explicit local development session; shipped installs stay closed.
@@ -1763,6 +1765,31 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return { lease: next, changed };
 	}
 
+	// The permanent sidecar is a mutex, not lease storage; never unlink or replace it.
+	// SQLite releases its OS lock on close/crash. Upstream writers do not honor this lock.
+	function withControllerLeaseLock(action: () => void): "done" | "busy" | "failed" {
+		let db: DatabaseSync | undefined;
+		try {
+			fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
+			db = new DatabaseSync(`${CONTROLLER_PATH}.lock.sqlite`);
+			db.exec("BEGIN IMMEDIATE");
+			action();
+			return "done";
+		} catch (error) {
+			if (error instanceof Error && "errcode" in error && error.errcode === 5) return "busy";
+			return "failed";
+		} finally {
+			try { db?.close(); } catch { /* ignore */ }
+		}
+	}
+
+	async function claimWithControllerLeaseLock(action: () => void, active: () => boolean): Promise<void> {
+		while (active()) {
+			if (withControllerLeaseLock(action) !== "busy") return;
+			await new Promise<void>((resolve) => setTimeout(resolve, 25));
+		}
+	}
+
 	/** Atomic write-rename of controller.json (same pattern as a registry entry). Updates the in-memory
 	 *  cache so a following poll does not re-read our own write as an external change (the content compare
 	 *  in reloadControllerLease sees it as unchanged). */
@@ -1813,23 +1840,22 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (fresh !== controllerWasFresh) { controllerWasFresh = fresh; notifyNative(); }
 	}
 
-	/** ~2s heartbeat: refresh the lease's heartbeatAt IFF a connected socket IS the current holder.
-	 *  C1: re-read the lease FRESH FROM DISK first (not the possibly-stale in-memory cache). At a
-	 *  coincident tick the heartbeat can fire before the poll, so writing from the cache would let this
-	 *  extension re-assert an OLD holder and clobber another extension's just-written fresh claim. By
-	 *  reading fresh and only ever writing back the SAME surfaceId that is on disk, we can never write a
-	 *  surfaceId that differs from the current file, and we adopt+broadcast a foreign change as the poll
-	 *  would. */
+	/** Refresh a connected holder only after revalidating under the cross-process writer lock. */
 	function heartbeatController(): void {
 		const { lease, changed } = reloadControllerLease();
 		if (changed) maybeBroadcastController(); // a foreign claim we observed this tick — adopt + broadcast it
 		if (!lease) return;
-		// Only refresh the heartbeat if the FRESH on-disk holder is a surface connected to THIS
-		// extension; we write back that exact holder (never a different surfaceId than the file's).
+		// Avoid acquiring the writer lock when this session has no connected holder.
 		let holderConnected = nativeSurfaceId === lease.surfaceId;
 		for (const info of clients.values()) if (info.surfaceId && info.surfaceId === lease.surfaceId) { holderConnected = true; break; }
 		if (!holderConnected) return;
-		writeControllerLease({ ...lease, heartbeatAt: Date.now() });
+		dependencies.beforeControllerHeartbeatWrite?.();
+		withControllerLeaseLock(() => {
+			const { lease: current, changed } = reloadControllerLease();
+			if (changed) maybeBroadcastController();
+			if (!leaseEq(lease, current)) return;
+			writeControllerLease({ ...lease, heartbeatAt: Date.now() });
+		});
 	}
 
 	/** Start the controller poll + heartbeat timers once (idempotent). Both are unref'd, best-effort. */
@@ -1888,28 +1914,26 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function handleClaimController(ws: WebSocket): void {
 		const info = clients.get(ws);
 		if (!info || !info.surfaceId) return; // a surface with no identity can never hold the lease
-		const now = Date.now();
-		// S4: read the current lease fresh, then skip the write-rename entirely when this surface ALREADY
-		// holds a fresh lease — the heartbeat timer keeps heartbeatAt current, so a redundant claim (claim
-		// spam) shouldn't amplify disk churn. A stale-but-ours or someone-else's lease still rewrites.
-		const { lease: current } = reloadControllerLease();
-		if (current && current.surfaceId === info.surfaceId && isFreshLease(current, now)) {
-			// The reload above may have just adopted a holder change this extension had not yet
-			// broadcast (cache updated ⇒ later polls see no change), so emit before skipping —
-			// otherwise TAKE CONTROL is a silent no-op in the same-surfaceId dual-tab corner.
-			// Holder-dedupe in maybeBroadcastController keeps plain claim spam emitting nothing.
+		const surfaceId = info.surfaceId;
+		const claimedSession = sessionId;
+		void claimWithControllerLeaseLock(() => {
+			const now = Date.now();
+			// Skip redundant claims while holding the same lock as heartbeat revalidation.
+			const { lease: current } = reloadControllerLease();
+			if (current && current.surfaceId === surfaceId && isFreshLease(current, now)) {
+				maybeBroadcastController();
+				return;
+			}
+			const prior = current && current.surfaceId === surfaceId ? current : null;
+			writeControllerLease({
+				registryProtocol: REGISTRY_PROTOCOL,
+				surfaceId,
+				label: info.label || "Surface",
+				claimedAt: prior ? prior.claimedAt : now,
+				heartbeatAt: now,
+			});
 			maybeBroadcastController();
-			return; // already the fresh holder — nothing to write
-		}
-		const prior = current && current.surfaceId === info.surfaceId ? current : null;
-		writeControllerLease({
-			registryProtocol: REGISTRY_PROTOCOL,
-			surfaceId: info.surfaceId,
-			label: info.label || "Surface",
-			claimedAt: prior ? prior.claimedAt : now,
-			heartbeatAt: now,
-		});
-		maybeBroadcastController();
+		}, () => sessionId === claimedSession && clients.has(ws));
 	}
 
 	/**
@@ -2848,8 +2872,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (sessionId !== openedSessionId) return;
 			let controlError: string | null = null;
 			if (takeControl) {
-				const now = Date.now();
-				writeControllerLease({ registryProtocol: REGISTRY_PROTOCOL, surfaceId, label: "Pi TUI", claimedAt: now, heartbeatAt: now });
+				await claimWithControllerLeaseLock(() => {
+					const now = Date.now();
+					writeControllerLease({ registryProtocol: REGISTRY_PROTOCOL, surfaceId, label: "Pi TUI", claimedAt: now, heartbeatAt: now });
+				}, () => sessionId === openedSessionId);
+				if (sessionId !== openedSessionId) return;
 				refreshControllerNow();
 				if (controllerLease?.surfaceId === surfaceId) {
 					nativeSurfaceId = surfaceId;
