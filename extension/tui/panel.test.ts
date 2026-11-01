@@ -91,6 +91,15 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("inspects the group summary for a grouped block", async () => {
+		const s = setup();
+		s.truth.setProtect(0);
+		s.truth.apply([{ kind: "group", ids: ["a", "b"], summary: "group summary" }], "you");
+		s.panel.handleInput("enter"); s.panel.handleInput("v");
+		expect(s.panel.render(100).join("\n")).toContain("Group summary: group summary");
+		s.close(); await s.opening;
+	});
+
 	test("does not attach when the requested locks change after consent is shown", async () => {
 		const s = setup();
 		s.panel.handleInput("c"); s.panel.handleInput("down"); s.panel.handleInput("enter");
