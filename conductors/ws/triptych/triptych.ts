@@ -52,7 +52,7 @@
  */
 import { AgedSummaryConductor, OVERSHOOT, TRIGGER, sumTokens, truncateForStatus, type AgedSummaryOptions } from "../../in-process/agedSummaryConductor";
 import { COMPACTION_SYSTEM } from "../../in-process/compaction-naive/compaction-naive";
-import { classifyCodeRead } from "../../in-process/doorman/classify";
+import { classifyCodeRead, classifyCodemodeResult } from "../../in-process/doorman/classify";
 import { messageKey } from "../../../core/truth";
 import type { Command, ConductorView } from "../../../core/conductor/view";
 import type { ConductorHost, LockName, ViewBlock } from "../../../core/conductor/contract";
@@ -91,7 +91,6 @@ interface CodemodeSection {
 	tool: string;
 	source: string;
 }
-
 export class TriptychConductor extends AgedSummaryConductor {
 	readonly id = "triptych";
 	readonly label = "Triptych";
@@ -299,9 +298,10 @@ export class TriptychConductor extends AgedSummaryConductor {
 		return out;
 	}
 
-	protected codemodeSections(_b: ViewBlock, _callById: Map<string, ViewBlock>): CodemodeSection[] | null {
-		// Integration replaces this with classifyCodemodeResult.
-		return null;
+	protected codemodeSections(b: ViewBlock, callById: Map<string, ViewBlock>): CodemodeSection[] | null {
+		// classifyCodeRead's gates (extension, shape, keyword) are re-applied per section by the
+		// single-section acceptance below, so non-code sections can never become skeletons.
+		return classifyCodemodeResult(b, callById);
 	}
 
 	/** Classify → skeletonize → label → shrink-gate. Null = decline (cached, never re-parsed). */
