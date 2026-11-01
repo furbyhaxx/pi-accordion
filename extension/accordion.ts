@@ -1080,7 +1080,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * current leaf; collapses compaction/branches to exactly what would go to the
 	 * model). It lives on SessionManager but is omitted from the ReadonlySessionManager
 	 * type, so we reach it via a guarded cast. Fall back to reconstructing from the
-	 * active branch's message entries (leaf→root, so reverse to chronological).
+	 * active branch's message entries (already in chronological order).
 	 * Best-effort throughout: any failure yields [] and the caller keeps its cache.
 	 */
 	function readSessionMessages(c: ExtensionContext | null): PiMessage[] {
@@ -1104,7 +1104,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		try {
 			const branch = sm.getBranch?.() ?? [];
 			const msgs = branch.filter((e) => e.type === "message" && e.message).map((e) => e.message as PiMessage);
-			msgs.reverse(); // getBranch walks leaf→root; the view wants chronological order
 			return msgs;
 		} catch {
 			return [];
@@ -1131,8 +1130,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	/** Adopt a model's id + context window into the live + meta state (best-effort). */
-	function applyModel(m: { id?: string; contextWindow?: number } | undefined): void {
+	function applyModel(m: { id?: string; provider?: string; contextWindow?: number } | undefined): void {
 		if (!m) return;
+		if (latestModelObj && (latestModelObj.id !== m.id || latestModelObj.provider !== m.provider)) {
+			pendingWireEst = null;
+			pendingCalibrationThroughOrder = null;
+			lastRealTokens = null;
+			lastEstWireTokens = null;
+			truth?.setCalibration(1, -1);
+		}
 		// Keep the FULL model object — an out-of-band completion needs it (apiKey resolution, the
 		// maxTokens ceiling), not just the id string. `model: "current"` then follows a just-selected
 		// model immediately instead of waiting for the next `context` hook to refresh `latestCtx`.
@@ -2690,6 +2696,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// Truth, leaking its text and corrupting token totals until a later successful hook refresh.
 		systemPromptText = null;
 		systemPromptTokens = 0;
+		latestModelObj = null;
+		model = "";
+		contextWindow = null;
+		tokens = null;
 		setLastMessages([]); // clears lastMessages + lastFps together (invariant: never one without the other)
 		// E2 (external review round): folding is OPT-IN and OFF by default PER SESSION — reset the
 		// arm on every `session_start`, regardless of `_event.reason` ("startup"/"reload"/"new"/
@@ -2867,6 +2877,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	// ── model swap: keep the context window in lockstep ─────────────────────────
+	pi.on("context_with_system", (event) => {
+		if (!foldingEnabled) return;
+		// Historical receipts describe a different prefix; Pi must estimate the serialized wire.
+		return { messages: event.messages.map((message) => {
+			if (message.role !== "assistant" || !message.usage) return message;
+			return { ...message, usage: {
+				...message.usage,
+				input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+			} };
+		}) };
+	});
+
 	// `/model` fires `model_select` immediately, carrying the NEW model. Adopt its context window
 	// into the Truth right away (emits a `config` event to every client) so the budget tracks the
 	// swap without waiting for the next model call.

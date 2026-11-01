@@ -37,6 +37,11 @@ to choose another live local session. Folding auto-arms with `keel-lite` by defa
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
 Accordion pass.
 
+Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
+output against the actual serialized prompt, including restored content. Stored usage and costs
+remain unchanged. Model switches reset provider-specific token calibration, and resumed sessions
+need no prior Accordion state.
+
 The optional browser and desktop entry point is `/accordion web` (or `/accordion-web`), using
 memorable 8-character tokens (or a custom token) and an optional custom bind address (`ACCORDION_HOST`)
 with single-port Door session proxying. The browser assets

@@ -32,6 +32,11 @@ This fork of [Accordion](https://github.com/a-Fig/Accordion) is a Pi extension f
 
 </div>
 
+When folding is armed, Accordion clears historical token-usage anchors only in the outgoing
+request, allowing Pi to size output against the actual folded or restored prompt. Stored usage
+and costs are unchanged. Switching models also resets provider-specific token calibration;
+resumed sessions can start without any prior Accordion state.
+
 ## Why it's different
 
 #### 1. No blocking calls for compaction
