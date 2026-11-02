@@ -6,6 +6,10 @@
   "engines": { "node": ">=22.19.0" },
   "description": "Pi-native context visualization and reversible folding",
   "keywords": ["pi-package"],
+  "scripts": {
+    "build:client": "npm --prefix app ci --include=dev --ignore-scripts && npm --prefix app run build && node extension/build-client.mjs",
+    "prepare": "npm run build:client"
+  },
   "pi": {
     "extensions": ["./extension/accordion.ts"],
     "skills": ["./extension/skills"]

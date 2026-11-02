@@ -44,8 +44,9 @@ need no prior Accordion state.
 
 The optional browser and desktop entry point is `/accordion web` (or `/accordion-web`), using
 memorable 8-character tokens (or a custom token) and an optional custom bind address (`ACCORDION_HOST`)
-with single-port Door session proxying. The browser assets
-must first be built as described in the [project README](https://github.com/furbyhaxx/pi-accordion).
+with single-port Door session proxying. Git installs build browser assets automatically.
+If installation scripts were disabled, run `npm run build:client` from the repository root;
+see the [project README](https://github.com/furbyhaxx/pi-accordion).
 Only one surface may steer at a time; another surface may ask to take control.
 
 Do not load this fork and `npm:@a-fig/accordion` together: both register the same

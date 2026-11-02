@@ -242,13 +242,15 @@ the same commands, tools and context hook twice. Restart Pi after installing it.
 ### Optional browser and desktop interfaces
 
 The existing browser and desktop interfaces remain available through `/accordion-web`.
-The browser assets must be built from the checkout first:
+Git package installation and updates build the browser assets automatically through the
+root `prepare` script. It installs the locked app build dependencies, builds the static
+client, and copies it to `extension/dist/client/`; no desktop build is involved.
+
+If lifecycle scripts were disabled during installation, rebuild explicitly from the
+installed package directory:
 
 ```bash
-npm ci --prefix app
-npm --prefix app run build
-npm ci --prefix extension
-npm --prefix extension run build:client
+npm run build:client
 ```
 
 The command (or `/accordion web`) prints a Browser URL with a short, memorable 8-character
