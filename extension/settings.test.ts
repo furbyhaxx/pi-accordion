@@ -9,6 +9,9 @@ import {
 	sanitizeCustomToken,
 	VALID_DOOR_SECRET_RE,
 	isLoopbackHost,
+	isLoopbackUrl,
+	resolveModelSpec,
+	sanitizeModelSettings,
 } from "./settings";
 
 describe("accordion settings & memorable tokens", () => {
@@ -44,6 +47,8 @@ describe("accordion settings & memorable tokens", () => {
 				bindHost: "0.0.0.0",
 				doorPort: 25000,
 				customToken: "my-custom-8",
+				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
+				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 			});
 
 			const loaded = loadSettings(tmp, {});
@@ -54,6 +59,8 @@ describe("accordion settings & memorable tokens", () => {
 				bindHost: "0.0.0.0",
 				doorPort: 25000,
 				customToken: "my-custom-8",
+				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
+				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 			});
 
 			const envOverridden = loadSettings(tmp, {
@@ -79,5 +86,34 @@ describe("accordion settings & memorable tokens", () => {
 		expect(isLoopbackHost("localhost")).toBe(true);
 		expect(isLoopbackHost("0.0.0.0")).toBe(false);
 		expect(isLoopbackHost("100.64.1.2")).toBe(false);
+	});
+});
+
+describe("model routing", () => {
+	const models = sanitizeModelSettings({
+		defaults: { chat: "openrouter/google/gemini-flash", classifier: "local/minilm" },
+		conductors: { taskfold: { classifier: "local/deberta" }, bad: { classifier: "current" } },
+	});
+
+	test("request beats conductor override beats default", () => {
+		expect(resolveModelSpec(models, "classifier", "taskfold", "x/y")).toBe("x/y");
+		expect(resolveModelSpec(models, "classifier", "taskfold")).toBe("local/deberta");
+		expect(resolveModelSpec(models, "classifier", "keel-lite")).toBe("local/minilm");
+		expect(resolveModelSpec(models, "chat", "taskfold")).toBe("openrouter/google/gemini-flash");
+	});
+
+	test("chat falls back to the session model; a classifier has no fallback", () => {
+		const none = sanitizeModelSettings({});
+		expect(resolveModelSpec(none, "chat", null)).toBe("current");
+		expect(resolveModelSpec(none, "classifier", null)).toBeNull();
+		expect(models.conductors.bad).toBeUndefined();
+		expect(() => resolveModelSpec(none, "chat", null, "no-slash")).toThrow(/invalid chat model spec/);
+	});
+
+	test("only loopback base URLs count as local", () => {
+		expect(isLoopbackUrl("http://127.0.0.1:8080/v1")).toBe(true);
+		expect(isLoopbackUrl("http://localhost:11434")).toBe(true);
+		expect(isLoopbackUrl("https://openrouter.ai/api/v1")).toBe(false);
+		expect(isLoopbackUrl(undefined)).toBe(false);
 	});
 });

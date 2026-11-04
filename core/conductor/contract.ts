@@ -142,7 +142,11 @@ export interface CompletionRequest {
 	maxOutputTokens?: number;
 	/** Abort signal the host fires if the in-flight call should be cancelled (detach / swap). */
 	signal?: AbortSignal;
-	/** Which model to use. `"current"` (default) = the live session's model — the only honored value. */
+	/**
+	 * Which model to use. Omitted or `"current"` routes through the user's model settings (the
+	 * conductor's chat override, then the chat default, then the live session's model); a canonical
+	 * `provider/model-id` spec names one model explicitly.
+	 */
 	model?: "current" | string;
 }
 
@@ -156,6 +160,43 @@ export interface CompletionResult {
 	inputTokens?: number;
 	/** Host-counted output token usage, when available. */
 	outputTokens?: number;
+}
+
+/** One typed question for a classifier model (mirrors pi-ai's `ClassifierQuestion`). */
+export type ClassifierQuestion =
+	/** Pick one label. `criteria` maps each label to what it means. */
+	| { type: "choice"; instructions: string; criteria: Record<string, string> }
+	/** Score on an ordered scale. `criteria` describes each level, lowest first. */
+	| { type: "score"; instructions: string; criteria: string[] }
+	/** Yes or no. */
+	| { type: "bool"; instructions: string; criteria: { true: string; false: string } };
+
+/** One classifier answer, keyed by question id in `ClassificationResult.answers`. */
+export type ClassifierAnswer =
+	| { type: "choice"; choice: string; probabilities: Record<string, number>; confidence: number }
+	/** `score` is the expected level index, from 0 to `criteria.length - 1`. */
+	| { type: "score"; score: number; confidence: number }
+	/** Probability of `true`. */
+	| { type: "bool"; probability: number };
+
+/** A request to answer typed questions about JSON state with a classifier model, off the hot path. */
+export interface ClassificationRequest {
+	/** The data to classify. */
+	state: Record<string, unknown>;
+	/** Questions by id; one call answers all of them. */
+	questions: Record<string, ClassifierQuestion>;
+	/** Abort signal the host fires if the in-flight call should be cancelled. */
+	signal?: AbortSignal;
+	/** A canonical `provider/model-id` spec; omitted routes through the user's classifier settings. */
+	model?: string;
+}
+
+/** The fulfilled result of a `ClassificationRequest`. */
+export interface ClassificationResult {
+	/** Answers by question id. */
+	answers: Record<string, ClassifierAnswer>;
+	/** The canonical spec of the model that ran. */
+	model: string;
 }
 
 /**
@@ -198,6 +239,12 @@ export interface ConductorHost {
 	digestOf(id: string): string | null;
 	/** Run an out-of-band model completion. Rejects if the model is unavailable or the call fails. */
 	complete(req: CompletionRequest): Promise<CompletionResult>;
+	/**
+	 * Classify structured state with the configured classifier model. Rejects when none is configured,
+	 * the model is unknown or unauthenticated, or the call fails. Absent on hosts that cannot run
+	 * classifiers (the remote seam today), so a conductor must treat a missing method as unavailable.
+	 */
+	classify?(req: ClassificationRequest): Promise<ClassificationResult>;
 	/**
 	 * Surface display-only conductor status to the human; `null`/empty clears it. A `level` metric of
 	 * `"warning"` or `"error"` marks a degraded state (a failing model call, an unreachable budget, a

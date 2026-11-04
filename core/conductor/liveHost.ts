@@ -34,7 +34,7 @@ import type {
 	HoldReleaseMessage,
 	CancelCompleteMessage,
 } from "../protocol";
-import type { Conductor, ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult } from "./contract";
+import type { Conductor, ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "./contract";
 import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent } from "./hostAdapter";
 import { entryById, type RegistryEntry } from "./registry";
 import { estTokens } from "../tokens";
@@ -64,8 +64,11 @@ export interface LiveHostDeps {
 	readiness(entry: RegistryEntry): ConductorReadiness;
 	/** Launch a spawn conductor's runner. Returns null if the runner is unavailable on this install. */
 	spawnRunner(entryFile: string, env: Record<string, string>): SpawnedRunner | null;
-	/** Run an out-of-band model completion off the hot path. Rejects on failure/unavailability. */
-	runCompletion(req: CompletionRequest, signal: AbortSignal): Promise<CompletionResult>;
+	/** Run an out-of-band model completion off the hot path for `conductorId`'s model routing. Rejects
+	 *  on failure/unavailability. */
+	runCompletion(req: CompletionRequest, signal: AbortSignal, conductorId: string | null): Promise<CompletionResult>;
+	/** Run a classifier call for `conductorId`'s model routing. Omitted ⇒ classifiers are unavailable. */
+	runClassification?(req: ClassificationRequest, signal: AbortSignal, conductorId: string | null): Promise<ClassificationResult>;
 	/** The spawn environment facts (loopback port, stable session key, persistence home). */
 	spawnEnv(): { port: number; sessionKey: string; home: string };
 	/** Monotonic-ish clock for measuring the hold window. */
@@ -237,7 +240,22 @@ export class LiveConductorHost implements ConductorHost {
 			else req.signal.addEventListener("abort", () => controller.abort(), { once: true });
 		}
 		try {
-			return await this.deps.runCompletion(req, controller.signal);
+			return await this.deps.runCompletion(req, controller.signal, this.active?.id ?? null);
+		} finally {
+			this.completions.delete(controller);
+		}
+	}
+	async classify(req: ClassificationRequest): Promise<ClassificationResult> {
+		const run = this.deps.runClassification;
+		if (!run) throw new Error("this host cannot run classifier models");
+		const controller = new AbortController();
+		this.completions.add(controller);
+		if (req.signal) {
+			if (req.signal.aborted) controller.abort();
+			else req.signal.addEventListener("abort", () => controller.abort(), { once: true });
+		}
+		try {
+			return await run(req, controller.signal, this.active?.id ?? null);
 		} finally {
 			this.completions.delete(controller);
 		}
@@ -283,6 +301,7 @@ export class LiveConductorHost implements ConductorHost {
 			countTokens: (text) => this.countTokens(text),
 			digestOf: (id) => this.digestOf(id),
 			complete: (req) => this.complete(req),
+			classify: (req) => this.classify(req),
 			setStatus: (text, metrics) => this.setStatus(text, metrics),
 			propose: (txn) => {
 				if (this.mode !== "in-process" || this.attachGeneration !== generation) {
@@ -760,7 +779,7 @@ export class LiveConductorHost implements ConductorHost {
 		// an A→B conductor swap must route back to the A that asked (a no-op if A is gone), never leak
 		// to whoever attached in the meantime.
 		void this.deps
-			.runCompletion(cr, controller.signal)
+			.runCompletion(cr, controller.signal, this.active?.id ?? null)
 			.then(
 				(res) =>
 					this.deps.sendToSocket(from, {

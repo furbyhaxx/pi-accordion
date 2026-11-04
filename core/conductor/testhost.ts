@@ -10,7 +10,7 @@ import { Truth } from "../truth";
 import type { Block, ParsedSession } from "../types";
 import { estTokens } from "../tokens";
 import { digest } from "../digest";
-import type { ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult, Op, TxnResult, TruthStats } from "./contract";
+import type { ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult, Op, TxnResult, TruthStats } from "./contract";
 import type { TruthEvent } from "../events";
 import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent } from "./hostAdapter";
 
@@ -77,6 +77,15 @@ export class TestHost implements ConductorHost {
 		if (!next) throw new Error("TestHost.complete: no scripted response queued");
 		if (!next.ok) throw next.error;
 		return next.result;
+	}
+	/** Every request passed to `classify`, in order. */
+	readonly classifyLog: ClassificationRequest[] = [];
+	/** Scripted classifier; unset ⇒ `classify` rejects like a host with no classifier configured. */
+	classifier: ((req: ClassificationRequest) => ClassificationResult | Promise<ClassificationResult>) | null = null;
+	async classify(req: ClassificationRequest): Promise<ClassificationResult> {
+		this.classifyLog.push(req);
+		if (!this.classifier) throw new Error("TestHost.classify: no classifier scripted");
+		return this.classifier(req);
 	}
 	setStatus(text: string | null, metrics?: Record<string, number | string | boolean>): void {
 		this.statusLog.push({ text, metrics });

@@ -12,6 +12,19 @@ import { REGISTRY_DIR } from "../app/src/lib/live/registry";
 
 export type CompactMode = "accordion" | "suppress" | "native";
 
+/** The kinds of model a conductor can request from the host. */
+export type ModelType = "chat" | "classifier";
+export const MODEL_TYPES: readonly ModelType[] = ["chat", "classifier"];
+
+/** Canonical `provider/model-id` specs per model type; `"current"` (chat only) is the session model. */
+export type ModelSpecs = Partial<Record<ModelType, string>>;
+
+/** Model routing for out-of-band conductor calls: a default per type, overridden per conductor id. */
+export interface ModelSettings {
+	defaults: ModelSpecs;
+	conductors: Record<string, ModelSpecs>;
+}
+
 export interface AccordionSettings {
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
@@ -25,6 +38,10 @@ export interface AccordionSettings {
 	doorPort: number;
 	/** Optional user-defined static token for Web UI access (null => use generated 8-char memorable token). */
 	customToken: string | null;
+	/** Which models conductors' completions and classifications run on. */
+	models: ModelSettings;
+	/** Conductor id → ISO timestamp at which the user accepted its privacy notice. */
+	privacyConsent: Record<string, string>;
 }
 
 export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
@@ -34,6 +51,8 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	bindHost: "127.0.0.1",
 	doorPort: DOOR_PORT,
 	customToken: null,
+	models: { defaults: {}, conductors: {} },
+	privacyConsent: {},
 };
 
 const CONFIG_FILE = "config.json";
@@ -98,6 +117,75 @@ export function sanitizeCompactMode(value: unknown): CompactMode {
 	return DEFAULT_SETTINGS.compactMode;
 }
 
+/** A canonical model spec: `provider/model-id` (the id may itself contain `/`), or `"current"` for chat. */
+export function sanitizeModelSpec(value: unknown, type: ModelType): string | null {
+	if (typeof value !== "string") return null;
+	const spec = value.trim();
+	if (spec === "current") return type === "chat" ? spec : null;
+	if (spec.length > 300 || /\s/.test(spec)) return null;
+	const slash = spec.indexOf("/");
+	return slash > 0 && slash < spec.length - 1 ? spec : null;
+}
+
+function sanitizeModelSpecs(value: unknown): ModelSpecs {
+	const out: ModelSpecs = {};
+	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+	for (const type of MODEL_TYPES) {
+		const spec = sanitizeModelSpec((value as Record<string, unknown>)[type], type);
+		if (spec) out[type] = spec;
+	}
+	return out;
+}
+
+export function sanitizeModelSettings(value: unknown): ModelSettings {
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	const conductors: Record<string, ModelSpecs> = {};
+	const rawConductors = raw.conductors;
+	if (rawConductors && typeof rawConductors === "object" && !Array.isArray(rawConductors)) {
+		for (const [id, specs] of Object.entries(rawConductors)) {
+			const clean = sanitizeModelSpecs(specs);
+			if (id.trim() && Object.keys(clean).length) conductors[id.trim()] = clean;
+		}
+	}
+	return { defaults: sanitizeModelSpecs(raw.defaults), conductors };
+}
+
+export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
+	const out: Record<string, string> = {};
+	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+	for (const [id, at] of Object.entries(value)) if (id.trim() && typeof at === "string" && at.trim()) out[id.trim()] = at.trim();
+	return out;
+}
+
+/**
+ * The model spec a conductor's request resolves to: an explicit spec in the request wins, then the
+ * conductor's override, then the per-type default. Chat falls back to the session model; a
+ * classifier has no implicit fallback, so `null` means none is configured.
+ */
+export function resolveModelSpec(models: ModelSettings, type: ModelType, conductorId: string | null, requested?: string): string | null {
+	const explicit = requested !== undefined && requested !== "current" ? sanitizeModelSpec(requested, type) : null;
+	if (requested !== undefined && requested !== "current" && !explicit) throw new Error(`invalid ${type} model spec "${requested}" (expected provider/model-id)`);
+	const spec = explicit ?? (conductorId ? models.conductors[conductorId]?.[type] : undefined) ?? models.defaults[type];
+	return spec ?? (type === "chat" ? "current" : null);
+}
+
+/** Split a canonical spec at its first `/`: `openrouter/google/gemini-x` → provider `openrouter`. */
+export function splitModelSpec(spec: string): { provider: string; id: string } {
+	const slash = spec.indexOf("/");
+	return { provider: spec.slice(0, slash), id: spec.slice(slash + 1) };
+}
+
+/** Does a provider base URL point at this machine? Data sent there never leaves it. */
+export function isLoopbackUrl(baseUrl: unknown): boolean {
+	if (typeof baseUrl !== "string" || !baseUrl) return false;
+	try {
+		const host = new URL(baseUrl).hostname.toLowerCase();
+		return isLoopbackHost(host) || /^127\./.test(host);
+	} catch {
+		return false;
+	}
+}
+
 export function isLoopbackHost(host: string): boolean {
 	const h = host.trim().toLowerCase();
 	return h === "127.0.0.1" || h === "localhost" || h === "::1" || h === "[::1]";
@@ -158,6 +246,8 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		bindHost,
 		doorPort,
 		customToken,
+		models: sanitizeModelSettings(fileData.models),
+		privacyConsent: sanitizePrivacyConsent(fileData.privacyConsent),
 	};
 }
 
@@ -169,6 +259,8 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		bindHost: sanitizeBindHost(settings.bindHost),
 		doorPort: sanitizeDoorPort(settings.doorPort),
 		customToken: sanitizeCustomToken(settings.customToken),
+		models: sanitizeModelSettings(settings.models),
+		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
 	};
 	try {
 		const filePath = configPathForHome(homeDir);

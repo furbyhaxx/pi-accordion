@@ -628,8 +628,8 @@ export interface ProposeMessage {
 
 /**
  * A conductor-role client's out-of-band completion request (v13) — the wire form of
- * `ConductorHost.complete`. The host resolves it against the live session's model and replies
- * `completeResult` tagged with the same `reqId`.
+ * `ConductorHost.complete`. The host resolves `model` through the user's model settings (see
+ * `CompletionRequest.model`) and replies `completeResult` tagged with the same `reqId`.
  */
 export interface CompleteRequestMessage {
 	type: "completeRequest";
