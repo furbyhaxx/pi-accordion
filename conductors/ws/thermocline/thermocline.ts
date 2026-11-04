@@ -59,6 +59,7 @@ import {
 	buildDigestPrompt,
 	buildStratumPrompt,
 	unionSet,
+	unitText,
 } from "./policy";
 import { scoreCandidates, tailTextFromView, type Scorer } from "./scorer";
 
@@ -978,7 +979,7 @@ export class ThermoclineConductor implements Conductor {
 		if (!tailText.trim()) return; // no work tail to score against
 
 		this.scoringInFlight = true;
-		const candidates = cands.map((u) => ({ id: u.temperatureKey, text: u.blocks.map((b) => b.text ?? "").join("\n") }));
+		const candidates = cands.map((u) => ({ id: u.temperatureKey, text: unitText(u) }));
 		const ids = candidates.map((c) => c.id);
 		for (const id of ids) this.attempted.add(id);
 		const started = Date.now();
@@ -1190,6 +1191,7 @@ export class ThermoclineConductor implements Conductor {
 			probe: this.probe.state,
 			...(this.probe.error ? { probeError: this.probe.error } : {}),
 			scoredUnits: this.scores.size,
+			...(this.irreducibleOverflow || this.probe.state === "degraded" ? { level: "warning" } : {}),
 			lowWater: Math.round(this.cfg.lowWater * 100),
 			highWater: Math.round(this.cfg.highWater * 100),
 			irreducibleOverflow: this.irreducibleOverflow,

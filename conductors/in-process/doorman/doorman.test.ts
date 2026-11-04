@@ -170,6 +170,24 @@ describe("DoormanConductor — birth-folds a non-code giant dump to the engine d
 // ── (3) leaves untouched ─────────────────────────────────────────────────────────────────
 
 describe("DoormanConductor — leaves untouched", () => {
+	it("a multi-call codemode result is compacted per section instead of folded whole", async () => {
+		const host = new TestHost();
+		new DoormanConductor().attach(host);
+		const code = 'text(await tools.read({path: "src/util.py"})); text(await tools.grep({pattern: "x", path: "src"})); text(await tools.bash({command: "git status"}))';
+		const output = `Script completed\nWall time 0.4 seconds\nOutput:\n==> text 1/3 <==\n${bigPythonSource(15)}\n==> text 2/3 <==\n${bigGrepDump(200)}\n==> text 3/3 <==\nM src/util.py`;
+		host.appendBlocks([
+			userBlock("u:1", 1, 0, "look around"),
+			toolCall("c:1", 1, 1, "codemode", { code }),
+			toolResult("r:1", 1, 2, "c:1", "codemode", output),
+		]);
+		await host.departWire();
+		const after = host.truth.get("r:1")!;
+		expect(after.subst).toContain("⟨codemode · 3 sections · 1 skeletonized · 1 trimmed");
+		expect(after.subst).toContain("==> 1/3 · read src/util.py <==\n⟨code skeleton · src/util.py");
+		expect(after.subst).toContain("lines elided");
+		expect(after.subst).toContain("==> 3/3 · bash git status <==\nM src/util.py");
+	});
+
 	it("a small result (below MIN_SKELETON_TOKENS) stays live", async () => {
 		const host = new TestHost();
 		const d = new DoormanConductor();

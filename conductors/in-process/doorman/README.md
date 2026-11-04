@@ -49,6 +49,12 @@ conductor. It declares no locks, so attaching it is fully collaborative — no c
      alone entirely** this pass. Doorman has no budget-driven fallback pass (unlike the old
      code-skeleton conductor's 3-pass budget loop) — it is a birth-fold demo, not a full
      context-management strategy.
+   - **A codemode batch** (several nested calls in one result) → `compactCodemode`
+     (`codemode.ts`) rewrites it section by section: code reads become skeletons, sections longer
+     than 50 lines keep their first 40 and last 10 lines, short sections stay verbatim. Each
+     section is labeled with its nested call (`==> 2/3 · read src/a.ts <==`). The replacement is
+     recoverable and passes the same worth-it gate as a skeleton. Parsing lives in
+     `core/codemode.ts` and also unwraps the JSON envelopes agents print around results.
    - **Not code** (grep dumps, JSON blobs, directory listings, …) → `{ kind: "fold", ids: [id] }`
      with no custom digest. The engine's own per-kind digest applies — still tagged
      (`{#code FOLDED}`), still recallable/unfoldable, exactly like a human fold.

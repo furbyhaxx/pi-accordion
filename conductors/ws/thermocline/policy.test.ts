@@ -9,7 +9,7 @@
 //   • FIX 9 (drop strata in conversation order) + FIX 7 (merge adjacency guard),
 //   • the deterministic/emergency path + empty-scores age-based last resort,
 //   • emitOps shapes: folds → recoverable `replace`, strata → tagged `group`, drop → `summary:null`.
-import { describe, test, expect } from "vitest";
+import { describe, test, it, expect } from "vitest";
 import {
 	DEFAULT_CFG,
 	buildUnits,
@@ -20,6 +20,10 @@ import {
 	emitOps,
 	FOLDABLE_KINDS,
 	stratumDigestKey,
+	deterministicDigest,
+	trimText,
+	unitText,
+	buildDigestPrompt,
 	type ConductorView,
 	type ViewBlock,
 } from "./policy";
@@ -717,5 +721,25 @@ describe("BURST: a big tool result never rides the wire over cap", () => {
 	test("Rung 0 stays out when the SENT tail alone is over cap (budget < protect) — folding fresh results can't fit it", () => {
 		const plan = planEpoch(burst({ resultTokens: 3_000, resultSent: false, sentTailTokens: 45_000 }), new Map(), stateOf(), DEFAULT_CFG, { deterministic: true });
 		expect(plan.folds.flatMap((f) => f.ids)).not.toContain("r:c9");
+	});
+});
+
+describe("codemode units", () => {
+	const code = 'const r = await Promise.allSettled([tools.read({path: "src/a.ts"}), tools.bash({command: "git status"})]); r.forEach((x, i) => text(JSON.stringify({i, result: x})));';
+	const output = `Script completed\nWall time 0.2 seconds\nOutput:\n==> text 1/2 <==\n${JSON.stringify({ i: 0, result: { status: "fulfilled", value: "export const a = 1;\nexport const b = 2;\nexport const c = 3;" } })}\n==> text 2/2 <==\n${JSON.stringify({ i: 1, result: { status: "rejected", reason: "not a git repository" } })}`;
+	const unit = buildUnits([
+		{ id: "c", kind: "tool_call", turn: 1, order: 0, tokens: 50, foldedTokens: 50, toolName: "codemode", callId: "k", text: `codemode ${JSON.stringify({ code })}`, held: false, folded: false, protected: false, grouped: false },
+		{ id: "r", kind: "tool_result", turn: 1, order: 1, tokens: 500, foldedTokens: 20, toolName: "codemode", callId: "k", text: output, held: false, folded: false, protected: false, grouped: false },
+	] as ViewBlock[])[0];
+
+	it("names the nested calls and outcomes in the deterministic digest", () => {
+		expect(deterministicDigest(unit)).toBe("codemode: read src/a.ts · bash git status → 2 results, 1 failed");
+	});
+
+	it("excerpts every section and feeds decoded text to prompts and the probe", () => {
+		expect(trimText(unit)).toBe("==> 1/2 · read src/a.ts <==\nexport const a = 1;\nexport const b = 2;\n…\n==> 2/2 · bash git status · failed <==\nnot a git repository");
+		expect(unitText(unit)).toContain("export const c = 3;");
+		expect(unitText(unit)).not.toContain('\\"status\\"');
+		expect(buildDigestPrompt(unit).prompt).toContain("==> 2/2 · bash git status · failed <==");
 	});
 });

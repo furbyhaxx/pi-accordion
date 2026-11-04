@@ -41,6 +41,10 @@
  *     (no elidable body, or the skeleton wouldn't shrink the block enough) is left ALONE this
  *     pass — doorman does not fall back to a generic fold for it (unlike the old code-skeleton
  *     conductor's budget-driven passes; doorman has no budget loop, it is a birth-fold demo).
+ *   - A codemode result that batched several calls is compacted section by section
+ *     (`compactCodemode`): code reads become skeletons and long sections keep their head and
+ *     tail, so one large section no longer costs the agent the others. The replacement is
+ *     recoverable and must pass the same worth-it gate as a skeleton.
  *   - Every OTHER giant fresh result (grep dumps, JSON blobs, directory listings, …) gets a
  *     plain `{ kind: "fold", ids: [id] }` — no custom digest, so the engine's own per-kind
  *     digest applies. That digest still carries the `{#code FOLDED}` tag (recallable,
@@ -48,7 +52,9 @@
  */
 import type { Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
+import { isCodemodeTool } from "../../../core/codemode";
 import { classifyCodeRead, type CodeReadInfo } from "./classify";
+import { compactCodemode } from "./codemode";
 import { detectLang, skeletonize } from "./skeletonize";
 
 /** Below this, a tool_result isn't worth intercepting at all — ported from the code-skeleton
@@ -62,6 +68,8 @@ const MAX_SKELETON_RATIO = 0.6;
 /** Rough token cost of the engine's `{#code FOLDED}` tag + per-block overhead layered onto
  *  the skeleton body we supply — kept the saving estimate conservative, same as the reference. */
 const TAG_OVERHEAD_TOKENS = 10;
+/** Head/tail kept from a long non-code codemode section. */
+const SECTION_TRIM = { headLines: 40, tailLines: 10, lineChars: 400 };
 
 /** A computed, worth-it skeleton for one candidate block. */
 interface Skeleton {
@@ -142,6 +150,8 @@ export class DoormanConductor implements Conductor {
 			if (b.tokens < MIN_SKELETON_TOKENS) continue;
 
 			const info = classifyCodeRead(b, callById);
+			const call = b.callId ? callById.get(b.callId) : undefined;
+			const compact = info ? null : isCodemodeTool(b.toolName, call?.text) ? this.codemodeFor(host, b, call?.text) : null;
 			if (info) {
 				const sk = this.skeletonFor(host, b, info);
 				if (!sk) continue; // classified as code, but not worth it — leave alone
@@ -149,6 +159,11 @@ export class DoormanConductor implements Conductor {
 				opIds.push(id);
 				skeletonCount++;
 				skeletonSaved += sk.saved;
+			} else if (compact) {
+				ops.push({ kind: "replace", id, content: compact.content, recoverable: true });
+				opIds.push(id);
+				skeletonCount++;
+				skeletonSaved += compact.saved;
 			} else {
 				// Not a code-file read, but still a giant fresh result — the plain birth-fold.
 				ops.push({ kind: "fold", ids: [id] });
@@ -186,6 +201,22 @@ export class DoormanConductor implements Conductor {
 		if (saved <= 0 || skeletonTokens > b.tokens * MAX_SKELETON_RATIO) return null;
 
 		return { content, saved };
+	}
+
+	/** Section-wise compaction of a codemode result, or null when it would not pay off. */
+	private codemodeFor(host: ConductorHost, b: ViewBlock, callText: string | undefined): Skeleton | null {
+		const compact = compactCodemode(b.text ?? host.textOf(b.id) ?? undefined, callText, {
+			skeleton: (path, source) => {
+				const sk = skeletonize(source, detectLang(path, source));
+				return sk.elidedLines === 0 ? null : `⟨code skeleton · ${path ?? "file"} · ${sk.totalLines}L → ${sk.keptLines}L⟩\n${sk.skeleton}`;
+			},
+			trim: SECTION_TRIM,
+		});
+		if (!compact) return null;
+		const cost = host.countTokens(compact.content) + TAG_OVERHEAD_TOKENS;
+		const saved = b.tokens - cost;
+		if (saved <= 0 || cost > b.tokens * MAX_SKELETON_RATIO) return null;
+		return { content: compact.content, saved };
 	}
 
 	private publishStatus(skeletons: number, folds: number, skeletonSaved: number, foldSaved: number): void {

@@ -2411,6 +2411,162 @@ import { mkdirSync, writeFileSync as writeFileSync2, renameSync, readFileSync as
 import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
 
+// core/codemode.ts
+var MARKER = /^==> text (\d+)\/(\d+) <==\r?$/gm;
+var OUTPUT_HEADER = /^Output:\r?\n/m;
+var FULL_OUTPUT = /\r?\n\[Full output: [^\]\n]+\]\s*$/;
+var PAYLOAD_KEYS = ["value", "output", "stdout", "content", "text", "result"];
+function isCodemodeTool(toolName, callText) {
+  const own = toolName?.trim().toLowerCase();
+  if (own && own !== "tool") return own === "codemode";
+  return callText?.trimStart().match(/^([^\s{]+)/)?.[1]?.toLowerCase() === "codemode";
+}
+function codemodeScript(callText) {
+  if (typeof callText !== "string") return void 0;
+  const start = callText.indexOf("{");
+  if (start < 0) return void 0;
+  try {
+    const args = JSON.parse(callText.slice(start));
+    const code = args && typeof args === "object" ? args["code"] : void 0;
+    return typeof code === "string" ? code : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function tokenize(script) {
+  const tokens = [];
+  const pattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]/g;
+  for (const match of script.matchAll(pattern)) {
+    const value = match[0];
+    if (value.startsWith("//") || value.startsWith("/*")) continue;
+    const quote = value[0];
+    if (quote === "`") {
+      tokens.push({ value: "", quoted: true, opaque: true });
+    } else if (quote === '"' || quote === "'") {
+      const content = value.slice(1, -1);
+      if (/\\(?:[^\\'"nrt]|$)/.test(content)) tokens.push({ value: "", quoted: true, opaque: true });
+      else tokens.push({ value: content.replace(/\\([\\'"nrt])/g, (_, ch) => ({ n: "\n", r: "\r", t: "	" })[ch] ?? ch), quoted: true });
+    } else {
+      tokens.push({ value, quoted: false });
+    }
+  }
+  return tokens;
+}
+var PATH_KEYS = /* @__PURE__ */ new Set(["path", "file_path", "filePath"]);
+var RANGE_KEYS = /* @__PURE__ */ new Set(["offset", "limit", "start_line", "end_line", "startLine", "endLine"]);
+function codemodeScriptCalls(script) {
+  const tokens = tokenize(script);
+  const calls = [];
+  for (let i = 0; i + 3 < tokens.length; i++) {
+    const t = tokens[i];
+    if (tokens[i - 1]?.value === "." || t.quoted || t.value !== "tools" || tokens[i + 1].value !== "." || tokens[i + 2].quoted || tokens[i + 3].value !== "(") continue;
+    const call = { tool: tokens[i + 2].value.toLowerCase(), ranged: false };
+    const first = tokens[i + 4];
+    if (first?.quoted && !first.opaque && (tokens[i + 5]?.value === ")" || tokens[i + 5]?.value === ",")) {
+      call.path = first.value;
+    } else if (first?.value === "{" && !first.quoted) {
+      let depth = 1;
+      for (let j = i + 5; j < tokens.length && depth > 0; j++) {
+        const tok = tokens[j];
+        if (!tok.quoted && (tok.value === "{" || tok.value === "[" || tok.value === "(")) depth++;
+        else if (!tok.quoted && (tok.value === "}" || tok.value === "]" || tok.value === ")")) depth--;
+        else if (depth === 1 && !tok.quoted && (tokens[j - 1]?.value === "{" || tokens[j - 1]?.value === ",") && tokens[j + 1]?.value === ":") {
+          const arg = tokens[j + 2];
+          const literal = arg?.quoted && !arg.opaque && (tokens[j + 3]?.value === "," || tokens[j + 3]?.value === "}");
+          if (RANGE_KEYS.has(tok.value) && arg?.value !== "null" && arg?.value !== "undefined") call.ranged = true;
+          else if (literal && PATH_KEYS.has(tok.value)) call.path = arg.value;
+          else if (literal && tok.value === "command") call.command = arg.value;
+        }
+      }
+    }
+    calls.push(call);
+  }
+  return calls;
+}
+function record(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function decode(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith('"')) return { text: raw, failed: false };
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { text: raw, failed: false };
+  }
+  if (typeof parsed === "string") return { text: parsed, failed: false };
+  if (!record(parsed)) return { text: raw, failed: false };
+  const index = typeof parsed["i"] === "number" && Number.isInteger(parsed["i"]) ? parsed["i"] : void 0;
+  let failed = false;
+  let node = parsed;
+  for (let depth = 0; depth < 4 && record(node); depth++) {
+    const status = node["status"];
+    if (status === "rejected" || status === "error" || status === "failed" || node["error"] !== void 0) failed = true;
+    if (failed && typeof node["reason"] === "string") return { text: node["reason"], failed, index };
+    if (failed && typeof node["error"] === "string") return { text: node["error"], failed, index };
+    const key = PAYLOAD_KEYS.find((k) => node !== null && typeof node === "object" && k in node);
+    if (key === void 0) break;
+    node = node[key];
+    if (typeof node === "string") return { text: node, failed, index };
+  }
+  return { text: raw, failed, index };
+}
+function parseCodemodeOutput(output, calls = []) {
+  const header = OUTPUT_HEADER.exec(output);
+  const markers = [...output.matchAll(MARKER)];
+  if (!header && markers.length === 0) return null;
+  const tail = FULL_OUTPUT.exec(output);
+  const end = tail ? tail.index : output.length;
+  const postamble = tail ? output.slice(tail.index) : "";
+  const spans = [];
+  let preamble;
+  if (markers.length === 0) {
+    const start = (header?.index ?? 0) + (header?.[0].length ?? 0);
+    preamble = output.slice(0, start);
+    spans.push({ start, end });
+  } else {
+    preamble = output.slice(0, markers[0].index ?? 0);
+    markers.forEach((m, i) => {
+      const start = (m.index ?? 0) + m[0].length;
+      spans.push({ start, end: i + 1 < markers.length ? markers[i + 1].index ?? end : end });
+    });
+  }
+  const decoded = spans.map(({ start, end: stop }, i) => {
+    let raw = output.slice(start, stop).replace(/^\r?\n/, "");
+    if (i + 1 < spans.length || tail) raw = raw.replace(/\r?\n$/, "");
+    return { raw, ...decode(raw) };
+  });
+  const byIndex = decoded.every((d) => d.index !== void 0 && d.index < calls.length);
+  const sections = decoded.map((d, index) => {
+    const call = byIndex ? calls[d.index ?? -1] : decoded.length === calls.length ? calls[index] : void 0;
+    return { index, raw: d.raw, text: d.text, failed: d.failed, ...call ? { call } : {} };
+  });
+  return { preamble, sections, postamble };
+}
+function short(s, n) {
+  const line = s.split("\n").find((l) => l.trim())?.trim() ?? "";
+  return line.length <= n ? line : `${line.slice(0, n - 1)}\u2026`;
+}
+function callLabel(call) {
+  const arg = call.path ?? (call.command === void 0 ? void 0 : short(call.command, 48));
+  return arg ? `${call.tool} ${arg}` : call.tool;
+}
+function codemodeSummary(calls, max = 4) {
+  if (calls.length === 0) return "codemode script";
+  const named = calls.slice(0, max).map(callLabel).join(" \xB7 ");
+  return calls.length > max ? `codemode: ${named} \xB7 +${calls.length - max} more` : `codemode: ${named}`;
+}
+function renderCodemode(out, body = (s) => s.text) {
+  const n = out.sections.length;
+  return out.sections.map((s) => {
+    const label = s.call ? ` \xB7 ${callLabel(s.call)}` : "";
+    const failed = s.failed ? " \xB7 failed" : "";
+    return `==> ${s.index + 1}/${n}${label}${failed} <==
+${body(s)}`;
+  }).join("\n");
+}
+
 // conductors/ws/thermocline/policy.ts
 var FOLDABLE_KINDS2 = /* @__PURE__ */ new Set(["text", "thinking", "tool_result"]);
 var DEFAULT_CFG = {
@@ -2938,9 +3094,26 @@ What this run accomplished \u2014 files changed, commands run, decisions, errors
 Facts, constraints, or open threads later work must remember.
 
 Be terse everywhere except the verbatim user messages. The output goes directly into the agent's context window.`;
+function codemodeOf(unit) {
+  const call = unit.blocks.find((b) => b.kind === "tool_call");
+  const result = unit.blocks.find((b) => b.kind === "tool_result");
+  if (!call || !result || !isCodemodeTool(result.toolName ?? call.toolName, call.text)) return null;
+  const calls = codemodeScriptCalls(codemodeScript(call.text) ?? "");
+  return { calls, out: result.isError ? null : parseCodemodeOutput(result.text ?? "", calls) };
+}
+function readableText(b, unit) {
+  if (b.kind === "tool_result") {
+    const out = codemodeOf(unit)?.out;
+    if (out) return renderCodemode(out).trim();
+  }
+  return (b.text ?? "").trim();
+}
+function unitText(unit) {
+  return unit.blocks.map((b) => readableText(b, unit)).filter(Boolean).join("\n");
+}
 function buildDigestPrompt(unit) {
   const body = unit.blocks.map((b) => {
-    const text = (b.text ?? "").trim();
+    const text = readableText(b, unit);
     return text ? `[${blockLabel(b)}]
 ${text}` : `[${blockLabel(b)}]`;
   }).join("\n\n");
@@ -2950,8 +3123,8 @@ ${text}` : `[${blockLabel(b)}]`;
   };
 }
 function buildStratumPrompt(units) {
-  const conversation = units.flatMap((u) => u.blocks).map((b) => {
-    const text = (b.text ?? "").trim();
+  const conversation = units.flatMap((u) => u.blocks.map((b) => ({ b, u }))).map(({ b, u }) => {
+    const text = readableText(b, u);
     return text ? `[${blockLabel(b)}]
 ${text}` : `[${blockLabel(b)}]`;
   }).join("\n\n");
@@ -2969,6 +3142,13 @@ ${text}` : `[${blockLabel(b)}]`;
 function deterministicDigest(unit) {
   const head = unit.blocks[0];
   const result = unit.blocks.find((b) => b.kind === "tool_result");
+  const codemode = codemodeOf(unit);
+  if (codemode) {
+    const n = codemode.out?.sections.length ?? 0;
+    const failed = codemode.out?.sections.filter((s) => s.failed).length ?? 0;
+    const outcome = result?.isError ? "error" : n > 0 ? `${n} result${n === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}` : "done";
+    return `${codemodeSummary(codemode.calls)} \u2192 ${outcome}`;
+  }
   if (head.kind === "tool_call") {
     const name = head.toolName ?? "tool";
     const peek = result ? firstLine2((result.text ?? "").trim(), 60) : "";
@@ -2997,7 +3177,15 @@ function deterministicRecap(units) {
   return `run \xB7 ${blocks.length} block${blocks.length === 1 ? "" : "s"} \xB7 ${span} \xB7 ~${tokens} tok \xB7 ${breakdown}${quote}`;
 }
 function trimText(unit) {
-  const text = unit.blocks.map((b) => (b.text ?? "").trim()).filter(Boolean).join("\n");
+  const codemode = codemodeOf(unit)?.out;
+  if (codemode) {
+    const peek = (text2) => {
+      const lines2 = text2.split("\n").filter((l) => l.trim());
+      return [...lines2.slice(0, 2).map((l) => clip2(l.trim(), 120)), ...lines2.length > 2 ? ["\u2026"] : []].join("\n");
+    };
+    return clip2(renderCodemode(codemode, (s) => peek(s.text)), 600);
+  }
+  const text = unitText(unit);
   const lines = text.split("\n");
   if (lines.length <= 6) return clip2(text, 240);
   const headN = Math.max(2, Math.ceil(lines.length * 0.15));
@@ -3863,7 +4051,7 @@ var ThermoclineConductor = class {
     const tailText = tailTextFromView(view.blocks);
     if (!tailText.trim()) return;
     this.scoringInFlight = true;
-    const candidates = cands.map((u) => ({ id: u.temperatureKey, text: u.blocks.map((b) => b.text ?? "").join("\n") }));
+    const candidates = cands.map((u) => ({ id: u.temperatureKey, text: unitText(u) }));
     const ids = candidates.map((c) => c.id);
     for (const id of ids) this.attempted.add(id);
     const started = Date.now();
@@ -4020,6 +4208,7 @@ var ThermoclineConductor = class {
       probe: this.probe.state,
       ...this.probe.error ? { probeError: this.probe.error } : {},
       scoredUnits: this.scores.size,
+      ...this.irreducibleOverflow || this.probe.state === "degraded" ? { level: "warning" } : {},
       lowWater: Math.round(this.cfg.lowWater * 100),
       highWater: Math.round(this.cfg.highWater * 100),
       irreducibleOverflow: this.irreducibleOverflow,

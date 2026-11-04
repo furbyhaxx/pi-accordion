@@ -100,7 +100,7 @@ function fakeSkeletonizer(opts: { holdInit?: boolean; skeletonOf?: (path: string
 	return { skel, releaseInit: release };
 }
 
-function setup(opts: Parameters<typeof fakeSkeletonizer>[0] & { blocks?: Block[]; now?: () => number; sections?: { path?: string; tool: string; source: string }[] } = {}): {
+function setup(opts: Parameters<typeof fakeSkeletonizer>[0] & { blocks?: Block[]; now?: () => number } = {}): {
 	host: TestHost;
 	conductor: TriptychConductor;
 	releaseInit: () => void;
@@ -110,9 +110,7 @@ function setup(opts: Parameters<typeof fakeSkeletonizer>[0] & { blocks?: Block[]
 	host.setProtect(PROTECT);
 	host.appendBlocks(opts.blocks ?? buildBlocks());
 	const { skel, releaseInit } = fakeSkeletonizer(opts);
-	const conductor = new (class extends TriptychConductor {
-		protected codemodeSections() { return opts.sections ?? null; }
-	})(skel, { now: opts.now });
+	const conductor = new TriptychConductor(skel, { now: opts.now });
 	conductor.attach(host);
 	return { host, conductor, releaseInit };
 }
@@ -177,10 +175,10 @@ describe("TriptychConductor", () => {
 
 	it("skeletonizes a single codemode code section with its provenance", async () => {
 		const blocks = buildBlocks();
-		blocks[10] = mkBlock(idOf(10), 10, "tool_call", 50, 'codemode {"code":"read"}', { toolName: "codemode", callId: "c1" });
-		blocks[11] = mkBlock(idOf(11), 11, "tool_result", 800, BIG_SOURCE, { toolName: "tool", callId: "c1" });
+		blocks[10] = mkBlock(idOf(10), 10, "tool_call", 50, `codemode ${JSON.stringify({ code: 'text(await tools.read({path: "/proj/src/big.ts"}))' })}`, { toolName: "codemode", callId: "c1" });
+		blocks[11] = mkBlock(idOf(11), 11, "tool_result", 800, `Script completed\nOutput:\n${BIG_SOURCE}`, { toolName: "tool", callId: "c1" });
 		const seen: string[] = [];
-		const { host } = setup({ blocks, sections: [{ path: "/proj/src/big.ts", tool: "read", source: BIG_SOURCE }], skeletonOf: (path, source) => {
+		const { host } = setup({ blocks, skeletonOf: (path, source) => {
 			seen.push(`${path}:${source}`);
 			return "export function alpha() { /* ... */ }";
 		} });
@@ -193,12 +191,27 @@ describe("TriptychConductor", () => {
 		expect(host.get(idOf(11))?.folded).toBe(true);
 	});
 
-	it("leaves multi-section codemode results untouched", async () => {
+	it("skeletonizes each code read of a multi-section codemode result and keeps the rest verbatim", async () => {
 		const blocks = buildBlocks();
-		blocks[10] = mkBlock(idOf(10), 10, "tool_call", 50, 'codemode {"code":"read"}', { toolName: "codemode", callId: "c1" });
-		blocks[11] = mkBlock(idOf(11), 11, "tool_result", 800, BIG_SOURCE, { toolName: "codemode", callId: "c1" });
-		const section = { path: "/proj/src/big.ts", tool: "read", source: BIG_SOURCE };
-		const { host } = setup({ blocks, sections: [section, section] });
+		const code = 'text(await tools.read({path: "/proj/src/big.ts"})); text(await tools.bash({command: "git status"}))';
+		blocks[10] = mkBlock(idOf(10), 10, "tool_call", 50, `codemode ${JSON.stringify({ code })}`, { toolName: "codemode", callId: "c1" });
+		blocks[11] = mkBlock(idOf(11), 11, "tool_result", 800, `Script completed\nOutput:\n==> text 1/2 <==\n${BIG_SOURCE}\n==> text 2/2 <==\nM src/big.ts`, { toolName: "codemode", callId: "c1" });
+		const { host } = setup({ blocks });
+		host.queueCompletion({ text: SUMMARY_A });
+		await flush();
+		await host.commitTurn();
+		await flush();
+		const subst = host.truth.get(idOf(11))?.subst ?? "";
+		expect(subst).toContain("⟨codemode · 2 sections · 1 skeletonized");
+		expect(subst).toContain("==> 2/2 · bash git status <==\nM src/big.ts");
+		expect(host.get(idOf(11))?.folded).toBe(true);
+	});
+
+	it("leaves a codemode result without code reads untouched", async () => {
+		const blocks = buildBlocks();
+		blocks[10] = mkBlock(idOf(10), 10, "tool_call", 50, `codemode ${JSON.stringify({ code: 'text(await tools.bash({command: "ls"}))' })}`, { toolName: "codemode", callId: "c1" });
+		blocks[11] = mkBlock(idOf(11), 11, "tool_result", 800, `Script completed\nOutput:\n${BIG_SOURCE}`, { toolName: "codemode", callId: "c1" });
+		const { host } = setup({ blocks });
 		host.queueCompletion({ text: SUMMARY_A });
 		await flush();
 		await host.commitTurn();

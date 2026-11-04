@@ -6,7 +6,7 @@ each differently:
 | band | region | treatment |
 |---|---|---|
 | **bottom** | the most recent ~⅓ of the cap (raw tokens from the tip; never smaller than the protected tail) | untouched |
-| **middle** | older than the bottom band, not yet summarized | code-file `tool_result` reads → **tree-sitter L2 skeleton** (signatures kept, bodies elided) as a labeled, recoverable `replace` fold — `{#code FOLDED}`-tagged, so `recall` still reaches the full source. Everything else untouched (code-only v1) |
+| **middle** | older than the bottom band, not yet summarized | code-file `tool_result` reads → **tree-sitter L2 skeleton** (signatures kept, bodies elided) as a labeled, recoverable `replace` fold — `{#code FOLDED}`-tagged, so `recall` still reaches the full source. A codemode batch has each code-read section skeletonized and its other sections kept verbatim. Everything else untouched (code-only v1) |
 | **top** | older than ~⅔ of the cap | swept into ONE lossy summary group using compaction-naive's `COMPACTION_SYSTEM` prompt **verbatim** — untagged, agent-unrecoverable, recursive |
 
 **Pressure-gated:** inert until the visible window first crosses the shared 90%

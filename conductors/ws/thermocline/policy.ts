@@ -57,6 +57,7 @@ import { foldTag, isBolted } from "../../../core/digest";
 // function the engine's `snappedRange` walks (core/truth.ts → opGroup), never a re-implementation —
 // so a run's member set is a provable fixed point of what Truth actually groups. See `safeRunFromUnits`.
 import { messageKey } from "../../../core/truth";
+import { codemodeScript, codemodeScriptCalls, codemodeSummary, isCodemodeTool, parseCodemodeOutput, renderCodemode, type CodemodeCall, type CodemodeOutput } from "../../../core/codemode";
 
 export type { ConductorView, ViewBlock };
 
@@ -1131,11 +1132,34 @@ Facts, constraints, or open threads later work must remember.
 
 Be terse everywhere except the verbatim user messages. The output goes directly into the agent's context window.`;
 
+/** A codemode tool pair's nested calls and decoded output, or null for any other unit. */
+function codemodeOf(unit: Unit): { calls: CodemodeCall[]; out: CodemodeOutput | null } | null {
+	const call = unit.blocks.find((b) => b.kind === "tool_call");
+	const result = unit.blocks.find((b) => b.kind === "tool_result");
+	if (!call || !result || !isCodemodeTool(result.toolName ?? call.toolName, call.text)) return null;
+	const calls = codemodeScriptCalls(codemodeScript(call.text) ?? "");
+	return { calls, out: result.isError ? null : parseCodemodeOutput(result.text ?? "", calls) };
+}
+
+/** A block's text as prompts and the probe should read it: codemode output decoded and labeled. */
+function readableText(b: ViewBlock, unit: Unit): string {
+	if (b.kind === "tool_result") {
+		const out = codemodeOf(unit)?.out;
+		if (out) return renderCodemode(out).trim();
+	}
+	return (b.text ?? "").trim();
+}
+
+/** A unit's text for scoring and excerpts, with codemode output decoded. */
+export function unitText(unit: Unit): string {
+	return unit.blocks.map((b) => readableText(b, unit)).filter(Boolean).join("\n");
+}
+
 /** Build the host.complete request for a per-unit L2 digest. Pure: returns { system, prompt }. */
 export function buildDigestPrompt(unit: Unit): { system: string; prompt: string } {
 	const body = unit.blocks
 		.map((b) => {
-			const text = (b.text ?? "").trim();
+			const text = readableText(b, unit);
 			return text ? `[${blockLabel(b)}]\n${text}` : `[${blockLabel(b)}]`;
 		})
 		.join("\n\n");
@@ -1148,9 +1172,9 @@ export function buildDigestPrompt(unit: Unit): { system: string; prompt: string 
 /** Build the host.complete request for a per-run L3 stratum summary. */
 export function buildStratumPrompt(units: Unit[]): { system: string; prompt: string } {
 	const conversation = units
-		.flatMap((u) => u.blocks)
-		.map((b) => {
-			const text = (b.text ?? "").trim();
+		.flatMap((u) => u.blocks.map((b) => ({ b, u })))
+		.map(({ b, u }) => {
+			const text = readableText(b, u);
 			return text ? `[${blockLabel(b)}]\n${text}` : `[${blockLabel(b)}]`;
 		})
 		.join("\n\n");
@@ -1174,6 +1198,13 @@ export function buildStratumPrompt(units: Unit[]): { system: string; prompt: str
 export function deterministicDigest(unit: Unit): string {
 	const head = unit.blocks[0];
 	const result = unit.blocks.find((b) => b.kind === "tool_result");
+	const codemode = codemodeOf(unit);
+	if (codemode) {
+		const n = codemode.out?.sections.length ?? 0;
+		const failed = codemode.out?.sections.filter((s) => s.failed).length ?? 0;
+		const outcome = result?.isError ? "error" : n > 0 ? `${n} result${n === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}` : "done";
+		return `${codemodeSummary(codemode.calls)} → ${outcome}`;
+	}
 	if (head.kind === "tool_call") {
 		const name = head.toolName ?? "tool";
 		const peek = result ? firstLine((result.text ?? "").trim(), 60) : "";
@@ -1214,7 +1245,16 @@ export function deterministicRecap(units: Unit[]): string {
  * design. Returns the excerpt WITHOUT any tag (the engine's replace op prepends it).
  */
 export function trimText(unit: Unit): string {
-	const text = unit.blocks.map((b) => (b.text ?? "").trim()).filter(Boolean).join("\n");
+	const codemode = codemodeOf(unit)?.out;
+	if (codemode) {
+		// One excerpt per section: a line-based cut would keep the first section and drop the rest.
+		const peek = (text: string) => {
+			const lines = text.split("\n").filter((l) => l.trim());
+			return [...lines.slice(0, 2).map((l) => clip(l.trim(), 120)), ...(lines.length > 2 ? ["…"] : [])].join("\n");
+		};
+		return clip(renderCodemode(codemode, (s) => peek(s.text)), 600);
+	}
+	const text = unitText(unit);
 	const lines = text.split("\n");
 	if (lines.length <= 6) return clip(text, 240); // too short to excerpt — just clip it
 

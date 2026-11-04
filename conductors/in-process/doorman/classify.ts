@@ -37,13 +37,8 @@
  * Pure & deterministic: no Date / Math.random / global state. No `$lib`, no app imports.
  */
 
+import { parseCodemodeResult } from "../../../core/codemode";
 import type { ViewBlock } from "../../../core/conductor/contract";
-
-export interface CodemodeSection {
-	tool: string;
-	path?: string;
-	source: string;
-}
 
 export interface CodeReadInfo {
 	/** Recovered file path (or undefined if only inferable from content). */
@@ -172,13 +167,9 @@ export function classifyCodeRead(block: ViewBlock, callById: Map<string, ViewBlo
 	// Gate 2 (part B): branch by tool family to recover a candidate path.
 	let path: string | undefined;
 	if (effName === "codemode") {
-		const sections = parseCodemodeSections(block, callById);
+		const sections = parseCodemodeResult(rawOutput, callText)?.sections;
 		if (sections?.length !== 1) return null;
-		const section = sections[0];
-		const ext = section.path === undefined ? undefined : extensionOf(section.path);
-		if (section.tool !== "read" || ext === undefined || !CODE_EXTS.has(ext)) return null;
-		path = section.path;
-		return classifyReadSource(path, section.source);
+		return classifyCodemodeRead(sections[0].call?.tool, sections[0].call?.path, sections[0].text);
 	} else if (READ_TOOLS.has(effName)) {
 		// Direct file read: path comes straight from the args.
 		path = asPath(args.file_path) ?? asPath(args.path);
@@ -193,6 +184,18 @@ export function classifyCodeRead(block: ViewBlock, callById: Map<string, ViewBlo
 	}
 
 	return classifyReadSource(path, rawOutput);
+}
+
+/**
+ * One codemode section: accepted only when it came from a direct read of a path with a code
+ * extension, then through the same cleaning and shape gates as a plain read.
+ */
+export function classifyCodemodeRead(tool: string | undefined, path: string | undefined, text: string): CodeReadInfo | null {
+	if (tool === undefined || !READ_TOOLS.has(tool) || path === undefined) return null;
+	const clean = asPath(path);
+	const ext = clean === undefined ? undefined : extensionOf(clean);
+	if (ext === undefined || !CODE_EXTS.has(ext)) return null;
+	return classifyReadSource(clean, text);
 }
 
 function classifyReadSource(path: string | undefined, rawOutput: string): CodeReadInfo | null {
@@ -229,75 +232,6 @@ function classifyReadSource(path: string | undefined, rawOutput: string): CodeRe
 	}
 
 	return { path, source };
-}
-
-/** Parse codemode text items and associate them with tool calls in script order. */
-export function parseCodemodeSections(block: ViewBlock, callById: Map<string, ViewBlock>): CodemodeSection[] | null {
-	if (block.kind !== "tool_result" || block.isError || typeof block.text !== "string") return null;
-	const call = block.callId ? callById.get(block.callId) : undefined;
-	if (effectiveToolName(block.toolName, call?.text) !== "codemode") return null;
-	const output = block.text;
-	const markers = [...output.matchAll(/^==> text \d+\/\d+ <==\r?$/gm)];
-	if (markers.length === 0) return null;
-	const calls = codemodeCalls(asString(parseCallArgs(call?.text).code) ?? "");
-	return markers.map((marker, i) => {
-		const start = (marker.index ?? 0) + marker[0].length;
-		const end = markers[i + 1]?.index ?? output.length;
-		let source = output.slice(start, end).replace(/^\r?\n/, "");
-		if (i + 1 < markers.length) source = source.replace(/\r?\n$/, "");
-		const matched = calls[i];
-		return { ...matched, tool: matched?.tool ?? "unknown", source: cleanSource(source) };
-	});
-}
-
-/** Expose codemode sections to consumers that plan folds per item. */
-export function classifyCodemodeResult(block: ViewBlock, callById: Map<string, ViewBlock>): CodemodeSection[] | null {
-	return parseCodemodeSections(block, callById);
-}
-
-interface ScriptToken {
-	value: string;
-	quoted: boolean;
-}
-
-function codemodeCalls(script: string): Array<{ tool: string; path?: string }> {
-	const tokens: ScriptToken[] = [];
-	const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]/g;
-	for (const match of script.matchAll(tokenPattern)) {
-		const value = match[0];
-		if (value.startsWith("//") || value.startsWith("/*")) continue;
-		const quote = value[0];
-		if (quote === "`") {
-			tokens.push({ value: "", quoted: true });
-		} else if (quote === '"' || quote === "'") {
-			const content = value.slice(1, -1);
-			const decoded = /\\(?:[^\\'"nrt]|$)/.test(content) ? "" : content.replace(/\\([\\'"nrt])/g, (_, ch: string) => ({ n: "\n", r: "\r", t: "\t" })[ch] ?? ch);
-			tokens.push({ value: decoded, quoted: true });
-		} else {
-			tokens.push({ value, quoted: false });
-		}
-	}
-	const calls: Array<{ tool: string; path?: string }> = [];
-	for (let i = 0; i + 3 < tokens.length; i++) {
-		if (tokens[i - 1]?.value === "." || tokens[i].quoted || tokens[i].value !== "tools" || tokens[i + 1].value !== "." || tokens[i + 2].quoted || tokens[i + 3].value !== "(") continue;
-		const name = tokens[i + 2].value;
-		const tool = name === "read" || name === "bash" || name === "grep" ? name : "unknown";
-		let path: string | undefined;
-		if ((tool === "read" || tool === "grep") && tokens[i + 4]?.value === "{") {
-			let depth = 1;
-			for (let j = i + 5; j < tokens.length && depth > 0; j++) {
-				const token = tokens[j];
-				if (!token.quoted && token.value === "{") depth++;
-				else if (!token.quoted && token.value === "}") depth--;
-				else if (depth === 1 && (tokens[j - 1]?.value === "{" || tokens[j - 1]?.value === ",") && (token.value === "path" || token.value === "file_path") && tokens[j + 1]?.value === ":" && tokens[j + 2]?.quoted && (tokens[j + 3]?.value === "," || tokens[j + 3]?.value === "}")) {
-					path = asPath(tokens[j + 2].value);
-					break;
-				}
-			}
-		}
-		calls.push(path === undefined ? { tool } : { tool, path });
-	}
-	return calls;
 }
 
 // ───────────────────────────── helpers ─────────────────────────────

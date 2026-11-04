@@ -76,6 +76,12 @@ always spent before older bash output.
 | R2 | stale reads (the path is later re-read in full, or written/edited) | plain fold |
 | R3 | bash results > 150 tok | recoverable `replace`: first 3 + last 12 lines (≤200 chars each) around a `… N lines / ~T tok elided — unfold to see full output …` marker; skipped unless it saves ≥40% |
 | R4 | remaining `read` results | doorman's code skeleton (recoverable, same worth-it gate); otherwise a plain fold if > 300 tok |
+
+Codemode results count as the reads, writes and bash calls their script makes (`core/codemode.ts`).
+A codemode result is stale only when every nested call was a read and every read path is later
+re-read or written. R3 and R4 rewrite a codemode result section by section (doorman's
+`compactCodemode`): the R3 trim shape applies to each section, and R4 skeletonizes each code read,
+so one long section no longer cuts the others out.
 | R5 | anything still > 200 tok (text, other results, the guide, trims, skeletons) | deeper plain fold |
 | R6 | demoted spec reads | plain fold |
 | R7 | the oldest runs of whole assistant steps | default-recap groups of about 8 steps each |

@@ -57,7 +57,9 @@ import type { Block, Group } from "../../../core/types";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { groupDigest } from "../../../core/digest";
 import { BLOCK_OVERHEAD } from "../../../core/tokens";
-import { classifyCodeRead, classifyCodemodeResult } from "../doorman/classify";
+import { codemodeScript, codemodeScriptCalls, isCodemodeTool } from "../../../core/codemode";
+import { classifyCodeRead } from "../doorman/classify";
+import { compactCodemode } from "../doorman/codemode";
 import { detectLang, skeletonize } from "../doorman/skeletonize";
 
 // ── knobs ─────────────────────────────────────────────────────────────────────────────────
@@ -356,7 +358,7 @@ export class KeelLiteConductor implements Conductor {
 				(b, i) => {
 					if ((!a.trimmableBash.has(b.id) && !a.trimmableCodemode.has(b.id)) || !eligible(b, i) || stateOf(b) !== "live") return;
 					if (b.tokens <= this.k.bashTrimMinTokens) return;
-					const content = this.trim(host, b);
+					const content = this.trim(host, b, a.callById);
 					if (content === null) return;
 					const cost = host.countTokens(content) + TAG_OVERHEAD_TOKENS;
 					if (cost > (1 - this.k.trimMinSavings) * b.tokens) return;
@@ -602,7 +604,7 @@ export class KeelLiteConductor implements Conductor {
 		const text = `saturated · ${fmtTok(live)} of ${fmtTok(budget)} · nothing eligible left (roots + protected tail)`;
 		if (text === this.lastStatus) return;
 		this.lastStatus = text;
-		host.setStatus(text, { epochs: this.epochs, tokens_saved_total: this.savedTotal, groups_total: this.ownGroups.size, live_tokens: live, budget, saturated: true });
+		host.setStatus(text, { epochs: this.epochs, tokens_saved_total: this.savedTotal, groups_total: this.ownGroups.size, live_tokens: live, budget, saturated: true, level: "warning" });
 	}
 
 	// ── state rebuild / pruning ────────────────────────────────────────────────────────────
@@ -656,6 +658,8 @@ export class KeelLiteConductor implements Conductor {
 		const readResults = new Set<string>();
 		const trimmableBash = new Set<string>();
 		const trimmableCodemode = new Set<string>();
+		// A codemode result is one block for many calls: stale only if every call was a read.
+		const mixedCodemode = new Set<string>();
 
 		blocks.forEach((b, i) => {
 			if (b.kind === "tool_call") {
@@ -680,12 +684,16 @@ export class KeelLiteConductor implements Conductor {
 				for (const nested of codemodeCalls(call)) {
 					if (READ_TOOLS.has(nested.tool)) {
 						readResults.add(b.id);
-						if (nested.path && !b.isError) reads.push({ idx: i, id: b.id, path: nested.path, ranged: false });
+						if (nested.path && !b.isError) reads.push({ idx: i, id: b.id, path: nested.path, ranged: nested.ranged });
+						else mixedCodemode.add(b.id);
 					} else if (BASH_TOOLS.has(nested.tool)) {
 						hasBash = true;
 						if (this.k.wholeBashCommand && nested.command !== undefined && this.k.wholeBashCommand.test(nested.command)) wholeBash = true;
 						const target = nested.command !== undefined ? catTarget(nested.command) : undefined;
 						if (target && !b.isError) reads.push({ idx: i, id: b.id, path: target, ranged: false });
+						else mixedCodemode.add(b.id);
+					} else if (!WRITE_TOOLS.has(nested.tool)) {
+						mixedCodemode.add(b.id);
 					}
 				}
 				if (hasBash && !wholeBash) trimmableCodemode.add(b.id);
@@ -700,11 +708,15 @@ export class KeelLiteConductor implements Conductor {
 
 		// Stale: a later full re-read (or an identical-range re-read), or a later write/edit.
 		const stale = new Set<string>();
+		const fresh = new Set<string>();
 		for (const r of reads) {
 			const reread = reads.some((o) => o.idx > r.idx && samePath(o.path, r.path) && (!o.ranged || r.ranged));
 			const rewritten = writes.some((w) => w.idx > r.idx && samePath(w.path, r.path));
 			if (reread || rewritten) stale.add(r.id);
+			else fresh.add(r.id);
 		}
+		for (const id of mixedCodemode) stale.delete(id);
+		for (const id of fresh) stale.delete(id);
 
 		// Roots: the newest briefing read; the newest read of each of the newest N spec paths.
 		const roots = new Set<string>();
@@ -736,7 +748,10 @@ export class KeelLiteConductor implements Conductor {
 	 * `trimLineChars`, around a one-line marker saying what was elided and how to get it back.
 	 * Null when there is nothing to trim.
 	 */
-	private trim(host: ConductorHost, b: ViewBlock): string | null {
+	private trim(host: ConductorHost, b: ViewBlock, callById: Map<string, ViewBlock>): string | null {
+		const call = b.callId ? callById.get(b.callId) : undefined;
+		const sections = isCodemodeTool(b.toolName, call?.text) ? compactCodemode(b.text ?? host.textOf(b.id) ?? undefined, call?.text, { trim: this.sectionTrim() }) : null;
+		if (sections) return sections.content;
 		const text = (b.text ?? host.textOf(b.id) ?? "").replace(/\s+$/, "");
 		if (!text) return null;
 		const lines = text.split("\n");
@@ -755,11 +770,26 @@ export class KeelLiteConductor implements Conductor {
 		return [...head, marker, ...tail].join("\n");
 	}
 
+	private sectionTrim(): { headLines: number; tailLines: number; lineChars: number } {
+		return { headLines: this.k.trimHeadLines, tailLines: this.k.trimTailLines, lineChars: this.k.trimLineChars };
+	}
+
 	/** R4's code skeleton via doorman's classifier + skeletonizer and its worth-it gate. */
 	private skeleton(host: ConductorHost, b: ViewBlock, callById: Map<string, ViewBlock>): { content: string; cost: number } | null {
-		const sections = classifyCodemodeResult(b, callById);
-		if (sections !== null && sections.length !== 1) return null;
 		const info = classifyCodeRead(b, callById);
+		const call = b.callId ? callById.get(b.callId) : undefined;
+		if (!info && isCodemodeTool(b.toolName, call?.text)) {
+			const compact = compactCodemode(b.text ?? host.textOf(b.id) ?? undefined, call?.text, {
+				skeleton: (path, source) => {
+					const sk = skeletonize(source, detectLang(path, source));
+					return sk.elidedLines === 0 ? null : `⟨code skeleton · ${path ?? "file"} · ${sk.totalLines}L → ${sk.keptLines}L⟩\n${sk.skeleton}`;
+				},
+				trim: this.sectionTrim(),
+			});
+			if (!compact) return null;
+			const cost = host.countTokens(compact.content) + TAG_OVERHEAD_TOKENS;
+			return b.tokens - cost <= 0 || cost > b.tokens * MAX_SKELETON_RATIO ? null : { content: compact.content, cost };
+		}
 		if (!info) return null;
 		const sk = skeletonize(info.source, detectLang(info.path, info.source));
 		if (sk.elidedLines === 0) return null;
@@ -824,20 +854,10 @@ function callInfo(call: ViewBlock | undefined, result: ViewBlock | undefined): C
 }
 
 function codemodeCalls(call: ViewBlock): CallInfo[] {
-	const code = str(parseArgs(call.text).code);
-	if (!code) return [];
-	const calls: CallInfo[] = [];
-	const pattern = /\btools\.(read|read_file|readfile|view|open|write|edit|multiedit|multi_edit|write_file|edit_file|create_file|bash|shell|sh|exec_command|run_command|execute|powershell|pwsh)\s*\(\s*(?:(['"])((?:\\.|(?!\2)[^\\])*)\2|\{([^}]*)\})/gi;
-	for (const match of code.matchAll(pattern)) {
-		const tool = match[1].toLowerCase();
-		const fields = match[4];
-		const property = fields?.match(/\b(?:path|file_path|filePath|command)\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/);
-		const value = fields === undefined ? match[3] : property?.[2];
-		if (value === undefined || value.includes("\\")) continue;
-		const isBash = BASH_TOOLS.has(tool);
-		calls.push({ tool, path: isBash ? undefined : normPath(value), command: isBash ? value : undefined, ranged: false });
-	}
-	return calls;
+	return codemodeScriptCalls(codemodeScript(call.text) ?? "").map((c) => {
+		const isBash = BASH_TOOLS.has(c.tool);
+		return { tool: c.tool, path: !isBash && c.path ? normPath(c.path) : undefined, command: isBash ? c.command : undefined, ranged: c.ranged };
+	});
 }
 
 function parseArgs(text: string | undefined): Record<string, unknown> {

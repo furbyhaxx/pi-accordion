@@ -34,6 +34,11 @@ that floor itself fits, and surfaced as **OVERFLOW** (never silent) when it does
 Every block sits at the highest fidelity budget pressure and attention allow:
 
 - **L0 Full** — original text (the protected tail and any attended block).
+Codemode results are decoded per nested call (`core/codemode.ts`) before the probe scores them and
+before L2/L3 prompts see them. The deterministic digest names the calls
+(`codemode: read src/a.ts · bash git status → 2 results, 1 failed`), and the L1 trim excerpts every
+section instead of only the first lines of the whole output.
+
 - **L1 Trim** — deterministic extractive excerpt (~head + tail + salient lines). Instant; the no-LLM
   placeholder / emergency fallback.
 - **L2 Digest** — a faithful 1–3 line LLM summary, content-cached. Emitted as a `replace` op with

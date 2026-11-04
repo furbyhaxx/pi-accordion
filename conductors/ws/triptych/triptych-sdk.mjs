@@ -2407,6 +2407,166 @@ function runRemoteConductor(conductor, opts) {
   });
 }
 
+// core/codemode.ts
+var MARKER = /^==> text (\d+)\/(\d+) <==\r?$/gm;
+var OUTPUT_HEADER = /^Output:\r?\n/m;
+var FULL_OUTPUT = /\r?\n\[Full output: [^\]\n]+\]\s*$/;
+var PAYLOAD_KEYS = ["value", "output", "stdout", "content", "text", "result"];
+function isCodemodeTool(toolName, callText) {
+  const own = toolName?.trim().toLowerCase();
+  if (own && own !== "tool") return own === "codemode";
+  return callText?.trimStart().match(/^([^\s{]+)/)?.[1]?.toLowerCase() === "codemode";
+}
+function codemodeScript(callText) {
+  if (typeof callText !== "string") return void 0;
+  const start = callText.indexOf("{");
+  if (start < 0) return void 0;
+  try {
+    const args = JSON.parse(callText.slice(start));
+    const code = args && typeof args === "object" ? args["code"] : void 0;
+    return typeof code === "string" ? code : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function tokenize(script) {
+  const tokens = [];
+  const pattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]/g;
+  for (const match of script.matchAll(pattern)) {
+    const value = match[0];
+    if (value.startsWith("//") || value.startsWith("/*")) continue;
+    const quote = value[0];
+    if (quote === "`") {
+      tokens.push({ value: "", quoted: true, opaque: true });
+    } else if (quote === '"' || quote === "'") {
+      const content = value.slice(1, -1);
+      if (/\\(?:[^\\'"nrt]|$)/.test(content)) tokens.push({ value: "", quoted: true, opaque: true });
+      else tokens.push({ value: content.replace(/\\([\\'"nrt])/g, (_, ch) => ({ n: "\n", r: "\r", t: "	" })[ch] ?? ch), quoted: true });
+    } else {
+      tokens.push({ value, quoted: false });
+    }
+  }
+  return tokens;
+}
+var PATH_KEYS = /* @__PURE__ */ new Set(["path", "file_path", "filePath"]);
+var RANGE_KEYS = /* @__PURE__ */ new Set(["offset", "limit", "start_line", "end_line", "startLine", "endLine"]);
+function codemodeScriptCalls(script) {
+  const tokens = tokenize(script);
+  const calls = [];
+  for (let i = 0; i + 3 < tokens.length; i++) {
+    const t = tokens[i];
+    if (tokens[i - 1]?.value === "." || t.quoted || t.value !== "tools" || tokens[i + 1].value !== "." || tokens[i + 2].quoted || tokens[i + 3].value !== "(") continue;
+    const call = { tool: tokens[i + 2].value.toLowerCase(), ranged: false };
+    const first = tokens[i + 4];
+    if (first?.quoted && !first.opaque && (tokens[i + 5]?.value === ")" || tokens[i + 5]?.value === ",")) {
+      call.path = first.value;
+    } else if (first?.value === "{" && !first.quoted) {
+      let depth = 1;
+      for (let j = i + 5; j < tokens.length && depth > 0; j++) {
+        const tok = tokens[j];
+        if (!tok.quoted && (tok.value === "{" || tok.value === "[" || tok.value === "(")) depth++;
+        else if (!tok.quoted && (tok.value === "}" || tok.value === "]" || tok.value === ")")) depth--;
+        else if (depth === 1 && !tok.quoted && (tokens[j - 1]?.value === "{" || tokens[j - 1]?.value === ",") && tokens[j + 1]?.value === ":") {
+          const arg = tokens[j + 2];
+          const literal = arg?.quoted && !arg.opaque && (tokens[j + 3]?.value === "," || tokens[j + 3]?.value === "}");
+          if (RANGE_KEYS.has(tok.value) && arg?.value !== "null" && arg?.value !== "undefined") call.ranged = true;
+          else if (literal && PATH_KEYS.has(tok.value)) call.path = arg.value;
+          else if (literal && tok.value === "command") call.command = arg.value;
+        }
+      }
+    }
+    calls.push(call);
+  }
+  return calls;
+}
+function record(v) {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+function decode(raw) {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith('"')) return { text: raw, failed: false };
+  let parsed;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { text: raw, failed: false };
+  }
+  if (typeof parsed === "string") return { text: parsed, failed: false };
+  if (!record(parsed)) return { text: raw, failed: false };
+  const index = typeof parsed["i"] === "number" && Number.isInteger(parsed["i"]) ? parsed["i"] : void 0;
+  let failed = false;
+  let node = parsed;
+  for (let depth = 0; depth < 4 && record(node); depth++) {
+    const status = node["status"];
+    if (status === "rejected" || status === "error" || status === "failed" || node["error"] !== void 0) failed = true;
+    if (failed && typeof node["reason"] === "string") return { text: node["reason"], failed, index };
+    if (failed && typeof node["error"] === "string") return { text: node["error"], failed, index };
+    const key = PAYLOAD_KEYS.find((k) => node !== null && typeof node === "object" && k in node);
+    if (key === void 0) break;
+    node = node[key];
+    if (typeof node === "string") return { text: node, failed, index };
+  }
+  return { text: raw, failed, index };
+}
+function parseCodemodeOutput(output, calls = []) {
+  const header = OUTPUT_HEADER.exec(output);
+  const markers = [...output.matchAll(MARKER)];
+  if (!header && markers.length === 0) return null;
+  const tail = FULL_OUTPUT.exec(output);
+  const end = tail ? tail.index : output.length;
+  const postamble = tail ? output.slice(tail.index) : "";
+  const spans = [];
+  let preamble;
+  if (markers.length === 0) {
+    const start = (header?.index ?? 0) + (header?.[0].length ?? 0);
+    preamble = output.slice(0, start);
+    spans.push({ start, end });
+  } else {
+    preamble = output.slice(0, markers[0].index ?? 0);
+    markers.forEach((m, i) => {
+      const start = (m.index ?? 0) + m[0].length;
+      spans.push({ start, end: i + 1 < markers.length ? markers[i + 1].index ?? end : end });
+    });
+  }
+  const decoded = spans.map(({ start, end: stop }, i) => {
+    let raw = output.slice(start, stop).replace(/^\r?\n/, "");
+    if (i + 1 < spans.length || tail) raw = raw.replace(/\r?\n$/, "");
+    return { raw, ...decode(raw) };
+  });
+  const byIndex = decoded.every((d) => d.index !== void 0 && d.index < calls.length);
+  const sections = decoded.map((d, index) => {
+    const call = byIndex ? calls[d.index ?? -1] : decoded.length === calls.length ? calls[index] : void 0;
+    return { index, raw: d.raw, text: d.text, failed: d.failed, ...call ? { call } : {} };
+  });
+  return { preamble, sections, postamble };
+}
+function parseCodemodeResult(resultText, callText) {
+  if (typeof resultText !== "string") return null;
+  return parseCodemodeOutput(resultText, codemodeScriptCalls(codemodeScript(callText) ?? ""));
+}
+function short(s, n) {
+  const line = s.split("\n").find((l) => l.trim())?.trim() ?? "";
+  return line.length <= n ? line : `${line.slice(0, n - 1)}\u2026`;
+}
+function callLabel(call) {
+  const arg = call.path ?? (call.command === void 0 ? void 0 : short(call.command, 48));
+  return arg ? `${call.tool} ${arg}` : call.tool;
+}
+function renderCodemode(out, body = (s) => s.text) {
+  const n = out.sections.length;
+  return out.sections.map((s) => {
+    const label = s.call ? ` \xB7 ${callLabel(s.call)}` : "";
+    const failed = s.failed ? " \xB7 failed" : "";
+    return `==> ${s.index + 1}/${n}${label}${failed} <==
+${body(s)}`;
+  }).join("\n");
+}
+function readableToolText(text, toolName, callText) {
+  if (typeof text !== "string" || !isCodemodeTool(toolName, callText)) return text ?? "";
+  const out = parseCodemodeResult(text, callText);
+  return out ? renderCodemode(out) : text;
+}
+
 // core/conductor/view.ts
 var ViewConductor = class {
   description;
@@ -2658,12 +2818,13 @@ var AgedSummaryConductor = class extends ViewConductor {
   }
   /**
    * The text a block contributes to the completion prompt (`buildPrompt`). Default: the block's
-   * full original text. A subclass that has already compressed a block (triptych's skeletons)
-   * overrides this to feed the compressed form instead — the conversation as the agent actually
-   * experienced it, and a much smaller prompt.
+   * full original text, with a codemode result decoded and labeled per call. A subclass that has
+   * already compressed a block (triptych's skeletons) overrides this to feed the compressed form
+   * instead — the conversation as the agent actually experienced it, and a much smaller prompt.
    */
-  promptTextOf(b) {
-    return (b.text ?? "").trim();
+  promptTextOf(b, callById) {
+    const call = b.kind === "tool_result" && b.callId ? callById.get(b.callId) : void 0;
+    return readableToolText(b.text, b.toolName, call?.text).trim();
   }
   // ── shared instance state ────────────────────────────────────────────────────
   /** The current completion result (with its subclass-formatted count preamble). Null until the
@@ -2783,7 +2944,7 @@ var AgedSummaryConductor = class extends ViewConductor {
       const sinceAttempt = this.lastAttemptAt === null ? Infinity : this.now() - this.lastAttemptAt;
       if (sinceAttempt < OVERSHOOT_COOLDOWN_MS) {
         const waitS = Math.ceil((OVERSHOOT_COOLDOWN_MS - sinceAttempt) / 1e3);
-        this.host.setStatus(`${this.failureStatus ?? `${this.label} ${why}`} \u2014 over ${OVERSHOOT}x cap, overshoot retry in ${waitS}s`);
+        this.host.setStatus(`${this.failureStatus ?? `${this.label} ${why}`} \u2014 over ${OVERSHOOT}x cap, overshoot retry in ${waitS}s`, { level: "warning" });
         return this.text !== null ? this.emitCoverageGroup(view) : [];
       }
       launchNote = `${this.label} overshoot un-latch: visible ${Math.round(visible)} tok \u2265 ${OVERSHOOT}x cap ${Math.round(cap)}; re-summarizing despite ${backedOff ? "back-off" : "attempt dedupe"}`;
@@ -3010,7 +3171,7 @@ var AgedSummaryConductor = class extends ViewConductor {
    *  failure is the more important thing to show, and after a rejection it is already the reason
    *  the dedupe is holding — and it is recomputed (or dropped) every pass. */
   surfaceIdleStatus(note = null) {
-    this.host.setStatus(this.failureStatus ?? note);
+    this.host.setStatus(this.failureStatus ?? note, this.failureStatus ? { level: "warning" } : void 0);
   }
   /** Neutralize a sentinel-breakout attempt against BOTH tags this conductor's prompt ever wraps
    *  content in: the always-present `"conversation"` wrapper and the subclass's `priorTag`. */
@@ -3046,7 +3207,7 @@ var AgedSummaryConductor = class extends ViewConductor {
       const reserve = contextWindow - inputTokens - OUTPUT_SAFETY_MARGIN;
       if (reserve < MIN_OUTPUT_TOKENS) {
         this.failureStatus = this.windowTooTightMessage(inputTokens, contextWindow);
-        this.host.setStatus(this.failureStatus, { input: inputTokens, window: contextWindow });
+        this.host.setStatus(this.failureStatus, { input: inputTokens, window: contextWindow, level: "warning" });
         return;
       }
       maxOutputTokens = Math.min(MAX_OUTPUT_TOKENS, reserve);
@@ -3068,7 +3229,7 @@ var AgedSummaryConductor = class extends ViewConductor {
         if (!text) {
           this.inflight = null;
           this.failureStatus = this.emptyOutputMessage(count);
-          this.host.setStatus(this.failureStatus, { aged: count });
+          this.host.setStatus(this.failureStatus, { aged: count, level: "warning" });
           return;
         }
         this.inflight = null;
@@ -3087,11 +3248,11 @@ var AgedSummaryConductor = class extends ViewConductor {
         this.lastAttemptAt = this.now();
         if (isUnavailableError(err)) {
           this.failureStatus = this.unavailableMessage();
-          this.host.setStatus(this.failureStatus, { aged: count });
+          this.host.setStatus(this.failureStatus, { aged: count, level: "warning" });
           this.lastAttemptKey = "";
         } else {
           this.failureStatus = this.rejectMessage(err);
-          this.host.setStatus(this.failureStatus, { aged: count });
+          this.host.setStatus(this.failureStatus, { aged: count, level: "warning" });
         }
       }
     );
@@ -3119,9 +3280,11 @@ var AgedSummaryConductor = class extends ViewConductor {
    * those tags untrusted data, never instructions.
    */
   buildPrompt(newlyAged) {
+    const callById = /* @__PURE__ */ new Map();
+    for (const b of this.host.blocks()) if (b.kind === "tool_call" && b.callId) callById.set(b.callId, b);
     const conversation = newlyAged.map((b) => {
       const label = this.neutralize(blockLabel(b));
-      const text = this.neutralize(this.promptTextOf(b));
+      const text = this.neutralize(this.promptTextOf(b, callById));
       return text ? `[${label}]
 ${text}` : `[${label}]`;
     }).join("\n\n");
@@ -3271,13 +3434,9 @@ function classifyCodeRead(block, callById) {
   if (!effName) return null;
   let path;
   if (effName === "codemode") {
-    const sections = parseCodemodeSections(block, callById);
+    const sections = parseCodemodeResult(rawOutput, callText)?.sections;
     if (sections?.length !== 1) return null;
-    const section = sections[0];
-    const ext = section.path === void 0 ? void 0 : extensionOf(section.path);
-    if (section.tool !== "read" || ext === void 0 || !CODE_EXTS.has(ext)) return null;
-    path = section.path;
-    return classifyReadSource(path, section.source);
+    return classifyCodemodeRead(sections[0].call?.tool, sections[0].call?.path, sections[0].text);
   } else if (READ_TOOLS.has(effName)) {
     path = asPath(args.file_path) ?? asPath(args.path);
   } else if (SHELL_TOOLS.has(effName)) {
@@ -3289,6 +3448,13 @@ function classifyCodeRead(block, callById) {
     return null;
   }
   return classifyReadSource(path, rawOutput);
+}
+function classifyCodemodeRead(tool, path, text) {
+  if (tool === void 0 || !READ_TOOLS.has(tool) || path === void 0) return null;
+  const clean = asPath(path);
+  const ext = clean === void 0 ? void 0 : extensionOf(clean);
+  if (ext === void 0 || !CODE_EXTS.has(ext)) return null;
+  return classifyReadSource(clean, text);
 }
 function classifyReadSource(path, rawOutput) {
   if (path !== void 0) {
@@ -3310,65 +3476,6 @@ function classifyReadSource(path, rawOutput) {
     if (looksLikeJson(source)) return null;
   }
   return { path, source };
-}
-function parseCodemodeSections(block, callById) {
-  if (block.kind !== "tool_result" || block.isError || typeof block.text !== "string") return null;
-  const call = block.callId ? callById.get(block.callId) : void 0;
-  if (effectiveToolName(block.toolName, call?.text) !== "codemode") return null;
-  const output = block.text;
-  const markers = [...output.matchAll(/^==> text \d+\/\d+ <==\r?$/gm)];
-  if (markers.length === 0) return null;
-  const calls = codemodeCalls(asString(parseCallArgs(call?.text).code) ?? "");
-  return markers.map((marker, i) => {
-    const start = (marker.index ?? 0) + marker[0].length;
-    const end = markers[i + 1]?.index ?? output.length;
-    let source = output.slice(start, end).replace(/^\r?\n/, "");
-    if (i + 1 < markers.length) source = source.replace(/\r?\n$/, "");
-    const matched = calls[i];
-    return { ...matched, tool: matched?.tool ?? "unknown", source: cleanSource(source) };
-  });
-}
-function classifyCodemodeResult(block, callById) {
-  return parseCodemodeSections(block, callById);
-}
-function codemodeCalls(script) {
-  const tokens = [];
-  const tokenPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|[^\s]/g;
-  for (const match of script.matchAll(tokenPattern)) {
-    const value = match[0];
-    if (value.startsWith("//") || value.startsWith("/*")) continue;
-    const quote = value[0];
-    if (quote === "`") {
-      tokens.push({ value: "", quoted: true });
-    } else if (quote === '"' || quote === "'") {
-      const content = value.slice(1, -1);
-      const decoded = /\\(?:[^\\'"nrt]|$)/.test(content) ? "" : content.replace(/\\([\\'"nrt])/g, (_, ch) => ({ n: "\n", r: "\r", t: "	" })[ch] ?? ch);
-      tokens.push({ value: decoded, quoted: true });
-    } else {
-      tokens.push({ value, quoted: false });
-    }
-  }
-  const calls = [];
-  for (let i = 0; i + 3 < tokens.length; i++) {
-    if (tokens[i - 1]?.value === "." || tokens[i].quoted || tokens[i].value !== "tools" || tokens[i + 1].value !== "." || tokens[i + 2].quoted || tokens[i + 3].value !== "(") continue;
-    const name = tokens[i + 2].value;
-    const tool = name === "read" || name === "bash" || name === "grep" ? name : "unknown";
-    let path;
-    if ((tool === "read" || tool === "grep") && tokens[i + 4]?.value === "{") {
-      let depth = 1;
-      for (let j = i + 5; j < tokens.length && depth > 0; j++) {
-        const token = tokens[j];
-        if (!token.quoted && token.value === "{") depth++;
-        else if (!token.quoted && token.value === "}") depth--;
-        else if (depth === 1 && (tokens[j - 1]?.value === "{" || tokens[j - 1]?.value === ",") && (token.value === "path" || token.value === "file_path") && tokens[j + 1]?.value === ":" && tokens[j + 2]?.quoted && (tokens[j + 3]?.value === "," || tokens[j + 3]?.value === "}")) {
-          path = asPath(tokens[j + 2].value);
-          break;
-        }
-      }
-    }
-    calls.push(path === void 0 ? { tool } : { tool, path });
-  }
-  return calls;
 }
 function leadingToolName(callText) {
   if (typeof callText !== "string") return void 0;
@@ -3586,6 +3693,43 @@ function looksLikeJson(source) {
   }
 }
 
+// conductors/in-process/doorman/codemode.ts
+function trimSection(text, opts) {
+  const lines = text.replace(/\s+$/, "").split("\n");
+  const clip2 = (l) => l.length > opts.lineChars ? `${l.slice(0, opts.lineChars)}\u2026` : l;
+  const clipped = lines.some((l) => l.length > opts.lineChars);
+  if (lines.length <= opts.headLines + opts.tailLines) return clipped ? lines.map(clip2).join("\n") : null;
+  const elided = lines.length - opts.headLines - opts.tailLines;
+  return [...lines.slice(0, opts.headLines).map(clip2), `\u2026 ${elided} lines elided \u2026`, ...lines.slice(lines.length - opts.tailLines).map(clip2)].join("\n");
+}
+function compactCodemode(resultText, callText, opts) {
+  const out = parseCodemodeResult(resultText, callText);
+  if (!out || out.sections.length === 0) return null;
+  let skeletons = 0;
+  let trims = 0;
+  const body = (s) => {
+    if (!s.failed && opts.skeleton) {
+      const info = classifyCodemodeRead(s.call?.tool, s.call?.path, s.text);
+      const sk = info ? opts.skeleton(info.path, info.source) : null;
+      if (sk !== null) {
+        skeletons++;
+        return sk;
+      }
+    }
+    const trimmed = opts.trim ? trimSection(s.text, opts.trim) : null;
+    if (trimmed === null) return s.text;
+    trims++;
+    return trimmed;
+  };
+  const rendered = renderCodemode(out, body);
+  if (skeletons === 0 && trims === 0) return null;
+  const n = out.sections.length;
+  const parts = [skeletons ? `${skeletons} skeletonized` : "", trims ? `${trims} trimmed` : ""].filter(Boolean).join(" \xB7 ");
+  const header = `\u27E8codemode \xB7 ${n} section${n === 1 ? "" : "s"} \xB7 ${parts} \xB7 recall for the full output\u27E9`;
+  return { content: `${header}
+${rendered}`, sections: n, skeletons, trims };
+}
+
 // conductors/ws/triptych/triptych.ts
 var SHRINK_MAX = 0.7;
 var MIN_SKELETON_TOKENS = 700;
@@ -3631,7 +3775,7 @@ var TriptychConductor = class extends AgedSummaryConductor {
       (err) => {
         const msg = err instanceof Error ? err.message : String(err);
         this.failureStatus = truncateForStatus(`Triptych: skeleton engine failed to load \u2014 summaries only (${msg})`);
-        this.host.setStatus(this.failureStatus);
+        this.host.setStatus(this.failureStatus, { level: "warning" });
       }
     );
   }
@@ -3719,9 +3863,9 @@ var TriptychConductor = class extends AgedSummaryConductor {
     return Math.max(topEnd, snapDownToMessageEdge(view, frontier));
   }
   /** Feed the summarizer the skeleton for skeletonized blocks (implementer decision #1). */
-  promptTextOf(b) {
+  promptTextOf(b, callById) {
     const skel = this.skelCache.get(b.id);
-    return skel != null ? skel : (b.text ?? "").trim();
+    return skel != null ? skel : super.promptTextOf(b, callById);
   }
   // ── the middle band: skeleton folds ──────────────────────────────────────────
   /**
@@ -3757,27 +3901,29 @@ var TriptychConductor = class extends AgedSummaryConductor {
     }
     return out;
   }
-  codemodeSections(b, callById) {
-    return classifyCodemodeResult(b, callById);
-  }
-  /** Classify → skeletonize → label → shrink-gate. Null = decline (cached, never re-parsed). */
+  /**
+   * Classify → skeletonize → label → shrink-gate. Null = decline (cached, never re-parsed). A
+   * codemode batch is skeletonized section by section; its non-code sections stay verbatim.
+   */
   evaluateSkeleton(b, callById) {
     if (b.isError) return null;
-    const own = b.toolName?.trim().toLowerCase();
-    const call = b.callId ? callById.get(b.callId) : void 0;
-    const name = own && own !== "tool" ? own : call?.text?.trimStart().match(/^([^\s{]+)/)?.[1]?.toLowerCase();
-    const codemode = name === "codemode";
-    const sections = codemode ? this.codemodeSections(b, callById) : null;
-    const info = codemode ? sections?.length === 1 && sections[0].tool === "read" ? sections[0] : null : classifyCodeRead(b, callById);
-    if (info == null) return null;
-    const skeleton = this.skel.skeletonize(info.path, info.source);
-    if (skeleton === null) return null;
-    const srcLines = countLines(info.source);
-    const header = codemode ? `\u27E8code skeleton \xB7 ${info.path ?? "a code file"} \xB7 from codemode \xB7 ${srcLines} source lines\u27E9` : skeletonHeader(info.path, srcLines);
-    const content = `${header}
-${skeleton}`;
     const original = b.text ?? "";
-    if (original.length === 0 || content.length > original.length * SHRINK_MAX) return null;
+    if (original.length === 0) return null;
+    const call = b.callId ? callById.get(b.callId) : void 0;
+    const codemode = isCodemodeTool(b.toolName, call?.text);
+    const info = classifyCodeRead(b, callById);
+    let content = null;
+    if (info) {
+      const skeleton = this.skel.skeletonize(info.path, info.source);
+      if (skeleton === null) return null;
+      const srcLines = countLines(info.source);
+      const header = codemode ? `\u27E8code skeleton \xB7 ${info.path ?? "a code file"} \xB7 from codemode \xB7 ${srcLines} source lines\u27E9` : skeletonHeader(info.path, srcLines);
+      content = `${header}
+${skeleton}`;
+    } else if (codemode) {
+      content = compactCodemode(original, call?.text, { skeleton: (path, source) => this.skel.skeletonize(path, source) })?.content ?? null;
+    }
+    if (content === null || content.length > original.length * SHRINK_MAX) return null;
     return content;
   }
   // ── summary prompt + status strings (subclass-owned by the AgedSummaryConductor contract) ──

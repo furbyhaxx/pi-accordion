@@ -274,6 +274,17 @@ describe("keel-lite · codemode", () => {
 		expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R2");
 	});
 
+	it("keeps a mixed codemode batch live when only one of its reads was superseded", async () => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.read({path: "src/a.ts"}); await tools.read({path: "src/b.ts"})' }, out: lines(100) }] }).calls[0].result;
+		s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.edit({path: "src/a.ts", oldText: "a", newText: "b"})' }, out: "edited" }] });
+		const host = setup(s, { protect: 0, budgetFactor: 0.9 });
+		new KeelLiteConductor({ readFoldMinTokens: 100000, deepFoldMinTokens: 100000 }).attach(host);
+		await host.commitTurn();
+		expect(host.statusLog.at(-1)?.metrics?.rungs ?? []).not.toContain("R2");
+	});
+
 	it("trims codemode bash output", async () => {
 		const s = new Session();
 		s.user("Solve.");
@@ -285,7 +296,7 @@ describe("keel-lite · codemode", () => {
 		expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R3");
 	});
 
-	it("skeletonizes a single code section and folds a multi-section batch", async () => {
+	it("skeletonizes a single code section and each code section of a multi-section batch", async () => {
 		for (const multi of [false, true]) {
 			const s = new Session();
 			s.user("Solve.");
@@ -296,7 +307,7 @@ describe("keel-lite · codemode", () => {
 			new KeelLiteConductor().attach(host);
 			await host.commitTurn();
 			expect(isFolded(host, id)).toBe(true);
-			if (multi) expect(substOf(host, id)).toBeUndefined();
+			if (multi) expect(substOf(host, id)).toContain("⟨codemode · 2 sections · 2 skeletonized");
 			else expect(substOf(host, id)).toContain("code skeleton");
 			expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R4");
 		}

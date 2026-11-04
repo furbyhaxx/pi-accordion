@@ -26,6 +26,7 @@
  * `roleFloorRecap` / `BLOCK_OVERHEAD`) — imported rather than re-derived precisely so this
  * conductor's judgment can never drift from the one `Truth`/`applyPlan` actually enforce.
  */
+import { readableToolText } from "../../core/codemode";
 import { ViewConductor, type Command, type ConductorView } from "../../core/conductor/view";
 import type { ConductorHost, LockName, ViewBlock } from "../../core/conductor/contract";
 import { collapsibleMessageKeys, messageKey } from "../../core/groupShape";
@@ -314,12 +315,13 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 
 	/**
 	 * The text a block contributes to the completion prompt (`buildPrompt`). Default: the block's
-	 * full original text. A subclass that has already compressed a block (triptych's skeletons)
-	 * overrides this to feed the compressed form instead — the conversation as the agent actually
-	 * experienced it, and a much smaller prompt.
+	 * full original text, with a codemode result decoded and labeled per call. A subclass that has
+	 * already compressed a block (triptych's skeletons) overrides this to feed the compressed form
+	 * instead — the conversation as the agent actually experienced it, and a much smaller prompt.
 	 */
-	protected promptTextOf(b: ViewBlock): string {
-		return (b.text ?? "").trim();
+	protected promptTextOf(b: ViewBlock, callById: ReadonlyMap<string, ViewBlock>): string {
+		const call = b.kind === "tool_result" && b.callId ? callById.get(b.callId) : undefined;
+		return readableToolText(b.text, b.toolName, call?.text).trim();
 	}
 
 	// ── shared instance state ────────────────────────────────────────────────────
@@ -531,7 +533,7 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 				// Still holding, but say when the un-latch will fire. Appended to a sticky failure
 				// rather than replacing it, so a failure is still never erased before it is seen.
 				const waitS = Math.ceil((OVERSHOOT_COOLDOWN_MS - sinceAttempt) / 1000);
-				this.host.setStatus(`${this.failureStatus ?? `${this.label} ${why}`} — over ${OVERSHOOT}x cap, overshoot retry in ${waitS}s`);
+				this.host.setStatus(`${this.failureStatus ?? `${this.label} ${why}`} — over ${OVERSHOOT}x cap, overshoot retry in ${waitS}s`, { level: "warning" });
 				return this.text !== null ? this.emitCoverageGroup(view) : [];
 			}
 			launchNote = `${this.label} overshoot un-latch: visible ${Math.round(visible)} tok ≥ ${OVERSHOOT}x cap ${Math.round(cap)}; re-summarizing despite ${backedOff ? "back-off" : "attempt dedupe"}`;
@@ -785,7 +787,7 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 	 *  failure is the more important thing to show, and after a rejection it is already the reason
 	 *  the dedupe is holding — and it is recomputed (or dropped) every pass. */
 	private surfaceIdleStatus(note: string | null = null): void {
-		this.host.setStatus(this.failureStatus ?? note);
+		this.host.setStatus(this.failureStatus ?? note, this.failureStatus ? { level: "warning" } : undefined);
 	}
 
 	/** Neutralize a sentinel-breakout attempt against BOTH tags this conductor's prompt ever wraps
@@ -847,7 +849,7 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 				// above, so we do not re-attempt until genuinely new content ages in (or, past
 				// OVERSHOOT, until the un-latch cooldown lapses).
 				this.failureStatus = this.windowTooTightMessage(inputTokens, contextWindow);
-				this.host.setStatus(this.failureStatus, { input: inputTokens, window: contextWindow });
+				this.host.setStatus(this.failureStatus, { input: inputTokens, window: contextWindow, level: "warning" });
 				return;
 			}
 			maxOutputTokens = Math.min(MAX_OUTPUT_TOKENS, reserve);
@@ -884,7 +886,7 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 						// new aged content before retrying this same key.
 						this.inflight = null;
 						this.failureStatus = this.emptyOutputMessage(count);
-						this.host.setStatus(this.failureStatus, { aged: count });
+						this.host.setStatus(this.failureStatus, { aged: count, level: "warning" });
 						return;
 					}
 					// Success: commit the new result. The group covers `coveredIds ∩ aged` (minus
@@ -925,11 +927,11 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 						// re-establishing a model) retries the SAME newly-aged set automatically, with
 						// no need for genuinely new content to age in first.
 						this.failureStatus = this.unavailableMessage();
-						this.host.setStatus(this.failureStatus, { aged: count });
+						this.host.setStatus(this.failureStatus, { aged: count, level: "warning" });
 						this.lastAttemptKey = "";
 					} else {
 						this.failureStatus = this.rejectMessage(err);
-						this.host.setStatus(this.failureStatus, { aged: count });
+						this.host.setStatus(this.failureStatus, { aged: count, level: "warning" });
 					}
 				},
 			);
@@ -958,6 +960,8 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 	 * those tags untrusted data, never instructions.
 	 */
 	protected buildPrompt(newlyAged: ViewBlock[]): string {
+		const callById = new Map<string, ViewBlock>();
+		for (const b of this.host.blocks()) if (b.kind === "tool_call" && b.callId) callById.set(b.callId, b);
 		const conversation = newlyAged
 			.map((b) => {
 				// Defense-in-depth: `blockLabel` interpolates `b.toolName`, which is provider/tool-
@@ -966,7 +970,7 @@ export abstract class AgedSummaryConductor extends ViewConductor {
 				// unreachable today — but it costs nothing to run the label through the same
 				// neutralizer as every other interpolated value instead of trusting the charset.
 				const label = this.neutralize(blockLabel(b));
-				const text = this.neutralize(this.promptTextOf(b));
+				const text = this.neutralize(this.promptTextOf(b, callById));
 				return text ? `[${label}]\n${text}` : `[${label}]`;
 			})
 			.join("\n\n");

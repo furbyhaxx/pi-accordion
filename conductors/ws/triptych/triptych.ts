@@ -52,7 +52,9 @@
  */
 import { AgedSummaryConductor, OVERSHOOT, TRIGGER, sumTokens, truncateForStatus, type AgedSummaryOptions } from "../../in-process/agedSummaryConductor";
 import { COMPACTION_SYSTEM } from "../../in-process/compaction-naive/compaction-naive";
-import { classifyCodeRead, classifyCodemodeResult } from "../../in-process/doorman/classify";
+import { classifyCodeRead } from "../../in-process/doorman/classify";
+import { compactCodemode } from "../../in-process/doorman/codemode";
+import { isCodemodeTool } from "../../../core/codemode";
 import { messageKey } from "../../../core/truth";
 import type { Command, ConductorView } from "../../../core/conductor/view";
 import type { ConductorHost, LockName, ViewBlock } from "../../../core/conductor/contract";
@@ -86,11 +88,6 @@ const SHRINK_MAX = 0.7;
  *  eats most of the saving and the read is cheap to keep whole anyway. */
 const MIN_SKELETON_TOKENS = 700;
 
-interface CodemodeSection {
-	path?: string;
-	tool: string;
-	source: string;
-}
 export class TriptychConductor extends AgedSummaryConductor {
 	readonly id = "triptych";
 	readonly label = "Triptych";
@@ -146,7 +143,7 @@ export class TriptychConductor extends AgedSummaryConductor {
 				// Join the base class's STICKY failure mechanism — a bare setStatus here would be
 				// wiped by the very next idle pass's surfaceIdleStatus (adversarial-review finding).
 				this.failureStatus = truncateForStatus(`Triptych: skeleton engine failed to load — summaries only (${msg})`);
-				this.host.setStatus(this.failureStatus);
+				this.host.setStatus(this.failureStatus, { level: "warning" });
 			},
 		);
 	}
@@ -256,9 +253,9 @@ export class TriptychConductor extends AgedSummaryConductor {
 	}
 
 	/** Feed the summarizer the skeleton for skeletonized blocks (implementer decision #1). */
-	protected promptTextOf(b: ViewBlock): string {
+	protected promptTextOf(b: ViewBlock, callById: ReadonlyMap<string, ViewBlock>): string {
 		const skel = this.skelCache.get(b.id);
-		return skel != null ? skel : (b.text ?? "").trim();
+		return skel != null ? skel : super.promptTextOf(b, callById);
 	}
 
 	// ── the middle band: skeleton folds ──────────────────────────────────────────
@@ -298,32 +295,31 @@ export class TriptychConductor extends AgedSummaryConductor {
 		return out;
 	}
 
-	protected codemodeSections(b: ViewBlock, callById: Map<string, ViewBlock>): CodemodeSection[] | null {
-		// classifyCodeRead's gates (extension, shape, keyword) are re-applied per section by the
-		// single-section acceptance below, so non-code sections can never become skeletons.
-		return classifyCodemodeResult(b, callById);
-	}
-
-	/** Classify → skeletonize → label → shrink-gate. Null = decline (cached, never re-parsed). */
+	/**
+	 * Classify → skeletonize → label → shrink-gate. Null = decline (cached, never re-parsed). A
+	 * codemode batch is skeletonized section by section; its non-code sections stay verbatim.
+	 */
 	private evaluateSkeleton(b: ViewBlock, callById: Map<string, ViewBlock>): string | null {
 		if (b.isError) return null;
-		const own = b.toolName?.trim().toLowerCase();
-		const call = b.callId ? callById.get(b.callId) : undefined;
-		const name = own && own !== "tool" ? own : call?.text?.trimStart().match(/^([^\s{]+)/)?.[1]?.toLowerCase();
-		const codemode = name === "codemode";
-		const sections = codemode ? this.codemodeSections(b, callById) : null;
-		const info = codemode ? (sections?.length === 1 && sections[0].tool === "read" ? sections[0] : null) : classifyCodeRead(b, callById);
-		if (info == null) return null;
-		const skeleton = this.skel.skeletonize(info.path, info.source);
-		if (skeleton === null) return null;
-		const srcLines = countLines(info.source);
-		const header = codemode
-			? `⟨code skeleton · ${info.path ?? "a code file"} · from codemode · ${srcLines} source lines⟩`
-			: skeletonHeader(info.path, srcLines);
-		const content = `${header}\n${skeleton}`;
-		// Decline gate vs the block's ORIGINAL text (wrappers included — that is what the wire pays).
 		const original = b.text ?? "";
-		if (original.length === 0 || content.length > original.length * SHRINK_MAX) return null;
+		if (original.length === 0) return null;
+		const call = b.callId ? callById.get(b.callId) : undefined;
+		const codemode = isCodemodeTool(b.toolName, call?.text);
+		const info = classifyCodeRead(b, callById);
+		let content: string | null = null;
+		if (info) {
+			const skeleton = this.skel.skeletonize(info.path, info.source);
+			if (skeleton === null) return null;
+			const srcLines = countLines(info.source);
+			const header = codemode
+				? `⟨code skeleton · ${info.path ?? "a code file"} · from codemode · ${srcLines} source lines⟩`
+				: skeletonHeader(info.path, srcLines);
+			content = `${header}\n${skeleton}`;
+		} else if (codemode) {
+			content = compactCodemode(original, call?.text, { skeleton: (path, source) => this.skel.skeletonize(path, source) })?.content ?? null;
+		}
+		// Decline gate vs the block's ORIGINAL text (wrappers included — that is what the wire pays).
+		if (content === null || content.length > original.length * SHRINK_MAX) return null;
 		return content;
 	}
 
