@@ -63,6 +63,10 @@ import {
 import { scoreCandidates, tailTextFromView, type Scorer } from "./scorer";
 
 const ID = "thermocline";
+/** Units scored per probe run: ~8 windows, about half a minute on a CPU probe. */
+const PROBE_UNITS_PER_RUN = 48;
+const PROBE_RETRY_BASE_MS = 60_000;
+const PROBE_RETRY_MAX_MS = 30 * 60_000;
 const LABEL = "Thermocline";
 
 /** A stratum the conductor has actually committed to the engine (tracks its live group id). */
@@ -154,6 +158,10 @@ export class ThermoclineConductor implements Conductor {
 	private scoringInFlight = false;
 	private rescoreNeeded = true;
 	private attempted = new Set<string>();
+	/** Probe health for status: `off` until the first run settles, `degraded` after a failure. */
+	private probe: { state: "off" | "ok" | "degraded"; error?: string } = { state: "off" };
+	private probeFailures = 0;
+	private probeRetryAt = 0;
 
 	// ── agent/human touch tracking (resets dwell, vetoes graduation) ──
 	private agentTouched = new Set<string>();
@@ -950,12 +958,20 @@ export class ThermoclineConductor implements Conductor {
 	}
 
 	// ── background scoring ──────────────────────────────────────────────────────────
+	// Unscored units first, then oldest first, a bounded batch per run: a whole session on a CPU probe
+	// would outlast the timeout every time and never produce a score. Units are marked attempted when
+	// the run starts; a failure returns them to the pool behind an exponential backoff.
 	private maybeScore(view: ConductorView): void {
+		if (this.lastFill < this.cfg.warmWater || this.scoringInFlight || Date.now() < this.probeRetryAt) return;
+		if (this.rescoreNeeded) {
+			this.attempted.clear();
+			this.rescoreNeeded = false;
+		}
 		const units = buildUnits(view.blocks);
-		const cands = units.filter((u) => !u.protected && !u.held && !this.attempted.has(u.temperatureKey));
-		const fill = this.lastFill;
-
-		if (fill < this.cfg.warmWater || this.scoringInFlight || !(this.rescoreNeeded || cands.length)) return;
+		const cands = units
+			.filter((u) => !u.protected && !u.held && !this.attempted.has(u.temperatureKey))
+			.sort((a, b) => Number(this.scores.has(a.temperatureKey)) - Number(this.scores.has(b.temperatureKey)))
+			.slice(0, PROBE_UNITS_PER_RUN);
 		if (!cands.length) return;
 
 		const tailText = tailTextFromView(view.blocks);
@@ -964,19 +980,28 @@ export class ThermoclineConductor implements Conductor {
 		this.scoringInFlight = true;
 		const candidates = cands.map((u) => ({ id: u.temperatureKey, text: u.blocks.map((b) => b.text ?? "").join("\n") }));
 		const ids = candidates.map((c) => c.id);
+		for (const id of ids) this.attempted.add(id);
+		const started = Date.now();
 
 		this.scorer({ tailText, candidates, signal: this.abort.signal })
 			.then((scores) => {
 				for (const [id, v] of scores) this.scores.set(id, v);
-				this.attempted = new Set(ids); // REPLACE so a unit can be re-scored on the next rescoreNeeded
-				this.rescoreNeeded = false;
 				this.scoringInFlight = false;
+				this.probe = { state: "ok" };
+				this.probeFailures = 0;
+				// Pause as long as the run took: at most half the time busy, whatever the device.
+				this.probeRetryAt = 2 * Date.now() - started;
 				this.sendStatus();
 			})
-			.catch(() => {
+			.catch((err: unknown) => {
 				// GRACEFUL DEGRADATION: probe/python/torch absent, spawn failure, or timeout → scores
 				// stay whatever they were (possibly empty). The policy's age-based rung 3.5 carries on.
 				this.scoringInFlight = false;
+				if (this.abort.signal.aborted) return;
+				for (const id of ids) this.attempted.delete(id);
+				this.probeFailures++;
+				this.probeRetryAt = Date.now() + Math.min(PROBE_RETRY_MAX_MS, PROBE_RETRY_BASE_MS * 2 ** (this.probeFailures - 1));
+				this.probe = { state: "degraded", error: err instanceof Error ? err.message : String(err) };
 				this.sendStatus();
 			});
 	}
@@ -1128,6 +1153,7 @@ export class ThermoclineConductor implements Conductor {
 		const folded = this.appliedFolds.size;
 		const strata = this.appliedStrata.length;
 		const scoring = this.scoringInFlight ? " · scoring…" : "";
+		const probe = this.probe.state === "degraded" ? " · probe off (age fallback)" : "";
 
 		// IRREDUCIBLE OVERFLOW (P1-4) — a DISTINCT state from a transient over-100%-fill reading a
 		// COMMIT is about to fix: this fires only once the ladder has already exhausted every rung
@@ -1151,7 +1177,7 @@ export class ThermoclineConductor implements Conductor {
 		const unabsorbed = this.irreducibleOverflow ? unabsorbedTokens(overflow) : 0;
 		const text = this.irreducibleOverflow
 			? overflowStatusText(overflow)
-			: `${action} ${pct}% · ${folded} folded · ${strata} strata${scoring}`;
+			: `${action} ${pct}% · ${folded} folded · ${strata} strata${scoring}${probe}`;
 
 		if (text === this.lastStatusText) return;
 		this.lastStatusText = text;
@@ -1161,6 +1187,9 @@ export class ThermoclineConductor implements Conductor {
 			folded,
 			strata,
 			scoring: this.scoringInFlight,
+			probe: this.probe.state,
+			...(this.probe.error ? { probeError: this.probe.error } : {}),
+			scoredUnits: this.scores.size,
 			lowWater: Math.round(this.cfg.lowWater * 100),
 			highWater: Math.round(this.cfg.highWater * 100),
 			irreducibleOverflow: this.irreducibleOverflow,

@@ -5,7 +5,8 @@
 // this package rather than being re-exported from a sibling `attention-folder/`, so thermocline is
 // a standalone package.
 //
-// The probe is a ~6s-load + ~0.15s/window GPU job (~8–18s for a full session). It MUST NOT run on
+// The probe is a ~6s-load + ~0.15s/window GPU job (~8–18s for a full session); on CPU a window takes
+// ~3s, so the conductor scores bounded batches rather than the whole session at once. It MUST NOT run on
 // any hold/hook path — that would stall the conductor. So this spawns the probe as a CHILD process
 // (async `spawn`, never `spawnSync`) and resolves a Map<blockId, score> when it finishes. The
 // conductor fires this off in the background between epochs (`scoringInFlight` guard) and folds
@@ -20,7 +21,7 @@
 // folds the LOWEST scores first.
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, setPriority, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -53,15 +54,17 @@ export type Scorer = (args: ScoreArgs) => Promise<Map<string, number>>;
 /**
  * Resolve the probe's Python interpreter. Order:
  *   1. $ATTN_PROBE_PYTHON (explicit override),
- *   2. a local venv at probe/.venv/Scripts/python.exe (Windows) or probe/.venv/bin/python,
- *   3. bare "python3" on PATH.
+ *   2. a venv next to the probe: probe/.venv/Scripts/python.exe (Windows) or probe/.venv/bin/python,
+ *   3. a user venv at ~/.accordion/probe/.venv, which survives package reinstalls and updates,
+ *   4. bare "python3" on PATH.
  */
 export function resolvePython(): string {
 	if (process.env.ATTN_PROBE_PYTHON) return process.env.ATTN_PROBE_PYTHON;
-	const win = join(HERE, "probe", ".venv", "Scripts", "python.exe");
-	const nix = join(HERE, "probe", ".venv", "bin", "python");
-	for (const p of [win, nix]) {
-		if (existsSync(p)) return p;
+	const user = join(process.env.ACCORDION_HOME || homedir(), ".accordion", "probe", ".venv");
+	for (const venv of [join(HERE, "probe", ".venv"), user]) {
+		for (const p of [join(venv, "Scripts", "python.exe"), join(venv, "bin", "python")]) {
+			if (existsSync(p)) return p;
+		}
 	}
 	return "python3";
 }
@@ -125,6 +128,12 @@ export function scoreCandidates({
 			writeFileSync(inPath, JSON.stringify(payload), "utf8");
 			const args = [script, "--in", inPath, "--out", outPath, "--batch", String(batch), "--attn-impl", attnImpl];
 			proc = spawn(python, args, { stdio: ["ignore", "ignore", "pipe"] });
+			// A CPU probe saturates every core for tens of seconds; keep the agent's own tools responsive.
+			try {
+				if (proc.pid) setPriority(proc.pid, 10);
+			} catch {
+				/* best-effort */
+			}
 		} catch (e) {
 			try {
 				rmSync(dir, { recursive: true, force: true });

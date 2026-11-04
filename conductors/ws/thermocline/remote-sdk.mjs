@@ -2408,7 +2408,7 @@ function runRemoteConductor(conductor, opts) {
 
 // conductors/ws/thermocline/thermocline.ts
 import { mkdirSync, writeFileSync as writeFileSync2, renameSync, readFileSync as readFileSync2 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir as homedir2 } from "node:os";
 import { join as join2 } from "node:path";
 
 // conductors/ws/thermocline/policy.ts
@@ -3055,7 +3055,7 @@ function blockLabel(b) {
 // conductors/ws/thermocline/scorer.ts
 import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, setPriority, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 var HERE = dirname(fileURLToPath(import.meta.url));
@@ -3063,10 +3063,11 @@ var TAIL_CHAR_CAP = 12e3;
 var BLOCK_CHAR_CAP = 3e3;
 function resolvePython() {
   if (process.env.ATTN_PROBE_PYTHON) return process.env.ATTN_PROBE_PYTHON;
-  const win = join(HERE, "probe", ".venv", "Scripts", "python.exe");
-  const nix = join(HERE, "probe", ".venv", "bin", "python");
-  for (const p of [win, nix]) {
-    if (existsSync(p)) return p;
+  const user = join(process.env.ACCORDION_HOME || homedir(), ".accordion", "probe", ".venv");
+  for (const venv of [join(HERE, "probe", ".venv"), user]) {
+    for (const p of [join(venv, "Scripts", "python.exe"), join(venv, "bin", "python")]) {
+      if (existsSync(p)) return p;
+    }
   }
   return "python3";
 }
@@ -3114,6 +3115,10 @@ function scoreCandidates({
       writeFileSync(inPath, JSON.stringify(payload), "utf8");
       const args = [script, "--in", inPath, "--out", outPath, "--batch", String(batch), "--attn-impl", attnImpl];
       proc = spawn(python, args, { stdio: ["ignore", "ignore", "pipe"] });
+      try {
+        if (proc.pid) setPriority(proc.pid, 10);
+      } catch {
+      }
     } catch (e) {
       try {
         rmSync(dir, { recursive: true, force: true });
@@ -3189,6 +3194,9 @@ function tailTextFromView(blocks) {
 
 // conductors/ws/thermocline/thermocline.ts
 var ID = "thermocline";
+var PROBE_UNITS_PER_RUN = 48;
+var PROBE_RETRY_BASE_MS = 6e4;
+var PROBE_RETRY_MAX_MS = 30 * 6e4;
 var LABEL = "Thermocline";
 function persistPath(dir, key) {
   return join2(dir, `thermocline-state-${key}.json`);
@@ -3224,6 +3232,10 @@ var ThermoclineConductor = class {
   scoringInFlight = false;
   rescoreNeeded = true;
   attempted = /* @__PURE__ */ new Set();
+  /** Probe health for status: `off` until the first run settles, `degraded` after a failure. */
+  probe = { state: "off" };
+  probeFailures = 0;
+  probeRetryAt = 0;
   // ── agent/human touch tracking (resets dwell, vetoes graduation) ──
   agentTouched = /* @__PURE__ */ new Set();
   recalledThisEpoch = /* @__PURE__ */ new Set();
@@ -3268,7 +3280,7 @@ var ThermoclineConductor = class {
   constructor(opts = {}) {
     this.cfg = { ...DEFAULT_CFG, ...opts.cfg ?? {} };
     this.scorer = opts.scorer ?? scoreCandidates;
-    this.persistDir = opts.persistDir ?? join2(process.env.ACCORDION_HOME || homedir(), ".accordion", "conductors");
+    this.persistDir = opts.persistDir ?? join2(process.env.ACCORDION_HOME || homedir2(), ".accordion", "conductors");
     this.sessionKey = opts.sessionKey ?? null;
   }
   // ── Conductor lifecycle ─────────────────────────────────────────────────────
@@ -3836,25 +3848,39 @@ var ThermoclineConductor = class {
     if (repairs.length) await this.host.propose({ baseRev: this.host.stats().rev, ops: repairs });
   }
   // ── background scoring ──────────────────────────────────────────────────────────
+  // Unscored units first, then oldest first, a bounded batch per run: a whole session on a CPU probe
+  // would outlast the timeout every time and never produce a score. Units are marked attempted when
+  // the run starts; a failure returns them to the pool behind an exponential backoff.
   maybeScore(view) {
+    if (this.lastFill < this.cfg.warmWater || this.scoringInFlight || Date.now() < this.probeRetryAt) return;
+    if (this.rescoreNeeded) {
+      this.attempted.clear();
+      this.rescoreNeeded = false;
+    }
     const units = buildUnits(view.blocks);
-    const cands = units.filter((u) => !u.protected && !u.held && !this.attempted.has(u.temperatureKey));
-    const fill = this.lastFill;
-    if (fill < this.cfg.warmWater || this.scoringInFlight || !(this.rescoreNeeded || cands.length)) return;
+    const cands = units.filter((u) => !u.protected && !u.held && !this.attempted.has(u.temperatureKey)).sort((a, b) => Number(this.scores.has(a.temperatureKey)) - Number(this.scores.has(b.temperatureKey))).slice(0, PROBE_UNITS_PER_RUN);
     if (!cands.length) return;
     const tailText = tailTextFromView(view.blocks);
     if (!tailText.trim()) return;
     this.scoringInFlight = true;
     const candidates = cands.map((u) => ({ id: u.temperatureKey, text: u.blocks.map((b) => b.text ?? "").join("\n") }));
     const ids = candidates.map((c) => c.id);
+    for (const id of ids) this.attempted.add(id);
+    const started = Date.now();
     this.scorer({ tailText, candidates, signal: this.abort.signal }).then((scores) => {
       for (const [id, v] of scores) this.scores.set(id, v);
-      this.attempted = new Set(ids);
-      this.rescoreNeeded = false;
       this.scoringInFlight = false;
+      this.probe = { state: "ok" };
+      this.probeFailures = 0;
+      this.probeRetryAt = 2 * Date.now() - started;
       this.sendStatus();
-    }).catch(() => {
+    }).catch((err) => {
       this.scoringInFlight = false;
+      if (this.abort.signal.aborted) return;
+      for (const id of ids) this.attempted.delete(id);
+      this.probeFailures++;
+      this.probeRetryAt = Date.now() + Math.min(PROBE_RETRY_MAX_MS, PROBE_RETRY_BASE_MS * 2 ** (this.probeFailures - 1));
+      this.probe = { state: "degraded", error: err instanceof Error ? err.message : String(err) };
       this.sendStatus();
     });
   }
@@ -3972,6 +3998,7 @@ var ThermoclineConductor = class {
     const folded = this.appliedFolds.size;
     const strata = this.appliedStrata.length;
     const scoring = this.scoringInFlight ? " \xB7 scoring\u2026" : "";
+    const probe = this.probe.state === "degraded" ? " \xB7 probe off (age fallback)" : "";
     const action = this.irreducibleOverflow ? "OVERFLOW" : this.preparing ? "PREPARE" : this.lastAction === "emergency" ? "EMERGENCY" : "HOLD";
     const overflow = {
       projected: this.overflowProjectedTokens,
@@ -3981,7 +4008,7 @@ var ThermoclineConductor = class {
       fixed: this.overflowFixedTokens
     };
     const unabsorbed = this.irreducibleOverflow ? unabsorbedTokens(overflow) : 0;
-    const text = this.irreducibleOverflow ? overflowStatusText(overflow) : `${action} ${pct}% \xB7 ${folded} folded \xB7 ${strata} strata${scoring}`;
+    const text = this.irreducibleOverflow ? overflowStatusText(overflow) : `${action} ${pct}% \xB7 ${folded} folded \xB7 ${strata} strata${scoring}${probe}`;
     if (text === this.lastStatusText) return;
     this.lastStatusText = text;
     this.host.setStatus(text, {
@@ -3990,6 +4017,9 @@ var ThermoclineConductor = class {
       folded,
       strata,
       scoring: this.scoringInFlight,
+      probe: this.probe.state,
+      ...this.probe.error ? { probeError: this.probe.error } : {},
+      scoredUnits: this.scores.size,
       lowWater: Math.round(this.cfg.lowWater * 100),
       highWater: Math.round(this.cfg.highWater * 100),
       irreducibleOverflow: this.irreducibleOverflow,

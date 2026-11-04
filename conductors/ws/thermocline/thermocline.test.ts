@@ -444,6 +444,51 @@ test("probe-absent fallback: a rejecting scorer still compresses (age-based stra
 	expect(host.truth.stats().liveTokens).toBeLessThanOrEqual(30_000);
 });
 
+describe("probe scheduling", () => {
+	function warmHost(cond: ThermoclineConductor, n: number): TestHost {
+		const host = new TestHost();
+		cond.attach(host);
+		host.setBudget(10_000_000);
+		host.setProtect(300);
+		const out: Block[] = [];
+		for (let i = 0; i < n; i++) out.push(block({ id: `t${i}`, order: i, tokens: 100, text: `note ${i}` }));
+		host.appendBlocks(out);
+		return host;
+	}
+
+	test("scores a bounded batch per run, unscored units before rescoring old ones", async () => {
+		const calls: string[][] = [];
+		const scorer = async ({ candidates }: { candidates: { id: string }[] }) => {
+			calls.push(candidates.map((c) => c.id));
+			return new Map(candidates.map((c) => [c.id, 0.5]));
+		};
+		const cond = new ThermoclineConductor({ scorer, sessionKey: null, cfg: { warmWater: 0 } });
+		warmHost(cond, 120);
+		await flush();
+		expect(calls.length).toBe(1);
+		expect(calls[0]?.length).toBe(48);
+		expect(calls[0]?.[0]).toBe("t0");
+	});
+
+	test("a failing probe reports degraded status and backs off instead of respawning every tick", async () => {
+		let runs = 0;
+		const scorer = async () => {
+			runs++;
+			throw new Error("probe exited 1: No module named 'torch'");
+		};
+		const cond = new ThermoclineConductor({ scorer, sessionKey: null, cfg: { warmWater: 0 } });
+		const host = warmHost(cond, 20);
+		await flush();
+		host.appendBlocks([block({ id: "late", order: 100, tokens: 100 })]);
+		await flush();
+		expect(runs).toBe(1);
+		const last = [...host.statusLog].reverse().find((s) => s.metrics)!;
+		expect(last.text).toContain("probe off");
+		expect(last.metrics?.probe).toBe("degraded");
+		expect(last.metrics?.probeError).toContain("torch");
+	});
+});
+
 // ── BUDGET FLOOR (probe absent) — the overnight log_query failure shape ─────────────────────────
 //
 // Live run (pi + deepseek, no attention probe, budget 40k / protect 8k): compliant for ~540s, then

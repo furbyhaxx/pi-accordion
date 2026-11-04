@@ -54,8 +54,28 @@ Every block sits at the highest fidelity budget pressure and attention allow:
 candidate blocks (tail capped at ~12k chars, each block head+tail capped at ~3k). The probe loads
 Qwen2.5-0.5B, reads how much attention the final readout token pays to each earlier block, and
 writes `{ scores:{id:0..1}, meta:{…} }`. Higher = hotter = keep live longer; the policy folds the
-**coldest** first. Install the probe's deps with `pip install -r probe/requirements.txt` (a CUDA
-GPU is ideal; CPU works, slower).
+**coldest** first.
+
+The conductor scores at most 48 units per run, unscored units first and then oldest first, and
+pauses as long as each run took. A CPU probe (about 3 s per 2k-token window) therefore keeps up
+without saturating the machine; the child also runs at a lower scheduling priority.
+
+### Installing the probe
+
+The interpreter is `$ATTN_PROBE_PYTHON`, else `probe/.venv`, else `~/.accordion/probe/.venv`, else
+`python3`. The user venv survives package reinstalls and updates, so prefer it. CPU-only Linux:
+
+```bash
+uv venv --python 3.12 ~/.accordion/probe/.venv
+VIRTUAL_ENV=~/.accordion/probe/.venv uv pip install --index-url https://download.pytorch.org/whl/cpu torch
+grep -v '^torch==' probe/requirements.txt > /tmp/probe-requirements.txt
+VIRTUAL_ENV=~/.accordion/probe/.venv uv pip install -r /tmp/probe-requirements.txt
+```
+
+With a CUDA GPU, install the CUDA torch build named in `probe/requirements.txt` instead. The first
+run downloads Qwen2.5-0.5B-Instruct (about 1 GB) into the Hugging Face cache. The status line shows
+`probe off (age fallback)` while the probe is failing; the metrics carry `probe`, `probeError`
+and `scoredUnits`.
 
 ## Graceful degradation (mandatory)
 
