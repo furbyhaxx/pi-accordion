@@ -156,8 +156,8 @@ note: room for it is reserved in the budget from the first turn.
 **[taskfold](conductors/in-process/taskfold/)** folds by task. The agent plans in a persistent,
 nested task list (the `tasks` tool) and ends each task with a short report. Once the context gets
 tight, finished tasks fold into fixed-shape records: outcome, decisions, files changed, checks run,
-open items. User messages stay verbatim unless a classifier model says they are only steering or
-acknowledgements.
+open items. User messages stay verbatim unless a classifier model says losing them costs nothing,
+as with approvals, status checks and step steering.
 
 **[handoff](conductors/in-process/handoff/)** is `/handoff`, automatic. The manual version is to
 ask the agent to write a handoff document, kill the session, and paste that document into a

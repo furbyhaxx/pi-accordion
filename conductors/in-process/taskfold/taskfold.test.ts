@@ -22,6 +22,9 @@ class Session {
 		this.turn++;
 		return this.push({ id: `u:${1000 + this.order}`, kind: "user", text });
 	}
+	text(text: string): string {
+		return this.push({ id: `a:resp${++this.resp}:p0`, kind: "text", text });
+	}
 	call(tool: string, args: Record<string, unknown>, out: string, isError = false): { call: string; result: string } {
 		const r = ++this.resp;
 		const callId = `c${r}`;
@@ -109,30 +112,38 @@ describe("taskfold", () => {
 		expect(last.summary).toContain("[task-record] work/1");
 	});
 
-	it("folds classified steering into the span and lifts it into constraints", async () => {
-		const { s, start, end } = oneTask((s) => s.user("Don't touch the lexer."));
-		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("lexer"))!.id;
+	it("folds a user message the classifier scores as costing nothing, with goal-aware context", async () => {
+		const { s, start, end } = oneTask((s) => {
+			s.text("Tests pass; shall I commit?");
+			s.user("ok, commit it");
+		});
+		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("commit"))!.id;
 		const host = new TestHost();
-		host.classifier = () => ({ answers: { kind: { type: "choice", choice: "steering", probabilities: { steering: 0.9 }, confidence: 0.9 } }, model: "test/cls" });
+		host.classifier = () => ({ answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test/cls" });
 		const c = new TaskfoldConductor();
 		c.attach(host);
 		host.appendBlocks(s.blocks);
 		host.setProtect(200);
 		await new Promise((r) => setTimeout(r, 0));
-		expect(host.classifyLog.map((r) => r.state.message)).toContain("Don't touch the lexer.");
+		expect(host.classifyLog).toHaveLength(1);
+		expect(host.classifyLog[0].state).toEqual({
+			session_goal: "Fix the parser.",
+			previous_user_message: "",
+			assistant_last_reply: "Tests pass; shall I commit?",
+			message: "ok, commit it",
+		});
 		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
 		await host.commitTurn();
 		const g = groupOf(host, start)!;
 		expect(g.memberIds).toContain(userId);
 		expect(g.memberIds).toContain(end);
-		expect(g.summary).toContain("constraints:\n  - Don't touch the lexer.");
 	});
 
-	it("keeps a low-confidence user message verbatim", async () => {
+	it("keeps a user message whose loss reaches maxLoss verbatim", async () => {
 		const { s } = oneTask((s) => s.user("Don't touch the lexer."));
 		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("lexer"))!.id;
 		const host = new TestHost();
-		host.classifier = () => ({ answers: { kind: { type: "choice", choice: "steering", probabilities: { steering: 0.4 }, confidence: 0.4 } }, model: "test/cls" });
+		host.classifier = () => ({ answers: { loss: { type: "score", score: 2, confidence: 0.8 } }, model: "test/cls" });
 		new TaskfoldConductor().attach(host);
 		host.appendBlocks(s.blocks);
 		host.setProtect(200);

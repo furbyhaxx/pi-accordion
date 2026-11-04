@@ -9,14 +9,13 @@
  *
  *   [task-record] <list>/<id> "<title>"  status: done
  *   outcome / decisions / open      ← agent-written, from the finishing call's `report`
- *   constraints                     ← user steering lifted verbatim (classifier-gated)
  *   changed / verified              ← derived from the span's own tool calls
  *   children                        ← one line per finished subtask
  *
- * User messages inside a span stay verbatim unless a classifier labels them as steering, extra
- * information, acknowledgements or harness text with enough confidence. Kept user messages split
- * the span into several groups; the record rides on the last one. No classifier (none configured,
- * or the host cannot run one) means every user message is kept.
+ * User messages inside a span stay verbatim unless a classifier scores that losing them costs the
+ * later work nothing (approvals, status checks, step steering, consumed facts, harness notices).
+ * Kept user messages split the span into several groups; the record rides on the last one. No
+ * classifier (none reachable, or the host cannot run one) means every user message is kept.
  *
  * Cache economics: nothing is proposed below HIGH, and an epoch commits as ONE transaction, so the
  * prompt cache breaks once per epoch at the oldest folded span, never once per completed task.
@@ -25,7 +24,7 @@
  * same transaction that groups their parent. Every record carries its group's `{#code FOLDED}` tag,
  * so `recall`/`unfold` return the raw span.
  */
-import type { ClassifierAnswer, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
+import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
@@ -35,8 +34,8 @@ export interface TaskfoldOptions {
 	high?: number;
 	/** An epoch stops once projected live tokens are at or below `low · budget`. Default 0.6. */
 	low?: number;
-	/** Minimum classifier confidence to fold a user message. Default 0.6. */
-	minConfidence?: number;
+	/** Fold a user message when the classifier's expected `loss` level (0–3) is below this. Default 0.3. */
+	maxLoss?: number;
 	/** User messages matching any of these are harness text and fold without a model call. */
 	harnessPatterns?: readonly RegExp[];
 }
@@ -44,23 +43,53 @@ export interface TaskfoldOptions {
 export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	high: 0.8,
 	low: 0.6,
-	minConfidence: 0.6,
+	maxLoss: 0.3,
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 
-/** The user-message labels the classifier chooses between, and what each means for folding. */
-export const USER_LABELS: Record<string, string> = {
-	"new-task": "Starts a new task or changes what the assistant should be working on.",
-	"new-instruction": "A new instruction or requirement that must hold for the rest of the session.",
-	constraint: "Adds or restates a limit on the current task (what to avoid, keep or prefer).",
-	steering: "Corrects or redirects how the current task is being done, without changing the task.",
-	info: "Supplies extra information, context or an answer the assistant asked for.",
-	ack: "Acknowledges, approves, thanks or tells the assistant to continue.",
-	harness: "Automated text from a tool, harness or system, not written by a person.",
+/** The classifier the questions and `maxLoss` are calibrated for (.project/analyses/taskfold-classifier.md). */
+export const TASKFOLD_CLASSIFIER = "openrouter/perplexity/pplx-decider-v1.2";
+
+const CTX =
+	"`message` is the newest user-role message in a coding-agent session. `session_goal` is the session's first user message, `previous_user_message` the user-role message before `message` (empty when it is `session_goal`), and `assistant_last_reply` the end of the assistant's reply that `message` answers. User-role messages come from the human, from a coordinating parent agent, or from the harness.";
+
+/** `loss` decides; the other questions ride in the same call because they measurably sharpen it. Keep the wording: the threshold is calibrated on it. */
+export const USER_QUESTIONS: Record<string, ClassifierQuestion> = {
+	keep_goal: {
+		type: "bool",
+		instructions: `${CTX} Once the work in progress is finished, its transcript is replaced by a short summary of what was done. Must the text of \`message\` itself stay visible so the assistant can continue correctly? It must when \`message\` asks for work or an answer that nobody requested before it: a new task, an additional deliverable, a new question about the subject, or a new direction for \`session_goal\`. A go-ahead for something \`assistant_last_reply\` proposed is not new work; neither is a retry notice, a question whether requested work is done, or information the assistant asked for.`,
+		criteria: {
+			true: "`message` asks for a task, deliverable, direction or answer that was not requested or proposed before it.",
+			false: "`message` approves, continues, reports on, checks the status of, or adjusts work that was already requested or proposed.",
+		},
+	},
+	durable_rule: {
+		type: "bool",
+		instructions: `${CTX} Does \`message\` set a rule, constraint, preference or decision about the work that must keep holding after the current step is finished? Lasting content includes a prohibition, a priority order, a chosen option, an interface contract or a naming rule. An instruction about the current step only, such as finishing now or reporting when done, is not lasting.`,
+		criteria: {
+			true: "`message` states a rule, constraint, preference or decision that keeps applying to later work.",
+			false: "`message` concerns only the current step, or states no rule at all.",
+		},
+	},
+	overrule: {
+		type: "bool",
+		instructions: `${CTX} Does \`message\` reverse, replace or correct an earlier instruction, decision, assumption or result from the user or the assistant?`,
+		criteria: { true: "`message` replaces or corrects something said or done earlier.", false: "`message` builds on what was said and done earlier without changing it." },
+	},
+	loss: {
+		type: "score",
+		instructions: `${CTX} How much would the assistant's later work suffer if it could no longer see \`message\` once the work in progress is summarized?`,
+		criteria: [
+			"Nothing is lost: `message` is an approval, retry notice, status check or instruction about the current step.",
+			"A detail is lost that a summary of the finished work would already contain.",
+			"A lasting rule, decision or correction is lost that the assistant must keep following.",
+			"The task or question itself is lost, so the assistant would not know what it was asked to do.",
+		],
+	},
 };
-const FOLDED_LABELS = new Set(["constraint", "steering", "info", "ack", "harness"]);
-const LIFTED_LABELS = new Set(["constraint", "steering"]);
-const LIFT_MAX_CHARS = 400;
+const MESSAGE_CHARS = 2000;
+const GOAL_CHARS = 1500;
+const NEIGHBOUR_CHARS = 600;
 const RECORD_TAG = "[task-record]";
 const PART_TAG = "[task-part]";
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
@@ -87,9 +116,9 @@ interface Unit {
 	saved: number;
 }
 
+/** The classifier's expected `loss` level, or null when the message must stay (unclassified or the opening message). */
 interface Verdict {
-	label: string | null;
-	confidence: number;
+	loss: number | null;
 }
 
 function parseCall(text: string | null | undefined): Record<string, unknown> | null {
@@ -183,33 +212,46 @@ export class TaskfoldConductor implements Conductor {
 			if (b.kind !== "user" || this.verdicts.has(b.id) || this.classifying.has(b.id)) continue;
 			const text = this.textOf(b);
 			if (this.k.harnessPatterns.some((re) => re.test(text))) {
-				this.verdicts.set(b.id, { label: "harness", confidence: 1 });
+				this.verdicts.set(b.id, { loss: 0 });
 				continue;
 			}
-			void this.classifyOne(b.id, text);
+			const state = this.stateFor(b.id, text);
+			if (!state) {
+				this.verdicts.set(b.id, { loss: null });
+				continue;
+			}
+			void this.classifyOne(b.id, state);
 		}
 	}
 
-	private async classifyOne(id: string, text: string): Promise<void> {
+	/** The classifier's view of a user message, shaped like the calibration data; null for the session's opening message. */
+	private stateFor(id: string, text: string): Record<string, string> | null {
+		const all = this.host?.blocks() ?? [];
+		const i = all.findIndex((b) => b.id === id);
+		const users = all.slice(0, Math.max(0, i)).filter((b) => b.kind === "user");
+		if (i < 0 || !users.length) return null;
+		let j = i - 1;
+		while (j >= 0 && all[j].kind !== "text") j--;
+		const reply = j < 0 ? "" : all.filter((b) => b.kind === "text" && messageKey(b.id) === messageKey(all[j].id)).map((b) => this.textOf(b)).join("\n");
+		return {
+			session_goal: this.textOf(users[0]).slice(0, GOAL_CHARS),
+			previous_user_message: users.length > 1 ? this.textOf(users[users.length - 1]).slice(0, NEIGHBOUR_CHARS) : "",
+			assistant_last_reply: reply.slice(-NEIGHBOUR_CHARS),
+			message: text.slice(0, MESSAGE_CHARS),
+		};
+	}
+
+	private async classifyOne(id: string, state: Record<string, string>): Promise<void> {
 		const host = this.host;
 		if (!host?.classify) return;
 		this.classifying.add(id);
 		try {
-			const res = await host.classify({
-				state: { message: text },
-				questions: {
-					kind: {
-						type: "choice",
-						instructions: "A message sent to a coding assistant in the user role during a task. What does it do?",
-						criteria: USER_LABELS,
-					},
-				},
-			});
-			const a = res.answers.kind as ClassifierAnswer | undefined;
-			this.verdicts.set(id, a?.type === "choice" ? { label: a.choice, confidence: a.confidence } : { label: null, confidence: 0 });
+			const res = await host.classify({ state, questions: USER_QUESTIONS });
+			const a = res.answers.loss as ClassifierAnswer | undefined;
+			this.verdicts.set(id, { loss: a?.type === "score" ? a.score : null });
 		} catch {
 			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
-			this.verdicts.set(id, { label: null, confidence: 0 });
+			this.verdicts.set(id, { loss: null });
 			this.classifyFailures++;
 		} finally {
 			this.classifying.delete(id);
@@ -222,8 +264,8 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private folds(b: ViewBlock): boolean {
-		const v = this.verdicts.get(b.id);
-		return !!v?.label && FOLDED_LABELS.has(v.label) && v.confidence >= this.k.minConfidence;
+		const loss = this.verdicts.get(b.id)?.loss;
+		return loss != null && loss < this.k.maxLoss;
 	}
 
 	// ── span discovery ──────────────────────────────────────────────────────────────────────
@@ -316,7 +358,6 @@ export class TaskfoldConductor implements Conductor {
 		if (members.some((b) => b.grouped && !oursIds.has(b.id))) return null;
 
 		const runs: ViewBlock[][] = [];
-		const lifted: string[] = [];
 		let run: ViewBlock[] = [];
 		for (const b of members) {
 			if (b.kind === "user" && !this.folds(b)) {
@@ -324,14 +365,13 @@ export class TaskfoldConductor implements Conductor {
 				run = [];
 				continue;
 			}
-			if (b.kind === "user" && LIFTED_LABELS.has(this.verdicts.get(b.id)!.label!)) lifted.push(oneLine(this.textOf(b), LIFT_MAX_CHARS));
 			run.push(b);
 		}
 		if (run.length) runs.push(run);
 		const viable = runs.filter((r) => collapsibleMessageKeys(r, true).size > 0);
 		if (!viable.length) return null;
 
-		const record = this.record(span, members, children, lifted);
+		const record = this.record(span, members, children);
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
 		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary }) as Op);
 		let saved = 0;
@@ -348,14 +388,13 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** The fixed-shape record for a span. Deterministic fields come from the span's own tool traffic. */
-	record(span: Span, members: readonly ViewBlock[], children: readonly Span[], lifted: readonly string[]): string {
+	record(span: Span, members: readonly ViewBlock[], children: readonly Span[]): string {
 		const lines = [`${RECORD_TAG} ${span.key} "${span.title}"  status: ${span.status}`];
 		if (span.report.outcome) lines.push(`outcome: ${oneLine(span.report.outcome, 600)}`);
 		const list = (name: string, items: readonly string[] | undefined) => {
 			if (items?.length) lines.push(`${name}:`, ...items.map((x) => `  - ${oneLine(x, 240)}`));
 		};
 		list("decisions", span.report.decisions);
-		list("constraints", lifted);
 
 		const results = new Map<string, ViewBlock>();
 		for (const b of members) if (b.kind === "tool_result" && b.callId) results.set(b.callId, b);

@@ -100,6 +100,13 @@ describe("model routing", () => {
 		expect(resolveModelSpec(models, "classifier", "taskfold")).toBe("local/deberta");
 		expect(resolveModelSpec(models, "classifier", "keel-lite")).toBe("local/minilm");
 		expect(resolveModelSpec(models, "chat", "taskfold")).toBe("openrouter/google/gemini-flash");
+		expect(resolveModelSpec(models, "classifier", "keel-lite", undefined, "tuned/model")).toBe("local/minilm");
+	});
+
+	test("a conductor's built-in default applies only when the user configured none", () => {
+		const none = sanitizeModelSettings({});
+		expect(resolveModelSpec(none, "classifier", "taskfold", undefined, "tuned/model")).toBe("tuned/model");
+		expect(resolveModelSpec(none, "classifier", "taskfold", "x/y", "tuned/model")).toBe("x/y");
 	});
 
 	test("chat falls back to the session model; a classifier has no fallback", () => {

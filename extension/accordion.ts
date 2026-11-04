@@ -902,7 +902,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** The chat model a conductor's completion resolves to under the user's model routing. */
 	function resolveChatModel(conductorId: string | null, requested: string | undefined): any {
 		const ctx = latestCtx;
-		const spec = resolveModelSpec(settings.models, "chat", conductorId, requested);
+		const spec = resolveModelSpec(settings.models, "chat", conductorId, requested, entryById(conductorId)?.defaultModels?.chat);
 		if (spec === "current" || spec === null) return latestModelObj ?? (ctx?.model as any) ?? null;
 		const { provider, id } = splitModelSpec(spec);
 		const m = (ctx as any)?.modelRegistry?.find?.(provider, id);
@@ -915,7 +915,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const registry = (latestCtx as any)?.modelRegistry;
 		if (typeof registry?.findOfType !== "function" || typeof registry?.classify !== "function")
 			throw new Error("this Pi host does not expose classifier models to extensions");
-		const spec = resolveModelSpec(settings.models, "classifier", conductorId, requested);
+		const spec = resolveModelSpec(settings.models, "classifier", conductorId, requested, entryById(conductorId)?.defaultModels?.classifier);
 		if (!spec) throw new Error("no classifier model configured (set models.defaults.classifier in ~/.accordion/config.json)");
 		const { provider, id } = splitModelSpec(spec);
 		const m = registry.findOfType("classifier", provider, id);

@@ -24,7 +24,7 @@ socket, no child process. Bundled straight into the pi extension.
   locks.
 - [`taskfold/`](in-process/taskfold/) — folds finished task spans (marked by the `tasks` tool)
   into structured task records in hysteresis epochs. User messages fold only when a classifier
-  model labels them steering or acknowledgements. No locks.
+  model scores them as safe to lose (approvals, status checks, step steering). No locks.
 - `agedSummaryConductor.ts` — shared base class factored out of `compaction-naive` and `handoff`
   (PR #82); not a conductor on its own, not in the shipped catalog.
 

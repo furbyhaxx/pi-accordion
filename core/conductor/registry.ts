@@ -27,7 +27,7 @@ import { HandoffConductor } from "../../conductors/in-process/handoff/handoff";
 import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
 import { KeelLiteConductor, KEEL_LITE_DEFAULTS, type KeelLiteOptions } from "../../conductors/in-process/keel-lite/keel-lite";
 import { KeelNoteConductor, type KeelNoteOptions } from "../../conductors/in-process/keel-note/keel-note";
-import { TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_CLASSIFIER, TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
 
 /** One catalog entry: everything the host needs to attach (or detach to) this conductor. */
 export interface RegistryEntry {
@@ -47,6 +47,8 @@ export interface RegistryEntry {
 	 * needs a one-time, persisted user consent unless every routed model runs on this machine.
 	 */
 	privacy?: { models: readonly ("chat" | "classifier")[]; notice: string };
+	/** Canonical model specs this conductor is tuned for, used when the user configured none. */
+	defaultModels?: Partial<Record<"chat" | "classifier", string>>;
 	/** Host tools the agent gets only while this conductor is attached. */
 	tools?: readonly string[];
 	/** In-process factory — a FRESH conductor per attach. */
@@ -185,10 +187,11 @@ export const ENTRIES: readonly RegistryEntry[] = [
 	inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
 	{
 		...inProcess(() => new TaskfoldConductor()),
+		defaultModels: { classifier: TASKFOLD_CLASSIFIER },
 		privacy: {
 			models: ["classifier"],
 			notice:
-				"Taskfold sends the text of your user messages to the configured classifier model to decide which ones may be folded. That model's provider receives and may log them. Messages the classifier cannot label stay verbatim.",
+				"Taskfold sends the text of your user messages, with the session's first message and the end of the assistant's last reply, to the classifier model (by default OpenRouter's perplexity/pplx-decider-v1.2) to decide which ones may be folded. That model's provider receives and may log them. Messages the classifier cannot label stay verbatim.",
 		},
 		tools: ["tasks"],
 	},

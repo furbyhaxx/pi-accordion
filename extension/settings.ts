@@ -159,13 +159,13 @@ export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
 
 /**
  * The model spec a conductor's request resolves to: an explicit spec in the request wins, then the
- * conductor's override, then the per-type default. Chat falls back to the session model; a
- * classifier has no implicit fallback, so `null` means none is configured.
+ * conductor's override, then the per-type default, then the conductor's built-in default. Chat falls
+ * back to the session model; a classifier has no implicit fallback, so `null` means none is configured.
  */
-export function resolveModelSpec(models: ModelSettings, type: ModelType, conductorId: string | null, requested?: string): string | null {
+export function resolveModelSpec(models: ModelSettings, type: ModelType, conductorId: string | null, requested?: string, builtIn?: string): string | null {
 	const explicit = requested !== undefined && requested !== "current" ? sanitizeModelSpec(requested, type) : null;
 	if (requested !== undefined && requested !== "current" && !explicit) throw new Error(`invalid ${type} model spec "${requested}" (expected provider/model-id)`);
-	const spec = explicit ?? (conductorId ? models.conductors[conductorId]?.[type] : undefined) ?? models.defaults[type];
+	const spec = explicit ?? (conductorId ? models.conductors[conductorId]?.[type] : undefined) ?? models.defaults[type] ?? builtIn;
 	return spec ?? (type === "chat" ? "current" : null);
 }
 

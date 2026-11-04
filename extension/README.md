@@ -39,7 +39,9 @@ Accordion pass.
 
 Conductors that call models out of band route them through `models` in the same file. Set a
 default per model type and override it per conductor id. Chat falls back to the session model.
-Classifiers have no fallback, so a conductor that needs one stays degraded until you configure it:
+A classifier falls back to the model the conductor is tuned for, if it names one (taskfold uses
+`openrouter/perplexity/pplx-decider-v1.2`); otherwise a conductor that needs one stays degraded
+until you configure it:
 
 ```json
 {
