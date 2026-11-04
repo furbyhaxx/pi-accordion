@@ -681,6 +681,7 @@ export class KeelNoteConductor implements Conductor {
 		const text = this.keelText ? `${this.keelText} · ${note}` : note;
 		host.setStatus(text, {
 			...this.keelMetrics,
+			...(this.lastError ? { level: "warning" } : {}),
 			note_refreshes: this.refreshes,
 			note_placements: this.placements,
 			note_moves: this.moves,

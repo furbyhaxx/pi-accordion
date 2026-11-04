@@ -198,7 +198,11 @@ export interface ConductorHost {
 	digestOf(id: string): string | null;
 	/** Run an out-of-band model completion. Rejects if the model is unavailable or the call fails. */
 	complete(req: CompletionRequest): Promise<CompletionResult>;
-	/** Surface display-only conductor status to the human; `null`/empty clears it. */
+	/**
+	 * Surface display-only conductor status to the human; `null`/empty clears it. A `level` metric of
+	 * `"warning"` or `"error"` marks a degraded state (a failing model call, an unreachable budget, a
+	 * missing dependency); surfaces highlight it and notify once when it first appears.
+	 */
 	setStatus(text: string | null, metrics?: Record<string, number | string | boolean>): void;
 	/**
 	 * Propose a transaction against `baseRev`; the host clamps and returns per-op results.

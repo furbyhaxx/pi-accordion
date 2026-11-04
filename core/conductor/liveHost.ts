@@ -357,7 +357,7 @@ export class LiveConductorHost implements ConductorHost {
 			try {
 				c = entry.create!();
 			} catch {
-				this.setAndBroadcastStatus(`${entry.label} failed to start.`);
+				this.setAndBroadcastStatus(`${entry.label} failed to start.`, { level: "error" });
 				this.deps.broadcast({ type: "conductorState", active: null });
 				return;
 			}
@@ -371,7 +371,7 @@ export class LiveConductorHost implements ConductorHost {
 				} catch {
 					/* ignore */
 				}
-				this.setAndBroadcastStatus(`${entry.label} failed to attach.`);
+				this.setAndBroadcastStatus(`${entry.label} failed to attach.`, { level: "error" });
 				this.deps.broadcast({ type: "conductorState", active: null });
 				return;
 			}
@@ -394,7 +394,7 @@ export class LiveConductorHost implements ConductorHost {
 			const child = this.deps.spawnRunner(entry.spawn!.entryFile, this.spawnEnvRecord(token));
 			if (!child) {
 				// Runner unavailable. Locks were never applied (deferred to accept) — nothing to undo.
-				this.setAndBroadcastStatus(`${entry.label} runner is unavailable on this install.`);
+				this.setAndBroadcastStatus(`${entry.label} runner is unavailable on this install.`, { level: "error" });
 				this.active = null;
 				this.mode = null;
 				this.pendingToken = null;
@@ -544,7 +544,7 @@ export class LiveConductorHost implements ConductorHost {
 	/** Detach because something went wrong (runner never dialed in, or exited): surface WHY first. */
 	private autoDetach(reason: string): void {
 		if (!this.active) return;
-		this.setAndBroadcastStatus(reason);
+		this.setAndBroadcastStatus(reason, { level: "error" });
 		this.detachActive();
 		this.deps.broadcast({ type: "conductorState", active: null });
 	}

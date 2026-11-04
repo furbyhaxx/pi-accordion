@@ -6,6 +6,7 @@ import { EMPTY_DIGEST, stripFoldTags } from "../../core/digest";
 import type { CompactMode } from "../settings";
 import type { AccordionTuiHost } from "./host";
 import { buildContextMap, formatCompactTokens, kindGlyph, renderCategoryBar } from "./map";
+import { statusLevel } from "./status";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
@@ -174,8 +175,11 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 						: `Accordion › ${tabLabel} · folding ${host.folding() ? "on" : "off"} · ${host.sessionLabel?.() ?? "session"} · conductor ${host.activeConductor()?.label ?? "none"}`;
 					const headerRight = stats ? `${formatCompactTokens(stats.liveTokens)}/${formatCompactTokens(stats.budget)} tok` : "";
 					const topRule = renderRule(width, headerLeft, width >= 90 ? `${tabsCompact} · ${headerRight}` : headerRight);
+					const conductorStatus = host.conductorStatus?.() ?? null;
+					const level = statusLevel(conductorStatus?.metrics);
+					const alertMark = level === "info" ? "" : level === "error" ? "✗ " : "⚠ ";
 					const summary = stats
-						? `Tokens ${stats.liveTokens}/${stats.fullTokens} · budget ${stats.budget} · tail ${stats.protectTokens}${stats.contextWindow === null ? "" : ` · window ${stats.contextWindow}`}${host.conductorStatus?.()?.text ? ` · ${host.conductorStatus?.()?.text}` : ""}`
+						? `Tokens ${stats.liveTokens}/${stats.fullTokens} · budget ${stats.budget} · tail ${stats.protectTokens}${stats.contextWindow === null ? "" : ` · window ${stats.contextWindow}`}${conductorStatus?.text ? ` · ${alertMark}${conductorStatus.text}` : ""}`
 						: "No session context yet";
 
 					let body: string[] = [];
@@ -282,6 +286,9 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 						];
 						const start = Math.max(0, Math.min(conductorIndex - bodyRows + 1, rows.length - bodyRows));
 						body = rows.slice(start, start + bodyRows).map((row, i) => `${start + i === conductorIndex ? "❯" : " "} ${row}`);
+						if (conductorStatus?.text && body.length < bodyRows) {
+							body.push("", `${alertMark}${host.activeConductor()?.label ?? "Conductor"} status: ${conductorStatus.text}`);
+						}
 						hint = "↑↓ select · enter choose · esc back";
 					} else if (screen === "consent") {
 						const conductor = host.conductors().find((entry) => entry.id === consentId);
@@ -340,7 +347,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 					const statusLine = message || (readOnly ? host.controlMessage?.() ?? "Close and reopen /accordion to request control" : bottomCenter ? `── ${bottomCenter} ──` : "");
 					return [
 						theme.fg("accent", line(topRule, width)),
-						theme.fg("muted", line(summary, width)),
+						theme.fg(level === "info" ? "muted" : level, line(summary, width)),
 						...body.slice(0, bodyRows).map((row) => (row.startsWith("❯") ? theme.fg("accent", ansiLine(row, width)) : ansiLine(row, width))),
 						theme.fg(message ? "warning" : "dim", line(statusLine, width)),
 						theme.fg("dim", line(hint, width)),

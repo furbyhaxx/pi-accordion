@@ -80,6 +80,7 @@ import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/re
 import type { CompletionRequest, CompletionResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel } from "./tui/panel";
+import { AlertGate, footerText, statusLevel } from "./tui/status";
 import type { AccordionTuiHost } from "./tui/host";
 import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
 import {
@@ -735,6 +736,33 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		spawnEnv: () => ({ port, sessionKey: sessionId, home: HOME }),
 		now: () => Date.now(),
 	});
+
+	// Footer status and one-shot alerts for the active conductor; any broadcast may change them.
+	const conductorAlerts = new AlertGate();
+	let lastFooter = "";
+	let lastConductorLabel: string | null = null;
+	function refreshConductorPresentation(): void {
+		const ctx = latestCtx;
+		if (!ctx) return;
+		const status = liveHost.cachedStatus();
+		const active = liveHost.activeMeta()?.label ?? null;
+		if (active) lastConductorLabel = active;
+		const level = statusLevel(status?.metrics);
+		const text = footerText({ folding: foldingEnabled, conductor: active, statusText: status?.text ?? null, level });
+		try {
+			const color = level === "error" ? "error" : level === "warning" ? "warning" : foldingEnabled ? "accent" : "dim";
+			const footer = ctx.ui.theme.fg(color, text);
+			if (footer !== lastFooter) {
+				lastFooter = footer;
+				ctx.ui.setStatus("accordion", footer);
+			}
+			const alert = conductorAlerts.next(active ?? lastConductorLabel, status?.text ?? null, level);
+			if (alert) ctx.ui.notify(alert.text, alert.level);
+		} catch {
+			/* status API optional */
+		}
+	}
+	nativeListeners.add(refreshConductorPresentation);
 
 	const conductorsWsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "conductors", "ws");
 
@@ -2744,11 +2772,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				else liveHost.select(settings.defaultConductor);
 			}
 		}
-		try {
-			ctx.ui.setStatus("accordion", ctx.ui.theme.fg("accent", "accordion"));
-		} catch {
-			/* status API optional */
-		}
+		lastFooter = "";
+		refreshConductorPresentation();
 	});
 
 	// ── ghost layer: forward stream lifecycle frames (Phase 4, ADR 0003) ─────────
