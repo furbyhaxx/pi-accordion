@@ -153,6 +153,12 @@ the next step). The note sits where the trimmed history meets the live turns and
 with every trim, in the same request, so it adds little to cache cost. The trim never waits for the
 note: room for it is reserved in the budget from the first turn.
 
+**[taskfold](conductors/in-process/taskfold/)** folds by task. The agent plans in a persistent,
+nested task list (the `tasks` tool) and ends each task with a short report. Once the context gets
+tight, finished tasks fold into fixed-shape records: outcome, decisions, files changed, checks run,
+open items. User messages stay verbatim unless a classifier model says they are only steering or
+acknowledgements.
+
 **[handoff](conductors/in-process/handoff/)** is `/handoff`, automatic. The manual version is to
 ask the agent to write a handoff document, kill the session, and paste that document into a
 fresh one. This does all three for you without you leaving the session.

@@ -52,6 +52,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
+import { TaskError, TaskStore, runTasks, type TasksArgs } from "./tasks";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -77,7 +78,7 @@ import {
 } from "../core/protocol";
 import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHost";
 import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
-import type { CompletionRequest, CompletionResult } from "../core/conductor/contract";
+import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel } from "./tui/panel";
 import { AlertGate, footerText, statusLevel } from "./tui/status";
@@ -92,6 +93,9 @@ import {
 	sanitizeBindHost,
 	sanitizeDoorPort,
 	sanitizeCustomToken,
+	resolveModelSpec,
+	splitModelSpec,
+	isLoopbackUrl,
 	type AccordionSettings,
 } from "./settings";
 import {
@@ -511,7 +515,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const beforeTokens = truth.stats().liveTokens;
 		if (!foldingEnabled) setFolding(true);
 		if (!liveHost.activeMeta() && settings.defaultConductor && settings.defaultConductor !== "none") {
-			liveHost.select(settings.defaultConductor);
+			selectConductor(settings.defaultConductor);
 		}
 		const last = truth.blocks[truth.blocks.length - 1];
 		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
@@ -733,9 +737,52 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		readiness: readinessOf,
 		spawnRunner,
 		runCompletion,
+		runClassification,
 		spawnEnv: () => ({ port, sessionKey: sessionId, home: HOME }),
 		now: () => Date.now(),
 	});
+
+	/** Does any model this conductor sends session content to run off this machine? */
+	function leavesMachine(entry: RegistryEntry): boolean {
+		for (const type of entry.privacy?.models ?? []) {
+			let m: any;
+			try {
+				m = type === "chat" ? resolveChatModel(entry.id, undefined) : resolveClassifierModel(entry.id, undefined);
+			} catch {
+				continue; // an unresolvable model receives nothing
+			}
+			if (m && !isLoopbackUrl(m.baseUrl)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Attach a conductor through its privacy gate. Ungated, consented or fully local conductors attach
+	 * at once (returns true). Otherwise the user confirms once in an interactive session; acceptance is
+	 * persisted and attaches the conductor, and a session switch while the dialog is open drops it.
+	 */
+	function selectConductor(id: string | null): boolean {
+		const entry = entryById(id);
+		if (!entry?.privacy || settings.privacyConsent[entry.id] || !leavesMachine(entry)) {
+			liveHost.select(id);
+			return true;
+		}
+		const ctx = latestCtx;
+		if (!ctx?.hasUI) {
+			ctx?.ui.notify(`${entry.label} sends session content to a remote model and needs a one-time consent in an interactive session.`, "warning");
+			return false;
+		}
+		const session = sessionId;
+		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy.notice}\n\nAccept once and enable ${entry.label}?`).then(
+			(accepted) => {
+				if (session !== sessionId || !accepted) return;
+				settings = saveSettings(HOME, { ...settings, privacyConsent: { ...settings.privacyConsent, [entry.id]: new Date().toISOString() } });
+				liveHost.select(entry.id);
+			},
+			() => {},
+		);
+		return false;
+	}
 
 	// Footer status and one-shot alerts for the active conductor; any broadcast may change them.
 	const conductorAlerts = new AlertGate();
@@ -763,6 +810,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 	nativeListeners.add(refreshConductorPresentation);
+
+	// Conductor-declared tools are active only while that conductor is attached.
+	const conductorTools = new Set(catalogMeta().flatMap((e) => entryById(e.id)?.tools ?? []));
+	let activeConductorTools = "";
+	function syncConductorTools(): void {
+		const want = entryById(liveHost.activeMeta()?.id ?? null)?.tools ?? [];
+		const sig = want.join(",");
+		if (sig === activeConductorTools) return;
+		activeConductorTools = sig;
+		try {
+			const keep = pi.getActiveTools().filter((t) => !conductorTools.has(t));
+			pi.setActiveTools([...keep, ...want]);
+		} catch {
+			/* no active session to configure */
+		}
+	}
+	nativeListeners.add(syncConductorTools);
 
 	const conductorsWsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "conductors", "ws");
 
@@ -835,7 +899,31 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * and race the provider call against an abortable timeout. NEVER on the `context` hook path — the
 	 * conductor awaits it off to the side. A process-wide semaphore bounds concurrent spend.
 	 */
-	async function runCompletion(req: CompletionRequest, signal: AbortSignal): Promise<CompletionResult> {
+	/** The chat model a conductor's completion resolves to under the user's model routing. */
+	function resolveChatModel(conductorId: string | null, requested: string | undefined): any {
+		const ctx = latestCtx;
+		const spec = resolveModelSpec(settings.models, "chat", conductorId, requested);
+		if (spec === "current" || spec === null) return latestModelObj ?? (ctx?.model as any) ?? null;
+		const { provider, id } = splitModelSpec(spec);
+		const m = (ctx as any)?.modelRegistry?.find?.(provider, id);
+		if (!m) throw new Error(`unknown chat model "${spec}"`);
+		return m;
+	}
+
+	/** The classifier model a conductor's classification resolves to, or a rejection naming why not. */
+	function resolveClassifierModel(conductorId: string | null, requested: string | undefined): any {
+		const registry = (latestCtx as any)?.modelRegistry;
+		if (typeof registry?.findOfType !== "function" || typeof registry?.classify !== "function")
+			throw new Error("this Pi host does not expose classifier models to extensions");
+		const spec = resolveModelSpec(settings.models, "classifier", conductorId, requested);
+		if (!spec) throw new Error("no classifier model configured (set models.defaults.classifier in ~/.accordion/config.json)");
+		const { provider, id } = splitModelSpec(spec);
+		const m = registry.findOfType("classifier", provider, id);
+		if (!m) throw new Error(`unknown classifier model "${spec}"`);
+		return m;
+	}
+
+	async function runCompletion(req: CompletionRequest, signal: AbortSignal, conductorId: string | null): Promise<CompletionResult> {
 		const startedAt = Date.now();
 		if (typeof req.prompt !== "string" || req.prompt.length === 0) throw new Error("missing or empty prompt");
 		if (req.maxOutputTokens !== undefined && (!Number.isSafeInteger(req.maxOutputTokens) || req.maxOutputTokens <= 0))
@@ -866,7 +954,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		let mForLog: any = null;
 		try {
 			const ctx = latestCtx;
-			const m = latestModelObj ?? (ctx?.model as any);
+			const m = ctx ? resolveChatModel(conductorId, req.model) : null;
 			if (!ctx || !m) throw new Error("no model available");
 			mForLog = m;
 			const auth = await Promise.race([(ctx as any).modelRegistry.getApiKeyAndHeaders(m), deadline]);
@@ -930,6 +1018,51 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			};
 			if (providerSettlement) void providerSettlement.then(release);
 			else release();
+		}
+	}
+
+	/**
+	 * The out-of-band classifier executor: resolve the routed classifier model, then run it through
+	 * Pi's model registry (request-time auth) under the same concurrency bound and timeout as
+	 * completions. The registry never rejects, so a non-`stop` result is turned into a rejection here.
+	 */
+	async function runClassification(req: ClassificationRequest, signal: AbortSignal, conductorId: string | null): Promise<ClassificationResult> {
+		const startedAt = Date.now();
+		if (!req.state || typeof req.state !== "object" || Array.isArray(req.state)) throw new Error("classification state must be a JSON object");
+		if (!req.questions || typeof req.questions !== "object" || !Object.keys(req.questions).length) throw new Error("classification needs at least one question");
+		if (activeCompletions >= MAX_CONCURRENT_COMPLETIONS) throw new Error(`too many concurrent model calls in flight (max ${MAX_CONCURRENT_COMPLETIONS})`);
+		const m = resolveClassifierModel(conductorId, req.model);
+		activeCompletions++;
+		const abort = new AbortController();
+		const onAbort = () => abort.abort();
+		if (signal.aborted) abort.abort();
+		else signal.addEventListener("abort", onAbort, { once: true });
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		const timeoutError = new Error(`classification timed out after ${COMPLETION_TIMEOUT_MS}ms`);
+		const deadline = new Promise<never>((_resolve, reject) => {
+			timer = setTimeout(() => {
+				abort.abort(timeoutError);
+				reject(timeoutError);
+			}, COMPLETION_TIMEOUT_MS);
+			(timer as { unref?: () => void }).unref?.();
+		});
+		const call: Promise<any> = (latestCtx as any).modelRegistry.classify(m, { state: req.state, questions: req.questions }, { signal: abort.signal });
+		const settled = call.then(() => {}, () => {});
+		const spec = `${m.provider}/${m.id}`;
+		try {
+			const result = await Promise.race([call, deadline]);
+			if (result?.stopReason !== "stop") throw new Error(`classifier ${spec} failed: ${result?.errorMessage ?? result?.stopReason ?? "unknown error"}`);
+			logCompletion({ t: "classify", at: startedAt, conductor: conductorId, provider: m.provider, model: m.id, costUsd: result.usage?.cost?.total ?? null, ms: Date.now() - startedAt });
+			return { answers: result.answers, model: spec };
+		} catch (err) {
+			logCompletion({ t: "classify", at: startedAt, conductor: conductorId, provider: m.provider, model: m.id, error: err instanceof Error ? err.message : String(err), ms: Date.now() - startedAt });
+			throw err;
+		} finally {
+			if (timer) clearTimeout(timer);
+			signal.removeEventListener("abort", onAbort);
+			void settled.then(() => {
+				activeCompletions--;
+			});
 		}
 	}
 
@@ -2386,7 +2519,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					writeEntry(); // advertise immediately, now that the port is known
 					const awaiting = conductorAwaitingPort;
 					conductorAwaitingPort = null;
-					if (awaiting && truth && !liveHost.activeMeta()) liveHost.select(awaiting);
+					if (awaiting && truth && !liveHost.activeMeta()) selectConductor(awaiting);
 					if (!heartbeat) {
 						heartbeat = setInterval(writeEntry, HEARTBEAT_INTERVAL_MS);
 						heartbeat.unref?.(); // never keep the process alive for a heartbeat
@@ -2696,7 +2829,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				// GUI-only (a conductor socket never reaches applyCommand — its messages route to
 				// handleConductorMessage). Drives the host's attach/detach; state arrives via events +
 				// the conductorState broadcast, so nothing to return here beyond the current rev.
-				liveHost.select(cmd.id);
+				selectConductor(cmd.id);
 				return { results: [], rev: truth.rev };
 			default:
 				return { results: [], rev: truth.rev };
@@ -2751,6 +2884,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		settings = loadSettings(HOME);
 		setFolding(false);
 		latestCtx = ctx;
+		activeConductorTools = ""; // a new session starts with its own active tool set
 		sessionId = `s-${process.pid}-${Date.now()}`;
 		startedAt = Date.now();
 		try {
@@ -2769,7 +2903,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			setFolding(true);
 			if (settings.defaultConductor && settings.defaultConductor !== "none") {
 				if (port === 0 && entryById(settings.defaultConductor)?.kind === "spawn") conductorAwaitingPort = settings.defaultConductor;
-				else liveHost.select(settings.defaultConductor);
+				else selectConductor(settings.defaultConductor);
 			}
 		}
 		lastFooter = "";
@@ -3342,6 +3476,54 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// Phase B: resolved LOCALLY against the in-process Truth (no client needed). The unfolded
 	// block becomes standing-open (sticky, provenance "agent") and its content returns to the
 	// model on the NEXT `context` hook — it simply no longer appears in the fold serialization.
+	pi.registerTool({
+		name: "tasks",
+		label: "Tasks",
+		defaultActive: false,
+		description:
+			"Plan and track work as a persistent, nested task list for this project (stored in .pig/tasks/). Start a task before working on it and finish it with a report. Accordion folds a finished task's whole span into a compact task record built from your report, so the report is what later turns will see of that work. Actions: create {list, title, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, tasks}, status {list}, start {list, id}, complete|fail|abandon {list, id, report}.",
+		promptSnippet: "tasks(action, …) — persistent nested task lists; start a task, then complete/fail/abandon it with a report.",
+		promptGuidelines: [
+			"Use the `tasks` tool for multi-step work: create or claim a list, `start` a task before working on it, and end it with `complete`, `fail` or `abandon` and a `report`. Only one task branch is open at a time; subtasks nest inside their parent.",
+			"A finished task is later folded into a record built from its `report`. Write `outcome` as what was achieved, `decisions` as `choice — reason`, and `open` as anything unresolved. Files changed and checks run are recorded automatically.",
+		],
+		parameters: Type.Object({
+			action: Type.Union(
+				["create", "list", "claim", "release", "add", "status", "start", "complete", "fail", "abandon"].map((a) => Type.Literal(a)),
+				{ description: "What to do." },
+			),
+			list: Type.Optional(Type.String({ description: 'List slug, e.g. "auth-refactor" (lowercase, digits, dashes).' })),
+			title: Type.Optional(Type.String({ description: "List title, for create." })),
+			tasks: Type.Optional(
+				Type.Array(Type.Object({ title: Type.String(), subtasks: Type.Optional(Type.Array(Type.Any())) }), {
+					description: "Tasks to create or add: [{ title, subtasks?: [{ title, subtasks? }] }].",
+				}),
+			),
+			parent: Type.Optional(Type.String({ description: "Parent task id for add, e.g. \"2\" or \"2.1\"." })),
+			id: Type.Optional(Type.String({ description: 'Task id, e.g. "1.2".' })),
+			report: Type.Optional(
+				Type.Object(
+					{
+						outcome: Type.String({ description: "What this task achieved, one or two sentences." }),
+						decisions: Type.Optional(Type.Array(Type.String(), { description: '"choice — reason" lines.' })),
+						open: Type.Optional(Type.Array(Type.String(), { description: "Anything left unresolved." })),
+					},
+					{ description: "Required for complete, fail and abandon." },
+				),
+			),
+			force: Type.Optional(Type.Boolean({ description: "For claim: take over a list another session holds. Ask the user first." })),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const store = new TaskStore(ctx.cwd, () => ctx.sessionManager.getSessionId());
+			try {
+				return { content: [{ type: "text", text: runTasks(store, params as TasksArgs) }], details: undefined };
+			} catch (err) {
+				if (err instanceof TaskError) throw err;
+				throw new Error(`tasks: ${err instanceof Error ? err.message : String(err)}`);
+			}
+		},
+	});
+
 	pi.registerTool({
 		name: "unfold",
 		label: "Unfold Context",

@@ -1,0 +1,455 @@
+/*
+ * taskfold.ts — fold completed task spans into structured task records.
+ *
+ * The agent marks its work with the `tasks` tool (registered by the extension while this conductor
+ * is attached). A SPAN runs from a successful `tasks start <id>` call through the successful
+ * `complete` / `fail` / `abandon` result of the same task. Once the context crosses HIGH·budget,
+ * one epoch folds the oldest finished spans, outermost first, until the projection reaches
+ * LOW·budget. Each folded span becomes a group whose summary is a fixed-shape record:
+ *
+ *   [task-record] <list>/<id> "<title>"  status: done
+ *   outcome / decisions / open      ← agent-written, from the finishing call's `report`
+ *   constraints                     ← user steering lifted verbatim (classifier-gated)
+ *   changed / verified              ← derived from the span's own tool calls
+ *   children                        ← one line per finished subtask
+ *
+ * User messages inside a span stay verbatim unless a classifier labels them as steering, extra
+ * information, acknowledgements or harness text with enough confidence. Kept user messages split
+ * the span into several groups; the record rides on the last one. No classifier (none configured,
+ * or the host cannot run one) means every user message is kept.
+ *
+ * Cache economics: nothing is proposed below HIGH, and an epoch commits as ONE transaction, so the
+ * prompt cache breaks once per epoch at the oldest folded span, never once per completed task.
+ *
+ * Monotone like keel-lite: it only proposes `group`, plus `ungroup` of its own child groups in the
+ * same transaction that groups their parent. Every record carries its group's `{#code FOLDED}` tag,
+ * so `recall`/`unfold` return the raw span.
+ */
+import type { ClassifierAnswer, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
+import type { Op } from "../../../core/ops";
+import { foldTag } from "../../../core/digest";
+import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
+
+export interface TaskfoldOptions {
+	/** Start an epoch once live tokens reach `high · budget`. Default 0.8. */
+	high?: number;
+	/** An epoch stops once projected live tokens are at or below `low · budget`. Default 0.6. */
+	low?: number;
+	/** Minimum classifier confidence to fold a user message. Default 0.6. */
+	minConfidence?: number;
+	/** User messages matching any of these are harness text and fold without a model call. */
+	harnessPatterns?: readonly RegExp[];
+}
+
+export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
+	high: 0.8,
+	low: 0.6,
+	minConfidence: 0.6,
+	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
+};
+
+/** The user-message labels the classifier chooses between, and what each means for folding. */
+export const USER_LABELS: Record<string, string> = {
+	"new-task": "Starts a new task or changes what the assistant should be working on.",
+	"new-instruction": "A new instruction or requirement that must hold for the rest of the session.",
+	constraint: "Adds or restates a limit on the current task (what to avoid, keep or prefer).",
+	steering: "Corrects or redirects how the current task is being done, without changing the task.",
+	info: "Supplies extra information, context or an answer the assistant asked for.",
+	ack: "Acknowledges, approves, thanks or tells the assistant to continue.",
+	harness: "Automated text from a tool, harness or system, not written by a person.",
+};
+const FOLDED_LABELS = new Set(["constraint", "steering", "info", "ack", "harness"]);
+const LIFTED_LABELS = new Set(["constraint", "steering"]);
+const LIFT_MAX_CHARS = 400;
+const RECORD_TAG = "[task-record]";
+const PART_TAG = "[task-part]";
+const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
+const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
+const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
+
+/** One finished task span, as indices into `host.blocks()`. */
+interface Span {
+	key: string;
+	list: string;
+	id: string;
+	title: string;
+	status: "done" | "failed" | "abandoned";
+	report: { outcome?: string; decisions?: string[]; open?: string[] };
+	start: number;
+	end: number;
+}
+
+/** One span's fold: its ops, the span key per group op, and how to restore absorbed child groups. */
+interface Unit {
+	ops: Op[];
+	keys: string[];
+	restore: Op[];
+	saved: number;
+}
+
+interface Verdict {
+	label: string | null;
+	confidence: number;
+}
+
+function parseCall(text: string | null | undefined): Record<string, unknown> | null {
+	const space = text?.indexOf(" ") ?? -1;
+	if (space < 0) return null;
+	try {
+		const v = JSON.parse(text!.slice(space + 1));
+		return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+	} catch {
+		return null;
+	}
+}
+
+function oneLine(s: string, max: number): string {
+	const t = s.replace(/\s+/g, " ").trim();
+	return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+export class TaskfoldConductor implements Conductor {
+	readonly id = "taskfold";
+	readonly label = "Taskfold";
+	readonly description = "Folds finished task spans into structured task records; user steering folds when a classifier says so.";
+
+	private readonly k: Required<TaskfoldOptions>;
+	private host: ConductorHost | null = null;
+	private off: (() => void) | null = null;
+	private busy = false;
+	private pending = false;
+	/** Our groups: group id → span key (`<list>/<id>`). */
+	private readonly ownGroups = new Map<string, string>();
+	/** User block id → verdict; computed once and never recomputed. */
+	private readonly verdicts = new Map<string, Verdict>();
+	private readonly classifying = new Set<string>();
+	private classifyFailures = 0;
+	private epochs = 0;
+
+	constructor(options: TaskfoldOptions = {}) {
+		this.k = { ...TASKFOLD_DEFAULTS, ...options };
+	}
+
+	attach(host: ConductorHost): void {
+		this.host = host;
+		this.adoptGroups(host);
+		this.off = host.on((e) => this.onEvent(e));
+	}
+
+	detach(): void {
+		this.off?.();
+		this.off = null;
+		this.host?.setStatus(null);
+		this.host = null;
+		this.ownGroups.clear();
+		this.classifying.clear();
+		this.busy = false;
+		this.pending = false;
+	}
+
+	private onEvent(e: HostEvent): void | Promise<void> {
+		if (!this.host) return;
+		switch (e.type) {
+			case "resync":
+				this.adoptGroups(this.host);
+				return this.evaluate();
+			case "blocks-appended":
+				this.classifyNew(e.blocks);
+				return this.evaluate();
+			case "turn-committed":
+				return this.evaluate();
+			case "state-changed":
+				if (this.busy || e.changes.every((c) => c.by === "auto")) return;
+				return this.evaluate();
+			default:
+				return;
+		}
+	}
+
+	/** Groups an earlier attach of this conductor created are ours: their summary says so. */
+	private adoptGroups(host: ConductorHost): void {
+		this.ownGroups.clear();
+		for (const g of host.groups()) {
+			if (g.by !== "auto") continue;
+			const key = this.keyOfSummary(g.summary);
+			if (key) this.ownGroups.set(g.id, key);
+		}
+	}
+
+	// ── user-message classification ─────────────────────────────────────────────────────────
+
+	private classifyNew(blocks: readonly ViewBlock[]): void {
+		for (const b of blocks) {
+			if (b.kind !== "user" || this.verdicts.has(b.id) || this.classifying.has(b.id)) continue;
+			const text = this.textOf(b);
+			if (this.k.harnessPatterns.some((re) => re.test(text))) {
+				this.verdicts.set(b.id, { label: "harness", confidence: 1 });
+				continue;
+			}
+			void this.classifyOne(b.id, text);
+		}
+	}
+
+	private async classifyOne(id: string, text: string): Promise<void> {
+		const host = this.host;
+		if (!host?.classify) return;
+		this.classifying.add(id);
+		try {
+			const res = await host.classify({
+				state: { message: text },
+				questions: {
+					kind: {
+						type: "choice",
+						instructions: "A message sent to a coding assistant in the user role during a task. What does it do?",
+						criteria: USER_LABELS,
+					},
+				},
+			});
+			const a = res.answers.kind as ClassifierAnswer | undefined;
+			this.verdicts.set(id, a?.type === "choice" ? { label: a.choice, confidence: a.confidence } : { label: null, confidence: 0 });
+		} catch {
+			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
+			this.verdicts.set(id, { label: null, confidence: 0 });
+			this.classifyFailures++;
+		} finally {
+			this.classifying.delete(id);
+		}
+		if (this.host === host) void this.evaluate();
+	}
+
+	private textOf(b: ViewBlock): string {
+		return b.text ?? this.host?.textOf(b.id) ?? "";
+	}
+
+	private folds(b: ViewBlock): boolean {
+		const v = this.verdicts.get(b.id);
+		return !!v?.label && FOLDED_LABELS.has(v.label) && v.confidence >= this.k.minConfidence;
+	}
+
+	// ── span discovery ──────────────────────────────────────────────────────────────────────
+
+	/** Every finished task span in the log, innermost first when two end together. */
+	spans(blocks: readonly ViewBlock[]): Span[] {
+		const resultIdx = new Map<string, number>();
+		blocks.forEach((b, i) => {
+			if (b.kind === "tool_result" && b.callId && b.toolName === "tasks") resultIdx.set(b.callId, i);
+		});
+		const open = new Map<string, { start: number; title: string }>();
+		const out: Span[] = [];
+		blocks.forEach((b, i) => {
+			if (b.kind !== "tool_call" || b.toolName !== "tasks" || !b.callId) return;
+			const ri = resultIdx.get(b.callId);
+			if (ri === undefined || blocks[ri].isError) return;
+			const args = parseCall(this.textOf(b));
+			const action = typeof args?.action === "string" ? args.action : "";
+			if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
+			const key = `${args.list}/${args.id}`;
+			if (action === "start") {
+				const title = /"(.*)"\.\s*$/.exec(this.textOf(blocks[ri]))?.[1] ?? "";
+				open.set(key, { start: i, title });
+			} else if (FINISH[action]) {
+				const s = open.get(key);
+				if (!s) return;
+				open.delete(key);
+				const report = (args.report && typeof args.report === "object" ? args.report : {}) as Span["report"];
+				out.push({ key, list: args.list, id: args.id, title: s.title, status: FINISH[action], report, start: s.start, end: ri });
+			}
+		});
+		return out;
+	}
+
+	// ── planning ────────────────────────────────────────────────────────────────────────────
+
+	private evaluate(): void | Promise<void> {
+		const host = this.host;
+		if (!host) return;
+		if (this.busy) {
+			this.pending = true;
+			return;
+		}
+		const stats = host.stats();
+		if (stats.budget <= 0 || stats.liveTokens < this.k.high * stats.budget) return;
+		const plan = this.plan(host);
+		if (!plan.length) {
+			host.setStatus(`Over budget; no finished task span is foldable yet.`, { epochs: this.epochs, groups: this.ownGroups.size, level: "warning" });
+			return;
+		}
+		return this.commit(host, plan);
+	}
+
+	private plan(host: ConductorHost): Unit[] {
+		const blocks = host.blocks();
+		const stats = host.stats();
+		const spans = this.spans(blocks);
+		const contains = (outer: Span, inner: Span) => outer !== inner && outer.start <= inner.start && inner.end <= outer.end;
+		// Outermost finished spans are the fold units; finished descendants fold inside them.
+		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
+		const foldedKeys = new Set(this.ownGroups.values());
+		// Oldest first: the newest finished work stays open longest, and the cache breaks once, early.
+		const candidates = roots.filter((s) => !foldedKeys.has(s.key));
+		const units: Unit[] = [];
+		let projected = stats.liveTokens;
+		const target = this.k.low * stats.budget;
+		for (const span of candidates) {
+			if (projected <= target) break;
+			const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)));
+			if (!unit) continue;
+			units.push(unit);
+			projected -= unit.saved;
+		}
+		return units;
+	}
+
+	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
+	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[]): Unit | null {
+		let lo = span.start;
+		let hi = span.end;
+		// Snap outward to whole messages, exactly like Truth's group snap, so the group id is predictable.
+		while (lo > 0 && messageKey(blocks[lo - 1].id) === messageKey(blocks[lo].id)) lo--;
+		while (hi < blocks.length - 1 && messageKey(blocks[hi + 1].id) === messageKey(blocks[hi].id)) hi++;
+		const members = blocks.slice(lo, hi + 1);
+		if (members.some((b) => b.protected || b.held || b.kind === "system")) return null;
+
+		// Child groups of ours inside this span are absorbed; any other group overlapping it blocks it.
+		const ours = host.groups().filter((g) => this.ownGroups.has(g.id) && g.memberIds.some((id) => members.some((m) => m.id === id)));
+		const oursIds = new Set(ours.flatMap((g) => g.memberIds));
+		if (members.some((b) => b.grouped && !oursIds.has(b.id))) return null;
+
+		const runs: ViewBlock[][] = [];
+		const lifted: string[] = [];
+		let run: ViewBlock[] = [];
+		for (const b of members) {
+			if (b.kind === "user" && !this.folds(b)) {
+				if (run.length) runs.push(run);
+				run = [];
+				continue;
+			}
+			if (b.kind === "user" && LIFTED_LABELS.has(this.verdicts.get(b.id)!.label!)) lifted.push(oneLine(this.textOf(b), LIFT_MAX_CHARS));
+			run.push(b);
+		}
+		if (run.length) runs.push(run);
+		const viable = runs.filter((r) => collapsibleMessageKeys(r, true).size > 0);
+		if (!viable.length) return null;
+
+		const record = this.record(span, members, children, lifted);
+		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
+		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary }) as Op);
+		let saved = 0;
+		viable.forEach((r, i) => {
+			const gid = `g:${r[0].id}`;
+			const last = i === viable.length - 1;
+			const body = last ? record : `${PART_TAG} ${span.key} "${span.title}" part ${i + 1}/${viable.length}; the task record follows the kept message(s) below.`;
+			const summary = `${foldTag(gid)} ${body}`;
+			ops.push({ kind: "group", ids: r.map((b) => b.id), summary });
+			const full = r.reduce((n, b) => n + (oursIds.has(b.id) ? b.foldedTokens : b.tokens), 0);
+			saved += Math.max(0, full - host.countTokens(summary));
+		});
+		return { ops, keys: viable.map(() => span.key), restore, saved };
+	}
+
+	/** The fixed-shape record for a span. Deterministic fields come from the span's own tool traffic. */
+	record(span: Span, members: readonly ViewBlock[], children: readonly Span[], lifted: readonly string[]): string {
+		const lines = [`${RECORD_TAG} ${span.key} "${span.title}"  status: ${span.status}`];
+		if (span.report.outcome) lines.push(`outcome: ${oneLine(span.report.outcome, 600)}`);
+		const list = (name: string, items: readonly string[] | undefined) => {
+			if (items?.length) lines.push(`${name}:`, ...items.map((x) => `  - ${oneLine(x, 240)}`));
+		};
+		list("decisions", span.report.decisions);
+		list("constraints", lifted);
+
+		const results = new Map<string, ViewBlock>();
+		for (const b of members) if (b.kind === "tool_result" && b.callId) results.set(b.callId, b);
+		const changed = new Set<string>();
+		const verified: string[] = [];
+		for (const b of members) {
+			if (b.kind !== "tool_call") continue;
+			const args = parseCall(this.textOf(b));
+			if (EDIT_TOOLS.has(b.toolName ?? "") && typeof args?.path === "string") changed.add(args.path);
+			if (b.toolName === "bash" && typeof args?.command === "string" && CHECK_RE.test(args.command)) {
+				const r = b.callId ? results.get(b.callId) : undefined;
+				const mark = !r ? "no result" : r.isError ? `failed: ${oneLine(this.textOf(r).split("\n").slice(-3).join(" "), 160)}` : "ok";
+				verified.push(`\`${oneLine(args.command, 120)}\` → ${mark}`);
+			}
+		}
+		if (changed.size) lines.push(`changed: ${[...changed].slice(0, 20).join(", ")}${changed.size > 20 ? `, +${changed.size - 20} more` : ""}`);
+		list("verified", verified.slice(-5));
+		list("open", span.report.open);
+		const direct = children.filter((c) => !children.some((o) => o !== c && o.start <= c.start && c.end <= o.end));
+		list(
+			"children",
+			direct.map((c) => `${c.id} "${c.title}" ${c.status}${c.report.outcome ? `: ${c.report.outcome}` : ""}`),
+		);
+		return lines.join("\n");
+	}
+
+	private async commit(host: ConductorHost, units: Unit[]): Promise<void> {
+		this.busy = true;
+		try {
+			const ops = units.flatMap((u) => u.ops);
+			const res = await host.propose({ baseRev: host.stats().rev, ops });
+			if (this.host !== host) return;
+			let at = 0;
+			let applied = 0;
+			let saved = 0;
+			const restore: Op[] = [];
+			const restoreKeys: string[] = [];
+			for (const u of units) {
+				const rs = res.results.slice(at, at + u.ops.length);
+				at += u.ops.length;
+				let gi = 0;
+				let unitApplied = 0;
+				let failed = false;
+				for (const r of rs) {
+					if (r.op.kind === "ungroup") {
+						if (r.applied) this.ownGroups.delete(r.op.groupId);
+						continue;
+					}
+					if (r.op.kind !== "group") continue;
+					const key = u.keys[gi++];
+					if (!r.applied) {
+						failed = true;
+						continue;
+					}
+					this.ownGroups.set(r.detail ?? `g:${r.op.ids[0]}`, key);
+					unitApplied++;
+				}
+				applied += unitApplied;
+				if (unitApplied && !failed) saved += u.saved;
+				// A parent that did not fold must not leave its children unfolded: put their groups back.
+				if (failed && u.restore.length) {
+					restore.push(...u.restore);
+					for (const op of u.restore) if (op.kind === "group") restoreKeys.push(this.keyOfSummary(op.summary) ?? "");
+				}
+			}
+			if (restore.length) {
+				const back = await host.propose({ baseRev: host.stats().rev, ops: restore });
+				if (this.host !== host) return;
+				back.results.forEach((r, i) => {
+					if (r.applied && r.op.kind === "group") this.ownGroups.set(r.detail ?? `g:${r.op.ids[0]}`, restoreKeys[i]);
+				});
+			}
+			this.epochs++;
+			const s = host.stats();
+			const unclassified = this.classifyFailures ? `; ${this.classifyFailures} user message(s) unclassified, kept` : "";
+			host.setStatus(`Epoch ${this.epochs}: folded ${applied} task group(s), ~${saved} tokens${unclassified}.`, {
+				epochs: this.epochs,
+				groups: this.ownGroups.size,
+				live_tokens: s.liveTokens,
+				budget: s.budget,
+				...(this.classifyFailures ? { level: "warning" } : {}),
+			});
+		} catch {
+			/* a rejected propose leaves state unchanged; the next event re-plans */
+		} finally {
+			this.busy = false;
+			if (this.pending && this.host === host) {
+				this.pending = false;
+				void this.evaluate();
+			}
+		}
+	}
+
+	private keyOfSummary(summary: string | null | undefined): string | null {
+		return typeof summary === "string" ? (/^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part)\] (\S+)/.exec(summary)?.[1] ?? null) : null;
+	}
+}

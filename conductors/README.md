@@ -22,6 +22,9 @@ socket, no child process. Bundled straight into the pi extension.
   note rides at the trim boundary and moves with every trim, in the same request, so the next trim
   re-bills it along with everything else. Its size is reserved inside keel-lite's budget math. No
   locks.
+- [`taskfold/`](in-process/taskfold/) — folds finished task spans (marked by the `tasks` tool)
+  into structured task records in hysteresis epochs. User messages fold only when a classifier
+  model labels them steering or acknowledgements. No locks.
 - `agedSummaryConductor.ts` — shared base class factored out of `compaction-naive` and `handoff`
   (PR #82); not a conductor on its own, not in the shipped catalog.
 

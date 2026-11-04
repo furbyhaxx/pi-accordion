@@ -27,6 +27,7 @@ import { HandoffConductor } from "../../conductors/in-process/handoff/handoff";
 import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
 import { KeelLiteConductor, KEEL_LITE_DEFAULTS, type KeelLiteOptions } from "../../conductors/in-process/keel-lite/keel-lite";
 import { KeelNoteConductor, type KeelNoteOptions } from "../../conductors/in-process/keel-note/keel-note";
+import { TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
 
 /** One catalog entry: everything the host needs to attach (or detach to) this conductor. */
 export interface RegistryEntry {
@@ -41,6 +42,13 @@ export interface RegistryEntry {
 	holdWireUpToMs: number;
 	/** How this conductor runs. `none` is the sentinel detach entry. */
 	kind: "none" | "in-process" | "spawn";
+	/**
+	 * Set when this conductor sends session content to models of these types. Attaching it then
+	 * needs a one-time, persisted user consent unless every routed model runs on this machine.
+	 */
+	privacy?: { models: readonly ("chat" | "classifier")[]; notice: string };
+	/** Host tools the agent gets only while this conductor is attached. */
+	tools?: readonly string[];
 	/** In-process factory — a FRESH conductor per attach. */
 	create?: () => Conductor;
 	/** Spawn descriptor — the runner file the extension launches out of process. `entryFile` is
@@ -175,6 +183,15 @@ export const ENTRIES: readonly RegistryEntry[] = [
 	inProcess(() => new DoormanConductor()),
 	inProcess(() => new KeelLiteConductor(keelLiteOptionsFromEnv())),
 	inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
+	{
+		...inProcess(() => new TaskfoldConductor()),
+		privacy: {
+			models: ["classifier"],
+			notice:
+				"Taskfold sends the text of your user messages to the configured classifier model to decide which ones may be folded. That model's provider receives and may log them. Messages the classifier cannot label stay verbatim.",
+		},
+		tools: ["tasks"],
+	},
 	THERMOCLINE,
 	TRIPTYCH,
 ];

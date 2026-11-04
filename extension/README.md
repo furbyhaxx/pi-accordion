@@ -37,6 +37,22 @@ to choose another live local session. Folding auto-arms with `keel-lite` by defa
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
 Accordion pass.
 
+Conductors that call models out of band route them through `models` in the same file. Set a
+default per model type and override it per conductor id. Chat falls back to the session model.
+Classifiers have no fallback, so a conductor that needs one stays degraded until you configure it:
+
+```json
+{
+  "models": {
+    "defaults": { "chat": "openrouter/google/gemini-2.5-flash", "classifier": "local/minilm" },
+    "conductors": { "taskfold": { "classifier": "local/deberta" } }
+  }
+}
+```
+
+A conductor that sends session content to a model running off this machine asks once for consent
+before it attaches. Accepted notices are stored under `privacyConsent`.
+
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
 output against the actual serialized prompt, including restored content. Stored usage and costs
 remain unchanged. Model switches reset provider-specific token calibration, and resumed sessions
@@ -77,7 +93,7 @@ reasons over at full fidelity.
 
 **Conductors are opt-in, same as folding itself** — pick one from the header's Conductor
 menu, or leave it on "None" for fully manual steering. `compaction-naive`, `handoff`,
-`doorman`, `keel-lite`, and `keel-note` run right inside this extension, no extra setup. Two more, `thermocline`
+`doorman`, `keel-lite`, `keel-note`, and `taskfold` run right inside this extension, no extra setup. Two more, `thermocline`
 (attention-gated compression under a hard budget invariant) and `triptych` (pressure-gated
 thirds with tree-sitter code skeletons), each run as their own out-of-process Node program.
 Their runners ship with the full [GitHub repo](https://github.com/a-Fig/Accordion) and not
