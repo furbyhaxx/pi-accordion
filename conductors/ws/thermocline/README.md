@@ -127,7 +127,8 @@ vanished is dropped.
 
 The owner's decision: **Thermocline runs in its own Node process.** The pi extension spawns
 `node runner.mjs` with `ACCORDION_PORT` / `ACCORDION_TOKEN` (and optionally `ACCORDION_HOME`,
-`ACCORDION_SESSION_KEY`, `ATTN_PROBE_PYTHON` / `ATTN_PROBE_SCRIPT`). The runner imports the remote
+`ACCORDION_SESSION_KEY`, `ATTN_PROBE_PYTHON` / `ATTN_PROBE_SCRIPT`). The binary is the host's own
+Node; a compiled host such as Pi-Bolt uses `node` on PATH, or `ACCORDION_NODE` when set. The runner imports the remote
 SDK from the committed `./remote-sdk.mjs` bundle (`runRemoteConductor` + `ThermoclineConductor`),
 dials `ws://127.0.0.1:${ACCORDION_PORT}/?role=conductor&token=${ACCORDION_TOKEN}`, mirrors the live
 session's Truth into a local `ConductorHost`, and calls `attach(host)`. Because `ThermoclineConductor`

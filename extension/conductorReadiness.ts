@@ -14,6 +14,18 @@ import { createRequire } from "node:module";
 import type { ConductorReadiness } from "../core/protocol";
 import type { RegistryEntry } from "../core/conductor/registry";
 
+/**
+ * The Node binary that runs a spawn conductor's `runner.mjs`. Under a Node host that is the host
+ * itself; a compiled host such as Pi-Bolt reports its own executable as `execPath`, which would
+ * start another agent instead of the runner, so those fall back to `node` on PATH.
+ * `ACCORDION_NODE` overrides both.
+ */
+export function runnerNodeBinary(execPath: string, env: NodeJS.ProcessEnv): string {
+	if (env.ACCORDION_NODE) return env.ACCORDION_NODE;
+	const base = execPath.split(/[\\/]/).pop() ?? "";
+	return /^node(js)?(\.exe)?$/i.test(base) ? execPath : "node";
+}
+
 export function resolveRunnerPath(conductorsWsDir: string, entryFile: string): string | null {
 	try {
 		if (typeof entryFile !== "string" || entryFile.length === 0) return null;

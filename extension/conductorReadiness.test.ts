@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { conductorReadiness, resolveRunnerPath } from "./conductorReadiness";
+import { conductorReadiness, resolveRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { entryById, type RegistryEntry } from "../core/conductor/registry";
 
 const roots: string[] = [];
@@ -83,5 +83,14 @@ describe("spawn conductor readiness", () => {
 			remediation: "Run `npm install` in `conductors/ws/triptych/`, then reconnect Accordion.",
 		});
 		expect(conductorReadiness(thermocline, root)).toEqual({ state: "ready" });
+	});
+});
+
+describe("runnerNodeBinary", () => {
+	it("reuses a Node host, falls back to PATH node under a compiled host, and honors ACCORDION_NODE", () => {
+		expect(runnerNodeBinary("/usr/bin/node", {})).toBe("/usr/bin/node");
+		expect(runnerNodeBinary("C:\\Program Files\\nodejs\\node.exe", {})).toBe("C:\\Program Files\\nodejs\\node.exe");
+		expect(runnerNodeBinary("/home/u/.pi-bolt/pi-bolt-linux-x64/pi", {})).toBe("node");
+		expect(runnerNodeBinary("/home/u/.pi-bolt/pi", { ACCORDION_NODE: "/opt/node/bin/node" })).toBe("/opt/node/bin/node");
 	});
 });

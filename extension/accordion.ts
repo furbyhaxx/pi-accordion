@@ -78,7 +78,7 @@ import {
 import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHost";
 import { catalogMeta, type RegistryEntry } from "../core/conductor/registry";
 import type { CompletionRequest, CompletionResult } from "../core/conductor/contract";
-import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath } from "./conductorReadiness";
+import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel } from "./tui/panel";
 import type { AccordionTuiHost } from "./tui/host";
 import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
@@ -758,7 +758,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!runnerPath) return null;
 		let child: ReturnType<typeof spawn>;
 		try {
-			child = spawn(process.execPath, [runnerPath], { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
+			child = spawn(runnerNodeBinary(process.execPath, process.env), [runnerPath], { env: { ...process.env, ...env }, stdio: ["ignore", "pipe", "pipe"] });
 		} catch {
 			return null;
 		}
