@@ -2836,7 +2836,36 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 	// ── lifecycle ──────────────────────────────────────────────────────────────
+	const taskStores = new Map<string, { session: string; store: TaskStore }>();
+	function taskStoreFor(ctx: ExtensionContext): TaskStore {
+		const session = ctx.sessionManager.getSessionId();
+		const project = path.resolve(ctx.cwd);
+		const key = JSON.stringify([project, session]);
+		const existing = taskStores.get(key);
+		if (existing) return existing.store;
+		const store = new TaskStore(project, () => session);
+		taskStores.set(key, { session, store });
+		return store;
+	}
+
+	function releaseTaskClaims(): void {
+		for (const { session, store } of taskStores.values()) {
+			for (const list of store.lists()) {
+				if (list.claim?.session !== session) continue;
+				try {
+					store.release(list.slug);
+				} catch (err) {
+					try {
+						latestCtx?.ui.notify(`Could not release task list "${list.slug}": ${err instanceof Error ? err.message : String(err)}`, "warning");
+					} catch { /* UI may be unavailable during shutdown. */ }
+				}
+			}
+		}
+		taskStores.clear();
+	}
+
 	pi.on("session_start", (_event, ctx: ExtensionContext) => {
+		releaseTaskClaims();
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
 		// session swap invalidates the whole context state (a fresh Truth is authoritative). Detach
 		// any attached conductor first (kills a spawned runner, clears its locks off the old Truth,
@@ -2884,6 +2913,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		settings = loadSettings(HOME);
 		setFolding(false);
 		latestCtx = ctx;
+		if (typeof ctx.sessionManager?.getSessionId === "function") taskStoreFor(ctx);
 		activeConductorTools = ""; // a new session starts with its own active tool set
 		sessionId = `s-${process.pid}-${Date.now()}`;
 		startedAt = Date.now();
@@ -3218,6 +3248,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		releaseTaskClaims();
 		// Tear the attached conductor down FIRST (while the Truth still exists): SIGTERM→grace→SIGKILL
 		// any spawned runner, abort in-flight completions, release any pending hold. The freeze kill
 		// switch runs against the live Truth before we null it below.
@@ -3514,7 +3545,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			force: Type.Optional(Type.Boolean({ description: "For claim: take over a list another session holds. Ask the user first." })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const store = new TaskStore(ctx.cwd, () => ctx.sessionManager.getSessionId());
+			const store = taskStoreFor(ctx);
 			try {
 				return { content: [{ type: "text", text: runTasks(store, params as TasksArgs) }], details: undefined };
 			} catch (err) {

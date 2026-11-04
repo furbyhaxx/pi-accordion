@@ -6,7 +6,10 @@ The agent tracks its work with the `tasks` tool, which is active only while task
 attached. A **span** runs from a successful `tasks start <id>` call to the successful `complete`,
 `fail` or `abandon` call for the same task. Lists persist per project in `.pig/tasks/<slug>.json`,
 so a list outlives the session that created it. Each list has a claim, so two sessions don't work
-on the same list at once.
+on the same list at once. Use `release {list}` to hand a list to another session; releasing an
+unclaimed list or another session's claim is rejected. Normal session shutdown (including reload
+or session replacement) automatically releases this session's claims without changing task status
+or reports. A crash or forced kill still relies on the stale-claim timeout or an explicit takeover.
 
 ## When it folds
 

@@ -206,9 +206,10 @@ export class TaskStore {
 		return list;
 	}
 
+	/** Release a list owned by this session; reject unowned lists without changing them. */
 	release(slug: string): void {
 		const list = this.read(slug);
-		if (list.claim?.session !== this.session()) return;
+		if (list.claim?.session !== this.session()) throw new TaskError(`Task list "${slug}" is not claimed by this session; nothing was released.`);
 		list.claim = null;
 		this.write(list);
 	}

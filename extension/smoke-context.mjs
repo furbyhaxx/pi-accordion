@@ -15,11 +15,12 @@ const checks = [];
 function check(name, fn) { checks.push({ name, fn }); }
 function runtime(messages = [], options = {}) {
 	const handlers = {};
+	const tools = {};
 	let host;
 	let command;
 	const pi = {
 		on: (name, fn) => { handlers[name] = fn; },
-		registerFlag() {}, getFlag() {}, registerTool() {}, appendEntry() {},
+		registerFlag() {}, getFlag() {}, registerTool(tool) { tools[tool.name] = tool; }, appendEntry() {},
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
 	accordion(pi, { openPanel: async (_ctx, h) => { host = h; } });
@@ -30,9 +31,10 @@ function runtime(messages = [], options = {}) {
 		contextWindow: 1_048_576, maxTokens: 943_718,
 	};
 	const ctx = {
-		mode: "tui", hasUI: true, cwd: home, model,
+		mode: "tui", hasUI: true, cwd: options.cwd ?? home, model,
 		ui: { notify() {}, setStatus() {}, confirm: async () => true, theme: { fg: (_c, s) => s } },
 		sessionManager: {
+			getSessionId: () => options.sessionId ?? "context-test-session",
 			getBranch: () => messages.map(message => ({ type: "message", message })),
 			...(options.branchOnly ? {} : { buildSessionContext: () => ({ messages }) }),
 		},
@@ -41,7 +43,7 @@ function runtime(messages = [], options = {}) {
 	};
 	handlers.session_start({ reason: "resume" }, ctx);
 	return {
-		handlers, ctx,
+		handlers, ctx, tools,
 		open: async () => { await command("", ctx); return host; },
 		request: async input => {
 			const folded = await handlers.context({ messages: input }, ctx);
@@ -51,6 +53,54 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("shutdown releases only this session's task claims across visited projects", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-claims-"));
+	const r = runtime([], { sessionId: "owner" });
+	const run = args => r.tools.tasks.execute("call", args, undefined, undefined, r.ctx);
+	const read = (project, slug) => JSON.parse(fs.readFileSync(path.join(project, ".pig", "tasks", `${slug}.json`), "utf8"));
+	try {
+		r.ctx.cwd = dir;
+		await run({ action: "create", list: "owned", title: "Owned", tasks: [{ title: "Work" }] });
+		await run({ action: "start", list: "owned", id: "1" });
+		await run({ action: "create", list: "taken", title: "Taken", tasks: [] });
+		const takenFile = path.join(dir, ".pig", "tasks", "taken.json");
+		const taken = read(dir, "taken");
+		taken.claim.session = "other";
+		fs.writeFileSync(takenFile, JSON.stringify(taken));
+		r.ctx.cwd = path.join(dir, "second");
+		await run({ action: "create", list: "second", title: "Second", tasks: [] });
+		// A mutable session manager must not make cleanup release the replacement session's claims.
+		r.ctx.sessionManager.getSessionId = () => "other";
+		r.close();
+		assert.equal(read(dir, "owned").claim, null);
+		assert.equal(read(dir, "owned").tasks[0].status, "doing");
+		assert.equal(read(dir, "taken").claim.session, "other");
+		assert.equal(read(path.join(dir, "second"), "second").claim, null);
+	} finally {
+		r.close();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+check("session replacement releases resumed claims before tracking the next session", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-resumed-claims-"));
+	const taskDir = path.join(dir, ".pig", "tasks");
+	fs.mkdirSync(taskDir, { recursive: true });
+	const file = path.join(taskDir, "resumed.json");
+	fs.writeFileSync(file, JSON.stringify({ slug: "resumed", tasks: [], claim: { session: "old", at: new Date().toISOString() } }));
+	const r = runtime([], { cwd: dir, sessionId: "old" });
+	try {
+		r.ctx.sessionManager.getSessionId = () => "new";
+		r.handlers.session_start({ reason: "new" }, r.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).claim, null);
+		await r.tools.tasks.execute("call", { action: "claim", list: "resumed" }, undefined, undefined, r.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).claim.session, "new");
+		r.close();
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).claim, null);
+	} finally {
+		r.close();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 const usage = { input: 70, output: 150, cacheRead: 132_193, cacheWrite: 70, totalTokens: 132_483, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 function history(repeats = 60_000) {
 	return [

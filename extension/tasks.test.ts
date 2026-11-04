@@ -50,6 +50,17 @@ describe("tasks", () => {
 		expect(runTasks(other, { action: "start", list: "w", id: "1" })).toContain("Started");
 	});
 
+	test("release rejects a foreign or absent claim without reporting success", () => {
+		const { dir, s } = store();
+		s.create("w", "W", []);
+		const other = new TaskStore(dir, () => "s2");
+		expect(() => runTasks(other, { action: "release", list: "w" })).toThrow(/not claimed by this session/);
+		expect(s.read("w").claim?.session).toBe("s1");
+		expect(runTasks(s, { action: "release", list: "w" })).toBe('Released "w".');
+		expect(s.read("w").claim).toBeNull();
+		expect(() => runTasks(s, { action: "release", list: "w" })).toThrow(/not claimed by this session/);
+	});
+
 	test("add numbers new tasks after existing siblings", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }] });
