@@ -76,7 +76,7 @@ import {
 	type ControllerInfo,
 } from "../core/protocol";
 import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHost";
-import { catalogMeta, type RegistryEntry } from "../core/conductor/registry";
+import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
 import type { CompletionRequest, CompletionResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel } from "./tui/panel";
@@ -651,6 +651,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// ── discovery (registry) state ──────────────────────────────────────────────
 	let port = 0; // actual ephemeral port, filled once the server is listening
+	/** A spawned default conductor dials back on `port`, so its selection waits for the listen. */
+	let conductorAwaitingPort: string | null = null;
 	let startedAt = 0;
 	let model = "";
 	let tokens: number | null = null;
@@ -2354,6 +2356,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (addr && typeof addr === "object") {
 					port = addr.port;
 					writeEntry(); // advertise immediately, now that the port is known
+					const awaiting = conductorAwaitingPort;
+					conductorAwaitingPort = null;
+					if (awaiting && truth && !liveHost.activeMeta()) liveHost.select(awaiting);
 					if (!heartbeat) {
 						heartbeat = setInterval(writeEntry, HEARTBEAT_INTERVAL_MS);
 						heartbeat.unref?.(); // never keep the process alive for a heartbeat
@@ -2735,7 +2740,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (settings.autoArm) {
 			setFolding(true);
 			if (settings.defaultConductor && settings.defaultConductor !== "none") {
-				liveHost.select(settings.defaultConductor);
+				if (port === 0 && entryById(settings.defaultConductor)?.kind === "spawn") conductorAwaitingPort = settings.defaultConductor;
+				else liveHost.select(settings.defaultConductor);
 			}
 		}
 		try {

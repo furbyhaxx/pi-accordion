@@ -118,7 +118,7 @@ cd extension
 npm pack --dry-run
 ```
 
-`npm pack` and `npm publish` run `prepack`, which must build the app, copy `app/build` to `extension/dist/client`, bundle `accordion.js`, and run the smoke suite (`npm run smoke` = `smoke.mjs` + `smoke-conductor.mjs`, the real out-of-process conductor spawn e2e). Do not publish unless the dry-run tarball contains `accordion.js`, `dist/client/index.html`, `skills/accordion-context-folding/SKILL.md`, `skills/accordion-context-recall/SKILL.md`, `README.md`, and `package.json` — deliberately no `conductors/` directory (thermocline is not part of the npm surface; `files` above has no `conductors` entry — see the Conductors section). Remember that npm packages generated files from disk: stale `accordion.js` or `dist/client` means a stale public release even if source files are correct.
+`npm pack` and `npm publish` run `prepack`, which must build the app, copy `app/build` to `extension/dist/client`, bundle `accordion.js`, and run the smoke suite (`npm run smoke` = `smoke-context.mjs` + `smoke.mjs` + `smoke-conductor.mjs`, the real out-of-process conductor spawn e2e, + `smoke-autoarm.mjs`, a default spawn conductor attaching at session start). Do not publish unless the dry-run tarball contains `accordion.js`, `dist/client/index.html`, `skills/accordion-context-folding/SKILL.md`, `skills/accordion-context-recall/SKILL.md`, `README.md`, and `package.json` — deliberately no `conductors/` directory (thermocline is not part of the npm surface; `files` above has no `conductors` entry — see the Conductors section). Remember that npm packages generated files from disk: stale `accordion.js` or `dist/client` means a stale public release even if source files are correct.
 
 README surfaces:
 
@@ -284,6 +284,7 @@ not trusted by default; production Tauri custom-protocol origins do not need thi
 ```bash
 cd extension && node smoke.mjs              # extension smoke test
 cd extension && node smoke-conductor.mjs    # real out-of-process conductor spawn e2e (thermocline)
+cd extension && node smoke-autoarm.mjs      # autoArm + spawned default conductor attaches at session start
 cd extension && npm pack --dry-run          # package readiness: app build → client copy → bundle → smoke (both above) → tarball listing
 cd app/src-tauri && cargo check              # Rust layer — run from PowerShell (see below)
 ```
