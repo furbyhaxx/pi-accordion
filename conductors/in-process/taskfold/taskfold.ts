@@ -47,7 +47,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 
-/** The classifier the questions and `maxLoss` are calibrated for (.project/analyses/taskfold-classifier.md). */
+/** The classifier the questions and `maxLoss` are calibrated for (.project/analyses/taskfold-classifier/). */
 export const TASKFOLD_CLASSIFIER = "openrouter/perplexity/pplx-decider-v1.2";
 
 const CTX =
