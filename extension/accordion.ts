@@ -52,9 +52,10 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
-import { TaskError, TaskStore, runTasks, type TaskList, type TasksArgs } from "./tasks";
+import { TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
 import { TaskWidgetController } from "./tui/taskWidget";
-import { NOTICE_MESSAGE, TaskSession, type StartReason } from "./taskSession";
+import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
+import { TaskCoach } from "./taskCoach";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -2857,6 +2858,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	let taskSession: TaskSession | null = null;
+	let taskCoach = new TaskCoach();
 
 	const taskWidget = new TaskWidgetController({
 		lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
@@ -2960,6 +2962,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskWidget.attach(ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
 		taskSession?.dispose();
 		taskSession = null;
+		taskCoach = new TaskCoach();
 		if (typeof ctx.sessionManager?.getSessionId === "function") {
 			taskSession = new TaskSession({
 				store: () => taskStoreFor(ctx),
@@ -2970,6 +2973,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			});
 			taskSession.start(ctx.sessionManager.getBranch(), (event as { reason?: StartReason }).reason ?? "startup", ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
 		}
+	});
+
+	// Coaching on the task protocol rides on tool results: work outside any task gets a reminder.
+	pi.on("tool_result", (event, ctx: ExtensionContext) => {
+		if (event.toolName === "tasks" || !tasksToolActive() || latestCtx?.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()) return;
+		let list: TaskList | null = null;
+		try {
+			list = attachedList(taskStoreFor(ctx).claimedBySession());
+		} catch {
+			/* an unreadable list directory just means no coaching */
+		}
+		taskCoach.setList(list);
+		const note = taskCoach.toolResult(!!event.parentToolCallId);
+		return note ? { content: [...event.content, { type: "text" as const, text: note }] } : undefined;
 	});
 
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
@@ -3586,10 +3603,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		label: "Tasks",
 		defaultActive: false,
 		description:
-			"Plan and track work as a persistent, nested task list for this project (stored in .pig/tasks/). Start a task before working on it and finish it with a report. Accordion folds a finished task's whole span into a compact task record built from your report, so the report is what later turns will see of that work. Actions: create {list, title, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, tasks}, status {list}, start {list, id}, complete|fail|abandon {list, id, report}.",
-		promptSnippet: "tasks(action, …) — persistent nested task lists; start a task, then complete/fail/abandon it with a report.",
+			"Plan and track work as a persistent, nested task list for this project (stored in .pig/tasks/). A task's SPAN runs from its `start` call to its `complete`/`fail`/`abandon` call; Accordion later folds the whole span into a compact record built from your report, so the report is what later turns see of that work. Starting a subtask also starts its parents. Actions: create {list, title, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, tasks}, status {list}, start {list, id}, complete|fail|abandon {list, id, report}.",
+		promptSnippet: "tasks(action, …) — persistent nested task lists; start a task before its work, finish it with a report after.",
 		promptGuidelines: [
-			"Use the `tasks` tool for multi-step work: create or claim a list, `start` a task before working on it, and end it with `complete`, `fail` or `abandon` and a `report`. Only one task branch is open at a time; subtasks nest inside their parent.",
+			"Use the `tasks` tool for multi-step work: create or claim a list, then work through it. Call `start` BEFORE the first tool call of a task's work and `complete` (or `fail`/`abandon`) right AFTER its last one, with a `report`. Work that runs while no task is in progress belongs to no record and is not folded; if new work comes up, `add` a task for it and start it first.",
+			"Never start and finish a task back to back with no tool work in between; a span without work has nothing to fold. Subtasks nest inside their parent and only one branch is open at a time. After the last subtask, complete the parent with its own report that sums up the whole branch.",
 			"A finished task is later folded into a record built from its `report`. Write `outcome` as what was achieved, `decisions` as `choice — reason`, and `open` as anything unresolved. Files changed and checks run are recorded automatically.",
 		],
 		parameters: Type.Object({
@@ -3630,7 +3648,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			};
 			const before = args.action === "add" ? read()?.tasks.length : undefined;
 			try {
-				const text = runTasks(store, args);
+				const run = runTasksTracked(store, args);
+				if (run.started.length && args.list) taskCoach.started(args.list, run.started);
+				const note = run.finished && args.list ? taskCoach.finished(args.list, run.finished) : null;
+				const text = note ? `${run.text}\n${note}` : run.text;
 				const list = read();
 				const details: TasksDetails = tasksDetails(args, list, before === undefined ? undefined : (list?.tasks.length ?? before) - before, args.action === "list" ? store.lists().length : undefined);
 				return { content: [{ type: "text", text }], details };

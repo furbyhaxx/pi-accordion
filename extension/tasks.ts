@@ -392,6 +392,18 @@ export interface TasksArgs {
 
 /** Run one `tasks` tool call. Rejections throw `TaskError` with recovery guidance. */
 export function runTasks(store: TaskStore, args: TasksArgs): string {
+	return runTasksTracked(store, args).text;
+}
+
+/** A `tasks` call's text plus the task ids it started and the one it finished, for span tracking. */
+export function runTasksTracked(store: TaskStore, args: TasksArgs): { text: string; started: string[]; finished: string | null } {
+	let started: string[] = [];
+	let finished: string | null = null;
+	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id));
+	return { text, started, finished };
+}
+
+function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void): string {
 	const need = <K extends keyof TasksArgs>(k: K): NonNullable<TasksArgs[K]> => {
 		const v = args[k];
 		if (v === undefined || v === null || v === "") throw new TaskError(`Action "${args.action}" needs "${k}".`);
@@ -420,6 +432,7 @@ export function runTasks(store: TaskStore, args: TasksArgs): string {
 			return renderList(store.read(need("list")));
 		case "start": {
 			const { task, autoStarted, autoClosed } = store.start(need("list"), need("id"));
+			onStart([...autoStarted.map((t) => t.id), task.id]);
 			const lines = [`Started ${args.list}/${task.id} "${task.title}".`];
 			for (const t of autoStarted) lines.push(`Also started parent ${t.id} "${t.title}" so its span covers this subtask.`);
 			for (const t of autoClosed)
@@ -431,6 +444,7 @@ export function runTasks(store: TaskStore, args: TasksArgs): string {
 		case "abandon": {
 			const status = args.action === "complete" ? "done" : args.action === "fail" ? "failed" : "abandoned";
 			const { task, parentReady } = store.finish(need("list"), need("id"), status, args.report);
+			onFinish(task.id);
 			const lines = [`${args.list}/${task.id} "${task.title}" is ${status}.`];
 			if (parentReady) lines.push(`All subtasks of ${parentReady.id} "${parentReady.title}" are finished: complete ${parentReady.id} now with its own report, or add more subtasks to it.`);
 			return lines.join("\n");
