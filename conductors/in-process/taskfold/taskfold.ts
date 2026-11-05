@@ -41,9 +41,11 @@ export interface OrientationOptions {
 	agentTask: boolean;
 	/** Under `typed`: rule files stay verbatim in the record (`live`) or become source lines (`fold`). */
 	rules: "live" | "fold";
+	/** The agent can pin verbatim excerpts and file ranges to the session or a task (`tasks pin`). */
+	pins: boolean;
 }
 
-export const ORIENTATION_DEFAULTS: Readonly<OrientationOptions> = { fold: "off", agentTask: false, rules: "live" };
+export const ORIENTATION_DEFAULTS: Readonly<OrientationOptions> = { fold: "off", agentTask: false, rules: "live", pins: false };
 
 /** Keep known values; anything else falls back to the default. */
 export function sanitizeOrientation(value: unknown): OrientationOptions {
@@ -52,6 +54,7 @@ export function sanitizeOrientation(value: unknown): OrientationOptions {
 		fold: raw.fold === "typed" ? "typed" : "off",
 		agentTask: raw.agentTask === true,
 		rules: raw.rules === "fold" ? "fold" : "live",
+		pins: raw.pins === true,
 	};
 }
 

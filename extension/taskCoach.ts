@@ -122,7 +122,18 @@ export class TaskCoach {
 }
 
 /** Extra `tasks` guidelines for the orientation experiment's settings. */
-export function orientationGuidelines(o: { fold: "off" | "typed"; agentTask: boolean }): string[] {
+export function orientationGuidelines(o: { fold: "off" | "typed"; agentTask: boolean; pins?: boolean }): string[] {
+	return [...briefGuidelines(o), ...(o.pins ? PIN_GUIDELINES : [])];
+}
+
+/** How to pin: small verbatim excerpts the agent will need again, scoped as narrowly as possible. */
+export const PIN_GUIDELINES = [
+	'Pin what you will need again and cannot cheaply re-derive, the moment you read it: `tasks pin {items: [...]}`. Pinned excerpts stay in view while their scope is active, even after the reading that found them is folded away. Kinds: `rule` and `convention` (how work must be done), `constraint` (what must not happen), `fact` (an exact value, limit, name or version), `file` (a short line range you will edit or must match, as `ref: "path:start-end"`).',
+	'Pins are quotes, never summaries: `text` must be the exact words from its `source` (`"user"` or `"path"` / `"path:line"`), at most 300 characters; a file pin is at most 30 lines. Pin the one sentence or the few lines that matter, never a whole file, section or user message. Good: {kind: "constraint", text: "Never modify vendor/", source: "AGENTS.md:3"}; {kind: "fact", text: "BURST_LIMIT = 37", source: "docs/spec.md"}; {kind: "file", ref: "src/limiter.py:40-52"}. Bad: a 200-line file; your own paraphrase of a rule.',
+	'Scope: without `scope`, a pin belongs to the task in progress and its subtasks and leaves view when that task ends; `scope: "session"` keeps it for the whole session (pins made before any task starts are session pins). Use session scope only for rules and constraints that govern all the work. Unpin with `tasks unpin {pins: ["p3"]}` what no longer matters; the pin limits are 2000 tokens for the session and 1500 per task.',
+];
+
+function briefGuidelines(o: { fold: "off" | "typed"; agentTask: boolean }): string[] {
 	if (o.agentTask)
 		return [
 			'Track orientation as a task: before your first read, search or command, create (or claim) the list with a first task titled "Orientation: <what you need to find out>" and start it. Do all reading and analysis inside it, then add the work plan with `add`, and complete the orientation task with a report whose outcome is the brief: the goal as you understood it, the key facts you found, and where things are.',

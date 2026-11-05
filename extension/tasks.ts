@@ -546,7 +546,7 @@ export function renderList(list: TaskList): string {
 
 /** The tool's argument shape; every field but `action` depends on the action. */
 export interface TasksArgs {
-	action: "create" | "list" | "claim" | "release" | "add" | "status" | "start" | "block" | "complete" | "fail" | "abandon";
+	action: "create" | "list" | "claim" | "release" | "add" | "status" | "start" | "block" | "complete" | "fail" | "abandon" | "pin" | "unpin";
 	list?: string;
 	title?: string;
 	tasks?: TaskInput[];
@@ -564,6 +564,12 @@ export interface TasksArgs {
 	supersededBy?: string;
 	/** For create or claim: the agent's orientation brief; Taskfold reads it from the call. */
 	brief?: string;
+	/** For pin: what to pin. */
+	items?: { kind: string; text?: string; source?: string; ref?: string }[];
+	/** For pin: "session" pins for the whole session; otherwise the task `id` (default: the innermost task in progress). */
+	scope?: string;
+	/** For unpin: pin ids, e.g. ["p3"]. */
+	pins?: string[];
 }
 
 /** Run one `tasks` tool call. Rejections throw `TaskError` with recovery guidance. */

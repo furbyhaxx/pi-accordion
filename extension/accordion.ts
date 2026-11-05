@@ -57,6 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { IDLE_ENTRY, idleVerdict, orientationGuidelines, TaskCoach } from "./taskCoach";
+import { PIN_ENTRY, PinError, activePins, checkCaps, makePin, pinsOf, refreshFilePin, workingSet, type Pin, type PinEvent } from "./pins";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
@@ -2919,6 +2920,91 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// Orientation experiment: whether this session's agent gave a brief, and whether it was reminded once.
 	let briefSeen = false;
 	let briefNudged = false;
+	// This session's pins (`tasks pin`), rebuilt from its entries on start.
+	let pins: Pin[] = [];
+
+	function pinEvent(e: PinEvent): void {
+		pi.appendEntry(PIN_ENTRY, e);
+		if (e.op === "unpin") pins = pins.filter((p) => p.id !== e.id);
+		else pins = [...pins.filter((p) => p.id !== e.pin.id), e.pin];
+	}
+
+	/** User message texts so far, for checking `source: "user"` quotes. */
+	function userTexts(): string[] {
+		return (truth?.blocks ?? []).filter((b) => b.kind === "user").map((b) => b.text);
+	}
+
+	/** Run `pin` / `unpin`; returns the tool result text. */
+	function runPins(args: TasksArgs, ctx: ExtensionContext): string {
+		if (!settings.conductorOptions.taskfold.orientation.pins) throw new TaskError("Pinning is not enabled in this session.");
+		const list = (() => {
+			try {
+				return attachedList(taskStoreFor(ctx).claimedBySession());
+			} catch {
+				return null;
+			}
+		})();
+		if (args.action === "unpin") {
+			const ids = Array.isArray(args.pins) ? args.pins.map(String) : [];
+			if (!ids.length) throw new TaskError('unpin needs "pins": the pin ids, e.g. ["p3"].');
+			const unknown = ids.filter((id) => !pins.some((p) => p.id === id));
+			if (unknown.length) throw new TaskError(`No pin ${unknown.join(", ")}. Current pins: ${pins.map((p) => p.id).join(", ") || "none"}.`);
+			for (const id of ids) pinEvent({ op: "unpin", id });
+			return `Unpinned ${ids.join(", ")}.${pinUsage()}`;
+		}
+		const items = Array.isArray(args.items) ? args.items : [];
+		if (!items.length) throw new TaskError('pin needs "items": [{kind, text, source}] or [{kind: "file", ref: "path:start-end"}].');
+		let scope = "session";
+		if (args.scope !== "session") {
+			if (args.id) {
+				if (!list || !list.tasks.some((t) => t.id === args.id)) throw new TaskError(`No task ${args.id} in the attached list.`);
+				scope = `${list.slug}/${args.id}`;
+			} else {
+				const doing = list?.tasks.filter((t) => t.status === "doing") ?? [];
+				const inner = doing.find((t) => !doing.some((o) => o.id.startsWith(`${t.id}.`)));
+				if (inner && list) scope = `${list.slug}/${inner.id}`;
+			}
+		}
+		let next = pins.reduce((m, p) => Math.max(m, Number(p.id.slice(1)) || 0), 0);
+		const added: Pin[] = [];
+		try {
+			for (const item of items) added.push(makePin(item, { cwd: ctx.cwd, userTexts: userTexts(), existing: [...pins, ...added], scope }, `p${++next}`));
+			checkCaps(pins, added);
+		} catch (e) {
+			if (e instanceof PinError) throw new TaskError(`${e.message} Nothing was pinned.`);
+			throw e;
+		}
+		for (const p of added) pinEvent({ op: "pin", pin: p });
+		const where = scope === "session" ? "the session" : `task ${scope.slice(scope.indexOf("/") + 1)}`;
+		return `Pinned ${added.map((p) => `${p.id} (${p.kind}${p.file ? ` ${p.file.display}:${p.file.start}-${p.file.end}` : ""})`).join(", ")} to ${where}.${pinUsage()}`;
+	}
+
+	function pinUsage(): string {
+		const by = new Map<string, number>();
+		for (const p of pins) by.set(p.scope, (by.get(p.scope) ?? 0) + Math.ceil((p.text.length + 24) / 4));
+		return `\npins: ${[...by].map(([s, n]) => `${s === "session" ? "session" : s.slice(s.indexOf("/") + 1)} ~${n} tok`).join(" · ") || "none"} (limits: session 2000, per task 1500)`;
+	}
+
+	/** Re-read file pins after tools ran; changed ones are recorded. */
+	function refreshPins(): void {
+		for (const p of pins) {
+			const u = refreshFilePin(p);
+			if (u) pinEvent({ op: "update", pin: u });
+		}
+	}
+
+	/** The working-set message for the outgoing context, or null. */
+	function workingSetMessage(ctx: ExtensionContext): AgentMessage | null {
+		if (!settings.conductorOptions.taskfold.orientation.pins || !pins.length) return null;
+		let list: TaskList | null = null;
+		try {
+			list = attachedList(taskStoreFor(ctx).claimedBySession());
+		} catch {
+			/* pins without a list: session pins only */
+		}
+		const text = workingSet(activePins(pins, list), list);
+		return text ? ({ role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as unknown as AgentMessage) : null;
+	}
 
 	/** The one-time reminder on the first start without a brief, while typed orientation folding is on. */
 	function briefNudge(args: TasksArgs, started: boolean): string | null {
@@ -3053,6 +3139,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskCoach = new TaskCoach();
 		briefSeen = false;
 		briefNudged = false;
+		try {
+			pins = pinsOf(typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : []);
+		} catch {
+			pins = [];
+		}
 		if (typeof ctx.sessionManager?.getSessionId === "function") {
 			taskSession = new TaskSession({
 				store: () => taskStoreFor(ctx),
@@ -3075,6 +3166,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			/* an unreadable list directory just means no coaching */
 		}
 		taskCoach.setList(list);
+		if (pins.some((p) => p.file)) refreshPins();
 		const note = taskCoach.toolResult(!!event.parentToolCallId);
 		return note ? { content: [...event.content, { type: "text" as const, text: note }] } : undefined;
 	});
@@ -3181,6 +3273,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				// (c) If folding is armed, serialize the wire from the Truth and replace; else passthrough.
 				if (foldingEnabled) {
 					ret = { messages: truth.serializeWire(messages) as unknown as AgentMessage[] };
+				}
+				// Pinned excerpts go last, so the cached prefix before them never changes for a pin.
+				const ws = workingSetMessage(ctx);
+				if (ws) {
+					const out = (ret?.messages ?? (event.messages as AgentMessage[])).slice();
+					const last = out[out.length - 1] as { role?: string } | undefined;
+					out.splice(last?.role === "user" ? out.length - 1 : out.length, 0, ws);
+					ret = { messages: out };
 				}
 				// (c.1) issue #11 stage 1: record what THIS departing wire is estimated to cost, so the
 				// NEXT assistant reply's real usage can be paired against it (`maybeObserveCalibration`).
@@ -3824,7 +3924,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		],
 		parameters: Type.Object({
 			action: Type.Union(
-				["create", "list", "claim", "release", "add", "status", "start", "block", "complete", "fail", "abandon"].map((a) => Type.Literal(a)),
+				[
+					...["create", "list", "claim", "release", "add", "status", "start", "block", "complete", "fail", "abandon"],
+					...(settings.conductorOptions.taskfold.orientation.pins ? ["pin", "unpin"] : []),
+				].map((a) => Type.Literal(a)),
 				{ description: "What to do." },
 			),
 			list: Type.Optional(Type.String({ description: 'List slug, e.g. "auth-refactor" (lowercase, digits, dashes).' })),
@@ -3860,6 +3963,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			blockedBy: Type.Optional(Type.String({ description: 'For block with reason dependency: the id of the task this one waits for.' })),
 			supersededBy: Type.Optional(Type.String({ description: "For abandon: the id of the task that replaces this one." })),
 			force: Type.Optional(Type.Boolean({ description: "For claim: take over a list another session holds. Ask the user first." })),
+			...(settings.conductorOptions.taskfold.orientation.pins
+				? {
+						items: Type.Optional(
+							Type.Array(
+								Type.Object({
+									kind: Type.Union(["rule", "convention", "constraint", "fact", "file"].map((k) => Type.Literal(k))),
+									text: Type.Optional(Type.String({ description: "The exact words from the source, at most 300 characters." })),
+									source: Type.Optional(Type.String({ description: '"user", or "path" / "path:line" the text is quoted from.' })),
+									ref: Type.Optional(Type.String({ description: 'For kind file: "path:start-end", at most 30 lines.' })),
+								}),
+								{ description: "For pin: what to pin." },
+							),
+						),
+						scope: Type.Optional(Type.Literal("session", { description: 'For pin: "session" keeps it for the whole session; default is the task in progress (or `id`).' })),
+						pins: Type.Optional(Type.Array(Type.String(), { description: 'For unpin: pin ids, e.g. ["p3"].' })),
+					}
+				: {}),
 			brief: Type.Optional(
 				Type.String({ description: "For create or claim: what you understood and found before starting — the goal, key facts and where things are. Orientation is later folded down to this brief." }),
 			),
@@ -3874,6 +3994,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return null;
 				}
 			};
+			if (args.action === "pin" || args.action === "unpin") return { content: [{ type: "text", text: runPins(args, ctx) }], details: undefined };
 			const before = args.action === "add" ? read()?.tasks.length : undefined;
 			try {
 				const run = runTasksTracked(store, args);
