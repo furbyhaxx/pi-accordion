@@ -138,7 +138,7 @@ export function makePin(req: PinRequest, ctx: PinContext, id: string): Pin {
 		if (ctx.userTexts.some((u) => norm(u) === want)) throw new PinError("That is a whole user message; user messages already stay in context verbatim. Pin only a part of one when it must stay in view.");
 		if (!ctx.userTexts.some((u) => norm(u).includes(want))) throw new PinError("That text does not appear in any user message. Pin the user's exact words, not a paraphrase.");
 	} else {
-		const m = /^(.+?)(?::(\d+))?$/.exec(source)!;
+		const m = /^(.+?)(?::(\d+)(?:-\d+)?)?$/.exec(source)!;
 		const abs = path.resolve(ctx.cwd, m[1]);
 		const content = norm(readLines(abs).join("\n"));
 		if (!content.includes(want)) throw new PinError(`That text does not appear in ${m[1]}. Pin the exact words from the file, not a paraphrase or summary.`);

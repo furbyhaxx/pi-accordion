@@ -19,6 +19,7 @@ describe("pins", () => {
 		const dir = repo();
 		expect(makePin({ kind: "rule", text: "Never modify vendor/ — it is generated.", source: "AGENTS.md:3" }, ctx(dir), "p1").text).toBe("Never modify vendor/ — it is generated.");
 		expect(makePin({ kind: "constraint", text: "Do not add dependencies.", source: "user" }, ctx(dir), "p2").source).toBe("user");
+		expect(makePin({ kind: "rule", text: "Never modify vendor/ — it is generated.", source: "AGENTS.md:3-4" }, ctx(dir), "p6").source).toBe("AGENTS.md:3-4");
 		expect(() => makePin({ kind: "rule", text: "Do not touch vendor.", source: "AGENTS.md" }, ctx(dir), "p3")).toThrow(/not a paraphrase/);
 		expect(() => makePin({ kind: "constraint", text: "Finish the rate limiter. Do not add dependencies.", source: "user" }, ctx(dir), "p4")).toThrow(/whole user message/);
 		expect(() => makePin({ kind: "fact", text: "x".repeat(301), source: "user" }, ctx(dir), "p5")).toThrow(/at most 300/);
