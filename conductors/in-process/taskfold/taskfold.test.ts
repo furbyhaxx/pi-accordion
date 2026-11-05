@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
+import { VERDICT_ENTRY, VerdictLedger, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
 import type { Block } from "../../../core/types";
 
@@ -145,6 +146,41 @@ describe("taskfold", () => {
 		const g = groupOf(host, start)!;
 		expect(g.memberIds).toContain(userId);
 		expect(g.memberIds).toContain(end);
+	});
+
+	it("records verdicts once and reuses a resumed session's verdicts without classifying again", async () => {
+		const build = () =>
+			oneTask((s) => {
+				s.text("Tests pass; shall I commit?");
+				s.user("ok, commit it");
+			});
+		const { s } = build();
+		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("commit"))!.id;
+		const recorded: [string, Verdict][] = [];
+		const ledger = new VerdictLedger();
+		ledger.reset(new Map(), (id, v) => recorded.push([id, v]));
+		const host = new TestHost();
+		host.classifier = () => ({ answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test/cls" });
+		new TaskfoldConductor({ keepRecentTasks: 0 }, ledger).attach(host);
+		host.appendBlocks(s.blocks);
+		await new Promise((r) => setTimeout(r, 0));
+		const opening = s.blocks.find((b) => b.kind === "user")!.id;
+		expect(recorded).toEqual([
+			[opening, { loss: null, source: "opening" }],
+			[userId, { loss: 0.1, source: "classifier" }],
+		]);
+		expect(ledger.threshold).toBe(0.3);
+
+		const entries = recorded.map(([id, v]) => ({ type: "custom", customType: VERDICT_ENTRY, data: { id, ...v } }));
+		const resumed = new VerdictLedger();
+		resumed.reset(verdictsOf(entries), () => {});
+		const next = new TestHost();
+		next.classifier = () => ({ answers: { loss: { type: "score", score: 2, confidence: 0.9 } }, model: "test/cls" });
+		new TaskfoldConductor({ keepRecentTasks: 0 }, resumed).attach(next);
+		next.appendBlocks(build().s.blocks);
+		await new Promise((r) => setTimeout(r, 0));
+		expect(next.classifyLog).toHaveLength(0);
+		expect(resumed.get(userId)).toEqual({ loss: 0.1, source: "classifier" });
 	});
 
 	it("keeps a user message whose loss reaches maxLoss verbatim", async () => {

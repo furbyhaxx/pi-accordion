@@ -28,6 +28,7 @@ import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
 import { KeelLiteConductor, KEEL_LITE_DEFAULTS, type KeelLiteOptions } from "../../conductors/in-process/keel-lite/keel-lite";
 import { KeelNoteConductor, type KeelNoteOptions } from "../../conductors/in-process/keel-note/keel-note";
 import { TASKFOLD_CLASSIFIER, TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
+import { taskfoldVerdicts } from "../../conductors/in-process/taskfold/verdicts";
 
 /** One catalog entry: everything the host needs to attach (or detach to) this conductor. */
 export interface RegistryEntry {
@@ -186,7 +187,7 @@ export const ENTRIES: readonly RegistryEntry[] = [
 	inProcess(() => new KeelLiteConductor(keelLiteOptionsFromEnv())),
 	inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
 	{
-		...inProcess(() => new TaskfoldConductor()),
+		...inProcess(() => new TaskfoldConductor({}, taskfoldVerdicts)),
 		defaultModels: { classifier: TASKFOLD_CLASSIFIER },
 		privacy: {
 			models: ["classifier"],

@@ -57,6 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { TaskCoach } from "./taskCoach";
+import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -3006,6 +3007,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			dialRecords = dialsRecordsOf(typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : []);
 		} catch {
 			dialRecords = [];
+		}
+		// Taskfold's verdicts from earlier runs of this session, so a resume neither loses nor re-bills them.
+		const sessionAtStart = sessionId;
+		try {
+			taskfoldVerdicts.reset(verdictsOf(typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : []), (id, v) => {
+				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
+			});
+		} catch {
+			taskfoldVerdicts.reset(new Map(), null);
 		}
 		refreshFromCtx(ctx); // model / context window may be known already
 		// Build the authoritative Truth from the session's current history. For a fresh session

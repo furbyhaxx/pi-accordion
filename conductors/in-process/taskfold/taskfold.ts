@@ -27,6 +27,7 @@
 import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
+import { VerdictLedger } from "./verdicts";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 
 export interface TaskfoldOptions {
@@ -200,11 +201,6 @@ interface Unit {
 	saved: number;
 }
 
-/** The classifier's expected `loss` level, or null when the message must stay (unclassified or the opening message). */
-interface Verdict {
-	loss: number | null;
-}
-
 function parseCall(text: string | null | undefined): Record<string, unknown> | null {
 	const space = text?.indexOf(" ") ?? -1;
 	if (space < 0) return null;
@@ -233,18 +229,20 @@ export class TaskfoldConductor implements Conductor {
 	private pending = false;
 	/** Our groups: group id → span key (`<list>/<id>`). */
 	private readonly ownGroups = new Map<string, string>();
-	/** User block id → verdict; computed once and never recomputed. */
-	private readonly verdicts = new Map<string, Verdict>();
+	/** User block id → verdict; computed once and never recomputed, kept across resumes by the ledger. */
+	private readonly verdicts: VerdictLedger;
 	private readonly classifying = new Set<string>();
 	private classifyFailures = 0;
 	private epochs = 0;
 
-	constructor(options: TaskfoldOptions = {}) {
+	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger()) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
+		this.verdicts = verdicts;
 	}
 
 	attach(host: ConductorHost): void {
 		this.host = host;
+		this.verdicts.threshold = this.k.maxLoss;
 		this.adoptGroups(host);
 		this.off = host.on((e) => this.onEvent(e));
 	}
@@ -296,12 +294,12 @@ export class TaskfoldConductor implements Conductor {
 			if (b.kind !== "user" || this.verdicts.has(b.id) || this.classifying.has(b.id)) continue;
 			const text = this.textOf(b);
 			if (this.k.harnessPatterns.some((re) => re.test(text))) {
-				this.verdicts.set(b.id, { loss: 0 });
+				this.verdicts.set(b.id, { loss: 0, source: "harness" });
 				continue;
 			}
 			const state = this.stateFor(b.id, text);
 			if (!state) {
-				this.verdicts.set(b.id, { loss: null });
+				this.verdicts.set(b.id, { loss: null, source: "opening" });
 				continue;
 			}
 			void this.classifyOne(b.id, state);
@@ -332,10 +330,10 @@ export class TaskfoldConductor implements Conductor {
 		try {
 			const res = await host.classify({ state, questions: USER_QUESTIONS });
 			const a = res.answers.loss as ClassifierAnswer | undefined;
-			this.verdicts.set(id, { loss: a?.type === "score" ? a.score : null });
+			this.verdicts.set(id, a?.type === "score" ? { loss: a.score, source: "classifier" } : { loss: null, source: "error" });
 		} catch {
 			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
-			this.verdicts.set(id, { loss: null });
+			this.verdicts.set(id, { loss: null, source: "error" });
 			this.classifyFailures++;
 		} finally {
 			this.classifying.delete(id);
@@ -348,8 +346,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private folds(b: ViewBlock): boolean {
-		const loss = this.verdicts.get(b.id)?.loss;
-		return loss != null && loss < this.k.maxLoss;
+		return this.verdicts.folds(this.verdicts.get(b.id), this.k.maxLoss);
 	}
 
 	// ── span discovery ──────────────────────────────────────────────────────────────────────
