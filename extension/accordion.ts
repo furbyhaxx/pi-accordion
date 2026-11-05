@@ -58,7 +58,7 @@ import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens,
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { TaskCoach } from "./taskCoach";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
-import { TaskViews, type TaskViewsHost } from "./tui/taskViews";
+import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -3516,8 +3516,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				refreshControllerNow();
 				if (!holdsControl(surfaceId, openedSessionId)) return "Read-only: another surface controls Accordion.";
 				const res = applyCommand({ kind: "ops", ops });
-				const refused = res.results.flatMap((r) => r.perId?.filter((e) => e.reason).map((e) => `${e.id}: ${e.reason}`) ?? (r.clamped ? [r.clamped] : []));
-				return refused.length ? `Refused: ${refused.join(", ")}` : res.results.every((r) => r.applied) ? "Applied." : "Nothing changed.";
+				const refused = res.results.flatMap((r) => r.perId?.filter((e) => e.reason).map((e) => e.reason!) ?? (r.clamped ? [r.clamped] : []));
+				return refused.length ? refusalMessage(refused) : res.results.every((r) => r.applied) ? "Applied." : "Nothing changed.";
 			},
 			subscribe: (listener) => {
 				nativeListeners.add(listener);

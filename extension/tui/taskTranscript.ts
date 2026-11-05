@@ -94,12 +94,17 @@ export function transcriptSpans(src: TranscriptSource): TaskSpan[] {
 const fmtLoss = (n: number) => n.toFixed(1);
 
 /** Why a user message was kept or folded, in the words the views show. */
-export function userReason(verdict: Verdict | undefined, folded: boolean, threshold: number | null): string {
+export function userReason(verdict: Verdict | undefined, folded: boolean, threshold: number | null, inTask = true): string {
 	const t = threshold == null ? "" : threshold.toFixed(2);
 	if (verdict?.source === "harness") return "harness pattern";
 	if (verdict?.source === "opening") return "opening message";
 	if (verdict?.source === "error") return "classifier failed";
-	if (verdict?.loss != null) return folded || (threshold != null && verdict.loss < threshold) ? `loss ${fmtLoss(verdict.loss)}${t ? ` < ${t}` : ""}` : `loss ${fmtLoss(verdict.loss)}${t ? ` ≥ ${t}` : ""}`;
+	if (verdict?.loss != null) {
+		const below = threshold != null && verdict.loss < threshold;
+		// Eligible but unfolded: only a task record folds user messages, and none covers this one yet.
+		if (below && !folded) return `loss ${fmtLoss(verdict.loss)} < ${t} · ${inTask ? "folds with its task" : "no task covers it"}`;
+		return folded || below ? `loss ${fmtLoss(verdict.loss)}${t ? ` < ${t}` : ""}` : `loss ${fmtLoss(verdict.loss)}${t ? ` ≥ ${t}` : ""}`;
+	}
 	return "unclassified";
 }
 
@@ -150,10 +155,10 @@ function rangeTokens(ix: Index, lo: number, hi: number): Tokens {
 	return out;
 }
 
-function userNode(ix: Index, b: TBlock): TNode {
+function userNode(ix: Index, b: TBlock, inTask = true): TNode {
 	const verdict = ix.src.verdict(b.id);
 	const folded = !!ix.groupOf.get(b.id)?.folded;
-	return { type: "user", block: b, verdict, folded, why: userReason(verdict, folded, ix.src.threshold) };
+	return { type: "user", block: b, verdict, folded, why: userReason(verdict, folded, ix.src.threshold, inTask) };
 }
 
 /** Spans nested by containment; siblings in transcript order. */
@@ -229,7 +234,7 @@ export function sessionTranscript(src: TranscriptSource): TNode[] {
 		if (b.kind === "system") continue;
 		if (b.kind === "user") {
 			flush(i - 1);
-			out.push(userNode(ix, b));
+			out.push(userNode(ix, b, false));
 			continue;
 		}
 		if (!run.length) runStart = i;

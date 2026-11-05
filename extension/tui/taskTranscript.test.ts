@@ -53,7 +53,7 @@ describe("task transcript", () => {
 		expect(types(parent.children)).toEqual(["task:1.1", "user"]);
 		expect(parent.subtasks).toEqual({ done: 1, total: 1 });
 		const ack = parent.children[1] as TNode & { type: "user" };
-		expect(ack.why).toBe("loss 0.1 < 0.30");
+		expect(ack.why).toBe("loss 0.1 < 0.30 · folds with its task");
 	});
 
 	it("shows a span as start, folds with their members, kept user messages and finish", () => {
@@ -84,6 +84,9 @@ describe("task transcript", () => {
 		expect(userReason({ loss: null, source: "opening" }, false, 0.3)).toBe("opening message");
 		expect(userReason({ loss: null, source: "error" }, false, 0.3)).toBe("classifier failed");
 		expect(userReason(undefined, false, null)).toBe("unclassified");
+		expect(userReason({ loss: 0.1, source: "classifier" }, false, 0.3)).toBe("loss 0.1 < 0.30 · folds with its task");
+		expect(userReason({ loss: 0.1, source: "classifier" }, true, 0.3)).toBe("loss 0.1 < 0.30");
+		expect(userReason({ loss: 0.1, source: "classifier" }, false, 0.3, false)).toBe("loss 0.1 < 0.30 · no task covers it");
 		expect(recordLevel(`${foldTag("g:x")} [task-record] l/1 "T"  status: done\noutcome: x`)).toBe(0);
 		expect(recordLevel(`${foldTag("g:x")} [task-record] l/1 "T"  status: done · x`)).toBe(1);
 		expect(recordLevel(`${foldTag("g:x")} [task-archived] l/1 "T" done; recall the code for its record and transcript.`)).toBe(2);

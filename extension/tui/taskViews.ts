@@ -5,7 +5,8 @@
  * the host, which enforces the controller lease.
  */
 import { decodeKittyPrintable, matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import type { Op } from "../../core/ops";
+import { wireFoldable } from "../../core/digest";
+import type { ClampReason, Op } from "../../core/ops";
 import type { Truth } from "../../core/truth";
 import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
@@ -34,13 +35,30 @@ export function formatClock(iso: string | undefined, now = Date.now()): string {
 	return new Date(now).toDateString() === d.toDateString() ? time : `${d.toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit" })} ${time.slice(0, 5)}`;
 }
 
+const REASONS: Partial<Record<ClampReason, string>> = {
+	protected: "inside the protected working tail",
+	"not-foldable": "this kind of block folds only inside a group",
+	bolted: "the system prompt never folds",
+	locked: "the attached conductor locks this control",
+	grouped: "part of a folded group; select the fold and press u",
+	"human-override": "a human override owns it",
+	"unknown-id": "no longer in the context",
+	"non-durable": "it has no durable id yet",
+};
+
+/** A refusal in words, each reason once: `Refused: inside the protected working tail`. */
+export function refusalMessage(reasons: readonly string[]): string {
+	const words = [...new Set(reasons.map((r) => REASONS[r as ClampReason] ?? r))];
+	return words.length ? `Refused: ${words.join("; ")}` : "Applied.";
+}
+
 /** What a tree node points at. */
 export type ViewRef =
 	| { type: "task"; slug: string; id: string; key: string }
 	| { type: "fold"; groupId: string }
 	| { type: "user"; id: string }
 	| { type: "step"; id: string; resultId: string | null }
-	| { type: "untracked" }
+	| { type: "untracked"; answer?: boolean }
 	| { type: "edge"; edge: "start" | "finish"; key: string };
 
 /** What the screens need from the extension. */
@@ -121,8 +139,12 @@ function stepTarget(b: TBlock): string {
 	return firstLine(b.text.slice(space + 1), 60);
 }
 
-function blockState(b: TBlock, theme: WidgetTheme): string {
-	return b.pinned ? theme.fg("accent", "pinned") : b.folded ? theme.fg("dim", "folded") : b.protected ? theme.fg("dim", "tail") : "";
+/** Pinned, folded or in the tail, for one block or a call with its result. */
+function blockState(theme: WidgetTheme, ...blocks: (TBlock | null)[]): string {
+	const bs = blocks.filter((b): b is TBlock => !!b);
+	if (bs.some((b) => b.pinned)) return theme.fg("accent", "pinned");
+	if (bs.some((b) => b.folded)) return theme.fg("dim", "folded");
+	return bs.some((b) => b.protected) ? theme.fg("dim", "tail") : "";
 }
 
 /** Nodes for transcript nodes; `keyBase` keeps keys unique per screen. */
@@ -147,10 +169,22 @@ export function transcriptNodes(nodes: readonly TNode[], data: ViewData, keyBase
 			out.push({
 				key: `${keyBase}user:${n.block.id}`,
 				label: `${kept ? t.fg("accent", "●") : t.fg("dim", "○")} ${t.fg("muted", "U")} "${firstLine(n.block.text, 60)}"`,
-				meta: [kept ? "kept" : t.fg("dim", "folded"), t.fg("dim", n.why), blockState(n.block, t)].filter(Boolean),
+				meta: [kept ? "kept" : t.fg("dim", "folded"), t.fg("dim", n.why), blockState(t, n.block)].filter(Boolean),
 				right: t.fg("dim", formatCompactTokens(n.block.full)),
 				data: { type: "user", id: n.block.id },
 				text: n.block.text.slice(0, 400),
+			});
+		} else if (n.type === "untracked" && n.calls === 0) {
+			// Plain replies between tasks are normal, not protocol misses.
+			const answer = n.blocks.find((b) => b.kind === "text") ?? n.blocks[0];
+			out.push({
+				key: `${keyBase}answer:${n.blocks[0].id}`,
+				label: `${t.fg("muted", "A")} ${firstLine(answer.text, 70)}`,
+				meta: [blockState(t, ...n.blocks)].filter(Boolean),
+				right: t.fg("dim", tok(n.tokens)),
+				children: n.blocks.length > 1 ? stepNodes(n.blocks, data, `${keyBase}a:${n.blocks[0].id}>`) : undefined,
+				data: n.blocks.length > 1 ? { type: "untracked", answer: true } : { type: "step", id: answer.id, resultId: null },
+				text: answer.text.slice(0, 200),
 			});
 		} else if (n.type === "untracked") {
 			out.push({
@@ -200,8 +234,8 @@ function stepNode(b: TBlock, result: TBlock | null, data: ViewData, keyBase: str
 	return {
 		key: `${keyBase}step:${b.id}`,
 		label,
-		meta: [blockState(b, t)].filter(Boolean),
-		right: t.fg("dim", formatCompactTokens(b.full + (result?.full ?? 0))),
+		meta: [blockState(t, b, result)].filter(Boolean),
+		right: t.fg("dim", tok({ full: b.full + (result?.full ?? 0), live: b.live + (result?.live ?? 0) })),
 		data: { type: "step", id: b.id, resultId: result?.id ?? null },
 		text: `${b.toolName ?? ""} ${b.text.slice(0, 200)}`,
 	};
@@ -265,6 +299,15 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 		lines.push(...wrap("Fold", `${code ? `{#${code}}` : g.id} · ${level === null ? "fold" : LEVEL[level]} · ${g.members} blocks · ${formatCompactTokens(g.full)} → ${formatCompactTokens(g.live)}${pct}`));
 	}
 	return lines;
+}
+
+/** Wrap a detail line so continuation lines start under the value column. */
+function hang(line: string, width: number): string[] {
+	const indent = 12;
+	if (width <= indent + 10) return wrapTextWithAnsi(line, Math.max(1, width));
+	const [first, ...rest] = wrapTextWithAnsi(line, width);
+	if (!rest.length) return [first];
+	return [first, ...wrapTextWithAnsi(rest.join(" "), width - indent).map((l) => `${" ".repeat(indent)}${l}`)];
 }
 
 interface Keys {
@@ -342,7 +385,7 @@ export class TaskViews {
 			return span ? transcriptNodes(spanTranscript(data.src, span), data) : [];
 		}
 		const all = transcriptNodes(sessionTranscript(data.src), data);
-		const kinds = all.filter((n) => n.data && (s.show === "all" || (s.show === "tasks" ? n.data.type === "task" : n.data.type === "untracked")));
+		const kinds = all.filter((n) => n.data && (s.show === "all" || (s.show === "tasks" ? n.data.type === "task" : n.data.type === "untracked" && !n.data.answer)));
 		return kinds;
 	}
 
@@ -360,13 +403,13 @@ export class TaskViews {
 		const height = Math.max(4, Math.min(30, this.rows() - 8));
 		const s = this.top;
 		const crumbs = this.stack.map((x) => (x.kind === "list" ? x.slug : x.kind === "span" ? `${x.key.split("/").pop()} span` : x.kind === "session" ? "Tasks tree" : x.kind === "details" ? x.id : x.title));
-		const title = `Accordion › ${s === this.stack[0] && s.kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
+		const title = `Accordion › ${this.stack[0].kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
 		if (s.kind === "details") {
 			const list = this.list(s.slug);
-			const lines = list ? detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`)).flatMap((l) => wrapTextWithAnsi(l, Math.max(1, width))) : [t.fg("dim", ` "${s.slug}" no longer exists.`)];
+			const lines = list ? detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`)).flatMap((l) => hang(l, width)) : [t.fg("dim", ` "${s.slug}" no longer exists.`)];
 			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - height));
 			const span = data.src ? spanOf(data, `${s.slug}/${s.id}`) : undefined;
-			const hints = [span ? "enter span" : "", this.groupsOf(`${s.slug}/${s.id}`).length ? "v record · u unfold" : span ? "f fold" : "", "↑↓ scroll", "esc back"].filter(Boolean).join(" · ");
+			const hints = [span ? "enter span" : "", "esc back", this.groupsOf(`${s.slug}/${s.id}`).length ? "v record · u unfold" : "", "↑↓ scroll"].filter(Boolean).join(" · ");
 			return frame(title, lines.slice(s.scroll, s.scroll + height), this.message, hints, width, t);
 		}
 		if (s.kind === "text") {
@@ -374,7 +417,7 @@ export class TaskViews {
 			const lines = src.flatMap((l) => wrapTextWithAnsi(clean(l), Math.max(1, width - 1)).map((x) => ` ${x}`));
 			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - height));
 			const pos = `${Math.min(lines.length, s.scroll + 1)}-${Math.min(lines.length, s.scroll + height)}/${lines.length}`;
-			const hints = [s.alt ? `v ${s.showAlt ? "back" : s.altLabel}` : "", "↑↓ pgup/pgdn scroll", "esc back", pos].filter(Boolean).join(" · ");
+			const hints = ["esc back", s.alt ? `v ${s.showAlt ? "back" : s.altLabel}` : "", "↑↓ pgup/pgdn scroll", pos].filter(Boolean).join(" · ");
 			return frame(title, lines.slice(s.scroll, s.scroll + height), this.message, hints, width, t);
 		}
 		const nodes = this.nodes(s, data);
@@ -391,7 +434,9 @@ export class TaskViews {
 		const ref = s.tree.current?.node.data;
 		const act = ref?.type === "fold" ? "u unfold/fold" : ref?.type === "step" || ref?.type === "user" ? "f fold · p pin" : ref?.type === "task" ? "u unfold/fold" : "";
 		const enter = ref?.type === "task" ? (s.kind === "list" ? "enter details · i span" : "enter span") : ref?.type === "untracked" ? "→ expand" : ref ? "enter open" : "";
-		return [enter, act, "→← expand", "/ filter", s.kind === "session" ? "t show" : "", this.stack.length > 1 ? "esc back" : "esc close"].filter(Boolean).join(" · ");
+		const esc = this.stack.length > 1 || s.kind === "list" ? "esc back" : "esc close";
+		// Most needed first: narrow widths cut from the end.
+		return [enter, esc, act, "→← expand", "/ filter", s.kind === "session" ? "t show" : ""].filter(Boolean).join(" · ");
 	}
 
 	handleInput(input: string): void {
@@ -589,8 +634,14 @@ export class TaskViews {
 			this.message = "Part of a fold: select the fold and press u.";
 			return;
 		}
-		const folded = blocks.every((b) => truth.isFolded(b));
-		this.apply([{ kind: folded ? "unfold" : "fold", ids }]);
+		// A call folds through its result; user messages fold only inside a task record.
+		const foldable = blocks.filter((b) => wireFoldable(b));
+		if (!foldable.length) {
+			this.message = blocks.some((b) => b.kind === "user") ? "User messages fold only inside a task record." : "Nothing here folds on its own.";
+			return;
+		}
+		const folded = foldable.every((b) => truth.isFolded(b));
+		this.apply([{ kind: folded ? "unfold" : "fold", ids: foldable.map((b) => b.id) }]);
 	}
 
 	invalidate(): void {}
