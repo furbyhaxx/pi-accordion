@@ -16,6 +16,22 @@ import type { PiMessage } from "../../../../core/wire";
 export interface Arm {
 	id: string;
 	orientation: OrientationOptions;
+	/** Simulate the agent passing a brief: it is added to the session's `tasks create`/`claim` call. */
+	brief?: boolean;
+}
+
+/** A copy of `messages` with `brief` added to the first `tasks create` or `claim` call. */
+export function withBrief(messages: readonly PiMessage[], brief: string): PiMessage[] {
+	let done = false;
+	return messages.map((m) => {
+		if (done || m.role !== "assistant" || !Array.isArray(m.content)) return m;
+		const content = m.content.map((p: { type: string; name?: string; arguments?: Record<string, unknown> }) => {
+			if (done || p.type !== "toolCall" || p.name !== "tasks" || (p.arguments?.action !== "create" && p.arguments?.action !== "claim")) return p;
+			done = true;
+			return { ...p, arguments: { ...p.arguments, brief } };
+		});
+		return { ...m, content } as PiMessage;
+	});
 }
 
 /** A–C arms that a replay can measure; D changes agent behaviour and needs live runs. */
@@ -23,6 +39,7 @@ export const ARMS: Arm[] = [
 	{ id: "A", orientation: { fold: "off", agentTask: false, rules: "live" } },
 	{ id: "C", orientation: { fold: "typed", agentTask: false, rules: "live" } },
 	{ id: "C-rules-fold", orientation: { fold: "typed", agentTask: false, rules: "fold" } },
+	{ id: "C+brief", orientation: { fold: "typed", agentTask: false, rules: "live" }, brief: true },
 ];
 
 export interface Session {
@@ -83,8 +100,8 @@ export interface ReplayResult {
 }
 
 /** Rebuild the context at `cut` messages under `arm`, with the budget at `budgetFactor` of the full size. */
-export async function replay(s: Session, cut: number, arm: Arm, budgetFactor: number): Promise<ReplayResult> {
-	const messages = s.messages.slice(0, cut);
+export async function replay(s: Session, cut: number, arm: Arm, budgetFactor: number, brief?: string): Promise<ReplayResult> {
+	const messages = arm.brief && brief ? withBrief(s.messages.slice(0, cut), brief) : s.messages.slice(0, cut);
 	const blocks = linearize(messages).map(wireToBlock);
 	const host = new TestHost({ meta: { format: "pi", title: "replay", cwd: "", model: "replay" }, blocks, lineCount: 0, skipped: 0 });
 	host.truth.wireAttached = true;

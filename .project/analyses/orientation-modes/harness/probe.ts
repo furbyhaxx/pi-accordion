@@ -125,3 +125,15 @@ export function retention(s: ArmScore, probes: readonly Probe[]): { overall: num
 		byKind: Object.fromEntries([...kinds].map(([k, xs]) => [k, avg(xs)])),
 	};
 }
+
+const BRIEF = `You are the coding agent of this session. You have just finished reading and analysing, and are about to start your first task. Write the brief you pass with the task list: the goal as you understood it, the key facts you found (exact values, limits, names, versions), constraints and working rules that govern the work (from the user, handoffs, plans and rule files), where things are (paths), and the planned order of work. Dense bullet lines, at most 350 words. It replaces everything you read: anything not in it can only be recovered by recalling the folded record.
+Return JSON: {"brief":"..."}`;
+
+/** A brief as the agent would write it at the end of orientation, generated once per session and cached. */
+export async function briefFor(orientation: string, file: string, logDir: string): Promise<string> {
+	if (fs.existsSync(file)) return fs.readFileSync(file, "utf8");
+	const user = `<session>\n${orientation.slice(0, 400_000)}\n</session>\n\nThe session above is yours, not a conversation to continue. ${BRIEF}`;
+	const r = await chatJson<{ brief: string }>(BRIEF, user, logDir, "brief");
+	fs.writeFileSync(file, r.brief);
+	return r.brief;
+}

@@ -7,7 +7,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ARMS, cutPoints, loadSession, replay } from "./replay";
-import { costUsd, probesFor, retention, score, spent, transcript } from "./probe";
+import { briefFor, costUsd, probesFor, retention, score, spent, transcript } from "./probe";
 import { linearize, wireToBlock } from "../../../../core/wire";
 import { orientationSpan, scanTaskSpans } from "../../../../conductors/in-process/taskfold/taskfold";
 
@@ -37,13 +37,22 @@ for (const file of files) {
 		.join("\n\n");
 	const dir = path.join(root, name);
 	const probes = await probesFor(orientText, path.join(dir, "probes.json"), dir);
+	// The brief comes from the orientation without the probes' answers in sight: same material, separate call.
+	const brief = await briefFor(orientText, path.join(dir, "brief.txt"), dir);
 	for (const cut of cutPoints(s)) {
 		for (const arm of ARMS) {
 			if (costUsd() > capUsd) throw new Error(`spending cap $${capUsd} reached`);
-			const r = await replay(s, cut, arm, budgetFactor);
+			const out = path.join(dir, `result-${arm.id}-cut${cut}.json`);
+			if (fs.existsSync(out)) {
+				const prev = JSON.parse(fs.readFileSync(out, "utf8"));
+				const kinds = Object.entries(prev.byKind as Record<string, number>).map(([k, v]) => `${k} ${v}`).join(", ");
+				rows.push(`| ${name} | ${cut} | ${arm.id} | ${(prev.fullTokens / 1000).toFixed(1)}k | ${(prev.liveTokens / 1000).toFixed(1)}k | ${prev.overall} | ${prev.wrong} | ${kinds} | ${prev.cacheBreakAt ?? "–"} |`);
+				continue;
+			}
+			const r = await replay(s, cut, arm, budgetFactor, brief);
 			const sc = await score(`${arm.id}-cut${cut}`, transcript(r.wire), probes, dir);
 			const ret = retention(sc, probes);
-			fs.writeFileSync(path.join(dir, `result-${arm.id}-cut${cut}.json`), JSON.stringify({ ...sc, ...ret, fullTokens: r.fullTokens, liveTokens: r.liveTokens, cacheBreakAt: r.cacheBreakAt, groups: r.groups.map((g) => ({ key: g.key, members: g.members, tokens: g.summary.length })) }, null, 2));
+			fs.writeFileSync(out, JSON.stringify({ ...sc, ...ret, fullTokens: r.fullTokens, liveTokens: r.liveTokens, cacheBreakAt: r.cacheBreakAt, groups: r.groups.map((g) => ({ key: g.key, members: g.members, tokens: g.summary.length })) }, null, 2));
 			const kinds = Object.entries(ret.byKind).map(([k, v]) => `${k} ${v}`).join(", ");
 			rows.push(`| ${name} | ${cut} | ${arm.id} | ${(r.fullTokens / 1000).toFixed(1)}k | ${(r.liveTokens / 1000).toFixed(1)}k | ${ret.overall} | ${ret.wrong} | ${kinds} | ${r.cacheBreakAt ?? "–"} |`);
 			console.log(rows[rows.length - 1]);
