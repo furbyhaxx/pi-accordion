@@ -1,0 +1,55 @@
+{
+  "arm": "C-cut107",
+  "answers": {
+    "p1": "The TaskFold widgets, tool renders etc. as one unit that can be installed and used",
+    "p2": "UX and UI polish, chrome and improvements (it is raw, unübersichtlich, minimal and looks bad)",
+    "p3": "The wireframes and changes for approval",
+    "p4": "Staged edits saved explicitly with ctrl+s",
+    "p5": "/home/furbyhaxx/.pig/agent/skills/extending-pig/references/ui-ux.md",
+    "p6": "36, 57, 80 and 140 columns (and ~16 rows)",
+    "p7": "<project>/.pig/tasks/<slug>.json",
+    "p8": "unknown",
+    "p9": "extension/tui/panel.ts",
+    "p10": "24318",
+    "p11": "unknown",
+    "p12": "Overview"
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "partial",
+    "p3": "correct",
+    "p4": "correct",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "correct",
+    "p8": "unknown",
+    "p9": "correct",
+    "p10": "wrong",
+    "p11": "unknown",
+    "p12": "correct"
+  },
+  "overall": 71,
+  "wrong": 1,
+  "byKind": {
+    "goal": 75,
+    "constraint": 100,
+    "path": 67,
+    "value": 0,
+    "decision": 100
+  },
+  "fullTokens": 83734,
+  "liveTokens": 25431,
+  "cacheBreakAt": 1,
+  "groups": [
+    {
+      "key": "orientation",
+      "members": 68,
+      "tokens": 115
+    },
+    {
+      "key": "orientation",
+      "members": 37,
+      "tokens": 13199
+    }
+  ]
+}

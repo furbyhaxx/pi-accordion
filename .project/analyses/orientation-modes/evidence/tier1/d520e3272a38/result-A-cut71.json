@@ -1,0 +1,44 @@
+{
+  "arm": "A-cut71",
+  "answers": {
+    "p1": "Extend the retry extension's pattern to match 5xx/status-code errors like \"500 status code (no body)\" (and/or raise retry budget), since the current regex never matches them.",
+    "p2": "kimi k3.1 and kimi k3.1 flash empty response bodies.",
+    "p3": "Claiming anything that did not run in this session with its output.",
+    "p4": "The last actionable boundary, so returning continue: true there re-issues the model request.",
+    "p5": "Drop it from model context via a context_edit (replacement null) so the continuation is a normal request against the same conversation.",
+    "p6": "/mnt/shared/.agents/pi/extensions/empty-response-retry.ts",
+    "p7": "/home/furbyhaxx/.pig/agent/sessions/--mnt-Projects-furbyhaxx-pig-workbench--/2026-11-05T12-53-01-949Z_01a1abc5-137d-715c-9612-91bd5bf3ded5.jsonl",
+    "p8": "MAX_RETRIES_PER_RUN = 5, BASE_DELAY_MS = 500",
+    "p9": "maxRetries 3, baseDelayMs 2000, maxAgentDelayMs 60000",
+    "p10": "errorMessage \"500 status code (no body)\" with durationMs ~20619, 20609, 20667, 20656 (empty content, stopReason error).",
+    "p11": "Pi/PiG's built-in agent retry policy (retry.maxRetries=3), which omits failed attempts via context_edit.",
+    "p12": "1 Analyze failing session and retry layers (1.1 read extension/session errors, 1.2 establish which layer retried), 2 Reproduce the 500 against synthetic.new (2.1 small probe, 2.2 session-sized context), 3 Fix the extension so these cases recover."
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "correct",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "correct",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "correct",
+    "p11": "correct",
+    "p12": "correct"
+  },
+  "overall": 100,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 100,
+    "path": 100,
+    "value": 100,
+    "decision": 100
+  },
+  "fullTokens": 52207,
+  "liveTokens": 52207,
+  "cacheBreakAt": null,
+  "groups": []
+}

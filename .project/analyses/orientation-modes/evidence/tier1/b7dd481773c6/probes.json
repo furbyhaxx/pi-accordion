@@ -1,0 +1,74 @@
+[
+  {
+    "id": "p1",
+    "kind": "goal",
+    "question": "What must be fixed in pi-auth-plus, and what workaround must be removed afterward?",
+    "answer": "Make catalog refresh work online and support pig; remove synthetic-kimi provider."
+  },
+  {
+    "id": "p2",
+    "kind": "goal",
+    "question": "Where must the fix be made before updating the pig extension?",
+    "answer": "In the pi-auth-plus repo (cd into it)."
+  },
+  {
+    "id": "p3",
+    "kind": "constraint",
+    "question": "What did the user say about the underlying listing issue in the first request?",
+    "answer": "Underlying issue not cared for now; just add custom model."
+  },
+  {
+    "id": "p4",
+    "kind": "constraint",
+    "question": "What does the system prompt say about pushing and other externally visible actions?",
+    "answer": "Pushing is externally visible; follows Risk and Side Effects unless authorized."
+  },
+  {
+    "id": "p5",
+    "kind": "constraint",
+    "question": "What rule governs committing in the agent's Git instructions?",
+    "answer": "Commit only when requested or authorized; no AI attribution or co-author trailers."
+  },
+  {
+    "id": "p6",
+    "kind": "constraint",
+    "question": "What rule applies to secrets in models.json and elsewhere?",
+    "answer": "Never expose secrets in responses, commands, logs, artifacts, or commits."
+  },
+  {
+    "id": "p7",
+    "kind": "path",
+    "question": "Where is the pi-auth-plus source checkout the user pointed to?",
+    "answer": "/mnt/Projects/furbyhaxx/pi-auth-plus"
+  },
+  {
+    "id": "p8",
+    "kind": "path",
+    "question": "Which file holds the bundled synthetic catalog snapshot in the extension?",
+    "answer": "assets/synthetic/models.json"
+  },
+  {
+    "id": "p9",
+    "kind": "path",
+    "question": "Which file registers the synthetic provider with models: bundledModels()?",
+    "answer": "src/families/synthetic/index.ts"
+  },
+  {
+    "id": "p10",
+    "kind": "value",
+    "question": "What is the synthetic catalog TTL constant?",
+    "answer": "CATALOG_TTL_MS = 4 * 60 * 60 * 1000 (4 hours)."
+  },
+  {
+    "id": "p11",
+    "kind": "value",
+    "question": "What is the synthetic catalog URL and base URL?",
+    "answer": "https://api.synthetic.new/v1/models and https://api.synthetic.new/anthropic"
+  },
+  {
+    "id": "p12",
+    "kind": "decision",
+    "question": "What is the task order after diagnosis?",
+    "answer": "Fix refresh, verify in pig and pi, update pig extension, remove synthetic-kimi."
+  }
+]
