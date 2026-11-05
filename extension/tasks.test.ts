@@ -158,4 +158,59 @@ describe("tasks", () => {
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
 		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1 "A" is still in progress/);
 	});
+
+	test("a blocked task frees the agent, keeps its reason and resumes with start", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "user-decision" as never })).toThrow(/needs "detail"/);
+		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "bored" as never, detail: "x" })).toThrow(/needs "reason"/);
+		const out = runTasks(s, { action: "block", list: "w", id: "1.1", reason: "user-decision", detail: "Postgres or SQLite" });
+		expect(out).toContain("needs user decision — Postgres or SQLite");
+		expect(out).toContain("Also blocked parent 1");
+		expect(runTasks(s, { action: "start", list: "w", id: "2" })).toContain("Started w/2");
+		runTasks(s, { action: "complete", list: "w", id: "2", report });
+		expect(() => runTasks(s, { action: "complete", list: "w", id: "1.1", report })).toThrow(/is blocked. Resume it with start/);
+		const resumed = runTasks(s, { action: "start", list: "w", id: "1.1" });
+		expect(resumed.split("\n")[0]).toBe('Resumed w/1.1 "A1".');
+		expect(resumed).toContain("Also resumed parent 1");
+		const a1 = s.read("w").tasks.find((t) => t.id === "1.1")!;
+		expect(a1.status).toBe("doing");
+		expect(a1.blocks).toEqual([expect.objectContaining({ reason: "user-decision", detail: "Postgres or SQLite", resumedAt: expect.any(String) })]);
+	});
+
+	test("a dependency block names a task outside its branch that is not finished", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
+		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x" })).toThrow(/needs "blockedBy"/);
+		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x", blockedBy: "1" })).toThrow(/own branch/);
+		expect(runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "needs B's schema", blockedBy: "2" })).toContain("Work on 2 now");
+	});
+
+	test("a parent completes only when no subtask is unstarted or blocked; fail and abandon take them along", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B", subtasks: [{ title: "B1" }] }] });
+		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
+		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report })).toThrow(/Subtask 1.2 \(not started\) of 1 is unfinished/);
+		runTasks(s, { action: "abandon", list: "w", id: "1.2", report: { outcome: "Not needed." } });
+		expect(runTasks(s, { action: "complete", list: "w", id: "1", report })).toContain("is done");
+		runTasks(s, { action: "start", list: "w", id: "2" });
+		expect(runTasks(s, { action: "fail", list: "w", id: "2", report: { outcome: "x" } })).toContain("Also abandoned its unfinished subtask 2.1");
+		expect(s.read("w").tasks.find((t) => t.id === "2.1")?.status).toBe("abandoned");
+		expect(() => runTasks(s, { action: "fail", list: "w", id: "2.1", report })).toThrow(/abandoned, not in progress/);
+	});
+
+	test("supersededBy links an abandoned task to its replacement, from abandon or from add", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A" }, { title: "B" }, { title: "C" }] });
+		expect(() => runTasks(s, { action: "abandon", list: "w", id: "1", report, supersededBy: "9" })).toThrow(/No task "9"/);
+		expect(runTasks(s, { action: "abandon", list: "w", id: "1", report: { outcome: "Replaced." }, supersededBy: "3" })).toContain("superseded by 3");
+		expect(runTasks(s, { action: "add", list: "w", tasks: [{ title: "B, done right", supersedes: "2" }] })).toContain('2 "B" is superseded by 4 and was abandoned');
+		const t = s.read("w").tasks;
+		expect(t.find((x) => x.id === "1")).toMatchObject({ status: "abandoned", supersededBy: "3" });
+		expect(t.find((x) => x.id === "2")).toMatchObject({ status: "abandoned", supersededBy: "4" });
+		expect(() => runTasks(s, { action: "create", list: "v", title: "V", tasks: [{ title: "X", supersedes: "1" }] })).toThrow(/only works with "add"/);
+	});
 });

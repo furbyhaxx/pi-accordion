@@ -9,7 +9,25 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-export type TaskStatus = "todo" | "doing" | "done" | "failed" | "abandoned";
+export type TaskStatus = "todo" | "doing" | "blocked" | "done" | "failed" | "abandoned";
+
+/** Why a task cannot continue. */
+export const BLOCK_REASONS = ["user-decision", "user-input", "third-party", "dependency"] as const;
+export type BlockReason = (typeof BLOCK_REASONS)[number];
+
+/** Block reasons outside the agent's control: waiting on them justifies going idle. `dependency` does not. */
+export const IDLE_REASONS: ReadonlySet<BlockReason> = new Set(["user-decision", "user-input", "third-party"]);
+
+/** One period a task spent blocked. */
+export interface TaskBlock {
+	reason: BlockReason;
+	detail: string;
+	/** The task this one waits for (`dependency`), or the subtask a blocked parent waits for. */
+	on?: string;
+	at: string;
+	/** When the task was resumed; absent while it is still blocked. */
+	resumedAt?: string;
+}
 
 /** What the agent reports when a task ends; it becomes the agent-written part of the fold record. */
 export interface TaskReport {
@@ -33,6 +51,10 @@ export interface Task {
 	endedAt?: string;
 	/** Set when the store closed this parent itself because the agent moved on after its last subtask. */
 	autoClosed?: boolean;
+	/** Every period the task was blocked, oldest first; the last one is open while `status` is `blocked`. */
+	blocks?: TaskBlock[];
+	/** The task that replaces this abandoned one. */
+	supersededBy?: string;
 }
 
 export interface TaskClaim {
@@ -55,6 +77,8 @@ export interface TaskList {
 export interface TaskInput {
 	title: string;
 	subtasks?: TaskInput[];
+	/** For `add`: the id of an earlier task this one replaces; that task is abandoned if it is still open. */
+	supersedes?: string;
 }
 
 /** A rejected call: the message tells the agent how to recover. */
@@ -109,13 +133,18 @@ export function cleanReport(report: unknown): TaskReport {
 	return { outcome, ...(decisions ? { decisions } : {}), ...(open ? { open } : {}) };
 }
 
-function flatten(inputs: unknown, prefix: string, startIndex: number, out: Task[], at: string): void {
+function flatten(inputs: unknown, prefix: string, startIndex: number, out: Task[], at: string, links: [string, string][] = []): void {
 	if (!Array.isArray(inputs)) throw new TaskError("tasks must be an array of { title, subtasks? }.");
 	inputs.forEach((input, i) => {
 		const id = prefix ? `${prefix}.${startIndex + i}` : String(startIndex + i);
 		out.push({ id, title: cleanTitle((input as TaskInput)?.title), status: "todo", createdAt: at, updatedAt: at });
 		const subs = (input as TaskInput)?.subtasks;
-		if (subs !== undefined) flatten(subs, id, 1, out, at);
+		const sup = (input as TaskInput)?.supersedes;
+		if (sup !== undefined) {
+			if (typeof sup !== "string" || !sup.trim()) throw new TaskError(`"supersedes" of "${(input as TaskInput).title}" must be a task id, e.g. "3.2".`);
+			links.push([id, sup.trim()]);
+		}
+		if (subs !== undefined) flatten(subs, id, 1, out, at, links);
 	});
 }
 
@@ -212,7 +241,9 @@ export class TaskStore {
 		if (fs.existsSync(this.file(slug))) throw new TaskError(`Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
 		const list: TaskList = { slug, title: cleanTitle(title), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
-		flatten(tasks ?? [], "", 1, list.tasks, at);
+		const links: [string, string][] = [];
+		flatten(tasks ?? [], "", 1, list.tasks, at, links);
+		if (links.length) throw new TaskError('"supersedes" points at a task in the same list, so it only works with "add".');
 		this.write(list);
 		return list;
 	}
@@ -250,15 +281,73 @@ export class TaskStore {
 		return t;
 	}
 
-	add(slug: string, parent: string | undefined, tasks: unknown): Task[] {
+	/** Add tasks; a task with `supersedes` replaces an earlier one, abandoning it if it is still open. */
+	add(slug: string, parent: string | undefined, tasks: unknown): { added: Task[]; superseded: Task[] } {
 		const list = this.owned(slug);
 		if (parent !== undefined) this.task(list, parent);
 		const siblings = list.tasks.filter((t) => parentOf(t.id) === (parent ?? null)).length;
 		const added: Task[] = [];
-		flatten(tasks, parent ?? "", siblings + 1, added, now());
+		const links: [string, string][] = [];
+		const at = now();
+		flatten(tasks, parent ?? "", siblings + 1, added, at, links);
+		const superseded: Task[] = [];
+		for (const [by, old] of links) {
+			const t = this.task(list, old);
+			if (t.status === "doing") throw new TaskError(`Task ${old} is in progress; end it before a new task supersedes it.`);
+			if (t.status === "done") throw new TaskError(`Task ${old} is done; nothing to supersede. Add the new task without "supersedes".`);
+			if (parent !== undefined && isWithin(parent, old)) throw new TaskError(`Task ${old} contains the new task, so it cannot be superseded by it.`);
+			superseded.push(t);
+		}
+		for (const [by, old] of links) {
+			const t = this.task(list, old);
+			if (t.status === "todo" || t.status === "blocked") abandon(t, { outcome: `Superseded by ${by}.` }, at);
+			t.supersededBy = by;
+			t.updatedAt = at;
+		}
 		list.tasks.push(...added);
 		this.write(list);
-		return added;
+		return { added, superseded };
+	}
+
+	/**
+	 * Block a task in progress on something it waits for. Open ancestors with no other task in
+	 * progress beneath them are blocked on it as well, so the agent may start other work.
+	 */
+	block(slug: string, id: string, reason: unknown, detail: unknown, on?: unknown): { task: Task; ancestors: Task[] } {
+		const list = this.owned(slug);
+		const task = this.task(list, id);
+		if (!BLOCK_REASONS.includes(reason as BlockReason))
+			throw new TaskError(`A block needs "reason": one of ${BLOCK_REASONS.map((r) => `"${r}"`).join(", ")}.`);
+		if (typeof detail !== "string" || !detail.trim()) throw new TaskError('A block needs "detail": what exactly the task waits for, e.g. "the user must choose between Postgres and SQLite".');
+		const text = detail.trim().replace(/\s+/g, " ");
+		if (text.length > ITEM_MAX) throw new TaskError(`"detail" is ${text.length} chars; keep it under ${ITEM_MAX}.`);
+		if (task.status !== "doing") throw new TaskError(`Task ${id} is ${task.status}; only a task in progress can be blocked.`);
+		const inner = list.tasks.filter((t) => t.id !== id && isWithin(t.id, id) && t.status === "doing");
+		if (inner.length) throw new TaskError(`Subtask ${inner.map((t) => t.id).join(", ")} of ${id} is in progress. Block that subtask instead, or end it first.`);
+		let dep: string | undefined;
+		if (reason === "dependency") {
+			if (typeof on !== "string" || !on.trim()) throw new TaskError('A "dependency" block needs "blockedBy": the id of the task this one waits for.');
+			const target = this.task(list, on.trim());
+			if (isWithin(target.id, id) || isWithin(id, target.id)) throw new TaskError(`Task ${target.id} is ${isWithin(target.id, id) ? "inside" : "a parent of"} ${id}; a task cannot wait for its own branch.`);
+			if (FINISHED.has(target.status)) throw new TaskError(`Task ${target.id} is already ${target.status}; ${id} does not wait for it. Continue ${id}.`);
+			dep = target.id;
+		} else if (on !== undefined) throw new TaskError('"blockedBy" only goes with reason "dependency".');
+		const at = now();
+		const put = (t: Task, b: TaskBlock) => {
+			t.status = "blocked";
+			t.updatedAt = at;
+			(t.blocks ??= []).push(b);
+		};
+		put(task, { reason: reason as BlockReason, detail: text, ...(dep ? { on: dep } : {}), at });
+		const ancestors: Task[] = [];
+		for (let p = parentOf(id); p !== null; p = parentOf(p)) {
+			const anc = list.tasks.find((t) => t.id === p);
+			if (anc?.status !== "doing" || list.tasks.some((t) => t.id !== p && isWithin(t.id, p) && t.status === "doing")) break;
+			put(anc, { reason: "dependency", detail: `subtask ${id} is blocked`, on: id, at });
+			ancestors.push(anc);
+		}
+		this.write(list);
+		return { task, ancestors };
 	}
 
 	/**
@@ -270,7 +359,8 @@ export class TaskStore {
 		const list = this.owned(slug);
 		const task = this.task(list, id);
 		if (task.status === "doing") throw new TaskError(`Task ${id} is already in progress.`);
-		if (task.status !== "todo") throw new TaskError(`Task ${id} is ${task.status}. Add a follow-up task instead of restarting it.`);
+		if (task.status !== "todo" && task.status !== "blocked")
+			throw new TaskError(`Task ${id} is ${task.status}. Add a follow-up task (with "supersedes": "${id}") instead of restarting it.`);
 		const at = now();
 		const autoClosed: Task[] = [];
 		// Innermost first, so a closed child counts as finished when its parent is checked.
@@ -290,35 +380,82 @@ export class TaskStore {
 		const started: Task[] = [];
 		for (let p = parentOf(id); p !== null; p = parentOf(p)) {
 			const anc = list.tasks.find((t) => t.id === p);
-			if (anc?.status === "todo") started.unshift(anc);
+			if (anc?.status === "todo" || anc?.status === "blocked") started.unshift(anc);
 		}
 		started.push(task);
+		const resumed = new Set<Task>();
 		for (const t of started) {
+			if (t.status === "blocked") {
+				resumed.add(t);
+				const open = t.blocks?.[t.blocks.length - 1];
+				if (open && !open.resumedAt) open.resumedAt = at;
+			} else t.startedAt = at;
 			t.status = "doing";
 			t.updatedAt = at;
-			t.startedAt = at;
 		}
 		this.write(list);
-		return { list, task, autoStarted: started.slice(0, -1), autoClosed };
+		return { list, task, autoStarted: started.slice(0, -1), autoClosed, resumed: started.filter((t) => resumed.has(t)) };
 	}
 
-	/** End a task as done, failed or abandoned. Open subtasks block it. */
-	finish(slug: string, id: string, status: "done" | "failed" | "abandoned", report: unknown): { list: TaskList; task: Task; parentReady?: Task } {
+	/**
+	 * End a task as done, failed or abandoned. Subtasks in progress block it; `complete` also needs
+	 * every subtask finished. Failing or abandoning a parent abandons its unstarted and blocked
+	 * subtasks with it. Only `abandon` ends a task that is not in progress.
+	 */
+	finish(
+		slug: string,
+		id: string,
+		status: "done" | "failed" | "abandoned",
+		report: unknown,
+		supersededBy?: unknown,
+	): { list: TaskList; task: Task; parentReady?: Task; cascaded: Task[]; blockedParents: Task[] } {
 		const list = this.owned(slug);
 		const task = this.task(list, id);
-		if (task.status !== "doing") throw new TaskError(`Task ${id} is ${task.status}, not in progress. Start it first, or check "status".`);
-		const openChildren = list.tasks.filter((t) => t.id !== id && isWithin(t.id, id) && t.status === "doing");
+		const verb = status === "done" ? "complete" : status === "failed" ? "fail" : "abandon";
+		if (status === "abandoned" ? FINISHED.has(task.status) : task.status !== "doing") {
+			if (task.status === "blocked") throw new TaskError(`Task ${id} is blocked. Resume it with start before you ${verb} it, or abandon it.`);
+			if (task.status === "todo") throw new TaskError(`Task ${id} was never started. Start it first, or abandon it with a report if it is no longer needed.`);
+			throw new TaskError(`Task ${id} is ${task.status}, not in progress. Check "status".`);
+		}
+		const below = list.tasks.filter((t) => t.id !== id && isWithin(t.id, id));
+		const openChildren = below.filter((t) => t.status === "doing");
 		if (openChildren.length) throw new TaskError(`Subtask ${openChildren.map((t) => t.id).join(", ")} of ${id} is still in progress. End it first.`);
-		task.report = cleanReport(report);
-		task.status = status;
-		task.updatedAt = now();
-		task.endedAt = task.updatedAt;
+		const unfinished = below.filter((t) => t.status === "todo" || t.status === "blocked");
+		if (status === "done" && unfinished.length)
+			throw new TaskError(
+				`Subtask ${unfinished.map((t) => `${t.id} (${t.status === "todo" ? "not started" : "blocked"})`).join(", ")} of ${id} ${unfinished.length === 1 ? "is" : "are"} unfinished. Start and finish ${unfinished.length === 1 ? "it" : "them"}, or abandon ${unfinished.length === 1 ? "it" : "them"} with a report (and "supersededBy" when another task replaces ${unfinished.length === 1 ? "it" : "them"}) before completing ${id}.`,
+			);
+		let replacement: string | undefined;
+		if (supersededBy !== undefined) {
+			if (status !== "abandoned") throw new TaskError('"supersededBy" only goes with "abandon".');
+			if (typeof supersededBy !== "string" || !supersededBy.trim()) throw new TaskError('"supersededBy" must be a task id, e.g. "9.3".');
+			const by = this.task(list, supersededBy.trim());
+			if (isWithin(by.id, id)) throw new TaskError(`Task ${by.id} is part of ${id}, so it cannot replace it.`);
+			replacement = by.id;
+		}
+		const clean = cleanReport(report);
+		const at = now();
+		if (status === "abandoned") abandon(task, clean, at);
+		else {
+			task.report = clean;
+			task.status = status;
+			task.updatedAt = at;
+			task.endedAt = at;
+		}
+		if (replacement) task.supersededBy = replacement;
+		const cascaded: Task[] = [];
+		for (const t of unfinished) {
+			abandon(t, { outcome: `Abandoned with its parent ${id} (${status}).` }, at);
+			cascaded.push(t);
+		}
+		// Parents blocked only on this task stay blocked until the agent resumes them.
+		const blockedParents = list.tasks.filter((t) => t.status === "blocked" && t.blocks?.[t.blocks.length - 1]?.on === id && isWithin(id, t.id));
 		this.write(list);
 		const parent = parentOf(id);
 		const siblings = parent === null ? [] : list.tasks.filter((t) => parentOf(t.id) === parent);
 		const parentTask = parent === null ? undefined : list.tasks.find((t) => t.id === parent);
 		const parentReady = parentTask?.status === "doing" && siblings.every((t) => FINISHED.has(t.status)) ? parentTask : undefined;
-		return { list, task, parentReady };
+		return { list, task, parentReady, cascaded, blockedParents };
 	}
 }
 
@@ -332,6 +469,18 @@ export interface StartResult {
 	autoStarted: Task[];
 	/** Open parents whose subtasks were all finished and that closed because the agent moved on. */
 	autoClosed: Task[];
+	/** Blocked tasks this start resumed (the task itself and ancestors), outermost first. */
+	resumed: Task[];
+}
+
+/** End a task as abandoned; a block it was in ends with it. */
+function abandon(t: Task, report: TaskReport, at: string): void {
+	const open = t.blocks?.[t.blocks.length - 1];
+	if (t.status === "blocked" && open && !open.resumedAt) open.resumedAt = at;
+	t.status = "abandoned";
+	t.report = report;
+	t.updatedAt = at;
+	t.endedAt = at;
 }
 
 /** Close a parent from its finished subtasks: done when all are done, else failed. */
@@ -346,7 +495,18 @@ function closeFromChildren(t: Task, kids: readonly Task[], at: string): void {
 	t.endedAt = at;
 }
 
-const MARK: Record<TaskStatus, string> = { todo: "[ ]", doing: "[~]", done: "[x]", failed: "[!]", abandoned: "[-]" };
+const MARK: Record<TaskStatus, string> = { todo: "[ ]", doing: "[~]", blocked: "[=]", done: "[x]", failed: "[!]", abandoned: "[-]" };
+
+/** The block a blocked task is in, or null. */
+export function currentBlock(t: Task): TaskBlock | null {
+	const b = t.blocks?.[t.blocks.length - 1];
+	return t.status === "blocked" && b && !b.resumedAt ? b : null;
+}
+
+/** `needs user decision`, `waits for 3.2`, … */
+export function blockLabel(b: TaskBlock): string {
+	return b.reason === "user-decision" ? "needs user decision" : b.reason === "user-input" ? "needs user input" : b.reason === "third-party" ? "waits on third party" : `waits for ${b.on ?? "another task"}`;
+}
 
 /** Who holds a list, from one session's point of view. A claim idle past `CLAIM_STALE_MS` is stale. */
 export type ClaimState = "mine" | "free" | "stale" | "held";
@@ -376,13 +536,17 @@ export function slugFor(title: string, taken: ReadonlySet<string>): string {
 /** A compact outline of a list for tool results. */
 export function renderList(list: TaskList): string {
 	const lines = [`${list.slug} — ${list.title}${list.claim ? `  (claimed ${list.claim.at})` : ""}`];
-	for (const t of list.tasks) lines.push(`${"  ".repeat(t.id.split(".").length)}${MARK[t.status]} ${t.id} ${t.title}`);
+	for (const t of list.tasks) {
+		const b = currentBlock(t);
+		const note = b ? `  (blocked: ${blockLabel(b)} — ${b.detail})` : t.supersededBy ? `  (superseded by ${t.supersededBy})` : "";
+		lines.push(`${"  ".repeat(t.id.split(".").length)}${MARK[t.status]} ${t.id} ${t.title}${note}`);
+	}
 	return lines.join("\n");
 }
 
 /** The tool's argument shape; every field but `action` depends on the action. */
 export interface TasksArgs {
-	action: "create" | "list" | "claim" | "release" | "add" | "status" | "start" | "complete" | "fail" | "abandon";
+	action: "create" | "list" | "claim" | "release" | "add" | "status" | "start" | "block" | "complete" | "fail" | "abandon";
 	list?: string;
 	title?: string;
 	tasks?: TaskInput[];
@@ -390,6 +554,14 @@ export interface TasksArgs {
 	id?: string;
 	report?: TaskReport;
 	force?: boolean;
+	/** For block: why the task cannot continue. */
+	reason?: BlockReason;
+	/** For block: what exactly it waits for. */
+	detail?: string;
+	/** For block with reason "dependency": the task it waits for. */
+	blockedBy?: string;
+	/** For abandon: the task that replaces this one. */
+	supersededBy?: string;
 }
 
 /** Run one `tasks` tool call. Rejections throw `TaskError` with recovery guidance. */
@@ -427,16 +599,31 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 			store.release(need("list"));
 			return `Released "${args.list}".`;
 		case "add": {
-			const added = store.add(need("list"), args.parent, need("tasks"));
-			return `Added ${added.map((t) => `${t.id} ${t.title}`).join(", ")}.`;
+			const { added, superseded } = store.add(need("list"), args.parent, need("tasks"));
+			const lines = [`Added ${added.map((t) => `${t.id} ${t.title}`).join(", ")}.`];
+			for (const t of superseded) lines.push(`${t.id} "${t.title}" is superseded by ${t.supersededBy}${t.report?.outcome?.startsWith("Superseded by") ? " and was abandoned" : ""}.`);
+			return lines.join("\n");
+		}
+		case "block": {
+			const { task, ancestors } = store.block(need("list"), need("id"), args.reason, args.detail, args.blockedBy);
+			const b = currentBlock(task)!;
+			const lines = [`Blocked ${args.list}/${task.id} "${task.title}": ${blockLabel(b)} — ${b.detail}.`];
+			for (const t of ancestors) lines.push(`Also blocked parent ${t.id} "${t.title}" until ${task.id} resumes.`);
+			lines.push(
+				IDLE_REASONS.has(b.reason)
+					? `Tell the user exactly what you need, then continue with another task that does not depend on it, or stop if none is left. Resume with start ${task.id} once it is resolved.`
+					: `Work on ${b.on} now; resume with start ${task.id} once it is finished.`,
+			);
+			return lines.join("\n");
 		}
 		case "status":
 			return renderList(store.read(need("list")));
 		case "start": {
-			const { task, autoStarted, autoClosed } = store.start(need("list"), need("id"));
+			const { task, autoStarted, autoClosed, resumed } = store.start(need("list"), need("id"));
 			onStart([...autoStarted.map((t) => t.id), task.id]);
-			const lines = [`Started ${args.list}/${task.id} "${task.title}".`];
-			for (const t of autoStarted) lines.push(`Also started parent ${t.id} "${t.title}" so its span covers this subtask.`);
+			const was = (t: Task) => resumed.includes(t);
+			const lines = [`${was(task) ? "Resumed" : "Started"} ${args.list}/${task.id} "${task.title}".`];
+			for (const t of autoStarted) lines.push(`Also ${was(t) ? "resumed" : "started"} parent ${t.id} "${t.title}" so its span covers this subtask.`);
 			for (const t of autoClosed)
 				lines.push(`Closed ${t.id} "${t.title}" as ${t.status} from its subtasks' reports, because you moved on without completing it. Complete a parent with its own report right after its last subtask.`);
 			return lines.join("\n");
@@ -445,9 +632,11 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 		case "fail":
 		case "abandon": {
 			const status = args.action === "complete" ? "done" : args.action === "fail" ? "failed" : "abandoned";
-			const { task, parentReady } = store.finish(need("list"), need("id"), status, args.report);
+			const { task, parentReady, cascaded, blockedParents } = store.finish(need("list"), need("id"), status, args.report, args.supersededBy);
 			onFinish(task.id);
-			const lines = [`${args.list}/${task.id} "${task.title}" is ${status}.`];
+			const lines = [`${args.list}/${task.id} "${task.title}" is ${status}${task.supersededBy && args.action === "abandon" ? `, superseded by ${task.supersededBy}` : ""}.`];
+			if (cascaded.length) lines.push(`Also abandoned its unfinished subtask${cascaded.length === 1 ? "" : "s"} ${cascaded.map((t) => t.id).join(", ")}.`);
+			for (const t of blockedParents) lines.push(`Parent ${t.id} "${t.title}" was blocked on ${task.id}; resume it with start ${t.id}, or abandon it.`);
 			if (parentReady) lines.push(`All subtasks of ${parentReady.id} "${parentReady.title}" are finished: complete ${parentReady.id} now with its own report, or add more subtasks to it.`);
 			return lines.join("\n");
 		}
