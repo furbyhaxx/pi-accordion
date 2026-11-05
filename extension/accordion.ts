@@ -52,7 +52,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
-import { TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
+import { BLOCK_REASONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
@@ -3790,37 +3790,59 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		label: "Tasks",
 		defaultActive: false,
 		description:
-			"Plan and track work as a persistent, nested task list for this project (stored in .pig/tasks/). A task's SPAN runs from its `start` call to its `complete`/`fail`/`abandon` call; Accordion later folds the whole span into a compact record built from your report, so the report is what later turns see of that work. Starting a subtask also starts its parents. Actions: create {list, title, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, tasks}, status {list}, start {list, id}, complete|fail|abandon {list, id, report}.",
-		promptSnippet: "tasks(action, …) — persistent nested task lists; start a task before its work, finish it with a report after.",
+			"Plan and track multi-step work as a persistent, nested task list for this project (.pig/tasks/<list>.json). A task's SPAN runs from its `start` call to the call that ends it; Accordion later folds a finished span into a compact record built from your report, so the report is all later turns see of that work.\n" +
+			"Lifecycle: todo → start → doing → complete (done) | fail (failed) | abandon (abandoned); doing → block (blocked) → start again to resume.\n" +
+			"- complete: the task's goal was reached.\n" +
+			"- fail: you tried and the goal was not reached, and you are not pursuing it further. The report says what was tried and quotes the failing command or error.\n" +
+			"- abandon: stopped on purpose without a verdict (no longer wanted, replaced, the user changed course). Works on unstarted and blocked tasks too. Pass supersededBy when another task replaces it.\n" +
+			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
+			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks.\n" +
+			"Actions: create {list, title, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, tasks[{title, subtasks?, supersedes?}]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
+		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
 		promptGuidelines: [
-			"Use the `tasks` tool for multi-step work: create or claim a list, then work through it. Call `start` BEFORE the first tool call of a task's work and `complete` (or `fail`/`abandon`) right AFTER its last one, with a `report`. Work that runs while no task is in progress belongs to no record and is not folded; if new work comes up, `add` a task for it and start it first.",
-			"Never start and finish a task back to back with no tool work in between; a span without work has nothing to fold. Subtasks nest inside their parent and only one branch is open at a time. After the last subtask, complete the parent with its own report that sums up the whole branch.",
-			"A finished task is later folded into a record built from its `report`. Write `outcome` as what was achieved, `decisions` as `choice — reason`, and `open` as anything unresolved. Files changed and checks run are recorded automatically.",
+			"Use the `tasks` tool for work with more than one step; a single question or a one-step change needs no list. Create or claim a list, then call `start` BEFORE the first tool call of a task's work and end the task right AFTER its last one. Work done while no task is in progress belongs to no record; if new work comes up, `add` a task for it and start it first.",
+			"Never start and end a task back to back with no tool work in between. After the last subtask, complete the parent with its own report that sums up the whole branch.",
+			"Pick the ending that is true: `complete` when the goal was reached; `fail` when you tried and it was not reached (quote the failing command or error in the report); `abandon` when the task is no longer wanted or another task replaces it (pass `supersededBy`, or add the new task with `supersedes`). Never complete a task whose goal was not reached.",
+			"When you cannot continue, `block` the task instead of leaving it in progress or failing it: `user-decision`, `user-input` or `third-party` when you wait on something outside your control, with a `detail` that states exactly what you need; then ask the user for it, continue with work that does not depend on it, and stop only if nothing else is left. `dependency` (with `blockedBy`) means another task comes first: work on that task now. Stopping while a task is in progress or while unblocked work remains counts as stopping too early.",
+			"Reports become the folded record: `outcome` is what was achieved in one or two sentences, `decisions` are `choice — reason` lines, `open` lists anything unresolved. Files changed and checks run are recorded automatically.",
 		],
 		parameters: Type.Object({
 			action: Type.Union(
-				["create", "list", "claim", "release", "add", "status", "start", "complete", "fail", "abandon"].map((a) => Type.Literal(a)),
+				["create", "list", "claim", "release", "add", "status", "start", "block", "complete", "fail", "abandon"].map((a) => Type.Literal(a)),
 				{ description: "What to do." },
 			),
 			list: Type.Optional(Type.String({ description: 'List slug, e.g. "auth-refactor" (lowercase, digits, dashes).' })),
 			title: Type.Optional(Type.String({ description: "List title, for create." })),
 			tasks: Type.Optional(
-				Type.Array(Type.Object({ title: Type.String(), subtasks: Type.Optional(Type.Array(Type.Any())) }), {
-					description: "Tasks to create or add: [{ title, subtasks?: [{ title, subtasks? }] }].",
-				}),
+				Type.Array(
+					Type.Object({
+						title: Type.String(),
+						subtasks: Type.Optional(Type.Array(Type.Any())),
+						supersedes: Type.Optional(Type.String({ description: "For add: id of an earlier task this one replaces; it is abandoned if still open." })),
+					}),
+					{ description: "Tasks to create or add: [{ title, subtasks?: [{ title, subtasks? }], supersedes? }]." },
+				),
 			),
 			parent: Type.Optional(Type.String({ description: "Parent task id for add, e.g. \"2\" or \"2.1\"." })),
 			id: Type.Optional(Type.String({ description: 'Task id, e.g. "1.2".' })),
 			report: Type.Optional(
 				Type.Object(
 					{
-						outcome: Type.String({ description: "What this task achieved, one or two sentences." }),
+						outcome: Type.String({ description: "What this task achieved, or for fail what was tried and what went wrong, in one or two sentences." }),
 						decisions: Type.Optional(Type.Array(Type.String(), { description: '"choice — reason" lines.' })),
 						open: Type.Optional(Type.Array(Type.String(), { description: "Anything left unresolved." })),
 					},
 					{ description: "Required for complete, fail and abandon." },
 				),
 			),
+			reason: Type.Optional(
+				Type.Union(BLOCK_REASONS.map((r) => Type.Literal(r)), {
+					description: "For block: user-decision | user-input | third-party (waiting outside your control) | dependency (another task first; give blockedBy).",
+				}),
+			),
+			detail: Type.Optional(Type.String({ description: 'For block: exactly what is awaited, e.g. "the user must choose between Postgres and SQLite".' })),
+			blockedBy: Type.Optional(Type.String({ description: 'For block with reason dependency: the id of the task this one waits for.' })),
+			supersededBy: Type.Optional(Type.String({ description: "For abandon: the id of the task that replaces this one." })),
 			force: Type.Optional(Type.Boolean({ description: "For claim: take over a list another session holds. Ask the user first." })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {

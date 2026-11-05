@@ -27,7 +27,7 @@ export interface PreviousBinding {
 }
 
 /** Tool actions that leave the calling session holding the list. */
-const HOLDING = new Set(["create", "claim", "add", "start", "complete", "fail", "abandon"]);
+const HOLDING = new Set(["create", "claim", "add", "start", "block", "complete", "fail", "abandon"]);
 /** Task timestamps within this window after the session's own last call are its own writes. */
 const OWN_WRITE_SLACK_MS = 2000;
 
