@@ -2920,6 +2920,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		truth: () => truth,
 		enabled: tasksToolActive,
 		settings: () => settings.taskWidget,
+		saveExpanded: (expanded) => {
+			if (settings.taskWidget.expanded !== expanded) settings = saveSettings(HOME, { ...settings, taskWidget: { ...settings.taskWidget, expanded } });
+		},
 	});
 	nativeListeners.add(() => taskWidget.sync());
 

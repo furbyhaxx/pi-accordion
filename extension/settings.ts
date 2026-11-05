@@ -30,7 +30,7 @@ export interface ModelSettings {
 export interface TaskWidgetSettings {
 	/** `auto` shows it while the attached conductor provides the `tasks` tool and this session holds a list. */
 	mode: "auto" | "off";
-	/** Start sessions with the task tree expanded. */
+	/** Whether the task tree is expanded; the last toggle is remembered here. */
 	expanded: boolean;
 	/** Rows the expanded tree uses before hiding tasks furthest from the work in progress. */
 	maxRows: number;

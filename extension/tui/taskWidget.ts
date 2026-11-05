@@ -256,6 +256,7 @@ export class TaskWidgetComponent {
 		private readonly theme: WidgetTheme,
 		private readonly model: () => TaskWidgetModel | null,
 		private readonly view: TaskWidgetView,
+		private readonly onExpanded: (expanded: boolean) => void = () => {},
 	) {
 		this.timer = setInterval(() => {
 			const m = this.model();
@@ -279,7 +280,9 @@ export class TaskWidgetComponent {
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
 		if (event.type !== "click" || event.button !== "left") return undefined;
-		if (!applyTaskWidgetHit(this.view, this.hits[event.y] ?? null)) return undefined;
+		const hit = this.hits[event.y] ?? null;
+		if (!applyTaskWidgetHit(this.view, hit)) return undefined;
+		if (hit?.kind === "header") this.onExpanded(this.view.expanded);
 		this.tui.requestRender();
 		return { handled: true };
 	}
@@ -305,6 +308,8 @@ export interface TaskWidgetDeps {
 	/** Whether the attached conductor provides the `tasks` tool. */
 	enabled(): boolean;
 	settings(): TaskWidgetSettings;
+	/** The user expanded or collapsed the tree; the state is remembered for later sessions. */
+	saveExpanded(expanded: boolean): void;
 }
 
 interface WidgetUi {
@@ -366,7 +371,7 @@ export class TaskWidgetController {
 					WIDGET_KEY,
 					(tui, theme) => {
 						this.installed?.dispose();
-						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view);
+						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view, (expanded) => this.deps.saveExpanded(expanded));
 						return this.installed;
 					},
 					{ placement: "aboveEditor" },
@@ -383,12 +388,16 @@ export class TaskWidgetController {
 	/** Expand or collapse; shows the widget again if it was hidden. */
 	toggle(): void {
 		if (this.hidden) this.hidden = false;
-		else this.view.expanded = !this.view.expanded;
+		else {
+			this.view.expanded = !this.view.expanded;
+			this.deps.saveExpanded(this.view.expanded);
+		}
 		this.sync();
 	}
 
 	setExpanded(expanded: boolean): void {
 		this.hidden = false;
+		if (this.view.expanded !== expanded) this.deps.saveExpanded(expanded);
 		this.view.expanded = expanded;
 		this.sync();
 	}

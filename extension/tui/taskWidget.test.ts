@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Task, TaskList } from "../tasks";
 import { buildTaskTree, layoutTaskTree, summarizeTasks, type TaskRow } from "./taskTree";
-import { applyTaskWidgetHit, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
+import { TaskWidgetController, applyTaskWidgetHit, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
 
 const T0 = Date.parse("2026-11-05T08:00:00Z");
 const at = (s: number) => new Date(T0 + s * 1000).toISOString();
@@ -133,5 +133,28 @@ describe("task widget", () => {
 		const hidden = renderTaskWidget(model, view({ expanded: true, maxRows: 9 }), 120, plain, NOW, true).lines;
 		expect(hidden[1]).toBe("  ├─ … 3 hidden · 3m 36s (1 folded · 35.2k → 400)");
 	});
-});
 
+	test("remembers the expanded state for later sessions", () => {
+		const prefs = { mode: "auto" as const, expanded: false, maxRows: 12, toggleKey: "alt+t" };
+		const make = () =>
+			new TaskWidgetController({
+				lists: () => [list(secrets())],
+				session: () => "s1",
+				truth: () => null,
+				enabled: () => true,
+				settings: () => prefs,
+				saveExpanded: (expanded) => {
+					prefs.expanded = expanded;
+				},
+			});
+		const widget = { setWidget: () => {} };
+		const first = make();
+		first.attach(widget);
+		first.toggle();
+		expect(prefs.expanded).toBe(true);
+		const next = make();
+		next.attach(widget);
+		next.toggle();
+		expect(prefs.expanded).toBe(false);
+	});
+});
