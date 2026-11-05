@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { idleVerdict, nextTask, TaskCoach } from "./taskCoach";
+import { idleVerdict, nextTask, orientationGuidelines, TaskCoach } from "./taskCoach";
 import type { Task, TaskList } from "./tasks";
 
 const t = (id: string, status: Task["status"], title = `T${id}`): Task => ({ id, title, status, updatedAt: "" });
@@ -52,3 +52,14 @@ describe("task coach", () => {
 		expect(idleVerdict(l([t("1", "done"), t("2", "abandoned")]))).toEqual({ state: "finished" });
 	});
 });
+
+describe("orientation guidelines", () => {
+	test("each arm adds its own instruction; the status quo adds none", () => {
+		expect(orientationGuidelines({ fold: "off", agentTask: false })).toEqual([]);
+		expect(orientationGuidelines({ fold: "typed", agentTask: false })[0]).toContain("pass `brief`");
+		const d = orientationGuidelines({ fold: "off", agentTask: true });
+		expect(d[0]).toContain('"Orientation: <what you need to find out>"');
+		expect(orientationGuidelines({ fold: "typed", agentTask: true })).toEqual(d);
+	});
+});
+
