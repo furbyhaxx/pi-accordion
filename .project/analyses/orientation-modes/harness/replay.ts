@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import { linearize, wireToBlock } from "../../../../core/wire";
 import { TestHost } from "../../../../core/conductor/testhost";
-import { TaskfoldConductor, orientationSpan, scanTaskSpans, type OrientationOptions } from "../../../../conductors/in-process/taskfold/taskfold";
+import { ORIENTATION_DEFAULTS, TaskfoldConductor, orientationSpan, scanTaskSpans, type OrientationOptions } from "../../../../conductors/in-process/taskfold/taskfold";
 import { VerdictLedger, verdictsOf } from "../../../../conductors/in-process/taskfold/verdicts";
 import type { PiMessage } from "../../../../core/wire";
 
@@ -35,11 +35,20 @@ export function withBrief(messages: readonly PiMessage[], brief: string): PiMess
 }
 
 /** A–C arms that a replay can measure; D changes agent behaviour and needs live runs. */
+const O = ORIENTATION_DEFAULTS;
 export const ARMS: Arm[] = [
-	{ id: "A", orientation: { fold: "off", agentTask: false, rules: "live" } },
-	{ id: "C", orientation: { fold: "typed", agentTask: false, rules: "live" } },
-	{ id: "C-rules-fold", orientation: { fold: "typed", agentTask: false, rules: "fold" } },
-	{ id: "C+brief", orientation: { fold: "typed", agentTask: false, rules: "live" }, brief: true },
+	{ id: "A", orientation: { ...O } },
+	{ id: "C", orientation: { ...O, fold: "typed" } },
+	{ id: "C-rules-fold", orientation: { ...O, fold: "typed", rules: "fold" } },
+	{ id: "C+brief", orientation: { ...O, fold: "typed" }, brief: true },
+];
+
+/** Round 3: Keel rungs on orientation (K), on everything outside finished spans (K+), plus birth skeletons (K+D). */
+export const KEEL_ARMS: Arm[] = [
+	{ id: "A", orientation: { ...O } },
+	{ id: "K", orientation: { ...O, thin: "orientation" } },
+	{ id: "K+", orientation: { ...O, thin: "open" } },
+	{ id: "K+D", orientation: { ...O, thin: "open", birthSkeleton: true } },
 ];
 
 export interface Session {
@@ -112,7 +121,11 @@ export async function replay(s: Session, cut: number, arm: Arm, budgetFactor: nu
 	ledger.reset(verdictsOf(s.entries), null);
 	const c = new TaskfoldConductor({ orientation: arm.orientation }, ledger);
 	c.attach(host);
+	// Birth skeletons act when a fresh result departs; a replay has everything fresh at once.
+	if (arm.orientation.birthSkeleton) await host.departWire();
 	await host.commitTurn();
+	// The thinning conductors run after Taskfold's own pass settles.
+	for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
 	const wire = host.truth.serializeWire(messages);
 	const view = host.blocks();
 	const o = orientationSpan(view, textOf, scanTaskSpans(view, textOf), arm.orientation.agentTask);

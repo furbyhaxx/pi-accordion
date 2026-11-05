@@ -1,0 +1,60 @@
+{
+  "arm": "K+D-cut435",
+  "answers": {
+    "p1": "Fully complete .project/plans/0001-host-gap-resolution/plan.md and all backlog items.",
+    "p2": "Integration, documentation and acceptance evidence.",
+    "p3": "A new task list granularly populated with the full plan as a nested tree up to three levels.",
+    "p4": "Updating plans, backlogs, changelogs, etc.",
+    "p5": "Dependencies have standing approval after checking current versions and maintained replacements.",
+    "p6": "That SDK's own suite (make test-sdk-go, test-sdk-py, test-sdk-rs) and go generate ./... in that bundle directory.",
+    "p7": ".project/plans/0001-host-gap-resolution/plan.md",
+    "p8": ".project/plans/0001-host-gap-resolution/tasks.md",
+    "p9": "docs/site/docs/ and internal/pigdocs/content/",
+    "p10": "15000 ms",
+    "p11": "Node 24.22.1",
+    "p12": "1.7 (skills.roots[])"
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "correct",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "correct",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "correct",
+    "p11": "correct",
+    "p12": "correct"
+  },
+  "overall": 100,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 100,
+    "path": 100,
+    "value": 100,
+    "decision": 100
+  },
+  "fullTokens": 345042,
+  "liveTokens": 193915,
+  "cacheBreakAt": 1,
+  "groups": [
+    {
+      "key": "host-gap-resolution/2.2.1",
+      "members": 237,
+      "tokens": 2072
+    },
+    {
+      "key": "host-gap-resolution/2.2.2",
+      "members": 10,
+      "tokens": 816
+    },
+    {
+      "key": "host-gap-resolution/2.2.3",
+      "members": 33,
+      "tokens": 1258
+    }
+  ]
+}

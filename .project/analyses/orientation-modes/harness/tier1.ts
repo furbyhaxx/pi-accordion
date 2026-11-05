@@ -6,7 +6,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { ARMS, cutPoints, loadSession, replay } from "./replay";
+import { ARMS, KEEL_ARMS, cutPoints, loadSession, replay } from "./replay";
 import { briefFor, costUsd, probesFor, retention, score, spent, transcript } from "./probe";
 import { linearize, wireToBlock } from "../../../../core/wire";
 import { orientationSpan, scanTaskSpans } from "../../../../conductors/in-process/taskfold/taskfold";
@@ -17,6 +17,8 @@ const flag = (name: string, d: number) => {
 	return i >= 0 ? Number(args.splice(i, 2)[1]) : d;
 };
 const budgetFactor = flag("budget", 0.5);
+const keel = args.includes("--keel") && !!args.splice(args.indexOf("--keel"), 1);
+const arms = keel ? KEEL_ARMS : ARMS;
 const capUsd = flag("cap", 3);
 const files = args;
 const root = path.resolve(import.meta.dir, "..", "evidence", "tier1");
@@ -40,9 +42,9 @@ for (const file of files) {
 	// The brief comes from the orientation without the probes' answers in sight: same material, separate call.
 	const brief = await briefFor(orientText, path.join(dir, "brief.txt"), dir);
 	for (const cut of cutPoints(s)) {
-		for (const arm of ARMS) {
+		for (const arm of arms) {
 			if (costUsd() > capUsd) throw new Error(`spending cap $${capUsd} reached`);
-			const out = path.join(dir, `result-${arm.id}-cut${cut}.json`);
+			const out = path.join(dir, `result-${keel ? "keel-" : ""}${arm.id}-cut${cut}.json`);
 			if (fs.existsSync(out)) {
 				const prev = JSON.parse(fs.readFileSync(out, "utf8"));
 				const kinds = Object.entries(prev.byKind as Record<string, number>).map(([k, v]) => `${k} ${v}`).join(", ");

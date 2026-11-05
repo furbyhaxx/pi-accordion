@@ -1,0 +1,17 @@
+{
+  "request": {
+    "system": "Grade answers against reference answers. For each id: \"correct\" if it states the same fact (wording may differ), \"partial\" if it is incomplete but not wrong, \"unknown\" if the answer is \"unknown\" or empty, \"wrong\" if it states a different fact.\nReturn JSON: {\"grades\":[{\"id\":\"p1\",\"grade\":\"correct|partial|unknown|wrong\"}]}",
+    "user": "[{\"id\":\"p1\",\"question\":\"What must be built and installable first, before the spec, plan and handoff?\",\"reference\":\"The TaskFold widget and tool renderers as one unit\",\"answer\":\"The TaskFold widget, tool renderers, etc. as one unit that can be installed and used\"},{\"id\":\"p2\",\"question\":\"What is the overall goal for the pi extension's terminal interface?\",\"reference\":\"UX/UI polish: chrome, settings sync, /compact, TaskFold widget\",\"answer\":\"UX and UI polish, chrome and improvements, plus an above-editor widget for the TaskFold conductor and /compact enhancements\"},{\"id\":\"p3\",\"question\":\"What must the agent present in chat before writing a spec/design?\",\"reference\":\"Wireframes and changes for approval\",\"answer\":\"The wireframes and proposed changes\"},{\"id\":\"p4\",\"question\":\"How should settings edits be saved in the panel?\",\"reference\":\"Staged edits, saved explicitly with ctrl+s\",\"answer\":\"Staged edits saved explicitly with ctrl+s\"},{\"id\":\"p5\",\"question\":\"Which UI conventions file governs panel, widget and width-fitting rules?\",\"reference\":\"extending-pig/references/ui-ux.md\",\"answer\":\"/home/furbyhaxx/.pig/agent/skills/extending-pig/references/ui-ux.md\"},{\"id\":\"p6\",\"question\":\"At which column widths must every surface be checked?\",\"reference\":\"36, 57, 80 and 140 columns\",\"answer\":\"36, 57, 80 and 140 columns\"},{\"id\":\"p7\",\"question\":\"Where is the persistent task list stored?\",\"reference\":\"<project>/.pig/tasks/<slug>.json\",\"answer\":\"unknown\"},{\"id\":\"p8\",\"question\":\"Where is the Accordion config file stored?\",\"reference\":\"<home>/.accordion/config.json (respecting ACCORDION_HOME)\",\"answer\":\"<home>/.accordion/config.json (respecting ACCORDION_HOME)\"},{\"id\":\"p9\",\"question\":\"Which file holds the interactive TUI panel implementation?\",\"reference\":\"extension/tui/panel.ts\",\"answer\":\"extension/tui/panel.ts\"},{\"id\":\"p10\",\"question\":\"What is the default Door port for the Accordion Web UI?\",\"reference\":\"24317\",\"answer\":\"unknown\"},{\"id\":\"p11\",\"question\":\"What is the default Taskfold fold window (high/low) as budget fractions?\",\"reference\":\"high 0.8, low 0.6\",\"answer\":\"unknown\"},{\"id\":\"p12\",\"question\":\"Which tab is the new default landing screen of /accordion?\",\"reference\":\"Overview\",\"answer\":\"Overview\"}]"
+  },
+  "response": "{\"grades\":[{\"id\":\"p1\",\"grade\":\"correct\"},{\"id\":\"p2\",\"grade\":\"correct\"},{\"id\":\"p3\",\"grade\":\"correct\"},{\"id\":\"p4\",\"grade\":\"correct\"},{\"id\":\"p5\",\"grade\":\"correct\"},{\"id\":\"p6\",\"grade\":\"correct\"},{\"id\":\"p7\",\"grade\":\"unknown\"},{\"id\":\"p8\",\"grade\":\"correct\"},{\"id\":\"p9\",\"grade\":\"correct\"},{\"id\":\"p10\",\"grade\":\"unknown\"},{\"id\":\"p11\",\"grade\":\"unknown\"},{\"id\":\"p12\",\"grade\":\"correct\"}]}",
+  "usage": {
+    "prompt_tokens": 672,
+    "completion_tokens": 125,
+    "total_tokens": 797,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "prompt_cache_hit_tokens": 0,
+    "prompt_cache_miss_tokens": 672
+  }
+}

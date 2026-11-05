@@ -34,6 +34,11 @@ ARMS = {
     "CP": {"fold": "typed", "agentTask": False, "rules": "live", "pins": True},
     "AP": {"fold": "off", "agentTask": False, "rules": "live", "pins": True},
     "CDP": {"fold": "typed", "agentTask": True, "rules": "live", "pins": True},
+    # Round 3: Keel rungs outside finished task spans.
+    "K": {"fold": "off", "agentTask": False, "rules": "live", "pins": False, "thin": "orientation"},
+    "K+": {"fold": "off", "agentTask": False, "rules": "live", "pins": False, "thin": "open"},
+    "K+D": {"fold": "off", "agentTask": False, "rules": "live", "pins": False, "thin": "open", "birthSkeleton": True},
+    "K+N": {"fold": "off", "agentTask": False, "rules": "live", "pins": False, "thin": "open", "note": True},
 }
 
 lock = threading.Lock()

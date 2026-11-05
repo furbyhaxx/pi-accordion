@@ -1,0 +1,44 @@
+{
+  "arm": "K+-cut107",
+  "answers": {
+    "p1": "The TaskFold widget and tool renderers as one installable unit.",
+    "p2": "UX and UI polish: chrome, improvements, an above-editor TaskFold widget, and enhanced /compact.",
+    "p3": "Wireframes and proposed changes for approval.",
+    "p4": "Staged edits saved explicitly with ctrl+s.",
+    "p5": "extending-pig/references/ui-ux.md.",
+    "p6": "36, 57, 80 and 140 columns.",
+    "p7": "<project>/.pig/tasks/<slug>.json.",
+    "p8": "<home>/.accordion/config.json (respecting ACCORDION_HOME).",
+    "p9": "extension/tui/panel.ts.",
+    "p10": "unknown",
+    "p11": "unknown",
+    "p12": "Overview."
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "correct",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "correct",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "unknown",
+    "p11": "unknown",
+    "p12": "correct"
+  },
+  "overall": 83,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 100,
+    "path": 100,
+    "value": 0,
+    "decision": 100
+  },
+  "fullTokens": 83734,
+  "liveTokens": 49763,
+  "cacheBreakAt": 4,
+  "groups": []
+}
