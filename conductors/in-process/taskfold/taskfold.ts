@@ -217,6 +217,33 @@ function oneLine(s: string, max: number): string {
 	return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
+/** A block as `recordFacts` reads it. */
+export interface FactBlock {
+	kind: string;
+	toolName?: string;
+	callId?: string;
+	isError?: boolean;
+}
+
+/** The record's deterministic fields from a span's own tool traffic: files edited and checks run. */
+export function recordFacts<B extends FactBlock>(members: readonly B[], textOf: (b: B) => string): { changed: string[]; verified: string[] } {
+	const results = new Map<string, B>();
+	for (const b of members) if (b.kind === "tool_result" && b.callId) results.set(b.callId, b);
+	const changed = new Set<string>();
+	const verified: string[] = [];
+	for (const b of members) {
+		if (b.kind !== "tool_call") continue;
+		const args = parseCall(textOf(b));
+		if (EDIT_TOOLS.has(b.toolName ?? "") && typeof args?.path === "string") changed.add(args.path);
+		if (b.toolName === "bash" && typeof args?.command === "string" && CHECK_RE.test(args.command)) {
+			const r = b.callId ? results.get(b.callId) : undefined;
+			const mark = !r ? "no result" : r.isError ? `failed: ${oneLine(textOf(r).split("\n").slice(-3).join(" "), 160)}` : "ok";
+			verified.push(`\`${oneLine(args.command, 120)}\` → ${mark}`);
+		}
+	}
+	return { changed: [...changed], verified };
+}
+
 export class TaskfoldConductor implements Conductor {
 	readonly id = "taskfold";
 	readonly label = "Taskfold";
@@ -523,21 +550,8 @@ export class TaskfoldConductor implements Conductor {
 		};
 		list("decisions", span.report.decisions);
 
-		const results = new Map<string, ViewBlock>();
-		for (const b of members) if (b.kind === "tool_result" && b.callId) results.set(b.callId, b);
-		const changed = new Set<string>();
-		const verified: string[] = [];
-		for (const b of members) {
-			if (b.kind !== "tool_call") continue;
-			const args = parseCall(this.textOf(b));
-			if (EDIT_TOOLS.has(b.toolName ?? "") && typeof args?.path === "string") changed.add(args.path);
-			if (b.toolName === "bash" && typeof args?.command === "string" && CHECK_RE.test(args.command)) {
-				const r = b.callId ? results.get(b.callId) : undefined;
-				const mark = !r ? "no result" : r.isError ? `failed: ${oneLine(this.textOf(r).split("\n").slice(-3).join(" "), 160)}` : "ok";
-				verified.push(`\`${oneLine(args.command, 120)}\` → ${mark}`);
-			}
-		}
-		if (changed.size) lines.push(`changed: ${[...changed].slice(0, 20).join(", ")}${changed.size > 20 ? `, +${changed.size - 20} more` : ""}`);
+		const { changed, verified } = recordFacts(members, (b) => this.textOf(b));
+		if (changed.length) lines.push(`changed: ${changed.slice(0, 20).join(", ")}${changed.length > 20 ? `, +${changed.length - 20} more` : ""}`);
 		list("verified", verified.slice(-5));
 		list("open", span.report.open);
 		const direct = children.filter((c) => !children.some((o) => o !== c && o.start <= c.start && c.end <= o.end));

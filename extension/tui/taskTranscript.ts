@@ -18,6 +18,11 @@ export interface TBlock {
 	toolName?: string;
 	callId?: string;
 	isError?: boolean;
+	/** Folded on its own (not through a group). */
+	folded?: boolean;
+	pinned?: boolean;
+	/** Inside the protected working tail. */
+	protected?: boolean;
 }
 
 /** A group with its calibrated tokens at full size and as sent now. */
@@ -64,6 +69,9 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 			...(b.toolName ? { toolName: b.toolName } : {}),
 			...(b.callId ? { callId: b.callId } : {}),
 			...(b.isError ? { isError: true } : {}),
+			...(truth.isFolded(b) && !truth.groupOf(b)?.folded ? { folded: true } : {}),
+			...(b.override === "pinned" ? { pinned: true } : {}),
+			...(truth.isProtected(b) ? { protected: true } : {}),
 		})),
 		groups: truth.groups.map((g) => ({
 			id: g.id,
@@ -229,6 +237,28 @@ export function sessionTranscript(src: TranscriptSource): TNode[] {
 	}
 	flush(src.blocks.length - 1);
 	return out;
+}
+
+/** Tokens of a span, a folded group counted once at its own size. */
+export function spanTokens(src: TranscriptSource, span: TaskSpan): Tokens {
+	return rangeTokens(index(src), span.start, span.end);
+}
+
+/** The classifier's view of a user message, rebuilt the way Taskfold builds it; null for the opening message. */
+export function classifierInput(src: TranscriptSource, id: string): Record<string, string> | null {
+	const all = src.blocks;
+	const i = all.findIndex((b) => b.id === id);
+	const users = all.slice(0, Math.max(0, i)).filter((b) => b.kind === "user");
+	if (i < 0 || !users.length) return null;
+	let j = i - 1;
+	while (j >= 0 && all[j].kind !== "text") j--;
+	const reply = j < 0 ? "" : all[j].text;
+	return {
+		session_goal: users[0].text.slice(0, 1500),
+		previous_user_message: users.length > 1 ? users[users.length - 1].text.slice(0, 600) : "",
+		assistant_last_reply: reply.slice(-600),
+		message: all[i].text.slice(0, 2000),
+	};
 }
 
 /** A tool call with its result, or a single block. */

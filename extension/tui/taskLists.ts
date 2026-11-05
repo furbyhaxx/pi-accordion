@@ -87,7 +87,7 @@ export function listRowLine(list: TaskList, session: string, selected: boolean, 
 }
 
 /** Frame lines around a body: rule, title, body, rule, status, hints. */
-function frame(title: string, body: string[], status: string, hints: string, width: number, theme: WidgetTheme): string[] {
+export function frame(title: string, body: string[], status: string, hints: string, width: number, theme: WidgetTheme): string[] {
 	const rule = theme.fg("dim", "─".repeat(Math.max(0, width)));
 	return [
 		rule,
@@ -115,6 +115,13 @@ function editText(state: { text: string }, data: string, max = 120): boolean {
 
 type BrowserMode = "manage" | "pick";
 
+/** A drill-down opened from the browser; `close` returns to the list. */
+export interface ListDrillDown {
+	render(width: number): string[];
+	handleInput(data: string): void;
+	dispose(): void;
+}
+
 /**
  * The project's task lists. In `manage` mode the user browses, opens, attaches, releases and creates
  * lists until Esc. In `pick` mode attaching or creating a list closes the browser with that outcome.
@@ -126,6 +133,7 @@ export class TaskListsBrowser {
 	private scroll = 0;
 	private input = { text: "" };
 	private message = "";
+	private drill: ListDrillDown | null = null;
 
 	constructor(
 		private readonly tui: Tui,
@@ -135,8 +143,15 @@ export class TaskListsBrowser {
 		private readonly mode: BrowserMode,
 		private readonly done: Done<AttachOutcome | null>,
 		private readonly rows: () => number,
+		/** Opens a list's inspection screens; without it Enter shows the plain task tree. */
+		private readonly openList?: (slug: string, close: () => void) => ListDrillDown,
 	) {
 		this.reload();
+	}
+
+	dispose(): void {
+		this.drill?.dispose();
+		this.drill = null;
 	}
 
 	private reload(): void {
@@ -151,6 +166,7 @@ export class TaskListsBrowser {
 	}
 
 	render(width: number): string[] {
+		if (this.drill) return this.drill.render(width);
 		const t = this.theme;
 		const now = Date.now();
 		const session = this.host.session();
@@ -191,6 +207,7 @@ export class TaskListsBrowser {
 	}
 
 	handleInput(data: string): void {
+		if (this.drill) return this.drill.handleInput(data);
 		const k = this.keys;
 		const cancel = k.matches(data, "tui.select.cancel") || matchesKey(data, "ctrl+c");
 		const confirm = k.matches(data, "tui.select.confirm");
@@ -237,6 +254,14 @@ export class TaskListsBrowser {
 			const r = this.host.release(sel.slug);
 			this.message = r.message;
 			this.reload();
+		} else if (sel && confirm && this.screen === "list" && this.openList) {
+			const close = () => {
+				this.drill?.dispose();
+				this.drill = null;
+				this.reload();
+				this.tui.requestRender();
+			};
+			this.drill = this.openList(sel.slug, close);
 		} else if (sel && confirm && this.screen === "list") {
 			this.scroll = 0;
 			this.screen = "detail";

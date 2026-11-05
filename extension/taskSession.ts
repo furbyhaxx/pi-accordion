@@ -5,7 +5,7 @@
  */
 import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
 import { TaskError, slugFor, taskFingerprint, type TaskList, type TaskStore } from "./tasks";
-import { ResumeDialog, TaskListsBrowser, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
+import { ResumeDialog, TaskListsBrowser, type ListDrillDown, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
 
 /** The custom message type that carries task list notes to the agent. */
 export const NOTICE_MESSAGE = "accordion.tasks.notice";
@@ -94,10 +94,16 @@ export class TaskSession {
 		this.deps.changed();
 	}
 
-	/** Open the list browser; in `pick` mode resolve with the list the user attached or created. */
-	async browse(ui: TaskSessionUi, mode: "manage" | "pick"): Promise<AttachOutcome | null> {
+	/**
+	 * Open the list browser; in `pick` mode resolve with the list the user attached or created.
+	 * `openList` adds the drill-down screens behind Enter in `manage` mode.
+	 */
+	async browse(ui: TaskSessionUi, mode: "manage" | "pick", openList?: (tui: any, theme: any, keys: any, slug: string, close: () => void) => ListDrillDown): Promise<AttachOutcome | null> {
 		const host = mode === "manage" ? this.noticingHost() : this.host();
-		const outcome = await ui.custom<AttachOutcome | null>((tui, theme, keys, done) => new TaskListsBrowser(tui, theme, keys, host, mode, done, () => tui?.terminal?.rows ?? 30));
+		const outcome = await ui.custom<AttachOutcome | null>(
+			(tui, theme, keys, done) =>
+				new TaskListsBrowser(tui, theme, keys, host, mode, done, () => tui?.terminal?.rows ?? 30, mode === "manage" && openList ? (slug, close) => openList(tui, theme, keys, slug, close) : undefined),
+		);
 		this.deps.changed();
 		return outcome;
 	}

@@ -46,7 +46,7 @@ export interface FoldTokens {
 export type TaskWidgetHit = { kind: "header" } | { kind: "toggle"; id: string; open: boolean } | { kind: "reveal"; ids: string[] } | null;
 
 const ELLIPSIS = "…";
-const GLYPH: Record<TaskGlyphState, string> = { todo: "☐", done: "▣", blocked: "☒", active: "▶", partial: "◐" };
+export const GLYPH: Record<TaskGlyphState, string> = { todo: "☐", done: "▣", blocked: "☒", active: "▶", partial: "◐" };
 
 /** `45s`, `5m 12s`, `2h 05m`. */
 export function formatDuration(ms: number): string {
@@ -96,7 +96,7 @@ function fitRow(left: string, title: string, metas: string[], width: number): st
 	return truncateToWidth(left + truncateToWidth(title, Math.max(1, room), ELLIPSIS) + meta, width, ELLIPSIS);
 }
 
-function glyphColor(state: TaskGlyphState, blinkOn: boolean): "dim" | "success" | "error" | "warning" | "text" {
+export function glyphColor(state: TaskGlyphState, blinkOn: boolean): "dim" | "success" | "error" | "warning" | "text" {
 	if (state === "done") return "success";
 	if (state === "blocked") return "error";
 	if (state === "todo") return "dim";

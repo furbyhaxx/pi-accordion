@@ -58,6 +58,7 @@ import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens,
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { TaskCoach } from "./taskCoach";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
+import { TaskViews, type TaskViewsHost } from "./tui/taskViews";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -3465,6 +3466,78 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		ctx.ui.notify(lines.join("\n"), action.type);
 	}
 
+	/**
+	 * Claim the controller lease for a new Pi TUI surface, asking first when another fresh surface
+	 * holds it. Null when the session changed meanwhile; `error` set when the claim did not land.
+	 */
+	async function claimNativeControl(ctx: ExtensionCommandContext, openedSessionId: string, purpose: string): Promise<{ surfaceId: string; error: string | null } | null> {
+		const surfaceId = `tui-${crypto.randomBytes(16).toString("hex")}`;
+		refreshControllerNow();
+		const current = controllerLease;
+		const contested = current && current.surfaceId !== lastNativeSurfaceId && isFreshLease(current, Date.now());
+		const takeControl = !contested || (await ctx.ui.confirm("Take Accordion control?", `${current.label} currently controls Accordion. ${purpose} will make that surface read-only.`));
+		if (sessionId !== openedSessionId) return null;
+		let error: string | null = null;
+		if (takeControl) {
+			await claimWithControllerLeaseLock(() => {
+				const now = Date.now();
+				writeControllerLease({ registryProtocol: REGISTRY_PROTOCOL, surfaceId, label: "Pi TUI", claimedAt: now, heartbeatAt: now });
+			}, () => sessionId === openedSessionId);
+			if (sessionId !== openedSessionId) return null;
+			refreshControllerNow();
+			if (controllerLease?.surfaceId === surfaceId) {
+				nativeSurfaceId = surfaceId;
+				lastNativeSurfaceId = surfaceId;
+			} else {
+				error = "Control unavailable: the Accordion registry is busy or inaccessible";
+				ctx.ui.notify(error, "warning");
+			}
+		}
+		return { surfaceId, error };
+	}
+
+	/** Whether `surfaceId` holds a fresh controller lease for the session opened as `openedSessionId`. */
+	function holdsControl(surfaceId: string, openedSessionId: string): boolean {
+		return sessionId === openedSessionId && !!controllerLease && controllerLease.surfaceId === surfaceId && isFreshLease(controllerLease, Date.now());
+	}
+
+	/** The task inspection screens' host for this session, steering through `surfaceId`'s lease. */
+	function taskViewsHost(surfaceId: string, openedSessionId: string): TaskViewsHost {
+		return {
+			truth: () => (sessionId === openedSessionId ? truth : null),
+			verdict: (id) => taskfoldVerdicts.get(id),
+			threshold: () => taskfoldVerdicts.threshold,
+			lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
+			canSteer: () => {
+				refreshControllerNow();
+				return holdsControl(surfaceId, openedSessionId);
+			},
+			apply: async (ops) => {
+				refreshControllerNow();
+				if (!holdsControl(surfaceId, openedSessionId)) return "Read-only: another surface controls Accordion.";
+				const res = applyCommand({ kind: "ops", ops });
+				const refused = res.results.flatMap((r) => r.perId?.filter((e) => e.reason).map((e) => `${e.id}: ${e.reason}`) ?? (r.clamped ? [r.clamped] : []));
+				return refused.length ? `Refused: ${refused.join(", ")}` : res.results.every((r) => r.applied) ? "Applied." : "Nothing changed.";
+			},
+			subscribe: (listener) => {
+				nativeListeners.add(listener);
+				return () => nativeListeners.delete(listener);
+			},
+		};
+	}
+
+	/** Run `body` with a claimed surface; the surface is released from this extension afterwards. */
+	async function withTaskViews(ctx: ExtensionCommandContext, body: (host: TaskViewsHost) => Promise<void>): Promise<void> {
+		const openedSessionId = sessionId;
+		const control = await claimNativeControl(ctx, openedSessionId, "Changing folds from the task views");
+		if (!control) return;
+		try {
+			await body(taskViewsHost(control.surfaceId, openedSessionId));
+		} finally {
+			if (nativeSurfaceId === control.surfaceId) nativeSurfaceId = null;
+		}
+	}
+
 	// ── /accordion : open the native context panel ─────────────────────────────
 	pi.registerCommand("accordion", {
 		description: "[sessions | compact | web | tasks | budget | tail] — open the Accordion context panel",
@@ -3477,7 +3550,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "tasks", label: "tasks", description: "Expand or collapse the task list above the editor" },
 				{ value: "budget ", label: "budget", description: "Set the token budget for this session, e.g. 200k, 1M or 85% (--default saves it for this model)" },
 				{ value: "tail ", label: "tail", description: "Set the protected tail for this session, e.g. 20k (--default saves it for this model)" },
-				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release or start one" },
+				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release, start one, or drill into tasks and their folds" },
+				{ value: "tasks tree", label: "tasks tree", description: "This session's transcript by task: spans, folds, kept user messages, untracked work" },
 				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
 			return items.length ? items : null;
@@ -3526,7 +3600,19 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const verb = tasksArg[1] ?? "toggle";
 				if (verb === "lists" || verb === "list") {
 					if (ctx.mode !== "tui" || !ctx.hasUI || !taskSession) ctx.ui.notify("Task lists are browsed in the Pi terminal UI.", "info");
-					else await taskSession.browse(ctx.ui, "manage");
+					else {
+						const session = taskSession;
+						await withTaskViews(ctx, (viewsHost) =>
+							session
+								.browse(ctx.ui, "manage", (tui, theme, keys, slug, close) => new TaskViews(tui, theme, keys, viewsHost, { kind: "list", slug }, close, () => tui?.terminal?.rows ?? 30))
+								.then(() => undefined),
+						);
+					}
+					return;
+				}
+				if (verb === "tree") {
+					if (ctx.mode !== "tui" || !ctx.hasUI) ctx.ui.notify("The tasks tree opens in the Pi terminal UI.", "info");
+					else await withTaskViews(ctx, (viewsHost) => ctx.ui.custom<void>((tui, theme, keys, done) => new TaskViews(tui, theme, keys, viewsHost, { kind: "session" }, () => done(undefined), () => tui?.terminal?.rows ?? 30)));
 					return;
 				}
 				if (verb === "toggle") taskWidget.toggle();
@@ -3534,7 +3620,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				else if (verb === "collapse") taskWidget.setExpanded(false);
 				else if (verb === "hide") taskWidget.hide();
 				else {
-					ctx.ui.notify("Usage: /accordion tasks [lists | expand | collapse | hide | show]", "warning");
+					ctx.ui.notify("Usage: /accordion tasks [lists | tree | expand | collapse | hide | show]", "warning");
 					return;
 				}
 				taskWidget.reload();
@@ -3566,28 +3652,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (index < 0) return;
 				target = index > 0 ? entries[index - 1] : undefined;
 			}
-			const surfaceId = `tui-${crypto.randomBytes(16).toString("hex")}`;
-			refreshControllerNow();
-			const current = controllerLease;
-			const contested = current && current.surfaceId !== lastNativeSurfaceId && isFreshLease(current, Date.now());
-			const takeControl = !contested || await ctx.ui.confirm("Take Accordion control?", `${current.label} currently controls Accordion. Opening this panel for steering will make that surface read-only.`);
-			if (sessionId !== openedSessionId) return;
-			let controlError: string | null = null;
-			if (takeControl) {
-				await claimWithControllerLeaseLock(() => {
-					const now = Date.now();
-					writeControllerLease({ registryProtocol: REGISTRY_PROTOCOL, surfaceId, label: "Pi TUI", claimedAt: now, heartbeatAt: now });
-				}, () => sessionId === openedSessionId);
-				if (sessionId !== openedSessionId) return;
-				refreshControllerNow();
-				if (controllerLease?.surfaceId === surfaceId) {
-					nativeSurfaceId = surfaceId;
-					lastNativeSurfaceId = surfaceId;
-				} else {
-					controlError = "Control unavailable: the Accordion registry is busy or inaccessible";
-					ctx.ui.notify(controlError, "warning");
-				}
-			}
+			const control = await claimNativeControl(ctx, openedSessionId, "Opening this panel for steering");
+			if (!control) return;
+			const { surfaceId, error: controlError } = control;
 			let host: AccordionTuiHost = {
 				truth: () => sessionId === openedSessionId ? truth : null,
 				sessionLabel: () => "current session",
@@ -3599,7 +3666,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					const st = liveHost.cachedStatus();
 					return st ? { text: st.text, metrics: st.metrics } : null;
 				},
-				canSteer: () => sessionId === openedSessionId && !!controllerLease && controllerLease.surfaceId === surfaceId && isFreshLease(controllerLease, Date.now()),
+				canSteer: () => holdsControl(surfaceId, openedSessionId),
 				controlMessage: () => controlError,
 				supportsConditionalOps: () => true,
 				webInfo: () => ({
