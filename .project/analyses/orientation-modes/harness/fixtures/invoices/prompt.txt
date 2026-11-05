@@ -1,0 +1,3 @@
+Build the monthly invoice export in this repository. Read AGENTS.md, docs/spec.md, docs/plan.md, docs/operations.md and docs/notes/ first, then work through the plan.
+Do not change the function signatures in export/. When you are done, the test suite must pass.
+    
