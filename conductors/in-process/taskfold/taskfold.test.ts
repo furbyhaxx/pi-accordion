@@ -313,6 +313,26 @@ describe("taskfold", () => {
 		expect(second.memberIds).toContain(shared.results[1]);
 	});
 
+	it("folds a task whose closing message also carries the next task's work into the protected tail", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const a = s.start("1", "First").call;
+		s.work(3, "a");
+		// `complete 1`, `start 2` and task 2's work batched in one message, the last one of the session.
+		const shared = s.batch([
+			["tasks", { action: "complete", list: "work", id: "1", report: { outcome: "first" } }, "work/1 is done."],
+			["tasks", { action: "start", list: "work", id: "2" }, 'Started work/2 "Second".'],
+			["bash", { command: "echo hi > notes.txt" }, ""],
+			["tasks", { action: "complete", list: "work", id: "2", report: { outcome: "second" } }, "work/2 is done."],
+		]);
+		const host = setup(s, 0.4);
+		await attach(host);
+		const first = groupOf(host, a)!;
+		expect(first?.summary).toContain("[task-record] work/1 ");
+		expect(first.memberIds).not.toContain(shared.calls[0]);
+		expect(host.blocks().filter((b) => first.memberIds.includes(b.id)).some((b) => b.protected)).toBe(false);
+	});
+
 	it("ages records oldest first, keeping fold codes and the newest record whole", () => {
 		const full = `${foldTag("g:x")} [task-record] work/1 "First"  status: done\noutcome: It works.\ndecisions:\n  - a — b`;
 		const one = ageRecord(full, 1)!;

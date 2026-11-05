@@ -499,7 +499,9 @@ export class TaskfoldConductor implements Conductor {
 			lo++;
 			while (lo <= hi && lo > 0 && sameMsg(lo - 1, lo)) lo++;
 		}
-		while (hi >= lo && foreign(blocks[hi])) {
+		// The same holds for a trailing message that is protected or held, e.g. `complete A` batched
+		// with B's work into the newest message: A's record ends before it.
+		while (hi >= lo && (foreign(blocks[hi]) || blocks[hi].protected || blocks[hi].held)) {
 			hi--;
 			while (hi >= lo && hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi--;
 		}
