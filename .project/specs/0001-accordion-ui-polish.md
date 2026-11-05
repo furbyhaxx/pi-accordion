@@ -5,15 +5,18 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-05T09:30:40+01:00"
+  updated_at: "2026-11-05T10:11:16+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
     - revision: 1
       reason: "document creation"
       changes: ["document creation from the 2026-11-05 analysis, the approved wireframes and the user's Taskfold widget sketch"]
+    - revision: 2
+      reason: "user request: reattach a session's task list on resume, tell the agent what changed, browse lists"
+      changes: ["§4.8 session task list binding, resume dialog and agent notes", "§4.9 /accordion tasks lists browser", "§4.1 claim name, claim state, fingerprint", "§4.5 lists verb"]
 ---
 
 # Accordion UI polish
@@ -96,6 +99,10 @@ contract it implements; changes to it MUST update this section.
   `conductors/in-process/taskfold/taskfold.ts`. Spans include open ones (`status: null`, `end` = last
   block index); the conductor folds finished spans only.
 - `tasks` tool results carry `details: TasksDetails` (`extension/tui/toolRows.ts`).
+- `TaskClaim` gains optional `name` (the claiming session's display name). `claimState(list,
+  session)` returns `mine`, `free`, `held` (another session, active within `CLAIM_STALE_MS`) or
+  `stale`. `taskFingerprint(list)` hashes ids, statuses, titles and `updatedAt`; claim changes do not
+  alter it. `slugFor(title, taken)` derives a free slug.
 
 ### 4.2 Visibility
 
@@ -152,6 +159,7 @@ title is truncated; the marker drops when the title would keep fewer than 8 colu
 |---|---|
 | `alt+t` (`taskWidget.toggleKey`) | expand ⇄ collapse; shows a hidden widget |
 | `/accordion tasks [expand\|collapse\|hide\|show]` | as named; `show` restores the configured default state; reports why the widget is not shown |
+| `/accordion tasks lists` | the task list browser (§4.9) |
 | click header line | expand ⇄ collapse |
 | click a task row with subtasks | open ⇄ close that branch |
 | click a `… N hidden` row | reveal those tasks for the session |
@@ -179,6 +187,86 @@ view (§5.8) is the keyboard path.
 
 Expanded: the report (`outcome`/`decision`/`open`) for finishing actions, the outline for
 `create`/`status`/`claim`/`list`, the full text for `unfold`/`recall` and errors.
+
+### 4.8 Session binding, resume and agent notes
+
+Modules: `extension/taskBinding.ts` (pure), `extension/taskSession.ts` (flow),
+`extension/tui/taskLists.ts` (dialogs).
+
+**Memory.** The session file records the attached list: a custom entry
+`accordion.tasks.binding` with `{ slug: string | null, fingerprint? }` is appended whenever the
+attached list or its tasks changed since the last entry (checked at `agent_end` and after every
+dialog action). Sessions without such entries fall back to their successful `tasks` calls
+(`create`/`claim`/`add`/`start`/`complete`/`fail`/`abandon` attach, `release` detaches). The
+attached list of a session is the one it claims with a task in progress, else its latest updated.
+
+**Settling on `session_start`** (only when the conductor provides `tasks`; `reason: "new"` has no
+previous list):
+
+| Previous list now | Interactive TUI | No TUI |
+|---|---|---|
+| claimed by this session | keep, no dialog | keep |
+| free or stale, `reload`, unchanged | reclaim silently | reclaim silently |
+| free or stale, otherwise | resume dialog | reclaim silently |
+| held by another session | resume dialog | leave it, continue without |
+| missing | resume dialog | continue without |
+
+Resume dialog (opens after `session_start` returns):
+
+```
+ Accordion › This session's task list
+ Reattach the task list this session used before?
+ demo — Demo
+ ▣ 1/5 ▶ 2.1 Core · updated 12s ago · 1m 30s worked
+ ▲ its tasks changed since this session last used it
+ ▲ currently claimed by session 22222222 "Beta session", active 12s ago
+› Take over "demo" from session 22222222 "Beta session"     (free: Reclaim "demo"; missing: absent)
+  Choose another list…                                     (browser in pick mode)
+  Start a new list…                                        (inline title input)
+  Continue without a task list                             (also Esc)
+```
+
+Taking over a held list or reclaiming releases this session's other claimed lists (one attached
+list per session). A failed action keeps the dialog open and shows the error.
+
+**Agent notes.** Notes are queued and delivered on the next prompt through `before_agent_start` as
+a displayed custom message `accordion.tasks.notice` (rendered as `▲ tasks note to the agent · …`).
+`before_agent_start` waits for an open resume dialog first. Texts (`agentNotice`, `attachedNotice`,
+`releasedNotice`):
+
+| Outcome | Note |
+|---|---|
+| same list reclaimed, unchanged | none |
+| same list reclaimed, changed | `Task list "<slug>" is attached to this session again, but its tasks changed since you last used it. Current state:` + outline |
+| previous held elsewhere, anything else chosen | `Your previous task list "<slug>" is now claimed by session <id8> "<name>"; you cannot change it from this session.` + outcome sentence |
+| previous missing | `Your previous task list "<slug>" no longer exists.` + outcome sentence |
+| previous free, not reclaimed | `Your previous task list "<slug>" is no longer attached to this session.` + outcome sentence |
+| outcome: other list | `The user attached task list "<slug>" to this session. Current state:` + outline |
+| outcome: new list | `The user started a new empty task list "<slug>" ("<title>") for this session. Add its tasks with action "add" before starting work.` |
+| outcome: none | `The user chose to continue without a task list; claim or create one only if the user asks.` |
+
+"Changed" compares the recorded fingerprint; for sessions recorded only by tool calls, a task
+`updatedAt` later than 2 s after the session's last `tasks` result counts as a change.
+
+### 4.9 Task list browser
+
+`/accordion tasks lists` (alias `list`) opens a full-panel browser of `.pig/tasks/*.json`:
+
+```
+ Accordion › Task lists · 2 lists
+› ● follow-up-work empty   this session · 15s
+  ○ demo           ▣ 1/5   held · session 22222222 "Beta session" · 1m · 2m · Demo
+ ↑↓ select · enter open · r release · n new · esc close
+```
+
+Rows: `●` attached to this session / `○` not, slug, progress (`☐ 0/n` none done, `▣ done/total`,
+`✓ n/n` all done, `empty`; the detail view adds `▶ <task>` in progress), claim (`this session`, `free`, `held · <holder> · <claim age>`,
+`stale · …`; short words `yours`/`free`/`held`/`stale` when narrow), list age, title. Enter opens a detail
+view with the full tree (§4.4 glyphs, no smart hiding, scrollable). Keys: `c` attach (claims and
+releases this session's other lists; a held list asks for confirmation first), `r` release (own
+lists only), `n` new list (inline title, slug from `slugFor`). Every attach, release and create
+from the browser queues the matching agent note (§4.8); re-attaching the same unchanged list does
+not.
 
 ## 5. Area B: the panel
 
