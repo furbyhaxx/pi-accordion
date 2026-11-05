@@ -3490,7 +3490,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const name = kind === "budget" ? "Budget" : "Protected tail";
 				if (!amount) {
 					const now = kind === "budget" ? truth?.budget : truth?.protectTokens;
-					ctx.ui.notify(`${name}: ${now === undefined ? "–" : formatTokens(now)}${d ? ` (${describeSource(d.sources[kind])}, ${d.model})` : ""}. Usage: /accordion ${dialArg[1]} <200k | 1M | 85%> [--default]`, "info");
+					ctx.ui.notify(`${name}: ${now === undefined ? "–" : formatTokens(now)}${d ? ` (${describeSource(d.sources[kind])}${d.sources[kind].kind === "default" && (d.sources[kind] as { key: string }).key === d.model ? "" : ` for ${d.model}`})` : ""}. Usage: /accordion ${dialArg[1]} <200k | 1M | 85%> [--default]`, "info");
 					return;
 				}
 				const value = parseTokens(amount, contextWindow);
