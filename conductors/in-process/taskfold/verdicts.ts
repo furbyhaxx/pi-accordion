@@ -11,6 +11,14 @@ export type VerdictSource = "classifier" | "harness" | "opening" | "error";
 export interface Verdict {
 	loss: number | null;
 	source: VerdictSource;
+	/** The classifier's confidence in `loss`. */
+	confidence?: number;
+	/** The supporting questions' probability of `true`, by question key. */
+	answers?: Record<string, number>;
+	/** The model that classified the message. */
+	model?: string;
+	/** When the verdict was made (ISO). */
+	at?: string;
 }
 
 /** The session entry type a persisted verdict is stored under. */
@@ -27,9 +35,18 @@ export function verdictsOf(entries: readonly unknown[]): Map<string, Verdict> {
 	for (const e of entries) {
 		const entry = e as { type?: string; customType?: string; data?: unknown };
 		if (entry?.type !== "custom" || entry.customType !== VERDICT_ENTRY) continue;
-		const d = entry.data as { id?: unknown; loss?: unknown; source?: unknown } | undefined;
+		const d = entry.data as { id?: unknown; loss?: unknown; source?: unknown; confidence?: unknown; answers?: unknown; model?: unknown; at?: unknown } | undefined;
 		if (typeof d?.id !== "string" || !SOURCES.includes(d.source as VerdictSource)) continue;
-		out.set(d.id, { loss: typeof d.loss === "number" && Number.isFinite(d.loss) ? d.loss : null, source: d.source as VerdictSource });
+		const answers: Record<string, number> = {};
+		if (d.answers && typeof d.answers === "object") for (const [k, v] of Object.entries(d.answers)) if (typeof v === "number" && Number.isFinite(v)) answers[k] = v;
+		out.set(d.id, {
+			loss: typeof d.loss === "number" && Number.isFinite(d.loss) ? d.loss : null,
+			source: d.source as VerdictSource,
+			...(typeof d.confidence === "number" ? { confidence: d.confidence } : {}),
+			...(Object.keys(answers).length ? { answers } : {}),
+			...(typeof d.model === "string" ? { model: d.model } : {}),
+			...(typeof d.at === "string" ? { at: d.at } : {}),
+		});
 	}
 	return out;
 }

@@ -167,7 +167,7 @@ describe("taskfold", () => {
 		const opening = s.blocks.find((b) => b.kind === "user")!.id;
 		expect(recorded).toEqual([
 			[opening, { loss: null, source: "opening" }],
-			[userId, { loss: 0.1, source: "classifier" }],
+			[userId, expect.objectContaining({ loss: 0.1, source: "classifier", confidence: 0.9, model: "test/cls" })],
 		]);
 		expect(ledger.threshold).toBe(0.3);
 
@@ -180,7 +180,7 @@ describe("taskfold", () => {
 		next.appendBlocks(build().s.blocks);
 		await new Promise((r) => setTimeout(r, 0));
 		expect(next.classifyLog).toHaveLength(0);
-		expect(resumed.get(userId)).toEqual({ loss: 0.1, source: "classifier" });
+		expect(resumed.get(userId)).toMatchObject({ loss: 0.1, source: "classifier", confidence: 0.9, model: "test/cls" });
 	});
 
 	it("keeps a user message whose loss reaches maxLoss verbatim", async () => {

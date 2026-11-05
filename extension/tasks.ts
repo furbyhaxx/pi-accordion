@@ -25,6 +25,8 @@ export interface Task {
 	status: TaskStatus;
 	report?: TaskReport;
 	updatedAt: string;
+	/** When the task was planned (absent on tasks planned before this was recorded). */
+	createdAt?: string;
 	/** When the task was started; absent for tasks never started (or written before timing existed). */
 	startedAt?: string;
 	/** When the task was completed, failed or abandoned. */
@@ -111,7 +113,7 @@ function flatten(inputs: unknown, prefix: string, startIndex: number, out: Task[
 	if (!Array.isArray(inputs)) throw new TaskError("tasks must be an array of { title, subtasks? }.");
 	inputs.forEach((input, i) => {
 		const id = prefix ? `${prefix}.${startIndex + i}` : String(startIndex + i);
-		out.push({ id, title: cleanTitle((input as TaskInput)?.title), status: "todo", updatedAt: at });
+		out.push({ id, title: cleanTitle((input as TaskInput)?.title), status: "todo", createdAt: at, updatedAt: at });
 		const subs = (input as TaskInput)?.subtasks;
 		if (subs !== undefined) flatten(subs, id, 1, out, at);
 	});

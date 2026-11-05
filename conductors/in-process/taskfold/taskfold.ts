@@ -330,7 +330,14 @@ export class TaskfoldConductor implements Conductor {
 		try {
 			const res = await host.classify({ state, questions: USER_QUESTIONS });
 			const a = res.answers.loss as ClassifierAnswer | undefined;
-			this.verdicts.set(id, a?.type === "score" ? { loss: a.score, source: "classifier" } : { loss: null, source: "error" });
+			const answers: Record<string, number> = {};
+			for (const [k, v] of Object.entries(res.answers)) if (k !== "loss" && v?.type === "bool") answers[k] = v.probability;
+			this.verdicts.set(
+				id,
+				a?.type === "score"
+					? { loss: a.score, source: "classifier", confidence: a.confidence, answers, model: res.model, at: new Date().toISOString() }
+					: { loss: null, source: "error" },
+			);
 		} catch {
 			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
 			this.verdicts.set(id, { loss: null, source: "error" });

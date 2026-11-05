@@ -11,6 +11,15 @@ function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "task
 const report = { outcome: "Done." };
 
 describe("tasks", () => {
+	test("records when each task was planned, including added tasks", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "plan", title: "Plan", tasks: [{ title: "A" }] });
+		runTasks(s, { action: "add", list: "plan", tasks: [{ title: "B" }] });
+		const tasks = s.read("plan").tasks;
+		expect(tasks.map((t) => typeof t.createdAt)).toEqual(["string", "string"]);
+		expect(Date.parse(tasks[1].createdAt!)).toBeGreaterThanOrEqual(Date.parse(tasks[0].createdAt!));
+	});
+
 	test("create persists a nested list under .pig/tasks and claims it", () => {
 		const { dir, s } = store();
 		runTasks(s, { action: "create", list: "auth", title: "Auth", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
