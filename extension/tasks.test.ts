@@ -29,6 +29,10 @@ describe("tasks", () => {
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
 		runTasks(s, { action: "complete", list: "w", id: "1", report });
 		expect(runTasks(s, { action: "start", list: "w", id: "2" })).toContain("Started");
+		const [one, , two] = s.read("w").tasks;
+		expect(Date.parse(one.endedAt!)).toBeGreaterThanOrEqual(Date.parse(one.startedAt!));
+		expect(two.startedAt).toBeString();
+		expect(two.endedAt).toBeUndefined();
 	});
 
 	test("finishing requires a report within budget", () => {

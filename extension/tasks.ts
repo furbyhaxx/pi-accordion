@@ -24,6 +24,10 @@ export interface Task {
 	status: TaskStatus;
 	report?: TaskReport;
 	updatedAt: string;
+	/** When the task was started; absent for tasks never started (or written before timing existed). */
+	startedAt?: string;
+	/** When the task was completed, failed or abandoned. */
+	endedAt?: string;
 }
 
 export interface TaskClaim {
@@ -254,6 +258,7 @@ export class TaskStore {
 			throw new TaskError(`Task ${blocking.map((t) => `${t.id} "${t.title}"`).join(", ")} is still in progress. Complete, fail or abandon it before starting ${id}, or start one of its subtasks.`);
 		task.status = "doing";
 		task.updatedAt = now();
+		task.startedAt = task.updatedAt;
 		this.write(list);
 		return { list, task };
 	}
@@ -268,6 +273,7 @@ export class TaskStore {
 		task.report = cleanReport(report);
 		task.status = status;
 		task.updatedAt = now();
+		task.endedAt = task.updatedAt;
 		this.write(list);
 		return { list, task };
 	}

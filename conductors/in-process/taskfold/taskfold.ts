@@ -96,16 +96,68 @@ const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "don
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
 const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
 
-/** One finished task span, as indices into `host.blocks()`. */
-interface Span {
+/** One task span, as indices into the scanned blocks. `status` is null while the task is still open. */
+export interface TaskSpan {
+	/** `<list>/<id>`, the key fold records carry. */
 	key: string;
 	list: string;
 	id: string;
 	title: string;
-	status: "done" | "failed" | "abandoned";
+	status: "done" | "failed" | "abandoned" | null;
 	report: { outcome?: string; decisions?: string[]; open?: string[] };
 	start: number;
+	/** The finishing result's index, or the last block for an open span. */
 	end: number;
+}
+
+/** One finished task span, as indices into `host.blocks()`. */
+type Span = TaskSpan & { status: "done" | "failed" | "abandoned" };
+
+/** The block fields span discovery reads; both conductor views and Truth blocks satisfy it. */
+export interface SpanBlock {
+	kind: string;
+	toolName?: string;
+	callId?: string;
+	isError?: boolean;
+}
+
+/**
+ * Every task span in `blocks`: finished spans in finishing order (innermost first when two end
+ * together), then still-open spans running to the last block.
+ */
+export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf: (b: B) => string): TaskSpan[] {
+	const resultIdx = new Map<string, number>();
+	blocks.forEach((b, i) => {
+		if (b.kind === "tool_result" && b.callId && b.toolName === "tasks") resultIdx.set(b.callId, i);
+	});
+	const open = new Map<string, { start: number; title: string; list: string; id: string }>();
+	const out: TaskSpan[] = [];
+	blocks.forEach((b, i) => {
+		if (b.kind !== "tool_call" || b.toolName !== "tasks" || !b.callId) return;
+		const ri = resultIdx.get(b.callId);
+		if (ri === undefined || blocks[ri].isError) return;
+		const args = parseCall(textOf(b));
+		const action = typeof args?.action === "string" ? args.action : "";
+		if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
+		const key = `${args.list}/${args.id}`;
+		if (action === "start") {
+			const title = /"(.*)"\.\s*$/.exec(textOf(blocks[ri]))?.[1] ?? "";
+			open.set(key, { start: i, title, list: args.list, id: args.id });
+		} else if (FINISH[action]) {
+			const s = open.get(key);
+			if (!s) return;
+			open.delete(key);
+			const report = (args.report && typeof args.report === "object" ? args.report : {}) as TaskSpan["report"];
+			out.push({ key, list: args.list, id: args.id, title: s.title, status: FINISH[action], report, start: s.start, end: ri });
+		}
+	});
+	for (const [key, s] of open) out.push({ key, list: s.list, id: s.id, title: s.title, status: null, report: {}, start: s.start, end: blocks.length - 1 });
+	return out;
+}
+
+/** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */
+export function taskKeyOfSummary(summary: string | null | undefined): string | null {
+	return typeof summary === "string" ? (/^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part)\] (\S+)/.exec(summary)?.[1] ?? null) : null;
 }
 
 /** One span's fold: its ops, the span key per group op, and how to restore absorbed child groups. */
@@ -200,7 +252,7 @@ export class TaskfoldConductor implements Conductor {
 		this.ownGroups.clear();
 		for (const g of host.groups()) {
 			if (g.by !== "auto") continue;
-			const key = this.keyOfSummary(g.summary);
+			const key = taskKeyOfSummary(g.summary);
 			if (key) this.ownGroups.set(g.id, key);
 		}
 	}
@@ -272,32 +324,7 @@ export class TaskfoldConductor implements Conductor {
 
 	/** Every finished task span in the log, innermost first when two end together. */
 	spans(blocks: readonly ViewBlock[]): Span[] {
-		const resultIdx = new Map<string, number>();
-		blocks.forEach((b, i) => {
-			if (b.kind === "tool_result" && b.callId && b.toolName === "tasks") resultIdx.set(b.callId, i);
-		});
-		const open = new Map<string, { start: number; title: string }>();
-		const out: Span[] = [];
-		blocks.forEach((b, i) => {
-			if (b.kind !== "tool_call" || b.toolName !== "tasks" || !b.callId) return;
-			const ri = resultIdx.get(b.callId);
-			if (ri === undefined || blocks[ri].isError) return;
-			const args = parseCall(this.textOf(b));
-			const action = typeof args?.action === "string" ? args.action : "";
-			if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
-			const key = `${args.list}/${args.id}`;
-			if (action === "start") {
-				const title = /"(.*)"\.\s*$/.exec(this.textOf(blocks[ri]))?.[1] ?? "";
-				open.set(key, { start: i, title });
-			} else if (FINISH[action]) {
-				const s = open.get(key);
-				if (!s) return;
-				open.delete(key);
-				const report = (args.report && typeof args.report === "object" ? args.report : {}) as Span["report"];
-				out.push({ key, list: args.list, id: args.id, title: s.title, status: FINISH[action], report, start: s.start, end: ri });
-			}
-		});
-		return out;
+		return scanTaskSpans(blocks, (b) => this.textOf(b)).filter((s): s is Span => s.status !== null);
 	}
 
 	// ── planning ────────────────────────────────────────────────────────────────────────────
@@ -457,7 +484,7 @@ export class TaskfoldConductor implements Conductor {
 				// A parent that did not fold must not leave its children unfolded: put their groups back.
 				if (failed && u.restore.length) {
 					restore.push(...u.restore);
-					for (const op of u.restore) if (op.kind === "group") restoreKeys.push(this.keyOfSummary(op.summary) ?? "");
+					for (const op of u.restore) if (op.kind === "group") restoreKeys.push(taskKeyOfSummary(op.summary) ?? "");
 				}
 			}
 			if (restore.length) {
@@ -486,9 +513,5 @@ export class TaskfoldConductor implements Conductor {
 				void this.evaluate();
 			}
 		}
-	}
-
-	private keyOfSummary(summary: string | null | undefined): string | null {
-		return typeof summary === "string" ? (/^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part)\] (\S+)/.exec(summary)?.[1] ?? null) : null;
 	}
 }

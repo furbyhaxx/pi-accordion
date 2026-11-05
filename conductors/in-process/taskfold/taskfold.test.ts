@@ -3,7 +3,7 @@
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
 import { describe, it, expect } from "vitest";
-import { TaskfoldConductor } from "./taskfold";
+import { TaskfoldConductor, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
 import { foldCode, foldTag } from "../../../core/digest";
 import type { Block } from "../../../core/types";
@@ -194,4 +194,22 @@ describe("taskfold", () => {
 		await attach(host);
 		expect(groupOf(host, start)).toBeUndefined();
 	});
+
+	it("scans open spans to the last block after finished ones, and keys records by their tag", () => {
+		const s = new Session();
+		s.user("Do both.");
+		s.start("1", "Outer");
+		s.start("1.1", "Inner");
+		s.finish("1.1", { outcome: "inner done" });
+		s.work(1, "x");
+		const spans = scanTaskSpans(s.blocks, (b) => b.text);
+		expect(spans.map((x) => [x.key, x.status, x.title])).toEqual([
+			["work/1.1", "done", "Inner"],
+			["work/1", null, "Outer"],
+		]);
+		expect(spans[1].end).toBe(s.blocks.length - 1);
+		expect(taskKeyOfSummary(`${foldTag("g:x")} [task-record] work/1.1 "Inner"  status: done`)).toBe("work/1.1");
+		expect(taskKeyOfSummary("plain summary")).toBeNull();
+	});
 });
+
