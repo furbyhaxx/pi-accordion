@@ -63,7 +63,7 @@ Before starting S1, ask the user whether `feat/taskfold-widget` has been merged 
   strict parent completion with fail/abandon cascades, rewritten `tasks` tool description,
   `accordion.tasks.idle` stop verdicts, glyphs `☐ ▶ ◐ ⧗ ▣ ☒ ⊘` with struck-through abandoned rows.
 - Docs: `README.md`, `extension/README.md`, `AGENTS.md`.
-- Verified at the latest S0 commit: 138 bun tests, smoke, tsc baseline of 7, live PiG with
+- Verified at the latest S0 commit: 137 bun tests, smoke, tsc baseline of 7, live PiG with
   deepseek-flash (block → ask → resume, refused parent completion, supersede, struck-through row,
   36/57 columns). Before §4.15: 129 bun tests (`extension/tui`, `extension/*.test.ts`,
   `conductors/in-process/taskfold`), smoke, tsc baseline of 7, live PiG runs of every view.
