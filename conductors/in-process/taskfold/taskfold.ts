@@ -29,6 +29,7 @@ import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
+import { Thinning, orientationEndIndex, type Regions, type ThinScope } from "./thinning";
 
 /**
  * How the orientation phase (everything before the first task starts) is handled. Experimental:
@@ -43,9 +44,15 @@ export interface OrientationOptions {
 	rules: "live" | "fold";
 	/** The agent can pin verbatim excerpts and file ranges to the session or a task (`tasks pin`). */
 	pins: boolean;
+	/** Keel-lite's first rungs outside finished task spans: nowhere, before the first task, or everywhere open. */
+	thin: ThinScope;
+	/** With `thin`: Keel-note's progress note on top of the rungs. */
+	note: boolean;
+	/** Doorman's skeletons for large code reads before they are first sent. */
+	birthSkeleton: boolean;
 }
 
-export const ORIENTATION_DEFAULTS: Readonly<OrientationOptions> = { fold: "off", agentTask: false, rules: "live", pins: false };
+export const ORIENTATION_DEFAULTS: Readonly<OrientationOptions> = { fold: "off", agentTask: false, rules: "live", pins: false, thin: "off", note: false, birthSkeleton: false };
 
 /** Keep known values; anything else falls back to the default. */
 export function sanitizeOrientation(value: unknown): OrientationOptions {
@@ -55,6 +62,9 @@ export function sanitizeOrientation(value: unknown): OrientationOptions {
 		agentTask: raw.agentTask === true,
 		rules: raw.rules === "fold" ? "fold" : "live",
 		pins: raw.pins === true,
+		thin: raw.thin === "orientation" || raw.thin === "open" ? raw.thin : "off",
+		note: raw.note === true,
+		birthSkeleton: raw.birthSkeleton === true,
 	};
 }
 
@@ -355,6 +365,8 @@ export class TaskfoldConductor implements Conductor {
 	readonly id = "taskfold";
 	readonly label = "Taskfold";
 	readonly description = "Folds finished task spans into structured task records; user steering folds when a classifier says so.";
+	/** Lets the experimental birth skeletons act before a fresh result is first sent; idle otherwise. */
+	readonly holdWireUpToMs = 150;
 
 	private readonly k: Required<TaskfoldOptions>;
 	private host: ConductorHost | null = null;
@@ -368,20 +380,42 @@ export class TaskfoldConductor implements Conductor {
 	private readonly classifying = new Set<string>();
 	private classifyFailures = 0;
 	private epochs = 0;
+	private readonly thinning: Thinning;
 
 	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger()) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
 		this.verdicts = verdicts;
+		const o = this.k.orientation;
+		this.thinning = new Thinning({ scope: o.thin, note: o.note, birthSkeleton: o.birthSkeleton, high: this.k.high, low: this.k.low }, (blocks) => this.regions(blocks));
 	}
 
 	attach(host: ConductorHost): void {
 		this.host = host;
 		this.verdicts.threshold = this.k.maxLoss;
 		this.adoptGroups(host);
-		this.off = host.on((e) => this.onEvent(e));
+		this.off = host.on((e) => this.handle(e));
+		this.thinning.attach(host);
+	}
+
+	/** Taskfold handles an event first; the thinning conductors see it once Taskfold has settled. */
+	private handle(e: HostEvent): void | Promise<void> {
+		if (!this.thinning.active) return this.onEvent(e);
+		if (e.type === "wire-departing") return this.thinning.forward(e);
+		const own = this.onEvent(e);
+		return own instanceof Promise ? own.then(() => this.thinning.forward(e)) : this.thinning.forward(e);
+	}
+
+	/** Finished task spans and where orientation ends, for the thinning conductors' masks. */
+	private regions(blocks: readonly ViewBlock[]): Regions {
+		const textOf = (b: ViewBlock) => this.textOf(b);
+		const finished = scanTaskSpans(blocks, textOf)
+			.filter((s) => s.status !== null)
+			.map((s) => [s.start, s.end] as const);
+		return { finished, orientationEnd: orientationEndIndex(blocks, (b) => b.kind === "tool_call" && b.toolName === "tasks" && parseCall(textOf(b))?.action === "start") };
 	}
 
 	detach(): void {
+		this.thinning.detach();
 		this.off?.();
 		this.off = null;
 		this.host?.setStatus(null);

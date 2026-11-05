@@ -93,6 +93,8 @@ export interface KeelLiteOptions {
 	 * complete but wrong one. `null` disables the exemption.
 	 */
 	wholeBashCommand?: RegExp | null;
+	/** The deepest rung this instance runs (0–7). Default 7: the whole ladder. */
+	maxRung?: number;
 }
 
 export const KEEL_LITE_DEFAULTS: Readonly<Required<KeelLiteOptions>> = Object.freeze({
@@ -103,6 +105,7 @@ export const KEEL_LITE_DEFAULTS: Readonly<Required<KeelLiteOptions>> = Object.fr
 	trimTailLines: 12,
 	trimLineChars: 200,
 	trimMinSavings: 0.4,
+	maxRung: 7,
 	readFoldMinTokens: 300,
 	deepFoldMinTokens: 200,
 	groupChunkSteps: 8,
@@ -393,14 +396,15 @@ export class KeelLiteConductor implements Conductor {
 			],
 		];
 
-		for (const [, visit] of ladder) {
+		for (const [rung, visit] of ladder) {
 			if (done()) break;
+			if (rung > this.k.maxRung) break;
 			for (let i = 0; i < pfi && !done(); i++) visit(blocks[i], i);
 		}
 
 		// R7 — group the oldest runs of whole assistant steps, only if still over LOW.
 		// Chunks are disjoint, so no member's cost needs updating between them.
-		if (!done()) {
+		if (!done() && this.k.maxRung >= 7) {
 			for (const g of this.planGroups(host, blocks, pfi, a, inAnyGroup, cur)) {
 				if (done()) break;
 				groups.push(g);

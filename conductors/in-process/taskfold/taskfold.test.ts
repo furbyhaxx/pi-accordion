@@ -3,7 +3,7 @@
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
 import { describe, it, expect } from "vitest";
-import { ORIENTATION_KEY, TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary, type OrientationOptions } from "./taskfold";
+import { ORIENTATION_DEFAULTS, ORIENTATION_KEY, TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary, type OrientationOptions } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
 import { VERDICT_ENTRY, VerdictLedger, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
@@ -450,5 +450,90 @@ describe("taskfold", () => {
 			expect(groupOf(host, o.plan.result)!.summary).toContain("brief: keep me");
 		});
 	});
-});
 
+	describe("thinning", () => {
+		const lines = (tag: string, n = 120) => Array.from({ length: n }, (_, i) => `${tag} line ${i} ${"x".repeat(30)}`).join("\n");
+
+		/** Orientation (doc read, stale code read, bash output), then task 1 with work. */
+		function session(finish: boolean) {
+			const s = new Session();
+			s.user("Build the feature.");
+			const doc = s.call("read", { path: "docs/spec.md" }, lines("spec"));
+			const stale = s.call("read", { path: "src/app.py" }, lines("old app"));
+			const bash = s.call("bash", { command: "grep -rn todo ." }, lines("hit"));
+			s.call("read", { path: "src/app.py" }, lines("new app"));
+			const start = s.start("1", "Feature");
+			const inTask = s.call("bash", { command: "pytest" }, lines("test"));
+			if (finish) s.finish("1", { outcome: "done" });
+			s.work(2, "tail");
+			return { s, doc, stale, bash, start, inTask };
+		}
+
+		async function run(s: Session, thin: "orientation" | "open", factor = 0.5) {
+			const host = setup(s, factor);
+			const c = new TaskfoldConductor({ keepRecentTasks: 1, orientation: { ...ORIENTATION_DEFAULTS, thin } });
+			c.attach(host);
+			await host.commitTurn();
+			await new Promise((r) => setTimeout(r, 0));
+			return { host, c };
+		}
+
+		const isThinking = (h: TestHost, resultId: string) => h.blocks().find((b) => b.id === resultId.replace(/^r:c(\d+)$/, "a:resp$1:p0"))!;
+
+		it("orientation scope thins thinking, stale reads and bash output before the first task, never documents", async () => {
+			const o = session(false);
+			const { host, c } = await run(o.s, "orientation");
+			const get = (id: string) => host.blocks().find((b) => b.id === id)!;
+			expect(isThinking(host, o.bash.result).folded).toBe(true);
+			expect(get(o.stale.result).folded).toBe(true);
+			expect(get(o.bash.result).folded).toBe(true);
+			expect(get(o.doc.result).folded).toBe(false);
+			expect(get(o.inTask.result).folded).toBe(false);
+			c.detach();
+		});
+
+		it("open scope also thins inside an open task", async () => {
+			const o = session(false);
+			const { host, c } = await run(o.s, "open");
+			expect(host.blocks().find((b) => b.id === o.inTask.result)!.folded).toBe(true);
+			c.detach();
+		});
+
+		it("a thinned span still folds into its record once it is finished", async () => {
+			const o = session(false);
+			const { host, c } = await run(o.s, "open");
+			expect(host.blocks().find((b) => b.id === o.inTask.result)!.folded).toBe(true);
+			const before = o.s.blocks.length;
+			o.s.finish("1", { outcome: "feature done" });
+			o.s.start("2", "Next");
+			o.s.work(4, "later");
+			o.s.finish("2", { outcome: "next done" });
+			o.s.work(3, "tail2");
+			host.appendBlocks(o.s.blocks.slice(before));
+			host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+			await host.commitTurn();
+			await new Promise((r) => setTimeout(r, 0));
+			const g = groupOf(host, o.inTask.result);
+			expect(g?.summary).toContain("[task-record] work/1 ");
+			c.detach();
+		});
+
+		it("birth skeletons replace a large fresh code read before it is sent, but never a document", async () => {
+			const s = new Session();
+			s.user("Look at the code.");
+			const py = Array.from({ length: 40 }, (_, i) => `def handler_${i}(request, context):\n    """Handle ${i}."""\n    value = request.get("k${i}")\n    if value is None:\n        return context.fail("missing k${i}")\n    return context.ok(value * ${i})\n`).join("\n");
+			const code = s.call("read", { path: "src/handlers.py" }, py);
+			const doc = s.call("read", { path: "docs/guide.md" }, py);
+			const host = new TestHost();
+			host.appendBlocks(s.blocks);
+			const c = new TaskfoldConductor({ orientation: { ...ORIENTATION_DEFAULTS, thin: "orientation", birthSkeleton: true } });
+			c.attach(host);
+			await host.departWire();
+			const get = (id: string) => host.blocks().find((b) => b.id === id)!;
+			expect(get(code.result).folded).toBe(true);
+			expect(host.truth.digestOf(host.truth.blocks.find((b) => b.id === code.result)!)).toContain("def handler_3(request, context)");
+			expect(get(doc.result).folded).toBe(false);
+			c.detach();
+		});
+	});
+});
