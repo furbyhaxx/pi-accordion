@@ -159,6 +159,26 @@ tight, finished tasks fold into fixed-shape records: outcome, decisions, files c
 open items. User messages stay verbatim unless a classifier model says losing them costs nothing,
 as with approvals, status checks and step steering.
 
+While taskfold is attached, the task list sits above the editor. Collapsed it shows progress,
+folded tasks (`≡`), working time and the tokens the task spans take before and after folding,
+plus the task in progress; expanded it shows the task tree, hiding the tasks furthest from the
+current one when it gets long:
+
+```
+▼ Tasks 5/20 (≡5) · 5m 12s · 26.7k → 10.1k tok
+  ├─ … 3 hidden · 3m 36s (3 folded)
+  ├─◐ 3 Secrets Redesign · 2m 45s (3/7)
+  │ ├─▶ 3.4 registry rewire to vault · 1m 21s (0/3)
+  │ │ ├─▶ 3.4.1 the new registry · 1m 11s
+  │ │ └─☐ 3.4.2 vault adapter
+  │ └─ … 3 hidden
+  └─ … 6 hidden
+```
+
+`alt+t` or `/accordion tasks` expands and collapses it; `/accordion tasks hide` hides it for the
+session. Defaults live under `taskWidget` in `~/.accordion/config.json`:
+`{ "mode": "auto" | "off", "expanded": false, "maxRows": 12, "toggleKey": "alt+t" }`.
+
 **[handoff](conductors/in-process/handoff/)** is `/handoff`, automatic. The manual version is to
 ask the agent to write a handoff document, kill the session, and paste that document into a
 fresh one. This does all three for you without you leaving the session.
@@ -235,6 +255,7 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   or the `s` Settings tab), replacing Pi's native `/compact` and threshold auto-compaction with
   reversible folding while falling back to native compaction only if a hard overflow is already saturated.
 - `/accordion sessions` selects another live Pi session on the same machine.
+- `/accordion tasks [expand | collapse | hide | show]` controls the taskfold task list above the editor.
 
 The fork is also a Pi package and can be installed from Git once this branch is published:
 

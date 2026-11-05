@@ -39,6 +39,7 @@ accordionLive({
 	on: (name, fn) => (handlers[name] = fn),
 	registerFlag: (name, def) => flags.set(name, def?.default),
 	getFlag: (name) => flags.get(name),
+	registerShortcut: () => {},
 	registerCommand: () => {},
 	registerTool: () => {},
 	appendEntry: () => {},

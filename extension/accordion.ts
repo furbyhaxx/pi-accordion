@@ -52,7 +52,9 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
-import { TaskError, TaskStore, runTasks, type TasksArgs } from "./tasks";
+import { TaskError, TaskStore, runTasks, type TaskList, type TasksArgs } from "./tasks";
+import { TaskWidgetController } from "./tui/taskWidget";
+import { foldToolRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -2848,6 +2850,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return store;
 	}
 
+	const taskWidget = new TaskWidgetController({
+		lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
+		session: () => (typeof latestCtx?.sessionManager?.getSessionId === "function" ? latestCtx.sessionManager.getSessionId() : null),
+		truth: () => truth,
+		enabled: () => (entryById(liveHost.activeMeta()?.id ?? null)?.tools ?? []).includes("tasks"),
+		settings: () => settings.taskWidget,
+	});
+	nativeListeners.add(() => taskWidget.sync());
+
 	function releaseTaskClaims(): void {
 		for (const { session, store } of taskStores.values()) {
 			for (const list of store.lists()) {
@@ -2938,6 +2949,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		lastFooter = "";
 		refreshConductorPresentation();
+		taskWidget.attach(ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
 	});
 
 	// ── ghost layer: forward stream lifecycle frames (Phase 4, ADR 0003) ─────────
@@ -3248,6 +3260,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		taskWidget.detach();
 		releaseTaskClaims();
 		// Tear the attached conductor down FIRST (while the Truth still exists): SIGTERM→grace→SIGKILL
 		// any spawned runner, abort in-flight completions, release any pending hold. The freeze kill
@@ -3330,13 +3343,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// ── /accordion : open the native context panel ─────────────────────────────
 	pi.registerCommand("accordion", {
-		description: "[sessions | compact | web] — open the Accordion context panel",
+		description: "[sessions | compact | web | tasks] — open the Accordion context panel",
 		getArgumentCompletions: (text: string) => {
 			const q = text.trim().toLowerCase();
 			const items = [
 				{ value: "sessions", label: "sessions", description: "Choose a live Pi session to inspect/steer" },
 				{ value: "compact", label: "compact", description: "Run an immediate Accordion compression pass" },
 				{ value: "web", label: "web", description: "Show the Browser URL and focus the desktop app" },
+				{ value: "tasks", label: "tasks", description: "Expand or collapse the task list above the editor" },
+				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
 			return items.length ? items : null;
 		},
@@ -3351,6 +3366,22 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				ctx.ui.notify(res.message, "info");
 				return;
 			}
+			const tasksArg = /^tasks(?:\s+(\S+))?$/.exec(argument);
+			if (tasksArg) {
+				const verb = tasksArg[1] ?? "toggle";
+				if (verb === "toggle") taskWidget.toggle();
+				else if (verb === "expand" || verb === "show") taskWidget.setExpanded(verb === "expand" || !!settings.taskWidget.expanded);
+				else if (verb === "collapse") taskWidget.setExpanded(false);
+				else if (verb === "hide") taskWidget.hide();
+				else {
+					ctx.ui.notify("Usage: /accordion tasks [expand | collapse | hide | show]", "warning");
+					return;
+				}
+				taskWidget.reload();
+				const why = taskWidget.reason();
+				if (why && verb !== "hide") ctx.ui.notify(`Task list not shown: ${why}.`, "info");
+				return;
+			}
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				ctx.ui.notify(`Accordion: ${truth?.blocks.length ?? 0} blocks · folding ${foldingEnabled ? "on" : "off"}. Open /accordion in the Pi TUI to manage context.`, "info");
 				return;
@@ -3358,7 +3389,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const openedSessionId = sessionId;
 			let target: SessionEntry | undefined;
 			if (argument && argument !== "sessions") {
-				ctx.ui.notify("Usage: /accordion [sessions | compact | web]", "warning");
+				ctx.ui.notify("Usage: /accordion [sessions | compact | web | tasks]", "warning");
 				return;
 			}
 			if (argument === "sessions") {
@@ -3496,6 +3527,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		},
 	});
 
+	pi.registerShortcut(settings.taskWidget.toggleKey as Parameters<typeof pi.registerShortcut>[0], {
+		description: "Expand or collapse the Accordion task list",
+		handler: () => taskWidget.toggle(),
+	});
+
 	pi.registerCommand("accordion-web", {
 		description: "Open or focus the optional Accordion browser or desktop interface",
 		handler: async (_args: string, ctx: ExtensionCommandContext) => {
@@ -3546,13 +3582,28 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const store = taskStoreFor(ctx);
+			const args = params as TasksArgs;
+			const read = (): TaskList | null => {
+				try {
+					return args.list ? store.read(args.list) : null;
+				} catch {
+					return null;
+				}
+			};
+			const before = args.action === "add" ? read()?.tasks.length : undefined;
 			try {
-				return { content: [{ type: "text", text: runTasks(store, params as TasksArgs) }], details: undefined };
+				const text = runTasks(store, args);
+				const list = read();
+				const details: TasksDetails = tasksDetails(args, list, before === undefined ? undefined : (list?.tasks.length ?? before) - before, args.action === "list" ? store.lists().length : undefined);
+				return { content: [{ type: "text", text }], details };
 			} catch (err) {
 				if (err instanceof TaskError) throw err;
 				throw new Error(`tasks: ${err instanceof Error ? err.message : String(err)}`);
+			} finally {
+				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) taskWidget.reload();
 			}
 		},
+		...toolRowRenderers((theme, args, state, details, text, expanded) => tasksRow(theme, args, state, details as TasksDetails | undefined, text, expanded)),
 	});
 
 	pi.registerTool({
@@ -3592,6 +3643,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// Every input code resolves to restored or missing, so `lines` is always non-empty.
 			return { content: [{ type: "text", text: lines.join("\n") }], details: res };
 		},
+		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "unfold", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});
 
 	// ── recall tool: an UNBLOCKABLE READ of folded content (ADR 0011) ───────────
@@ -3650,6 +3702,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 			return { content, details: res };
 		},
+		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "recall", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});
 
 	// ── skill discovery: expose the unfold skill to pi's skill loader ──────────

@@ -87,6 +87,7 @@ const pi = {
 	on: (name, fn) => (handlers[name] = fn),
 	registerFlag: (name, def) => flags.set(name, def?.default),
 	getFlag: (name) => flags.get(name),
+	registerShortcut: () => {},
 	registerCommand: (name, def) => {
 		if (name === "accordion") accordionCmd = def.handler;
 		if (name === "accordion-web") accordionWebCmd = def.handler;
@@ -1581,6 +1582,7 @@ await new Promise((r) => setTimeout(r, 50));
 			on: (name, fn) => (h[name] = fn),
 			registerFlag: (name, def) => flg.set(name, def?.default),
 			getFlag: (name) => flg.get(name),
+			registerShortcut: () => {},
 			registerCommand: (name, def) => { if (name === "accordion-web") cmd = def.handler; },
 			registerTool: () => {},
 			appendEntry: () => {},
@@ -1768,6 +1770,7 @@ await new Promise((r) => setTimeout(r, 50));
 			on: (name, fn) => (h[name] = fn),
 			registerFlag: () => {},
 			getFlag: () => undefined,
+			registerShortcut: () => {},
 			registerCommand: () => {},
 			registerTool: () => {},
 			appendEntry: () => {},

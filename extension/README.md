@@ -32,7 +32,8 @@ pi-bolt -ne --offline -e ./extension/accordion.ts
 
 Run `/accordion` to manage the current session in Pi's terminal (`1–4` / `Tab` switches
 between the Claude Code `/context` Overview + Spectrum grid, searchable Blocks list, Conductors,
-and Settings), `/accordion compact` to run an immediate compression pass, or `/accordion sessions`
+and Settings), `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
+collapse the taskfold task list above the editor (also `alt+t`), or `/accordion sessions`
 to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
 Accordion pass.
