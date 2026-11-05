@@ -87,6 +87,11 @@ function spanOf(data: ViewData, key: string): TaskSpan | undefined {
 	return [...data.spans].reverse().find((s) => s.key === key);
 }
 
+/** A task that ended or waits without ever having been started has no span. */
+function neverRan(t: Task): boolean {
+	return !t.startedAt && t.status !== "doing";
+}
+
 function taskLabel(t: Task, state: ReturnType<typeof glyphState>, theme: WidgetTheme): string {
 	const { head, title } = taskParts(t, state, theme);
 	return head + title;
@@ -303,7 +308,7 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 		const facts = recordFacts(data.src.blocks.slice(span.start, span.end + 1), (b) => b.text);
 		lines.push(...wrap("Changed", facts.changed.length ? facts.changed.join(", ") : t.fg("dim", "–")), ...items("Checks", facts.verified));
 		lines.push(...wrap("Span", `${span.end - span.start + 1} blocks · ${tok(spanTokens(data.src, span))}`));
-	} else lines.push(...wrap("Span", t.fg("dim", "not run in this session")));
+	} else lines.push(...wrap("Span", t.fg("dim", neverRan(task) ? "none · never started" : "not run in this session")));
 	for (const g of groups) {
 		const code = /^\{#([0-9a-z]{6}) FOLDED\}/.exec(g.summary ?? "")?.[1];
 		const level = recordLevel(g.summary);
@@ -511,12 +516,17 @@ export class TaskViews {
 		this.tui.requestRender();
 	}
 
+	private noSpan(slug: string, id: string): string {
+		const task = this.host.lists().find((l) => l.slug === slug)?.tasks.find((t) => t.id === id);
+		return task && neverRan(task) ? "This task was never started, so it has no span." : "This task did not run in this session.";
+	}
+
 	private detailsKey(s: Extract<Screen, { kind: "details" }>, key: string, confirm: boolean): void {
 		const data = this.data();
 		const taskKey = `${s.slug}/${s.id}`;
 		if (confirm) {
 			if (data.src && spanOf(data, taskKey)) this.stack.push({ kind: "span", key: taskKey, tree: new TreeState() });
-			else this.message = "This task did not run in this session.";
+			else this.message = this.noSpan(s.slug, s.id);
 		} else if (key === "v") {
 			const groups = this.groupsOf(taskKey);
 			if (!groups.length) this.message = "This task is not folded.";
@@ -530,7 +540,7 @@ export class TaskViews {
 			if (confirm && s.kind === "list") this.stack.push({ kind: "details", slug: ref.slug, id: ref.id, scroll: 0 });
 			else if ((confirm && s.kind !== "list") || key === "i") {
 				if (data.src && spanOf(data, ref.key)) this.stack.push({ kind: "span", key: ref.key, tree: new TreeState() });
-				else this.message = "This task did not run in this session.";
+				else this.message = this.noSpan(ref.slug, ref.id);
 			} else if (key === "d") this.stack.push({ kind: "details", slug: ref.slug, id: ref.id, scroll: 0 });
 			else if (key === "u") this.toggleTask(ref.key);
 			return;

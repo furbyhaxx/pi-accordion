@@ -64,7 +64,13 @@ describe("task views", () => {
 		expect(lines).toContain("· a — b");
 		expect(lines).toContain("src/a.ts");
 		expect(lines).toContain("`bun test` → failed: 1 fail");
-		expect(detailLines(list, "2", data(src), []).join("\n")).toContain("not run in this session");
+		expect(detailLines(list, "2", data(src), []).join("\n")).toContain("none · never started");
+		const elsewhere = { ...list, tasks: list.tasks.map((x) => (x.id === "2" ? { ...x, status: "done" as const, startedAt: list.updatedAt, endedAt: list.updatedAt } : x)) };
+		expect(detailLines(elsewhere, "2", data(src), []).join("\n")).toContain("not run in this session");
+		const never = { ...list, tasks: [...list.tasks, { id: "3", title: "Dropped", status: "abandoned" as const, updatedAt: list.updatedAt, report: { outcome: "x" }, supersededBy: "2" }] };
+		const neverLines = detailLines(never, "3", data(src), []).join("\n");
+		expect(neverLines).toContain("none · never started");
+		expect(neverLines).toContain("Superseded by 2");
 	});
 
 	it("flags untracked work and marks failed steps in the session tree", () => {
