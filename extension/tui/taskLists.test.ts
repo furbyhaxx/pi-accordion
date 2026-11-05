@@ -7,7 +7,7 @@ import { TaskStore, runTasks, slugFor } from "../tasks";
 import { resumeSituation, type AttachOutcome } from "../taskBinding";
 import { ResumeDialog, TaskListsBrowser, listRowLine, type TaskListsHost } from "./taskLists";
 
-const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
+const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t, strikethrough: (t: string) => t };
 const KEY: Record<string, string> = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b" };
 const keys = {
 	matches(data: string, binding: string) {

@@ -8,7 +8,7 @@ import { TaskStore, runTasks, taskFingerprint } from "./tasks";
 
 const KEY: Record<string, string> = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b" };
 const keys = { matches: (d: string, b: string) => KEY[{ "tui.select.up": "up", "tui.select.down": "down", "tui.select.confirm": "enter", "tui.select.cancel": "esc" }[b] ?? ""] === d };
-const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
+const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t, strikethrough: (t: string) => t };
 
 /** A UI whose dialogs are driven by the test: `screen()` renders the open one, `press()` types. */
 function fakeUi() {

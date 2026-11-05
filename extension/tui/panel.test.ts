@@ -73,7 +73,7 @@ function setup(delayed = false) {
 	let confirmations: string[] = [];
 	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
 		finish = () => { component?.dispose?.(); resolve(undefined); };
-		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value }, { matches: (data: string, action: string) => ({ "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "esc", "tui.select.confirm": "enter" } as Record<string, string>)[action] === data }, (value: unknown) => { component?.dispose?.(); resolve(value); });
+		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value, strikethrough: (value: string) => value }, { matches: (data: string, action: string) => ({ "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "esc", "tui.select.confirm": "enter" } as Record<string, string>)[action] === data }, (value: unknown) => { component?.dispose?.(); resolve(value); });
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host);
 	if (!component) throw new Error("panel did not open");

@@ -7,15 +7,16 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { Truth } from "../../core/truth";
 import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
-import type { TaskList } from "../tasks";
+import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
 import { formatCompactTokens } from "./map";
-import { buildTaskTree, layoutTaskTree, summarizeTasks, type TaskGlyphState, type TaskRow } from "./taskTree";
+import { buildTaskTree, layoutTaskTree, summarizeTasks, taskDuration, type TaskGlyphState, type TaskRow } from "./taskTree";
 
 /** The theme subset the widget draws with. */
 export interface WidgetTheme {
 	fg(color: "accent" | "muted" | "dim" | "success" | "error" | "warning" | "text", text: string): string;
 	bold(text: string): string;
+	strikethrough(text: string): string;
 }
 
 /** What the widget shows: one list, which of its tasks are folded, and the tokens its spans take. */
@@ -46,7 +47,7 @@ export interface FoldTokens {
 export type TaskWidgetHit = { kind: "header" } | { kind: "toggle"; id: string; open: boolean } | { kind: "reveal"; ids: string[] } | null;
 
 const ELLIPSIS = "…";
-export const GLYPH: Record<TaskGlyphState, string> = { todo: "☐", done: "▣", blocked: "☒", active: "▶", partial: "◐" };
+export const GLYPH: Record<TaskGlyphState, string> = { todo: "☐", active: "▶", partial: "◐", blocked: "⧗", done: "▣", failed: "☒", abandoned: "⊘" };
 
 /** `45s`, `5m 12s`, `2h 05m`. */
 export function formatDuration(ms: number): string {
@@ -98,11 +99,32 @@ function fitRow(left: string, title: string, metas: string[], width: number): st
 
 export function glyphColor(state: TaskGlyphState, blinkOn: boolean): "dim" | "success" | "error" | "warning" | "text" {
 	if (state === "done") return "success";
-	if (state === "blocked") return "error";
-	if (state === "todo") return "dim";
+	if (state === "failed") return "error";
+	if (state === "todo" || state === "abandoned") return "dim";
 	if (state === "active") return blinkOn ? "warning" : "text";
 	return "warning";
 }
+
+/**
+ * `<glyph> <id> ` and the styled title: not started dims both, abandoned strikes both through
+ * (the glyph stays plain so it reads).
+ */
+export function taskParts(task: Task, state: TaskGlyphState, theme: WidgetTheme, blinkOn = true): { head: string; title: string } {
+	const glyph = theme.fg(glyphColor(state, blinkOn), GLYPH[state]);
+	const title = clean(task.title);
+	if (state === "abandoned") return { head: `${glyph} ${theme.fg("dim", theme.strikethrough(task.id))}${theme.fg("dim", theme.strikethrough(" "))}`, title: theme.fg("dim", theme.strikethrough(title)) };
+	const dim = state === "todo";
+	return { head: `${glyph} ${theme.fg(dim ? "dim" : "muted", task.id)} `, title: dim ? theme.fg("dim", title) : title };
+}
+
+/** What a blocked or superseded task waits for or was replaced by, for the end of its row; empty otherwise. */
+export function taskNote(task: Task): string {
+	const b = currentBlock(task);
+	if (b) return blockLabel(b);
+	return task.supersededBy ? `→ ${task.supersededBy}` : "";
+}
+
+const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
 const arrow = (f: FoldTokens) => `${formatCompactTokens(f.full)} → ${formatCompactTokens(f.live)}`;
 
@@ -120,11 +142,12 @@ function foldsWithin(ids: readonly string[], folds: ReadonlyMap<string, FoldToke
 }
 
 function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, theme: WidgetTheme, blinkOn: boolean, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
-	const todo = row.state === "todo";
 	const t = row.node.task;
-	const left = `  ${theme.fg("dim", row.prefix)}${theme.fg(glyphColor(row.state, blinkOn), GLYPH[row.state])} ${theme.fg(todo ? "dim" : "muted", t.id)} `;
-	const title = todo ? theme.fg("dim", t.title) : t.title;
-	const duration = row.durationMs !== null ? theme.fg("dim", ` · ${formatDuration(row.durationMs)}`) : "";
+	const { head, title } = taskParts(t, row.state, theme, blinkOn);
+	const left = `  ${theme.fg("dim", row.prefix)}${head}`;
+	const note = taskNote(t);
+	const noteText = note ? theme.fg(row.state === "blocked" ? "warning" : "dim", ` · ${note}`) : "";
+	const duration = noteText + (row.durationMs !== null ? theme.fg("dim", ` · ${formatDuration(row.durationMs)}`) : "");
 	const own = folds?.get(t.id);
 	const inner = !row.folded && !row.open && row.node.children.length ? foldsWithin([t.id], folds, false) : null;
 	const progress = row.progress ? `${row.progress.done}/${row.progress.total}` : "";
@@ -132,7 +155,7 @@ function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, the
 	const short = [progress, row.folded ? "fold" : inner?.count ? `${inner.count} folded` : ""].filter(Boolean);
 	const marker = parts.length ? theme.fg("muted", ` (${parts.join(" · ")})`) : "";
 	const shortMarker = short.length ? theme.fg("muted", ` (${short.join(" · ")})`) : "";
-	return fitRow(left, title, [duration + marker, marker, shortMarker], width);
+	return fitRow(left, title, [duration + marker, noteText + marker, noteText + shortMarker, shortMarker], width);
 }
 
 function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
@@ -149,11 +172,14 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 	if (!view.expanded) {
 		if (sum.allFinished) return { lines: [headerLine(model, view, width, theme, now, "►")], hits: [{ kind: "header" }] };
 		const lines = [headerLine(model, view, width, theme, now, "▲")];
-		const cur = sum.current ?? sum.next;
+		const cur = sum.current ?? sum.blocked ?? sum.next;
 		if (cur) {
-			const d = sum.current ? taskDurationOf(cur.task, now) : null;
-			const left = `  ${theme.fg("dim", "⎿")} ${sum.current ? "" : theme.fg("dim", "next ")}${theme.fg("muted", cur.task.id)} `;
-			lines.push(fitRow(left, cur.task.title, d !== null ? [theme.fg("dim", ` · ${formatDuration(d)}`)] : [], width));
+			const d = sum.current ? taskDuration(cur.task, now) : null;
+			const waiting = !sum.current && cur === sum.blocked;
+			const lead = sum.current ? "" : waiting ? `${theme.fg("warning", GLYPH.blocked)} ` : theme.fg("dim", "next ");
+			const left = `  ${theme.fg("dim", "⎿")} ${lead}${theme.fg("muted", cur.task.id)} `;
+			const meta = waiting ? [theme.fg("warning", ` · ${taskNote(cur.task)}`)] : d !== null ? [theme.fg("dim", ` · ${formatDuration(d)}`)] : [];
+			lines.push(fitRow(left, clean(cur.task.title), meta, width));
 		}
 		return { lines, hits: lines.map(() => ({ kind: "header" }) as const) };
 	}
@@ -172,11 +198,6 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 	return { lines, hits };
 }
 
-function taskDurationOf(task: { startedAt?: string }, now: number): number | null {
-	const start = task.startedAt ? Date.parse(task.startedAt) : NaN;
-	return Number.isFinite(start) ? Math.max(0, now - start) : null;
-}
-
 /** Apply a click to the view; returns whether anything changed. */
 export function applyTaskWidgetHit(view: TaskWidgetView, hit: TaskWidgetHit): boolean {
 	if (!hit) return false;
@@ -186,11 +207,17 @@ export function applyTaskWidgetHit(view: TaskWidgetView, hit: TaskWidgetHit): bo
 	return true;
 }
 
-/** Ids of `list`'s tasks inside a folded group: the group owners in `folds` and their subtasks. */
+/**
+ * Ids of `list`'s tasks inside a folded group: the group owners in `folds` and their subtasks that
+ * ran. A subtask never started has no work in the fold, so it is not counted as folded.
+ */
 export function foldedTaskIds(list: TaskList, folds: ReadonlyMap<string, FoldTokens>): Set<string> {
 	const roots = [...folds.keys()];
 	const out = new Set<string>();
-	for (const t of list.tasks) if (roots.some((r) => t.id === r || t.id.startsWith(`${r}.`))) out.add(t.id);
+	for (const t of list.tasks) {
+		const ran = t.status !== "todo" && !(t.status === "abandoned" && !t.startedAt && !t.blocks?.length);
+		if (roots.some((r) => t.id === r || (ran && t.id.startsWith(`${r}.`)))) out.add(t.id);
+	}
 	return out;
 }
 

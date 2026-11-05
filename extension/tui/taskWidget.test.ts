@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Task, TaskList } from "../tasks";
 import { buildTaskTree, layoutTaskTree, summarizeTasks, type TaskRow } from "./taskTree";
-import { TaskWidgetController, applyTaskWidgetHit, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
+import { TaskWidgetController, applyTaskWidgetHit, foldedTaskIds, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
 
 const T0 = Date.parse("2026-11-05T08:00:00Z");
 const at = (s: number) => new Date(T0 + s * 1000).toISOString();
@@ -39,7 +39,7 @@ function secrets(): Task[] {
 
 const NOW = T0 + 381_000;
 const folded = new Set(["0", "1", "3.1", "3.2"]);
-const plain: WidgetTheme = { fg: (_c, t) => t, bold: (t) => t };
+const plain: WidgetTheme = { fg: (_c, t) => t, bold: (t) => t, strikethrough: (t) => t };
 const list = (tasks: Task[]): TaskList => ({ slug: "secrets", title: "Secrets", createdAt: at(0), updatedAt: at(0), claim: { session: "s1", at: at(0) }, tasks });
 const view = (over: Partial<TaskWidgetView> = {}): TaskWidgetView => ({ expanded: false, maxRows: 12, toggles: new Map(), revealed: new Set(), ...over });
 
@@ -135,6 +135,26 @@ describe("task widget", () => {
 		const finished = list([task("1", "done", "Unit", 0, 60), task("1.1", "done", "a", 0, 30), task("1.2", "done", "b", 30, 60), task("2", "doing", "next", 60)]);
 		const doneModel = { list: finished, folded: new Set(["1.1", "1.2"]), foldTokens: new Map([["1.1", { full: 9_000, live: 100 }], ["1.2", { full: 1_000, live: 100 }]]), tokens: null };
 		expect(renderTaskWidget(doneModel, view({ expanded: true }), 120, plain, NOW, true).lines[1]).toBe("  ├─▣ 1 Unit · 1m 0s (2/2 · 2 folded · 10.0k → 200)");
+	});
+
+	test("draws each end state apart: failed, abandoned struck through, blocked with its reason and paused time excluded", () => {
+		const strike: WidgetTheme = { ...plain, strikethrough: (t) => `~${t}~` };
+		const blocked: Task = { ...task("3", "blocked", "Deploy", 0), blocks: [{ reason: "user-decision", detail: "which region?", at: at(60) }] };
+		const tasks = [task("1", "failed", "Flaky test", 0, 30), { ...task("2", "abandoned", "Old plan", 30, 40), supersededBy: "4" }, blocked, task("4", "todo", "New plan")];
+		const lines = renderTaskWidget({ list: list(tasks), folded: new Set(), tokens: null }, view({ expanded: true, maxRows: 50 }), 100, strike, NOW, true).lines;
+		expect(lines.slice(1)).toEqual([
+			"  ├─☒ 1 Flaky test · 30s",
+			"  ├─⊘ ~2~~ ~~Old plan~ · → 4 · 10s",
+			"  ├─⧗ 3 Deploy · needs user decision · 1m 0s",
+			"  └─☐ 4 New plan",
+		]);
+		const collapsed = renderTaskWidget({ list: list(tasks), folded: new Set(), tokens: null }, view(), 100, plain, NOW, true).lines;
+		expect(collapsed[1]).toBe("  ⎿ ⧗ 3 Deploy · needs user decision");
+	});
+
+	test("subtasks of a folded parent count as folded only when they ran", () => {
+		const l = list([task("1", "done", "P", 0, 60), task("1.1", "done", "ran", 0, 30), { ...task("1.2", "abandoned", "never ran"), report: { outcome: "x" } }, task("1.3", "abandoned", "ran, then dropped", 30, 40)]);
+		expect([...foldedTaskIds(l, new Map([["1", { full: 1, live: 1 }]]))].sort()).toEqual(["1", "1.1", "1.3"]);
 	});
 
 	test("remembers the expanded state for later sessions", () => {

@@ -2,10 +2,10 @@
  * taskTree.ts — the task list as a tree, its progress summary, and a row layout that fits a row
  * budget by hiding the parts of the tree furthest from the work in progress.
  */
-import type { Task } from "../tasks";
+import { currentBlock, type Task } from "../tasks";
 
-/** How a task is drawn: todo, done, failed or abandoned (`blocked`), in progress, or in progress with finished subtasks. */
-export type TaskGlyphState = "todo" | "done" | "blocked" | "active" | "partial";
+/** How a task is drawn: by status, with in-progress split into `active` and `partial` (some subtasks finished). */
+export type TaskGlyphState = "todo" | "active" | "partial" | "blocked" | "done" | "failed" | "abandoned";
 
 export interface TaskNode {
 	task: Task;
@@ -25,6 +25,8 @@ export interface TaskSummary {
 	current: TaskNode | null;
 	/** The first task not started yet, when nothing is in progress. */
 	next: TaskNode | null;
+	/** The innermost blocked task, when nothing is in progress. */
+	blocked: TaskNode | null;
 	/** No task is left to do or in progress. */
 	allFinished: boolean;
 }
@@ -100,12 +102,19 @@ function* preorder(nodes: readonly TaskNode[]): Generator<TaskNode> {
 	}
 }
 
-/** Milliseconds a task has been worked on, or null when it has no start time. */
+/** Milliseconds a task has been worked on, blocked periods excluded, or null when it has no start time. */
 export function taskDuration(task: Task, now: number): number | null {
 	const start = task.startedAt ? Date.parse(task.startedAt) : NaN;
 	if (!Number.isFinite(start)) return null;
-	const end = task.endedAt ? Date.parse(task.endedAt) : now;
-	return Math.max(0, (Number.isFinite(end) ? end : now) - start);
+	const parsed = task.endedAt ? Date.parse(task.endedAt) : now;
+	const end = Number.isFinite(parsed) ? parsed : now;
+	let paused = 0;
+	for (const b of task.blocks ?? []) {
+		const from = Date.parse(b.at);
+		const to = b.resumedAt ? Date.parse(b.resumedAt) : end;
+		if (Number.isFinite(from) && Number.isFinite(to)) paused += Math.max(0, Math.min(to, end) - Math.max(from, start));
+	}
+	return Math.max(0, end - start - paused);
 }
 
 /** Sum of the durations of `nodes` that have one; nested tasks are inside their parent's time. */
@@ -138,12 +147,14 @@ export function summarizeTasks(roots: readonly TaskNode[], folded: ReadonlySet<s
 	let total = 0;
 	let current: TaskNode | null = null;
 	let next: TaskNode | null = null;
+	let blocked: TaskNode | null = null;
 	for (const n of preorder(roots)) {
 		total++;
 		if (n.task.status === "done") done++;
 		if (isFinished(n.task)) finished++;
 		if (n.task.status === "doing" && !n.children.some((c) => c.task.status === "doing")) current = n;
 		if (!next && n.task.status === "todo") next = n;
+		if (n.task.status === "blocked" && !n.children.some((c) => c.task.status === "blocked")) blocked ??= n;
 	}
 	return {
 		done,
@@ -152,16 +163,15 @@ export function summarizeTasks(roots: readonly TaskNode[], folded: ReadonlySet<s
 		durationMs: outermostDuration(roots, now),
 		current,
 		next: current ? null : next,
+		blocked: current ? null : blocked,
 		allFinished: total > 0 && finished === total,
 	};
 }
 
 export function glyphState(node: TaskNode): TaskGlyphState {
 	const s = node.task.status;
-	if (s === "done") return "done";
-	if (s === "failed" || s === "abandoned") return "blocked";
 	if (s === "doing") return node.children.some((c) => isFinished(c.task)) ? "partial" : "active";
-	return "todo";
+	return s;
 }
 
 /** The task the layout centres on: the innermost one in progress, else the next to do, else the last one. */

@@ -6,7 +6,7 @@ import { sessionTranscript, spanTranscript, transcriptSpans, type TBlock, type T
 import { TaskViews, detailLines, listNodes, transcriptNodes, type TaskViewsHost, type ViewData } from "./taskViews";
 import { flattenTree, treeRowLine } from "./treeView";
 
-const theme = { fg: (_c: string, s: string) => s, bold: (s: string) => s };
+const theme = { fg: (_c: string, s: string) => s, bold: (s: string) => s, strikethrough: (s: string) => s };
 const at = (min: number) => new Date(Date.UTC(2026, 10, 5, 9, min, 0)).toISOString();
 
 const list: TaskList = {

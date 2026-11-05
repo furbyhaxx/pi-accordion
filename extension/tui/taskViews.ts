@@ -10,12 +10,12 @@ import type { ClampReason, Op } from "../../core/ops";
 import type { Truth } from "../../core/truth";
 import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
-import type { Task, TaskList } from "../tasks";
+import { blockLabel, type Task, type TaskList } from "../tasks";
 import { formatCompactTokens } from "./map";
 import { frame } from "./taskLists";
 import { classifierInput, recordLevel, sessionTranscript, spanTokens, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
-import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, type WidgetTheme } from "./taskWidget";
+import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type WidgetTheme } from "./taskWidget";
 import { TreeState, type TreeNode } from "./treeView";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
@@ -88,8 +88,8 @@ function spanOf(data: ViewData, key: string): TaskSpan | undefined {
 }
 
 function taskLabel(t: Task, state: ReturnType<typeof glyphState>, theme: WidgetTheme): string {
-	const todo = state === "todo";
-	return `${theme.fg(glyphColor(state, true), GLYPH[state])} ${theme.fg(todo ? "dim" : "muted", t.id)} ${todo ? theme.fg("dim", clean(t.title)) : clean(t.title)}`;
+	const { head, title } = taskParts(t, state, theme);
+	return head + title;
 }
 
 /** A list's tasks as a tree: progress, time, folds and span tokens when the span ran in this session. */
@@ -104,7 +104,9 @@ export function listNodes(list: TaskList, truth: Truth | null, data: ViewData): 
 		const ms = taskDuration(task, data.now);
 		const own = folds.get(task.id);
 		const inner = [...folds.entries()].filter(([id]) => id.startsWith(`${task.id}.`));
+		const note = taskNote(task);
 		const meta = [
+			note ? t.fg(task.status === "blocked" ? "warning" : "dim", note) : "",
 			n.children.length ? `${done}/${n.children.length}` : "",
 			ms !== null ? formatDuration(ms) : "",
 			own ? t.fg("muted", "≡") : inner.length ? t.fg("muted", `≡${inner.length}`) : "",
@@ -115,7 +117,7 @@ export function listNodes(list: TaskList, truth: Truth | null, data: ViewData): 
 			label: taskLabel(task, glyphState(n), t),
 			meta,
 			right: span && data.src ? t.fg("muted", tok(spanTokens(data.src, span))) : own ? t.fg("muted", tok(own)) : undefined,
-			open: task.status === "doing" || task.status === "todo",
+			open: task.status === "doing" || task.status === "todo" || task.status === "blocked",
 			children: n.children.map(build),
 			data: { type: "task", slug: list.slug, id: task.id, key },
 			text: `${task.id} ${task.title}`,
@@ -154,10 +156,10 @@ export function transcriptNodes(nodes: readonly TNode[], data: ViewData, keyBase
 	for (const n of nodes) {
 		if (n.type === "task") {
 			const s = n.span;
-			const state = s.status === "done" ? "done" : s.status ? "blocked" : "active";
+			const state = s.status ?? "active";
 			out.push({
 				key: `${keyBase}task:${s.key}`,
-				label: `${t.fg(glyphColor(state, true), GLYPH[state])} ${t.fg("muted", s.id)} ${clean(s.title)}`,
+				label: (({ head, title }) => head + title)(taskParts({ id: s.id, title: s.title, status: "doing", updatedAt: "" }, state, t)),
 				meta: [n.subtasks.total ? `${n.subtasks.done}/${n.subtasks.total}` : "", n.folds ? t.fg("muted", `≡${n.folds}`) : ""].filter(Boolean),
 				right: t.fg("muted", tok(n.tokens)),
 				children: transcriptNodes(n.children, data, `${keyBase}${s.key}>`),
@@ -284,6 +286,16 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 			task.startedAt ? `${formatClock(task.startedAt, data.now)} → ${task.endedAt ? formatClock(task.endedAt, data.now) : "now"}${ms !== null ? ` · ${formatDuration(ms)}` : ""} · ${task.status}${task.autoClosed ? " (closed automatically)" : ""}` : `not started · ${task.status}`,
 		),
 	);
+	for (const b of task.blocks ?? [])
+		lines.push(
+			...wrap(
+				b.resumedAt ? "Paused" : "Blocked",
+				`${blockLabel(b)} — ${clean(b.detail)} · ${formatClock(b.at, data.now)}${b.resumedAt ? ` → ${formatClock(b.resumedAt, data.now)}` : ` · ${formatDuration(Math.max(0, data.now - Date.parse(b.at)))} so far`}`,
+			),
+		);
+	if (task.supersededBy) lines.push(...wrap("Superseded", `by ${task.supersededBy}`));
+	const replaces = list.tasks.filter((x) => x.supersededBy === task.id).map((x) => x.id);
+	if (replaces.length) lines.push(...wrap("Replaces", replaces.join(", ")));
 	lines.push(...wrap("Outcome", task.report?.outcome ? clean(task.report.outcome) : t.fg("dim", "–")));
 	lines.push(...items("Decisions", task.report?.decisions), ...items("Open", task.report?.open));
 	const span = data.src ? spanOf(data, `${list.slug}/${id}`) : undefined;

@@ -7,14 +7,24 @@
  * The line builders are pure; `toolRowRenderers` adapts them to Pi's self-shell tool renderers.
  */
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
-import type { TaskList, TaskStatus } from "../tasks";
+import { blockLabel, type TaskBlock, type TaskList, type TaskStatus } from "../tasks";
+import { taskDuration } from "./taskTree";
 import { formatDuration, type WidgetTheme } from "./taskWidget";
 
 /** What a successful `tasks` call reports for its row. */
 export interface TasksDetails {
 	action: string;
 	list?: string;
-	task?: { id: string; title: string; status: TaskStatus; startedAt?: string; endedAt?: string; report?: { outcome: string; decisions?: string[]; open?: string[] } };
+	task?: {
+		id: string;
+		title: string;
+		status: TaskStatus;
+		startedAt?: string;
+		endedAt?: string;
+		report?: { outcome: string; decisions?: string[]; open?: string[] };
+		blocks?: TaskBlock[];
+		supersededBy?: string;
+	};
 	/** Done / total tasks in the list after the call. */
 	progress?: { done: number; total: number };
 	/** Tasks added by `add`, or created by `create`. */
@@ -29,7 +39,20 @@ export function tasksDetails(args: { action: string; list?: string; id?: string 
 	return {
 		action: args.action,
 		...(args.list ? { list: args.list } : {}),
-		...(task ? { task: { id: task.id, title: task.title, status: task.status, startedAt: task.startedAt, endedAt: task.endedAt, report: task.report } } : {}),
+		...(task
+			? {
+					task: {
+						id: task.id,
+						title: task.title,
+						status: task.status,
+						startedAt: task.startedAt,
+						endedAt: task.endedAt,
+						report: task.report,
+						...(task.blocks?.length ? { blocks: task.blocks } : {}),
+						...(task.supersededBy ? { supersededBy: task.supersededBy } : {}),
+					},
+				}
+			: {}),
 		...(list ? { progress: { done: list.tasks.filter((t) => t.status === "done").length, total: list.tasks.length } } : {}),
 		...(added === undefined ? {} : { added }),
 		...(lists === undefined ? {} : { lists }),
@@ -45,13 +68,15 @@ function textOf(content: readonly { type: string; text?: string }[] | undefined)
 	return (content ?? []).map((c) => (c.type === "text" ? (c.text ?? "") : "")).join("\n");
 }
 
+const TASK_ACTIONS = ["start", "block", "complete", "fail", "abandon"];
+
 /** `tasks <action> <target>` for a call, from its arguments alone. */
 function tasksTarget(args: Args): string {
 	const action = str(args.action);
 	const list = str(args.list);
 	if (action === "list") return "list";
 	if (action === "add") return `add ${list}${str(args.parent) ? ` ${str(args.parent)}` : ""}`;
-	if (["start", "complete", "fail", "abandon"].includes(action)) return `${action} ${str(args.id) || list}`;
+	if (TASK_ACTIONS.includes(action)) return `${action} ${str(args.id) || list}`;
 	return `${action}${list ? ` ${list}` : ""}`;
 }
 
@@ -67,15 +92,20 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 	}
 	const action = str(args.action);
 	const task = details?.task;
-	const taskAction = ["start", "complete", "fail", "abandon"].includes(action);
+	const taskAction = TASK_ACTIONS.includes(action);
 	// Rows from before details were recorded still carry the title in the result text.
 	const title = taskAction ? (task?.title ?? /"(.*)"/.exec(firstLine(resultText))?.[1] ?? "") : action === "create" ? str(args.title) : "";
 	const sep = theme.fg("dim", " · ");
 	const extra: string[] = [];
 	if (task && (action === "complete" || action === "fail" || action === "abandon")) {
-		if (task.status !== "done") extra.push(theme.fg("warning", task.status));
-		if (task.startedAt && task.endedAt) extra.push(theme.fg("dim", formatDuration(Date.parse(task.endedAt) - Date.parse(task.startedAt))));
+		if (task.status !== "done") extra.push(theme.fg(task.status === "failed" ? "error" : "warning", task.status));
+		if (task.supersededBy && action === "abandon") extra.push(theme.fg("dim", `→ ${task.supersededBy}`));
+		const ms = task.endedAt ? taskDuration({ ...task, updatedAt: task.endedAt }, Date.parse(task.endedAt)) : null;
+		if (task.startedAt && ms !== null) extra.push(theme.fg("dim", formatDuration(ms)));
 	}
+	const block = task?.blocks?.[task.blocks.length - 1];
+	if (action === "block" && block) extra.push(theme.fg("warning", blockLabel(block)));
+	if (action === "start" && block?.resumedAt) extra.push(theme.fg("dim", "resumed"));
 	if (action === "create" && details?.progress) extra.push(theme.fg("dim", plural(details.progress.total, "task")));
 	if (action === "add" && details?.added !== undefined) extra.push(theme.fg("dim", `+${plural(details.added, "task")}`));
 	if ((action === "claim" || action === "status") && details?.progress) extra.push(theme.fg("dim", `${details.progress.done}/${details.progress.total} done`));
@@ -84,7 +114,8 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 	const lines = [`${head}${titled}${extra.length ? sep + extra.join(sep) : ""}`];
 	if (!expanded) return lines;
 	const report = task?.report;
-	if (report && action !== "start") {
+	if (action === "block" && block) lines.push(`  ${theme.fg("muted", "waits on")} ${block.detail}`);
+	else if (report && action !== "start") {
 		lines.push(`  ${theme.fg("muted", "outcome")}  ${report.outcome}`);
 		for (const d of report.decisions ?? []) lines.push(`  ${theme.fg("muted", "decision")} ${d}`);
 		for (const o of report.open ?? []) lines.push(`  ${theme.fg("muted", "open")}     ${o}`);

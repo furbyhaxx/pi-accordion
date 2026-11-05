@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { foldToolRow, tasksRow, type TasksDetails } from "./toolRows";
 import type { WidgetTheme } from "./taskWidget";
 
-const plain: WidgetTheme = { fg: (_c, t) => t, bold: (t) => t };
+const plain: WidgetTheme = { fg: (_c, t) => t, bold: (t) => t, strikethrough: (t) => t };
 
 describe("tool rows", () => {
 	test("task actions carry the task title and time; list actions never do", () => {
