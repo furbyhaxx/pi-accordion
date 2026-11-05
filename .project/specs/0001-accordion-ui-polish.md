@@ -5,9 +5,9 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-05T12:10:07+01:00"
+  updated_at: "2026-11-05T13:17:39+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
@@ -23,6 +23,9 @@ document:
     - revision: 4
       reason: "user request: remember the widget state, show subtask counts, inspect task folds and the session by task"
       changes: ["§4.4 expanded state persists; finished parents show done/total", "§4.1 task createdAt; persisted classifier verdicts with all answers", "§4.13 task drill-down: tree, details, span view, text viewer, actions", "§4.14 /accordion tasks tree", "§4.11 a protected trailing message ends a record before it"]
+    - revision: 5
+      reason: "user decisions: blocked tasks with reasons, distinct end states, supersededBy, strict parent completion"
+      changes: ["§4.15 task end states: definitions, blocked with reasons, supersededBy/supersedes, parent completion rule, tool description", "§4.4 glyphs ☐ ▶ ◐ ⧗ ▣ ☒ ⊘, abandoned struck through, blocked reason, (fold) only on tasks that ran", "§4.3 collapsed line 2 shows a blocked task", "§4.7 block rows", "§2 glyph set"]
 ---
 
 # Accordion UI polish
@@ -76,7 +79,8 @@ These apply to every TUI surface in this spec. Each MUST hold.
    `warning`, `error`, `text`, `border`, `borderAccent`. The block-kind palette
    (`extension/tui/map.ts` `KIND_RGB`) is data color and stays, but kind is never shown by color
    alone: the selected-block strip names it, and `?` shows the legend.
-4. **Glyphs.** `✓ ✗ ▲ ● ○ ◐ ▶ ☐ ▣ ☒ › · …` plus the box-drawing set. No emoji.
+4. **Glyphs.** `✓ ✗ ▲ ● ○ ◐ ▶ ☐ ▣ ☒ ⧗ ⊘ › · …` plus the box-drawing set. No emoji (`⏸` renders as
+   one in common terminals; blocked uses `⧗`).
 5. **Selection** is a `›` marker plus accent; no row background. The selected row keeps its kind
    colors (today's `theme.fg("accent", row)` repaint is removed).
 6. **Keys.** Enter confirms or drills in. Esc clears a filter, then goes back one level, then closes.
@@ -131,7 +135,8 @@ List files are read on session start, after every `tasks` call of this session a
 - `6m 21s`: sum of the durations of the outermost started tasks. Omitted when no task has timing.
 - `26.7k → 10.1k tok`: tokens of this session's spans of the list at full size → as currently sent
   (a folded group counts once, at its live size). Omitted without spans.
-- Line 2: the innermost task in progress and its running time; when none is in progress,
+- Line 2: the innermost task in progress and its running time; when none is in progress, the
+  innermost blocked task with its reason (`⎿ ⧗ 3 Deploy · needs user decision`), else
   `⎿ next <id> <title>`; omitted when nothing is left to do.
 - All tasks finished (`done`, `failed` or `abandoned`): a single line with `►`.
 
@@ -141,18 +146,23 @@ The header uses `▼`. Rows: `<prefix><glyph> <id> <title> · <duration> <marker
 
 | Glyph | State | Color |
 |---|---|---|
-| `☐` | todo | `dim` (title dim too) |
-| `▣` | done | `success` |
-| `☒` | failed or abandoned ("blocked") | `error` |
-| `▶` | in progress, no finished subtask | alternates `warning` / `text` every 1 s |
+| `☐` | todo | `dim` (id and title dim too) |
+| `▶` | in progress, no finished subtask | alternates `warning` / `text` every 1 s (color only) |
 | `◐` | in progress with ≥1 finished subtask | `warning` |
+| `⧗` | blocked | `warning`; the row adds ` · <reason label>` in `warning` |
+| `▣` | done | `success` |
+| `☒` | failed | `error` |
+| `⊘` | abandoned | `dim`; id and title dim and struck through (SGR 9); the glyph stays plain; superseded rows add ` · → <id>` |
+
+Reason labels: `needs user decision`, `needs user input`, `waits on third party`, `waits for <id>`.
+Durations exclude blocked periods.
 
 Markers, joined with ` · ` inside one pair of parentheses:
 
 | Row | Marker |
 |---|---|
 | task owning folded group(s) | `(fold 35.2k → 400)`: full → live tokens of its groups (parts summed) |
-| subtask folded inside its parent's group | `(fold)` |
+| subtask folded inside its parent's group | `(fold)`, only when it ran (started or blocked at some point); a never-started subtask shows nothing |
 | any task with subtasks | `(3/7)` done/total direct subtasks, first in the marker: `(4/4 · 4 folded · 79.4k → 3.5k)` |
 | closed branch (finished parent, or user-closed) with folded descendants | `(2 folded · 20.0k → 500)`, after the progress when both apply |
 | hidden run | `… N hidden · <duration> (k folded · full → live)` |
@@ -193,7 +203,10 @@ view (§5.8) is the keyboard path.
 
 ```
  ✓ tasks start 3.2 Watch config.json
- ✓ tasks complete 3.2 Watch config.json · 1m 12s          (failed/abandoned add the status word)
+ ✓ tasks complete 3.2 Watch config.json · 1m 12s          (failed/abandoned add the status word; failed in error color)
+ ✓ tasks abandon 3.2 load test · abandoned · → 4          (→ replacement when superseded)
+ ✓ tasks block 2 Deploy to prod · needs user input        (expanded: waits on <detail>)
+ ✓ tasks start 2 Deploy to prod · resumed
  ✓ tasks create demo Demo · 9 tasks
  ✓ tasks status demo · 4/5 done
  ✗ tasks start 2 · Task 2 is done. Add a follow-up task instead of restarting it.
@@ -398,6 +411,53 @@ tree component) and `extension/tui/taskViews.ts` (screens). Enter in the §4.9 b
 verdicts, assistant answers between tasks as `A` rows, and tool calls outside any task as
 `⋯ untracked · n calls · ▲ no task in progress`. Untracked work is visible by default; `t` cycles
 all → tasks only → untracked only. Enter opens a task's span (§4.13).
+
+### 4.15 Task end states (delivered)
+
+| Status | Meaning | Finished | Set by |
+|---|---|---|---|
+| `done` | the goal was reached | yes | `complete` (only from `doing`) |
+| `failed` | tried, the goal was not reached, not pursued further; the report quotes the failing command or error | yes | `fail` (only from `doing`) |
+| `abandoned` | stopped on purpose without a verdict: not wanted, replaced, user changed course | yes | `abandon` (from `todo`, `doing` or `blocked`), cascades, `add … supersedes` |
+| `blocked` | cannot continue because of something outside the agent's control; resumes with `start` | no | `block` (only from `doing`) |
+
+- **`block {list, id, reason, detail, blockedBy?}`.** `reason` ∈ `user-decision` (the user must
+  choose), `user-input` (information, credentials or access only the user can give), `third-party`
+  (external service, review, release), `dependency` (another task first; `blockedBy` names a task
+  outside the task's own branch that is not finished). `detail` is required, ≤240 chars. A task with
+  a subtask in progress cannot be blocked (block the subtask). Ancestors in progress with no other
+  task in progress beneath them are blocked too, reason `dependency` on the blocked task, so the
+  agent may start other work. Each block is appended to `Task.blocks[]`
+  (`{reason, detail, on?, at, resumedAt?}`); `start` on a blocked task (or an ancestor chain) sets
+  `resumedAt` and returns `Resumed …` / `Also resumed parent …`. `startedAt` is kept.
+- **Idle justification.** `IDLE_REASONS` = `user-decision`, `user-input`, `third-party`: waiting on
+  them justifies stopping. `dependency` does not: the block result says `Work on <id> now`. Every
+  `agent_end` appends an `accordion.tasks.idle` session entry `{list, at, state, …}` from
+  `idleVerdict(list)` (`extension/taskCoach.ts`): `in-progress` (a task still doing) and `pending`
+  (startable work left) are premature stops; `waiting` (every remaining task waits on an idle
+  reason, listed with its reason) and `finished` are allowed.
+- **Coach.** `nextTask(list)` suggests resuming a task blocked on a dependency that has finished,
+  else the first `todo` task outside a branch waiting on an idle reason; the outside-work reminder
+  names it (`next: resume <id> …, which was waiting for <dep>`).
+- **Parent completion.** `complete` on a parent is refused while any subtask is `todo` or `blocked`:
+  `Subtask 3.2 (not started) of 3 is unfinished. Start and finish it, or abandon it with a report
+  (and "supersededBy" when another task replaces it) before completing 3.` `fail` and `abandon` on a
+  parent abandon its `todo` and `blocked` subtasks (`Abandoned with its parent <id> (<status>).`).
+  Parents blocked on a finished task stay blocked and are named in the result.
+- **Superseding.** `abandon … supersededBy: "<id>"` links the replacement (not inside the abandoned
+  branch). `add` accepts `supersedes: "<id>"` per task: the old task (not `doing`, not `done`) is
+  abandoned with `Superseded by <new id>.` when still open, and gets `supersededBy` either way.
+  `create` rejects `supersedes`. A finished task cannot be restarted; the error suggests
+  `add … supersedes`.
+- **Tool description.** States the lifecycle, the four endings with their definitions, the block
+  reasons and which justify stopping, the parent and branch rules, and the report contents;
+  guidelines add "pick the ending that is true", "block instead of leaving in progress", "stopping
+  while a task is in progress or unblocked work remains counts as stopping too early".
+- **Views.** Details show `Blocked`/`Paused` periods (`<label> — <detail> · from → to`),
+  `Superseded by <id>` and `Replaces <ids>`; a never-started task shows `Span none · never started`.
+  The list tree keeps blocked tasks open and shows their reason.
+- **Taskfold.** Blocked spans are open spans and never fold; `scanTaskSpans` reads `Resumed …` /
+  `Also resumed parent …` and keeps the span from the task's first start.
 
 ## 5. Area B: the panel
 

@@ -5,9 +5,9 @@ document:
   title: "Resume: Accordion UI polish (SPEC-0001 / PLAN-0001)"
   description: "Self-contained brief to continue the Accordion panel, settings, compaction and web work in a fresh session, starting at slice S1."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-05T10:05:00+01:00"
-  updated_at: "2026-11-05T12:10:31+01:00"
+  updated_at: "2026-11-05T13:18:21+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
@@ -17,6 +17,9 @@ document:
     - revision: 2
       reason: "S0 grew with SPEC §4.8–4.14 and was pushed and installed"
       changes: ["state table, done list and verification updated"]
+    - revision: 3
+      reason: "S0 grew with SPEC §4.15 task end states and was pushed and installed"
+      changes: ["done list and verification updated"]
 ---
 
 # Resume: Accordion UI polish
@@ -56,8 +59,13 @@ Before starting S1, ask the user whether `feat/taskfold-widget` has been merged 
   unfold actions), `/accordion tasks tree`, task protocol repair and coaching, Taskfold
   overlap-safe edges, `keepRecentTasks`, aging ladder, persisted classifier verdicts, task
   `createdAt`, per-model budget/tail with `modelDefaults`, persisted widget expansion.
+- SPEC §4.15: `blocked` status with required reasons and resume, `supersededBy`/`supersedes`,
+  strict parent completion with fail/abandon cascades, rewritten `tasks` tool description,
+  `accordion.tasks.idle` stop verdicts, glyphs `☐ ▶ ◐ ⧗ ▣ ☒ ⊘` with struck-through abandoned rows.
 - Docs: `README.md`, `extension/README.md`, `AGENTS.md`.
-- Verified at the latest S0 commit: 129 bun tests (`extension/tui`, `extension/*.test.ts`,
+- Verified at the latest S0 commit: 138 bun tests, smoke, tsc baseline of 7, live PiG with
+  deepseek-flash (block → ask → resume, refused parent completion, supersede, struck-through row,
+  36/57 columns). Before §4.15: 129 bun tests (`extension/tui`, `extension/*.test.ts`,
   `conductors/in-process/taskfold`), smoke, tsc baseline of 7, live PiG runs of every view.
   Earlier S0 checks: 72 bun tests, `npm --prefix extension run smoke`, live PiG at 36/57/80/140 with a
   real model (rows, collapsed/expanded/all-done, fold markers `(≡3)` and `8.2k → 4.0k tok`,
