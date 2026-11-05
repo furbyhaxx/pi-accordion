@@ -25,6 +25,18 @@ export interface ModelSettings {
 	conductors: Record<string, ModelSpecs>;
 }
 
+/** The Taskfold task list above the editor. */
+export interface TaskWidgetSettings {
+	/** `auto` shows it while the attached conductor provides the `tasks` tool and this session holds a list. */
+	mode: "auto" | "off";
+	/** Start sessions with the task tree expanded. */
+	expanded: boolean;
+	/** Rows the expanded tree uses before hiding tasks furthest from the work in progress. */
+	maxRows: number;
+	/** Shortcut that expands and collapses the widget. */
+	toggleKey: string;
+}
+
 export interface AccordionSettings {
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
@@ -42,6 +54,7 @@ export interface AccordionSettings {
 	models: ModelSettings;
 	/** Conductor id → ISO timestamp at which the user accepted its privacy notice. */
 	privacyConsent: Record<string, string>;
+	taskWidget: TaskWidgetSettings;
 }
 
 export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
@@ -53,6 +66,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	customToken: null,
 	models: { defaults: {}, conductors: {} },
 	privacyConsent: {},
+	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 };
 
 const CONFIG_FILE = "config.json";
@@ -148,6 +162,19 @@ export function sanitizeModelSettings(value: unknown): ModelSettings {
 		}
 	}
 	return { defaults: sanitizeModelSpecs(raw.defaults), conductors };
+}
+
+export function sanitizeTaskWidget(value: unknown): TaskWidgetSettings {
+	const d = DEFAULT_SETTINGS.taskWidget;
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	const rows = raw.maxRows;
+	const key = typeof raw.toggleKey === "string" ? raw.toggleKey.trim().toLowerCase() : "";
+	return {
+		mode: raw.mode === "off" ? "off" : d.mode,
+		expanded: typeof raw.expanded === "boolean" ? raw.expanded : d.expanded,
+		maxRows: typeof rows === "number" && Number.isInteger(rows) && rows >= 1 && rows <= 100 ? rows : d.maxRows,
+		toggleKey: /^((ctrl|alt|shift|super)\+)*[a-z0-9]$/.test(key) ? key : d.toggleKey,
+	};
 }
 
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
@@ -248,6 +275,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		customToken,
 		models: sanitizeModelSettings(fileData.models),
 		privacyConsent: sanitizePrivacyConsent(fileData.privacyConsent),
+		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 	};
 }
 
@@ -261,6 +289,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		customToken: sanitizeCustomToken(settings.customToken),
 		models: sanitizeModelSettings(settings.models),
 		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
+		taskWidget: sanitizeTaskWidget(settings.taskWidget),
 	};
 	try {
 		const filePath = configPathForHome(homeDir);

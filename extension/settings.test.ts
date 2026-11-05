@@ -49,6 +49,7 @@ describe("accordion settings & memorable tokens", () => {
 				customToken: "my-custom-8",
 				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
+				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
 			});
 
 			const loaded = loadSettings(tmp, {});
@@ -61,6 +62,7 @@ describe("accordion settings & memorable tokens", () => {
 				customToken: "my-custom-8",
 				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
+				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
 			});
 
 			const envOverridden = loadSettings(tmp, {
