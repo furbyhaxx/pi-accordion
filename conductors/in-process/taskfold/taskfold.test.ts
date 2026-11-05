@@ -3,7 +3,7 @@
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
 import { describe, it, expect } from "vitest";
-import { TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
+import { ORIENTATION_KEY, TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary, type OrientationOptions } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
 import { VERDICT_ENTRY, VerdictLedger, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
@@ -378,6 +378,75 @@ describe("taskfold", () => {
 		expect(summaries[3]).toContain("\noutcome: 4 done");
 		expect(summaries.every((x, i) => taskKeyOfSummary(x) === `work/${i + 1}`)).toBe(true);
 		c.detach();
+	});
+
+	describe("orientation", () => {
+		/** Reading and exploring before the first task, then one task and a long tail. */
+		function oriented(opts: { brief?: string; agentTask?: boolean } = {}) {
+			const s = new Session();
+			const goal = s.user("Finish slice 1. Do not touch legacy/.");
+			const orient = opts.agentTask ? s.call("tasks", { action: "start", list: "work", id: "1" }, 'Started work/1 "Orientation: what is slice 1".').call : null;
+			const skill = s.call("read", { path: "/skills/golang/SKILL.md" }, "golang rules ".repeat(300));
+			const plan = s.call("read", { path: ".project/plans/slice-1.md" }, "plan text ".repeat(800));
+			s.call("bash", { command: "grep -rn P1g1 .project" }, "hits ".repeat(500));
+			if (opts.agentTask) s.finish("1", { outcome: "Slice 1 = foundation; plan in .project/plans/slice-1.md." });
+			s.call("tasks", { action: "create", list: "work", title: "Slice 1", tasks: [{ title: "Fix test" }], ...(opts.brief ? { brief: opts.brief } : {}) }, "Created work.");
+			const first = s.start(opts.agentTask ? "2" : "1", "Fix test").call;
+			s.work(2, "a");
+			s.finish(opts.agentTask ? "2" : "1", { outcome: "fixed" });
+			s.work(4, "tail");
+			return { s, goal, skill, plan, first, orient };
+		}
+
+		async function run(s: Session, orientation: OrientationOptions, factor = 0.5) {
+			const host = setup(s, factor);
+			const c = new TaskfoldConductor({ keepRecentTasks: 1, orientation });
+			c.attach(host);
+			await host.commitTurn();
+			return host;
+		}
+
+		it("off leaves orientation raw", async () => {
+			const o = oriented();
+			const host = await run(o.s, { fold: "off", agentTask: false, rules: "live" });
+			expect(groupOf(host, o.plan.result)).toBeUndefined();
+		});
+
+		it("typed folds orientation into a brief and a source index, keeping the goal and rule files", async () => {
+			const o = oriented({ brief: "Slice 1 means the foundation; start with the failing test." });
+			const host = await run(o.s, { fold: "typed", agentTask: false, rules: "live" });
+			const g = groupOf(host, o.plan.result)!;
+			expect(taskKeyOfSummary(g.summary)).toBe(ORIENTATION_KEY);
+			expect(g.summary).toContain("brief: Slice 1 means the foundation");
+			expect(g.summary).toContain("read .project/plans/slice-1.md");
+			expect(g.summary).toContain("bash grep -rn P1g1 .project");
+			expect(g.summary).toContain("rules kept verbatim in place: /skills/golang/SKILL.md");
+			expect(groupOf(host, o.skill.result)).toBeUndefined();
+			expect(groupOf(host, o.goal)).toBeUndefined();
+			expect(groupOf(host, o.first)).toBeUndefined();
+		});
+
+		it("rules: fold folds rule files with the rest and lists them as sources", async () => {
+			const o = oriented();
+			const host = await run(o.s, { fold: "typed", agentTask: false, rules: "fold" });
+			const g = groupOf(host, o.skill.result)!;
+			expect(g.summary).toContain("read /skills/golang/SKILL.md");
+			expect(g.summary).not.toContain("brief:");
+		});
+
+		it("with agentTask, the agent's orientation task is the orientation and its outcome the brief", async () => {
+			const o = oriented({ agentTask: true });
+			const host = await run(o.s, { fold: "typed", agentTask: true, rules: "fold" });
+			const g = groupOf(host, o.plan.result)!;
+			expect(taskKeyOfSummary(g.summary)).toBe(ORIENTATION_KEY);
+			expect(g.summary).toContain("brief: Slice 1 = foundation");
+		});
+
+		it("the aging ladder never shortens the orientation record", async () => {
+			const o = oriented({ brief: "keep me" });
+			const host = await run(o.s, { fold: "typed", agentTask: false, rules: "fold" }, 0.15);
+			expect(groupOf(host, o.plan.result)!.summary).toContain("brief: keep me");
+		});
 	});
 });
 

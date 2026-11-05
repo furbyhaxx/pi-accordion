@@ -276,6 +276,78 @@ export function recordFacts<B extends FactBlock>(members: readonly B[], textOf: 
 	return { changed: [...changed], verified };
 }
 
+/** The fold key of the orientation record. */
+export const ORIENTATION_KEY = "orientation";
+
+interface Orientation {
+	span: Span;
+	/** The agent's own orientation task, when it tracked one (`agentTask`). */
+	task: Span | null;
+}
+
+/**
+ * The orientation phase: the agent's finished "Orientation…" task when it tracked one, else every
+ * block before the message holding the first `tasks start`. Null while no task has started.
+ */
+export function orientationSpan<B extends SpanBlock & { id: string }>(blocks: readonly B[], textOf: (b: B) => string, spans: readonly TaskSpan[], agentTask: boolean): { span: Span; task: Span | null } | null {
+	if (agentTask) {
+		const task = spans.find((s) => s.status !== null && /^orientation\b/i.test(s.title) && !s.id.includes("."));
+		if (task) return { span: { ...(task as Span), key: ORIENTATION_KEY }, task: task as Span };
+	}
+	const first = blocks.findIndex((b) => b.kind === "tool_call" && b.toolName === "tasks" && parseCall(textOf(b))?.action === "start");
+	if (first <= 0) return null;
+	let end = first - 1;
+	while (end >= 0 && messageKey(blocks[end].id) === messageKey(blocks[first].id)) end--;
+	const start = blocks.findIndex((b) => b.kind !== "system");
+	if (end < start || start < 0) return null;
+	return { span: { key: ORIENTATION_KEY, list: "", id: "0", title: "Orientation", status: "done", report: {}, start, end }, task: null };
+}
+
+/** Ids of rule-file reads (call and result) among `blocks`. */
+export function ruleBlockIds<B extends SpanBlock & { id: string }>(blocks: readonly B[], textOf: (b: B) => string): Set<string> {
+	const calls = new Set<string>();
+	const out = new Set<string>();
+	for (const b of blocks) {
+		if (b.kind !== "tool_call" || !b.callId) continue;
+		const path = parseCall(textOf(b))?.path;
+		if (typeof path === "string" && RULE_FILE_RE.test(path)) {
+			calls.add(b.callId);
+			out.add(b.id);
+		}
+	}
+	for (const b of blocks) if (b.kind === "tool_result" && b.callId && calls.has(b.callId)) out.add(b.id);
+	return out;
+}
+
+/** One line per tool call: what it looked at and how big its result was. */
+export function orientationSources<B extends SpanBlock & { id: string }>(blocks: readonly B[], textOf: (b: B) => string, tokensOf: (b: B) => number): { blockId: string; target: string; line: string }[] {
+	const results = new Map<string, B>();
+	for (const b of blocks) if (b.kind === "tool_result" && b.callId) results.set(b.callId, b);
+	const out: { blockId: string; target: string; line: string }[] = [];
+	for (const b of blocks) {
+		if (b.kind !== "tool_call") continue;
+		const args = parseCall(textOf(b)) ?? {};
+		const tool = b.toolName ?? "tool";
+		const main = [args.path, args.command, args.pattern, args.query, args.url, args.action && args.list ? `${args.action} ${args.list}` : undefined].find((v) => typeof v === "string") as string | undefined;
+		const target = oneLine(main ?? JSON.stringify(args), 140);
+		const r = b.callId ? results.get(b.callId) : undefined;
+		const size = r ? tokensOf(r) : 0;
+		const mark = r?.isError ? " (failed)" : "";
+		out.push({ blockId: b.id, target, line: `${tool} ${target}${size ? ` · ${size >= 1000 ? `${(size / 1000).toFixed(1)}k` : size} tok` : ""}${mark}` });
+	}
+	return out;
+}
+
+/** The first `brief` the agent passed to `tasks create` or `claim`. */
+export function findBrief<B extends SpanBlock>(blocks: readonly B[], textOf: (b: B) => string): string | null {
+	for (const b of blocks) {
+		if (b.kind !== "tool_call" || b.toolName !== "tasks") continue;
+		const args = parseCall(textOf(b));
+		if ((args?.action === "create" || args?.action === "claim") && typeof args.brief === "string" && args.brief.trim()) return args.brief.trim();
+	}
+	return null;
+}
+
 export class TaskfoldConductor implements Conductor {
 	readonly id = "taskfold";
 	readonly label = "Taskfold";
@@ -447,14 +519,28 @@ export class TaskfoldConductor implements Conductor {
 		const spans = this.spans(blocks);
 		const contains = (outer: Span, inner: Span) => outer !== inner && outer.start <= inner.start && inner.end <= outer.end;
 		// Outermost finished spans are the fold units; finished descendants fold inside them.
-		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(this.ownGroups.values());
+		const orient = this.k.orientation.fold === "typed" ? orientationSpan(blocks, (b) => this.textOf(b), spans, this.k.orientation.agentTask) : null;
+		const roots = spans.filter((s) => !spans.some((o) => contains(o, s)) && s !== orient?.task).sort((a, b) => a.start - b.start);
 		// Oldest first: the newest finished work stays open longest, and the cache breaks once, early.
 		const candidates = roots.slice(0, Math.max(0, roots.length - this.k.keepRecentTasks)).filter((s) => !foldedKeys.has(s.key));
 		const units: Unit[] = [];
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
 		const planned = new Set<string>();
+		// Orientation is the oldest work: it folds first, once.
+		if (orient && !foldedKeys.has(ORIENTATION_KEY) && projected > target) {
+			const keep = this.k.orientation.rules === "live" ? ruleBlockIds(blocks.slice(orient.span.start, orient.span.end + 1), (b) => this.textOf(b)) : new Set<string>();
+			const unit = this.unit(host, blocks, orient.span, [], planned, {
+				keep: (b) => keep.has(b.id),
+				record: (members) => this.orientationRecord(orient, members, keep, blocks),
+			});
+			if (unit) {
+				units.push(unit);
+				for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
+				projected -= unit.saved;
+			}
+		}
 		for (const span of candidates) {
 			if (projected <= target) break;
 			const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)), planned);
@@ -480,7 +566,7 @@ export class TaskfoldConductor implements Conductor {
 		const pos = new Map(blocks.map((b, i) => [b.id, i]));
 		const ours = host
 			.groups()
-			.filter((g) => this.ownGroups.has(g.id) && g.folded && typeof g.summary === "string" && !touched.has(g.id) && !g.memberIds.some((id) => touched.has(id)))
+			.filter((g) => this.ownGroups.has(g.id) && this.ownGroups.get(g.id) !== ORIENTATION_KEY && g.folded && typeof g.summary === "string" && !touched.has(g.id) && !g.memberIds.some((id) => touched.has(id)))
 			.sort((a, b) => (pos.get(a.memberIds[0]) ?? 0) - (pos.get(b.memberIds[0]) ?? 0))
 			// The newest record keeps its full form: it is the work the next steps most likely build on.
 			.slice(0, -1);
@@ -508,7 +594,14 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
-	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): Unit | null {
+	private unit(
+		host: ConductorHost,
+		blocks: readonly ViewBlock[],
+		span: Span,
+		children: Span[],
+		planned: ReadonlySet<string> = new Set(),
+		custom: { keep?: (b: ViewBlock) => boolean; record?: (members: readonly ViewBlock[]) => string } = {},
+	): Unit | null {
 		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
@@ -548,7 +641,7 @@ export class TaskfoldConductor implements Conductor {
 		const runs: ViewBlock[][] = [];
 		let run: ViewBlock[] = [];
 		for (const b of members) {
-			if (b.kind === "user" && !this.folds(b)) {
+			if ((b.kind === "user" && !this.folds(b)) || custom.keep?.(b)) {
 				if (run.length) runs.push(run);
 				run = [];
 				continue;
@@ -559,7 +652,7 @@ export class TaskfoldConductor implements Conductor {
 		const viable = runs.filter((r) => collapsibleMessageKeys(r, true).size > 0);
 		if (!viable.length) return null;
 
-		const record = this.record(span, members, children);
+		const record = custom.record ? custom.record(members) : this.record(span, members, children);
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
 		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary }) as Op);
 		let saved = 0;
@@ -593,6 +686,21 @@ export class TaskfoldConductor implements Conductor {
 			"children",
 			direct.map((c) => `${c.id} "${c.title}" ${c.status}${c.report.outcome ? `: ${c.report.outcome}` : ""}`),
 		);
+		return lines.join("\n");
+	}
+
+	/** The orientation record: the agent's brief, an index of what was read and run, and which rule files stayed. */
+	private orientationRecord(o: Orientation, members: readonly ViewBlock[], kept: ReadonlySet<string>, blocks: readonly ViewBlock[]): string {
+		const textOf = (b: ViewBlock) => this.textOf(b);
+		const calls = members.filter((b) => b.kind === "tool_call");
+		const lines = [`${RECORD_TAG} ${ORIENTATION_KEY} "Orientation"  status: done · ${calls.length} tool calls before the first task`];
+		const brief = o.task?.report.outcome ?? findBrief(blocks, textOf);
+		if (brief) lines.push(`brief: ${oneLine(brief, 1500)}`);
+		const sources = orientationSources(members, textOf, (b) => b.tokens).filter((x) => !kept.has(x.blockId));
+		if (sources.length) lines.push("sources (recall this record's code for their full text):", ...sources.slice(0, 40).map((x) => `  - ${x.line}`));
+		if (sources.length > 40) lines.push(`  - … ${sources.length - 40} more`);
+		const rules = orientationSources(members, textOf, (b) => b.tokens).filter((x) => kept.has(x.blockId));
+		if (rules.length) lines.push(`rules kept verbatim in place: ${rules.map((x) => x.target).join(", ")}`);
 		return lines.join("\n");
 	}
 
