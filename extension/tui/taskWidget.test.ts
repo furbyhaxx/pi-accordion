@@ -119,4 +119,19 @@ describe("task widget", () => {
 		expect(pickTaskList([a, b, other], "s1")?.slug).toBe("b");
 		expect(pickTaskList([a, other], "s1")?.slug).toBe("a");
 	});
+
+	test("folded rows show their tokens; closed parents and hidden runs sum their folded subtasks", () => {
+		const folds = new Map([
+			["0", { full: 35_200, live: 400 }],
+			["3.1", { full: 12_000, live: 300 }],
+			["3.2", { full: 8_000, live: 200 }],
+		]);
+		const model = { list: list(secrets()), folded: new Set(["0", "3.1", "3.2"]), foldTokens: folds, tokens: null };
+		const full = renderTaskWidget(model, view({ expanded: true, maxRows: 50, toggles: new Map([["3", false]]) }), 120, plain, NOW, true).lines;
+		expect(full[1]).toBe("  ├─▣ 0 Orientation · 1m 12s (fold 35.2k → 400)");
+		expect(full.find((l) => l.includes(" 3 Secrets"))).toBe("  ├─◐ 3 Secrets Redesign · 2m 45s (3/7 · 2 folded · 20.0k → 500)");
+		const hidden = renderTaskWidget(model, view({ expanded: true, maxRows: 9 }), 120, plain, NOW, true).lines;
+		expect(hidden[1]).toBe("  ├─ … 3 hidden · 3m 36s (1 folded · 35.2k → 400)");
+	});
 });
+

@@ -22,6 +22,8 @@ export interface WidgetTheme {
 export interface TaskWidgetModel {
 	list: TaskList;
 	folded: ReadonlySet<string>;
+	/** Tokens of each folded task's own group(s), at full size and as sent; subtasks folded inside a parent have none. */
+	foldTokens?: ReadonlyMap<string, FoldTokens>;
 	/** Tokens of this session's task spans at full size and as currently sent; null without spans. */
 	tokens: { full: number; live: number } | null;
 }
@@ -32,6 +34,12 @@ export interface TaskWidgetView {
 	maxRows: number;
 	toggles: Map<string, boolean>;
 	revealed: Set<string>;
+}
+
+/** A folded span's size before and after folding. */
+export interface FoldTokens {
+	full: number;
+	live: number;
 }
 
 /** What a click on a rendered line does. */
@@ -96,19 +104,40 @@ function glyphColor(state: TaskGlyphState, blinkOn: boolean): "dim" | "success" 
 	return "warning";
 }
 
-function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, theme: WidgetTheme, blinkOn: boolean): string {
+const arrow = (f: FoldTokens) => `${formatCompactTokens(f.full)} → ${formatCompactTokens(f.live)}`;
+
+/** Folded tasks among `ids` and their subtasks that own a group, with their summed tokens. */
+function foldsWithin(ids: readonly string[], folds: ReadonlyMap<string, FoldTokens> | undefined, self: boolean): { count: number; tokens: FoldTokens } {
+	const tokens = { full: 0, live: 0 };
+	let count = 0;
+	for (const [id, f] of folds ?? []) {
+		if (!ids.some((x) => (self && id === x) || id.startsWith(`${x}.`))) continue;
+		count++;
+		tokens.full += f.full;
+		tokens.live += f.live;
+	}
+	return { count, tokens };
+}
+
+function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, theme: WidgetTheme, blinkOn: boolean, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
 	const todo = row.state === "todo";
 	const t = row.node.task;
 	const left = `  ${theme.fg("dim", row.prefix)}${theme.fg(glyphColor(row.state, blinkOn), GLYPH[row.state])} ${theme.fg(todo ? "dim" : "muted", t.id)} `;
 	const title = todo ? theme.fg("dim", t.title) : t.title;
 	const duration = row.durationMs !== null ? theme.fg("dim", ` · ${formatDuration(row.durationMs)}`) : "";
-	const marker = row.folded ? theme.fg("muted", " (fold)") : row.progress ? theme.fg("muted", ` (${row.progress.done}/${row.progress.total})`) : "";
-	return fitRow(left, title, [duration + marker, marker], width);
+	const own = folds?.get(t.id);
+	const inner = !row.folded && !row.open && row.node.children.length ? foldsWithin([t.id], folds, false) : null;
+	const parts = row.folded ? [own ? `fold ${arrow(own)}` : "fold"] : [row.progress ? `${row.progress.done}/${row.progress.total}` : "", inner?.count ? `${inner.count} folded · ${arrow(inner.tokens)}` : ""].filter(Boolean);
+	const short = row.folded ? ["fold"] : [row.progress ? `${row.progress.done}/${row.progress.total}` : "", inner?.count ? `${inner.count} folded` : ""].filter(Boolean);
+	const marker = parts.length ? theme.fg("muted", ` (${parts.join(" · ")})`) : "";
+	const shortMarker = short.length ? theme.fg("muted", ` (${short.join(" · ")})`) : "";
+	return fitRow(left, title, [duration + marker, marker, shortMarker], width);
 }
 
-function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme): string {
+function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
 	const parts = [`… ${row.count} hidden`, row.durationMs !== null ? formatDuration(row.durationMs) : ""].filter(Boolean).join(" · ");
-	const folded = row.folded ? ` (${row.folded} folded)` : "";
+	const within = foldsWithin(row.ids, folds, true);
+	const folded = row.folded ? ` (${row.folded} folded${within.count ? ` · ${arrow(within.tokens)}` : ""})` : "";
 	return truncateToWidth(`  ${theme.fg("dim", row.prefix)} ${theme.fg("dim", parts + folded)}`, width, ELLIPSIS);
 }
 
@@ -132,10 +161,10 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 	const hits: TaskWidgetHit[] = [{ kind: "header" }];
 	for (const row of rows) {
 		if (row.kind === "hidden") {
-			lines.push(hiddenRowLine(row, width, theme));
+			lines.push(hiddenRowLine(row, width, theme, model.foldTokens));
 			hits.push({ kind: "reveal", ids: row.ids });
 		} else {
-			lines.push(taskRowLine(row, width, theme, blinkOn));
+			lines.push(taskRowLine(row, width, theme, blinkOn, model.foldTokens));
 			hits.push(row.node.children.length ? { kind: "toggle", id: row.node.task.id, open: row.open } : null);
 		}
 	}
@@ -156,16 +185,27 @@ export function applyTaskWidgetHit(view: TaskWidgetView, hit: TaskWidgetHit): bo
 	return true;
 }
 
-/** Ids of `list`'s tasks inside a folded Taskfold group; subtasks of a folded task count as folded. */
-export function foldedTaskIds(list: TaskList, truth: Truth): Set<string> {
-	const roots: string[] = [];
+/** Ids of `list`'s tasks inside a folded group: the group owners in `folds` and their subtasks. */
+export function foldedTaskIds(list: TaskList, folds: ReadonlyMap<string, FoldTokens>): Set<string> {
+	const roots = [...folds.keys()];
+	const out = new Set<string>();
+	for (const t of list.tasks) if (roots.some((r) => t.id === r || t.id.startsWith(`${r}.`))) out.add(t.id);
+	return out;
+}
+
+/** Tokens of each of `list`'s tasks that owns folded Taskfold groups, summed over its parts. */
+export function foldedTaskTokens(list: TaskList, truth: Truth): Map<string, FoldTokens> {
+	const out = new Map<string, FoldTokens>();
 	for (const g of truth.groups) {
 		if (!g.folded) continue;
 		const key = taskKeyOfSummary(g.digest);
-		if (key?.startsWith(`${list.slug}/`)) roots.push(key.slice(list.slug.length + 1));
+		if (!key?.startsWith(`${list.slug}/`)) continue;
+		const id = key.slice(list.slug.length + 1);
+		const f = out.get(id) ?? { full: 0, live: 0 };
+		f.full += truth.calibratedGroupFullTokens(g);
+		f.live += truth.calibratedGroupLiveTokens(g);
+		out.set(id, f);
 	}
-	const out = new Set<string>();
-	for (const t of list.tasks) if (roots.some((r) => t.id === r || t.id.startsWith(`${r}.`))) out.add(t.id);
 	return out;
 }
 
@@ -393,7 +433,8 @@ export class TaskWidgetController {
 		const truth = this.deps.truth();
 		const key = `${list.slug}|${list.updatedAt}|${truth?.rev ?? -1}|${truth?.blocks.length ?? 0}`;
 		if (this.cache?.key === key) return this.cache.model;
-		const model: TaskWidgetModel = { list, folded: truth ? foldedTaskIds(list, truth) : new Set(), tokens: truth ? taskSpanTokens(list, truth) : null };
+		const foldTokens = truth ? foldedTaskTokens(list, truth) : new Map<string, FoldTokens>();
+		const model: TaskWidgetModel = { list, folded: foldedTaskIds(list, foldTokens), foldTokens, tokens: truth ? taskSpanTokens(list, truth) : null };
 		this.cache = { key, model };
 		return model;
 	}
