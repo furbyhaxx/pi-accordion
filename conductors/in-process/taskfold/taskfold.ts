@@ -157,11 +157,13 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 				out.push({ key: ckey, list: args.list, id: m[1], title: s.title || m[2], status: m[3] as "done" | "failed", report: { outcome: "Closed automatically after its subtasks." }, start: s.start, end: Math.max(s.start, i - 1) });
 			}
 			for (const line of lines) {
-				const m = /^Also started parent (\S+) "(.*)" so its span/.exec(line);
-				if (m) open.set(`${args.list}/${m[1]}`, { start: i, title: m[2], list: args.list, id: m[1] });
+				const m = /^Also (?:started|resumed) parent (\S+) "(.*)" so its span/.exec(line);
+				const pkey = m ? `${args.list}/${m[1]}` : "";
+				if (m && !open.has(pkey)) open.set(pkey, { start: i, title: m[2], list: args.list, id: m[1] });
 			}
-			const title = /^Started \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
-			open.set(key, { start: i, title, list: args.list, id: args.id });
+			// A resumed (blocked) task keeps the span it opened when it first started.
+			const title = /^(?:Started|Resumed) \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
+			if (!open.has(key)) open.set(key, { start: i, title, list: args.list, id: args.id });
 		} else if (FINISH[action]) {
 			const s = open.get(key);
 			if (!s) return;

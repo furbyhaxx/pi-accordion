@@ -271,6 +271,19 @@ describe("taskfold", () => {
 		expect(spans.find((x) => x.key === "work/2")).toMatchObject({ title: "B", status: null, start: idx(next) });
 	});
 
+	it("keeps a blocked task's span open across the block and resumes it from its first start", () => {
+		const s = new Session();
+		s.user("Go.");
+		const first = s.call("tasks", { action: "start", list: "work", id: "1" }, 'Started work/1 "A".').call;
+		s.call("tasks", { action: "block", list: "work", id: "1", reason: "user-decision", detail: "pick a db" }, 'Blocked work/1 "A": needs user decision — pick a db.');
+		expect(scanTaskSpans(s.blocks, (b) => b.text).find((x) => x.key === "work/1")?.status).toBeNull();
+		s.call("tasks", { action: "start", list: "work", id: "1" }, 'Resumed work/1 "A".');
+		s.work(1, "a");
+		s.finish("1", { outcome: "a" });
+		const one = scanTaskSpans(s.blocks, (b) => b.text).find((x) => x.key === "work/1")!;
+		expect(one).toMatchObject({ status: "done", title: "A", start: s.blocks.findIndex((b) => b.id === first) });
+	});
+
 	it("keeps the newest finished task open by default and folds the older ones", async () => {
 		const s = new Session();
 		s.user("Two things.");

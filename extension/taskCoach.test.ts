@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { TaskCoach } from "./taskCoach";
+import { idleVerdict, nextTask, TaskCoach } from "./taskCoach";
 import type { Task, TaskList } from "./tasks";
 
 const t = (id: string, status: Task["status"], title = `T${id}`): Task => ({ id, title, status, updatedAt: "" });
@@ -35,5 +35,20 @@ describe("task coach", () => {
 		expect(c.finished("w", "1.2")).toContain("no tool work ran between starting and finishing 1.2");
 		expect(c.finished("w", "1")).toBeNull();
 		expect(c.finished("w", "9")).toBeNull();
+	});
+
+	test("suggests resuming a task whose dependency finished, and skips work under a user wait", () => {
+		const at = "2026-11-05T10:00:00.000Z";
+		const t = (id: string, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, title: id, status, updatedAt: at, ...extra });
+		const l = (tasks: Task[]): TaskList => ({ slug: "w", title: "W", createdAt: at, updatedAt: at, claim: null, tasks });
+		const dep = { reason: "dependency" as const, detail: "needs 2", on: "2", at };
+		const ask = { reason: "user-decision" as const, detail: "db?", at };
+		expect(nextTask(l([t("1", "blocked", { blocks: [dep] }), t("2", "doing"), t("3", "todo")]))?.task.id).toBe("3");
+		expect(nextTask(l([t("1", "blocked", { blocks: [dep] }), t("2", "done"), t("3", "todo")]))).toMatchObject({ task: { id: "1" }, resume: true });
+		expect(nextTask(l([t("1", "blocked", { blocks: [ask] }), t("1.1", "todo"), t("2", "todo")]))?.task.id).toBe("2");
+		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "done")]))).toEqual({ state: "waiting", tasks: [{ id: "1", reason: "user-decision" }] });
+		expect(idleVerdict(l([t("1", "doing"), t("1.1", "doing")]))).toEqual({ state: "in-progress", task: "1.1" });
+		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "todo")]))).toEqual({ state: "pending", next: "2" });
+		expect(idleVerdict(l([t("1", "done"), t("2", "abandoned")]))).toEqual({ state: "finished" });
 	});
 });

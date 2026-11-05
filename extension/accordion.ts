@@ -56,7 +56,7 @@ import { TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } 
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
-import { TaskCoach } from "./taskCoach";
+import { IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
@@ -3064,6 +3064,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return note ? { content: [...event.content, { type: "text" as const, text: note }] } : undefined;
 	});
 
+	// Each stop is judged against the attached list and kept in the session, so a premature stop
+	// (open or startable work left) can be told apart from waiting on the user or a third party.
+	function recordIdleVerdict(ctx: ExtensionContext): void {
+		if (!tasksToolActive()) return;
+		try {
+			const list = attachedList(taskStoreFor(ctx).claimedBySession());
+			if (list) pi.appendEntry(IDLE_ENTRY, { list: list.slug, at: new Date().toISOString(), ...idleVerdict(list) });
+		} catch {
+			/* no list, no verdict */
+		}
+	}
+
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
 	pi.on("before_agent_start", async () => {
@@ -3282,6 +3294,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	pi.on("agent_end", (event, ctx: ExtensionContext) => {
 		latestCtx = ctx;
 		taskSession?.record();
+		recordIdleVerdict(ctx);
 		sendStream({ type: "stream", phase: "abort", kind: "text", contentIndex: -1 });
 		const messages = event.messages as unknown as PiMessage[];
 		let lastAssistantIdx = -1;
