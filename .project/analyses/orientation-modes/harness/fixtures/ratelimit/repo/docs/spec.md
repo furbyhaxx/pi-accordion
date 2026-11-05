@@ -318,6 +318,11 @@ backlog owner release.
 A bucket key has the form `rl:{tenant}:{route}`, where `route` is the path with its leading
 slash removed and every remaining `/` replaced by `.` (so `/v1/orders` → `v1.orders`).
 
+## Exemptions
+
+Requests from the tenant `ops-internal` are never limited: they always get status 200, use no
+bucket, and carry the header `X-RateLimit-Exempt: 1` instead of `X-RateLimit-Remaining`.
+
 ## History — migration notes (1)
 
 Release cluster window client cluster quota tenant policy token jitter review retry backlog cluster

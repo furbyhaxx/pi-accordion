@@ -294,6 +294,8 @@ cluster backlog retry.
 - `gross` = `net` + `vat`. All three printed with exactly 2 decimals.
 - Rates: CH **8.1%**, DE **19%**, AT **20%**, FR **20%**. Currency: CH → `CHF`, all others → `EUR`.
 - Customers from any other country are skipped and reported on stderr as `skipped <invoice_id>`.
+- Invoices whose `customer` starts with `TEST-` are internal test data: leave them out of the
+  CSV and the summary silently (no stderr line, not counted as skipped).
 
 ## Summary file
 

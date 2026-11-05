@@ -85,6 +85,11 @@ def ratelimit() -> None:
         A bucket key has the form `rl:{{tenant}}:{{route}}`, where `route` is the path with its leading
         slash removed and every remaining `/` replaced by `.` (so `/v1/orders` → `v1.orders`).
 
+        ## Exemptions
+
+        Requests from the tenant `ops-internal` are never limited: they always get status 200, use no
+        bucket, and carry the header `X-RateLimit-Exempt: 1` instead of `X-RateLimit-Remaining`.
+
         {filler(rng, 4, "History")}
 
         ## Responses
@@ -262,6 +267,16 @@ def ratelimit() -> None:
             assert data["retry_after_ms"] == math.ceil(1500 / 37 - 20)
 
 
+        def test_phase2_exempt_tenant():
+            check = _fresh()
+            c = Clock()
+            for _ in range(100):
+                status, headers, body = check("ops-internal", "/a", clock=c)
+                assert status == 200
+            assert str(headers.get("X-RateLimit-Exempt")) == "1"
+            assert "X-RateLimit-Remaining" not in headers
+
+
         def test_gold_tier():
             check = _fresh()
             c = Clock()
@@ -315,6 +330,9 @@ def ratelimit() -> None:
             out["exports_unchanged"] = [] if '__all__ = ["TokenBucket", "check_request", "make_key"]' in init else ["limiter/__init__.py __all__ changed"]
             return out
     ''')
+    write(base, "prompt2.txt", """
+        The spec contains one requirement that the plan does not list and that your implementation does not cover yet. Implement it, with a test, and make sure the whole suite still passes.
+    """)
     write(base, "prompt.txt", """
         Implement the rate limiter in this repository. Read AGENTS.md, docs/spec.md, docs/plan.md, docs/architecture.md and docs/notes/ first, then work through the plan.
         Do not change the exports in limiter/__init__.py. When you are done, the test suite must pass.
@@ -359,6 +377,8 @@ def invoices() -> None:
         - `gross` = `net` + `vat`. All three printed with exactly 2 decimals.
         - Rates: CH **8.1%**, DE **19%**, AT **20%**, FR **20%**. Currency: CH → `CHF`, all others → `EUR`.
         - Customers from any other country are skipped and reported on stderr as `skipped <invoice_id>`.
+        - Invoices whose `customer` starts with `TEST-` are internal test data: leave them out of the
+          CSV and the summary silently (no stderr line, not counted as skipped).
 
         ## Summary file
 
@@ -454,6 +474,20 @@ def invoices() -> None:
             assert "skipped A2" in capsys.readouterr().err
             summary = (tmp_path / "invoices-202610.summary.txt").read_text().splitlines()
             assert summary == ["CHF 1 108.10", "EUR 1 12.00", "skipped 1"]
+
+
+        def test_phase2_test_customers(tmp_path, capsys):
+            inv = [
+                {"invoice_id": "B1", "issued_on": "2026-10-03", "customer": "TEST-load", "country": "CH", "net": "100.00"},
+                {"invoice_id": "B2", "issued_on": "2026-10-04", "customer": "Real", "country": "DE", "net": "10.00"},
+                {"invoice_id": "B3", "issued_on": "2026-10-05", "customer": "TEST-x", "country": "US", "net": "1.00"},
+            ]
+            path = pathlib.Path(export_month(inv, 2026, 10, tmp_path))
+            lines = path.read_text().splitlines()
+            assert lines[1:] == ["B2;2026-10-04;Real;10.00;1.90;11.90;EUR"]
+            assert "B1" not in capsys.readouterr().err
+            summary = (tmp_path / "invoices-202610.summary.txt").read_text().splitlines()
+            assert summary == ["EUR 1 11.90", "skipped 0"]
     ''')
     write(hidden, "constraints.py", '''
         """Constraint checks."""
@@ -494,6 +528,9 @@ def invoices() -> None:
             out["stdlib_only"] = deps
             return out
     ''')
+    write(base, "prompt2.txt", """
+        The spec contains one requirement that the plan does not list and that your implementation does not cover yet. Implement it, with a test, and make sure the whole suite still passes.
+    """)
     write(base, "prompt.txt", """
         Build the monthly invoice export in this repository. Read AGENTS.md, docs/spec.md, docs/plan.md, docs/operations.md and docs/notes/ first, then work through the plan.
         Do not change the function signatures in export/. When you are done, the test suite must pass.

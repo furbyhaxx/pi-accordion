@@ -37,6 +37,7 @@ ARMS = {
 }
 
 lock = threading.Lock()
+PHASE2 = False
 spent = 0.0
 
 
@@ -146,6 +147,16 @@ def grade(fixture: str, repo: Path) -> dict:
     }
 
 
+def grade_phase2(fixture: str, repo: Path) -> bool:
+    """Whether the phase-2 hidden test passes (graded on the copy `grade` made)."""
+    env = {**os.environ, "PATH": f"{VENV}:{os.environ['PATH']}"}
+    try:
+        r = sh([str(VENV / "python3"), "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests/test_zz_hidden.py", "-k", "phase2"], repo.parent / "grade", env, timeout=120)
+        return " passed" in r.stdout and "failed" not in r.stdout
+    except subprocess.TimeoutExpired:
+        return False
+
+
 def run(fixture: str, arm: str, rep: int, budget: str, protect: str, cap: float) -> dict | None:
     global spent
     with lock:
@@ -165,18 +176,28 @@ def run(fixture: str, arm: str, rep: int, budget: str, protect: str, cap: float)
     env = {**os.environ, "ACCORDION_HOME": str(d / "home"), "PATH": f"{VENV}:{os.environ['PATH']}"}
     t0 = time.time()
     cmd = ["pig", "-p", "--session-dir", str(d / "sess"), "-ne", "-ns", "-nc", "-np", "--no-mcp", "--offline", "-e", str(EXT), "--model", MODEL, prompt]
-    try:
-        r = subprocess.run(cmd, cwd=d / "repo", env=env, capture_output=True, text=True, timeout=1500)
-        status = f"exit {r.returncode}"
-        tail = (r.stdout + r.stderr)[-1500:]
-    except subprocess.TimeoutExpired as err:
-        status = "timeout"
-        tail = str(err.stdout or "")[-1500:] if err.stdout else ""
+    phases = [cmd]
+    p2 = HERE / "fixtures" / fixture / "prompt2.txt"
+    if PHASE2 and p2.exists():
+        phases.append(cmd[:-1] + ["-c", p2.read_text().strip()])
+    status, tail = "", ""
+    for i, c in enumerate(phases):
+        try:
+            r = subprocess.run(c, cwd=d / "repo", env=env, capture_output=True, text=True, timeout=1500)
+            status += f"{'/' if i else ''}exit {r.returncode}"
+            tail = (r.stdout + r.stderr)[-1500:]
+        except subprocess.TimeoutExpired as err:
+            status += f"{'/' if i else ''}timeout"
+            tail = str(err.stdout or "")[-1500:] if err.stdout else ""
     wall = time.time() - t0
     sessions = sorted((d / "sess").glob("*.jsonl"))
     m = metrics(sessions[0]) if sessions else {}
     g = grade(fixture, d / "repo")
-    res = {"id": rid, "fixture": fixture, "arm": arm, "rep": rep, "options": ARMS[arm], "budget": budget, "protect": protect, "status": status, "wall_s": round(wall), **m, **g, "tail": tail}
+    phase2 = {}
+    if PHASE2:
+        hidden = grade_phase2(fixture, d / "repo")
+        phase2 = {"phase2_pass": hidden}
+    res = {"id": rid, "fixture": fixture, "arm": arm, "rep": rep, "options": ARMS[arm], "budget": budget, "protect": protect, "status": status, "wall_s": round(wall), **m, **g, **phase2, "tail": tail}
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     (EVIDENCE / f"{rid}.json").write_text(json.dumps(res, indent=2))
     if sessions:
@@ -184,7 +205,7 @@ def run(fixture: str, arm: str, rep: int, budget: str, protect: str, cap: float)
             f.write(sessions[0].read_text())
     with lock:
         spent += m.get("cost", 0.0)
-        print(f"{rid:24} {status:8} {wall:5.0f}s hidden {g['hidden_passed']}/{g['hidden_total']} viol {g['violation_count']} calls {m.get('calls')} maxctx {m.get('max_input')} cost ${m.get('cost', 0):.3f} total ${spent:.2f}", flush=True)
+        print(f"{rid:24} {status:8} {wall:5.0f}s p2 {phase2.get('phase2_pass', '-')} hidden {g['hidden_passed']}/{g['hidden_total']} viol {g['violation_count']} calls {m.get('calls')} maxctx {m.get('max_input')} cost ${m.get('cost', 0):.3f} total ${spent:.2f}", flush=True)
     return res
 
 
@@ -198,7 +219,12 @@ def main() -> None:
     ap.add_argument("--cap", type=float, default=8.0)
     ap.add_argument("--budget", default="40k")
     ap.add_argument("--protect", default="6k")
+    ap.add_argument("--phase2", action="store_true", help="continue the session with prompt2.txt")
+    ap.add_argument("--out", default="tier2")
     a = ap.parse_args()
+    global PHASE2, EVIDENCE
+    PHASE2 = a.phase2
+    EVIDENCE = HERE.parent / "evidence" / a.out
     jobs = [(f, arm, rep) for rep in range(a.rep_start, a.rep_start + a.reps) for f in a.fixtures.split(",") for arm in a.arms.split(",")]
     with cf.ThreadPoolExecutor(a.jobs) as ex:
         for fut in [ex.submit(run, f, arm, rep, a.budget, a.protect, a.cap) for f, arm, rep in jobs]:

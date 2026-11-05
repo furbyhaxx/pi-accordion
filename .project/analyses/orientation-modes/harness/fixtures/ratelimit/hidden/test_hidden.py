@@ -91,6 +91,16 @@ def test_retry_after_counts_down():
     assert data["retry_after_ms"] == math.ceil(1500 / 37 - 20)
 
 
+def test_phase2_exempt_tenant():
+    check = _fresh()
+    c = Clock()
+    for _ in range(100):
+        status, headers, body = check("ops-internal", "/a", clock=c)
+        assert status == 200
+    assert str(headers.get("X-RateLimit-Exempt")) == "1"
+    assert "X-RateLimit-Remaining" not in headers
+
+
 def test_gold_tier():
     check = _fresh()
     c = Clock()

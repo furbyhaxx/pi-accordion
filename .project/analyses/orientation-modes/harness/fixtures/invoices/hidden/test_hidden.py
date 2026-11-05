@@ -31,4 +31,18 @@ def test_file(tmp_path, capsys):
     assert "skipped A2" in capsys.readouterr().err
     summary = (tmp_path / "invoices-202610.summary.txt").read_text().splitlines()
     assert summary == ["CHF 1 108.10", "EUR 1 12.00", "skipped 1"]
+
+
+def test_phase2_test_customers(tmp_path, capsys):
+    inv = [
+        {"invoice_id": "B1", "issued_on": "2026-10-03", "customer": "TEST-load", "country": "CH", "net": "100.00"},
+        {"invoice_id": "B2", "issued_on": "2026-10-04", "customer": "Real", "country": "DE", "net": "10.00"},
+        {"invoice_id": "B3", "issued_on": "2026-10-05", "customer": "TEST-x", "country": "US", "net": "1.00"},
+    ]
+    path = pathlib.Path(export_month(inv, 2026, 10, tmp_path))
+    lines = path.read_text().splitlines()
+    assert lines[1:] == ["B2;2026-10-04;Real;10.00;1.90;11.90;EUR"]
+    assert "B1" not in capsys.readouterr().err
+    summary = (tmp_path / "invoices-202610.summary.txt").read_text().splitlines()
+    assert summary == ["EUR 1 11.90", "skipped 0"]
     
