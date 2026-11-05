@@ -38,12 +38,15 @@ export interface TaskfoldOptions {
 	maxLoss?: number;
 	/** User messages matching any of these are harness text and fold without a model call. */
 	harnessPatterns?: readonly RegExp[];
+	/** The newest finished top-level tasks that stay open; the working context of the next step. Default 1. */
+	keepRecentTasks?: number;
 }
 
 export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	high: 0.8,
 	low: 0.6,
 	maxLoss: 0.3,
+	keepRecentTasks: 1,
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 
@@ -92,6 +95,7 @@ const GOAL_CHARS = 1500;
 const NEIGHBOUR_CHARS = 600;
 const RECORD_TAG = "[task-record]";
 const PART_TAG = "[task-part]";
+const ARCHIVE_TAG = "[task-archived]";
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
 const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
@@ -169,9 +173,23 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	return out;
 }
 
+/**
+ * One step down the aging ladder for a record summary: level 1 keeps the head line and the outcome
+ * on one line, level 2 keeps only the archive stub. Null when the summary is not a task record.
+ */
+export function ageRecord(summary: string, level: 1 | 2): string | null {
+	const m = /^(\{#[0-9a-z]{6} FOLDED\}) \[task-(record|archived)\] (\S+) "(.*)"\s+status: (\w+)/.exec(summary);
+	if (!m) return null;
+	const [, tag, kind, key, title, status] = m;
+	if (level === 1 && !summary.includes("\n")) return summary;
+	if (level === 2 || kind === "archived") return `${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall the code for its record and transcript.`;
+	const outcome = /^outcome: (.*)$/m.exec(summary)?.[1];
+	return `${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""}`;
+}
+
 /** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */
 export function taskKeyOfSummary(summary: string | null | undefined): string | null {
-	return typeof summary === "string" ? (/^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part)\] (\S+)/.exec(summary)?.[1] ?? null) : null;
+	return typeof summary === "string" ? (/^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part|archived)\] (\S+)/.exec(summary)?.[1] ?? null) : null;
 }
 
 /** One span's fold: its ops, the span key per group op, and how to restore absorbed child groups. */
@@ -369,34 +387,98 @@ export class TaskfoldConductor implements Conductor {
 		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(this.ownGroups.values());
 		// Oldest first: the newest finished work stays open longest, and the cache breaks once, early.
-		const candidates = roots.filter((s) => !foldedKeys.has(s.key));
+		const candidates = roots.slice(0, Math.max(0, roots.length - this.k.keepRecentTasks)).filter((s) => !foldedKeys.has(s.key));
 		const units: Unit[] = [];
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
+		const planned = new Set<string>();
 		for (const span of candidates) {
 			if (projected <= target) break;
-			const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)));
+			const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)), planned);
 			if (!unit) continue;
 			units.push(unit);
+			for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
 			projected -= unit.saved;
+		}
+		// Folding every finished span was not enough: age the oldest records instead (see `ageRecord`).
+		if (projected > target) {
+			const touched = new Set(units.flatMap((u) => u.ops.flatMap((op) => (op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : []))));
+			units.push(...this.ladder(host, blocks, projected - target, touched));
 		}
 		return units;
 	}
 
+	/**
+	 * Shorten our oldest records until `need` tokens are freed: every full record becomes a one-line
+	 * record first, oldest first, then one-line records become archive stubs. Groups keep their ids,
+	 * so fold codes and `recall` of the raw span still work.
+	 */
+	private ladder(host: ConductorHost, blocks: readonly ViewBlock[], need: number, touched: ReadonlySet<string>): Unit[] {
+		const pos = new Map(blocks.map((b, i) => [b.id, i]));
+		const ours = host
+			.groups()
+			.filter((g) => this.ownGroups.has(g.id) && g.folded && typeof g.summary === "string" && !touched.has(g.id) && !g.memberIds.some((id) => touched.has(id)))
+			.sort((a, b) => (pos.get(a.memberIds[0]) ?? 0) - (pos.get(b.memberIds[0]) ?? 0))
+			// The newest record keeps its full form: it is the work the next steps most likely build on.
+			.slice(0, -1);
+		const aged = new Map<string, string>();
+		let freed = 0;
+		for (const level of [1, 2] as const) {
+			for (const g of ours) {
+				if (freed >= need) break;
+				const from = aged.get(g.id) ?? g.summary!;
+				const next = ageRecord(from, level);
+				const saved = next ? host.countTokens(from) - host.countTokens(next) : 0;
+				if (!next || saved <= 0) continue;
+				aged.set(g.id, next);
+				freed += saved;
+			}
+		}
+		return ours
+			.filter((g) => aged.has(g.id))
+			.map((g) => ({
+				ops: [{ kind: "ungroup", groupId: g.id } as Op, { kind: "group", ids: g.memberIds.slice(), summary: aged.get(g.id)! } as Op],
+				keys: [this.ownGroups.get(g.id)!],
+				restore: [{ kind: "group", ids: g.memberIds.slice(), summary: g.summary! } as Op],
+				saved: host.countTokens(g.summary!) - host.countTokens(aged.get(g.id)!),
+			}));
+	}
+
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
-	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[]): Unit | null {
+	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): Unit | null {
+		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
+		// boundary message, a foreign group) must stay outside the span.
+		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
+		const groupOf = new Map<string, string>();
+		for (const g of host.groups()) for (const id of g.memberIds) groupOf.set(id, g.id);
+		const foreign = (b: ViewBlock) => {
+			if (planned.has(b.id)) return true;
+			const gid = groupOf.get(b.id);
+			return !!gid && !childKey(this.ownGroups.get(gid));
+		};
+		const sameMsg = (i: number, j: number) => messageKey(blocks[i].id) === messageKey(blocks[j].id);
 		let lo = span.start;
 		let hi = span.end;
 		// Snap outward to whole messages, exactly like Truth's group snap, so the group id is predictable.
-		while (lo > 0 && messageKey(blocks[lo - 1].id) === messageKey(blocks[lo].id)) lo--;
-		while (hi < blocks.length - 1 && messageKey(blocks[hi + 1].id) === messageKey(blocks[hi].id)) hi++;
+		while (lo > 0 && sameMsg(lo - 1, lo)) lo--;
+		while (hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi++;
+		// A boundary message already inside another group (`complete A` and `start B` in one assistant
+		// message) is left to that group: pull the edge in to the next whole message.
+		while (lo <= hi && foreign(blocks[lo])) {
+			lo++;
+			while (lo <= hi && lo > 0 && sameMsg(lo - 1, lo)) lo++;
+		}
+		while (hi >= lo && foreign(blocks[hi])) {
+			hi--;
+			while (hi >= lo && hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi--;
+		}
+		if (lo > hi) return null;
 		const members = blocks.slice(lo, hi + 1);
-		if (members.some((b) => b.protected || b.held || b.kind === "system")) return null;
+		if (members.some((b) => b.protected || b.held || b.kind === "system" || foreign(b))) return null;
 
-		// Child groups of ours inside this span are absorbed; any other group overlapping it blocks it.
-		const ours = host.groups().filter((g) => this.ownGroups.has(g.id) && g.memberIds.some((id) => members.some((m) => m.id === id)));
+		const memberIds = new Set(members.map((m) => m.id));
+		const ours = host.groups().filter((g) => this.ownGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id)));
 		const oursIds = new Set(ours.flatMap((g) => g.memberIds));
-		if (members.some((b) => b.grouped && !oursIds.has(b.id))) return null;
 
 		const runs: ViewBlock[][] = [];
 		let run: ViewBlock[] = [];

@@ -3,7 +3,7 @@
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
 import { describe, it, expect } from "vitest";
-import { TaskfoldConductor, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
+import { TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
 import { foldCode, foldTag } from "../../../core/digest";
 import type { Block } from "../../../core/types";
@@ -39,6 +39,14 @@ class Session {
 	finish(id: string, report: Record<string, unknown>, action = "complete") {
 		return this.call("tasks", { action, list: "work", id, report }, `work/${id} is done.`);
 	}
+	/** Several tool calls in ONE assistant message, e.g. `complete A` and `start B` batched together. */
+	batch(calls: [string, Record<string, unknown>, string][]): { calls: string[]; results: string[] } {
+		const r = ++this.resp;
+		this.push({ id: `a:resp${r}:p0`, kind: "thinking", text: "x".repeat(400) });
+		const ids = calls.map(([tool, args], j) => this.push({ id: `a:resp${r}:p${j + 1}`, kind: "tool_call", text: `${tool} ${JSON.stringify(args)}`, toolName: tool, callId: `c${r}-${j}` }));
+		const results = calls.map(([tool, , out], j) => this.push({ id: `r:c${r}-${j}`, kind: "tool_result", text: out, toolName: tool, callId: `c${r}-${j}` }));
+		return { calls: ids, results };
+	}
 	work(n: number, tag: string) {
 		for (let i = 0; i < n; i++) this.call("bash", { command: `cat big-${tag}-${i}.log` }, `${tag} `.repeat(600));
 	}
@@ -53,7 +61,7 @@ function setup(s: Session, budgetFactor = 0.7): TestHost {
 }
 
 async function attach(host: TestHost): Promise<TaskfoldConductor> {
-	const c = new TaskfoldConductor();
+	const c = new TaskfoldConductor({ keepRecentTasks: 0 });
 	c.attach(host);
 	await host.commitTurn();
 	return c;
@@ -120,7 +128,7 @@ describe("taskfold", () => {
 		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("commit"))!.id;
 		const host = new TestHost();
 		host.classifier = () => ({ answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test/cls" });
-		const c = new TaskfoldConductor();
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 });
 		c.attach(host);
 		host.appendBlocks(s.blocks);
 		host.setProtect(200);
@@ -144,7 +152,7 @@ describe("taskfold", () => {
 		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("lexer"))!.id;
 		const host = new TestHost();
 		host.classifier = () => ({ answers: { loss: { type: "score", score: 2, confidence: 0.8 } }, model: "test/cls" });
-		new TaskfoldConductor().attach(host);
+		new TaskfoldConductor({ keepRecentTasks: 0 }).attach(host);
 		host.appendBlocks(s.blocks);
 		host.setProtect(200);
 		await new Promise((r) => setTimeout(r, 0));
@@ -225,6 +233,82 @@ describe("taskfold", () => {
 		expect(one).toMatchObject({ title: "A", status: "done", start: idx(first) });
 		expect(one.end).toBe(idx(next) - 1);
 		expect(spans.find((x) => x.key === "work/2")).toMatchObject({ title: "B", status: null, start: idx(next) });
+	});
+
+	it("keeps the newest finished task open by default and folds the older ones", async () => {
+		const s = new Session();
+		s.user("Two things.");
+		const a = s.start("1", "First").call;
+		s.work(3, "a");
+		s.finish("1", { outcome: "first done" });
+		const b = s.start("2", "Second").call;
+		s.work(3, "b");
+		s.finish("2", { outcome: "second done" });
+		s.work(2, "tail");
+		const host = setup(s, 0.5);
+		const c = new TaskfoldConductor();
+		c.attach(host);
+		await host.commitTurn();
+		expect(groupOf(host, a)?.summary).toContain("[task-record] work/1 ");
+		expect(groupOf(host, b)).toBeUndefined();
+		c.detach();
+	});
+
+	it("folds both tasks when `complete A` and `start B` share one assistant message", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const a = s.start("1", "First").call;
+		s.work(3, "a");
+		const shared = s.batch([
+			["tasks", { action: "complete", list: "work", id: "1", report: { outcome: "first" } }, "work/1 is done."],
+			["tasks", { action: "start", list: "work", id: "2" }, 'Started work/2 "Second".'],
+		]);
+		s.work(3, "b");
+		const bEnd = s.finish("2", { outcome: "second" }).result;
+		s.work(3, "tail");
+		const host = setup(s, 0.4);
+		await attach(host);
+		const first = groupOf(host, a)!;
+		const second = groupOf(host, bEnd)!;
+		expect(first.summary).toContain("[task-record] work/1 ");
+		expect(first.memberIds).toContain(shared.calls[1]);
+		expect(second.summary).toContain("[task-record] work/2 ");
+		expect(second.memberIds).not.toContain(shared.calls[1]);
+		expect(second.memberIds).toContain(shared.results[1]);
+	});
+
+	it("ages records oldest first, keeping fold codes and the newest record whole", () => {
+		const full = `${foldTag("g:x")} [task-record] work/1 "First"  status: done\noutcome: It works.\ndecisions:\n  - a — b`;
+		const one = ageRecord(full, 1)!;
+		expect(one).toBe(`${foldTag("g:x")} [task-record] work/1 "First"  status: done · It works.`);
+		expect(ageRecord(one, 1)).toBe(one);
+		const stub = ageRecord(one, 2)!;
+		expect(stub).toBe(`${foldTag("g:x")} [task-archived] work/1 "First" done; recall the code for its record and transcript.`);
+		expect(taskKeyOfSummary(stub)).toBe("work/1");
+		expect(ageRecord("plain", 1)).toBeNull();
+	});
+
+	it("shortens older records when folding every finished span is not enough", async () => {
+		const s = new Session();
+		s.user("Many.");
+		const starts: string[] = [];
+		for (const id of ["1", "2", "3", "4"]) {
+			starts.push(s.start(id, `Task ${id}`).call);
+			s.work(2, `w${id}`);
+			s.finish(id, { outcome: `${id} done`, decisions: [`decision for ${id} — ${"why ".repeat(30)}`], open: ["x ".repeat(40)] });
+		}
+		s.work(2, "tail");
+		const host = setup(s, 0.6);
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 });
+		c.attach(host);
+		await host.commitTurn();
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.8));
+		await host.commitTurn();
+		const summaries = starts.map((id) => groupOf(host, id)?.summary ?? "");
+		expect(summaries[0]).not.toContain("\n");
+		expect(summaries[3]).toContain("\noutcome: 4 done");
+		expect(summaries.every((x, i) => taskKeyOfSummary(x) === `work/${i + 1}`)).toBe(true);
+		c.detach();
 	});
 });
 
