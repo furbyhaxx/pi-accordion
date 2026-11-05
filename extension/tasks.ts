@@ -5,6 +5,7 @@
  * status and claims; the session transcript only carries the tool calls and their results, which
  * is what the Taskfold conductor reads to find task spans.
  */
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -33,6 +34,8 @@ export interface Task {
 export interface TaskClaim {
 	session: string;
 	at: string;
+	/** The claiming session's display name, when it had one. */
+	name?: string;
 }
 
 export interface TaskList {
@@ -136,7 +139,18 @@ export class TaskStore {
 	constructor(
 		private readonly projectDir: string,
 		private readonly session: () => string,
+		private readonly sessionName: () => string | undefined = () => undefined,
 	) {}
+
+	private newClaim(): TaskClaim {
+		const name = this.sessionName()?.trim();
+		return { session: this.session(), at: now(), ...(name ? { name } : {}) };
+	}
+
+	/** Lists this session currently claims. */
+	claimedBySession(): TaskList[] {
+		return this.lists().filter((l) => l.claim?.session === this.session());
+	}
 
 	private file(slug: string): string {
 		return path.join(tasksDir(this.projectDir), `${assertSlug(slug)}.json`);
@@ -193,7 +207,7 @@ export class TaskStore {
 	create(slug: string, title: string, tasks: unknown): TaskList {
 		if (fs.existsSync(this.file(slug))) throw new TaskError(`Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
-		const list: TaskList = { slug, title: cleanTitle(title), createdAt: at, updatedAt: at, claim: { session: this.session(), at }, tasks: [] };
+		const list: TaskList = { slug, title: cleanTitle(title), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
 		flatten(tasks ?? [], "", 1, list.tasks, at);
 		this.write(list);
 		return list;
@@ -203,9 +217,9 @@ export class TaskStore {
 	claim(slug: string, force = false): TaskList {
 		const list = this.read(slug);
 		const held = list.claim;
-		if (held && held.session !== this.session() && !force && Date.now() - Date.parse(held.at) < CLAIM_STALE_MS)
+		if (held && held.session !== this.session() && !force && claimState(list, this.session()) === "held")
 			throw new TaskError(`Task list "${slug}" is claimed by another session (since ${held.at}). Ask the user before taking it over with force: true.`);
-		list.claim = { session: this.session(), at: now() };
+		list.claim = this.newClaim();
 		this.write(list);
 		return list;
 	}
@@ -280,6 +294,31 @@ export class TaskStore {
 }
 
 const MARK: Record<TaskStatus, string> = { todo: "[ ]", doing: "[~]", done: "[x]", failed: "[!]", abandoned: "[-]" };
+
+/** Who holds a list, from one session's point of view. A claim idle past `CLAIM_STALE_MS` is stale. */
+export type ClaimState = "mine" | "free" | "stale" | "held";
+
+export function claimState(list: TaskList, session: string, at = Date.now()): ClaimState {
+	const c = list.claim;
+	if (!c) return "free";
+	if (c.session === session) return "mine";
+	return at - Date.parse(c.at) < CLAIM_STALE_MS ? "held" : "stale";
+}
+
+/** Identifies a list's task content; it changes whenever a task is added, started or finished. */
+export function taskFingerprint(list: TaskList): string {
+	const h = crypto.createHash("sha256");
+	for (const t of list.tasks) h.update(`${t.id}\0${t.status}\0${t.updatedAt}\0${t.title}\n`);
+	return h.digest("hex").slice(0, 16);
+}
+
+/** A free slug derived from a title: `Auth refactor` → `auth-refactor`, then `-2`, `-3`, … when taken. */
+export function slugFor(title: string, taken: ReadonlySet<string>): string {
+	const base = title.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 48).replace(/-+$/, "") || "tasks";
+	let slug = SLUG_RE.test(base) ? base : `list-${base}`.slice(0, 48);
+	for (let n = 2; taken.has(slug); n++) slug = `${base.slice(0, 44)}-${n}`;
+	return slug;
+}
 
 /** A compact outline of a list for tool results. */
 export function renderList(list: TaskList): string {

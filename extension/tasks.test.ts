@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { TaskError, TaskStore, runTasks } from "./tasks";
+import { CLAIM_STALE_MS, TaskError, TaskStore, claimState, runTasks, slugFor, taskFingerprint } from "./tasks";
 
 function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-"))) {
 	return { dir, s: new TaskStore(dir, () => session) };
@@ -75,5 +75,35 @@ describe("tasks", () => {
 	test("rejects path-like slugs", () => {
 		const { s } = store();
 		expect(() => runTasks(s, { action: "create", list: "../x", title: "X" })).toThrow(/Invalid list slug/);
+	});
+
+	test("claims carry the session name, and claim state ages from held to stale", () => {
+		const { dir } = store();
+		const s = new TaskStore(dir, () => "s1", () => "Auth work");
+		const list = s.create("w", "W", [{ title: "A" }]);
+		expect(list.claim).toMatchObject({ session: "s1", name: "Auth work" });
+		const at = Date.parse(list.claim!.at);
+		expect(claimState(list, "s1", at)).toBe("mine");
+		expect(claimState(list, "s2", at + 1000)).toBe("held");
+		expect(claimState(list, "s2", at + CLAIM_STALE_MS + 1)).toBe("stale");
+		s.release("w");
+		expect(claimState(s.read("w"), "s2")).toBe("free");
+	});
+
+	test("the fingerprint changes on task changes, not on claim changes", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A" }] });
+		const before = taskFingerprint(s.read("w"));
+		s.release("w");
+		s.claim("w");
+		expect(taskFingerprint(s.read("w"))).toBe(before);
+		runTasks(s, { action: "add", list: "w", tasks: [{ title: "B" }] });
+		expect(taskFingerprint(s.read("w"))).not.toBe(before);
+	});
+
+	test("slugFor derives a valid, unused slug", () => {
+		expect(slugFor("Auth Refactor!", new Set())).toBe("auth-refactor");
+		expect(slugFor("Auth Refactor", new Set(["auth-refactor", "auth-refactor-2"]))).toBe("auth-refactor-3");
+		expect(slugFor("???", new Set())).toBe("tasks");
 	});
 });
