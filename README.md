@@ -176,7 +176,9 @@ current one when it gets long:
 ```
 
 `alt+t` or `/accordion tasks` expands and collapses it; `/accordion tasks hide` hides it for the
-session. Defaults live under `taskWidget` in `~/.accordion/config.json`:
+session. `/accordion tasks lists` browses the project's task lists to attach, release or start one.
+When you resume a session that used a list, Accordion offers it back (or tells you which session
+holds it now) and tells the agent on your next prompt if its list changed or was replaced. Defaults live under `taskWidget` in `~/.accordion/config.json`:
 `{ "mode": "auto" | "off", "expanded": false, "maxRows": 12, "toggleKey": "alt+t" }`.
 
 **[handoff](conductors/in-process/handoff/)** is `/handoff`, automatic. The manual version is to
@@ -255,7 +257,7 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   or the `s` Settings tab), replacing Pi's native `/compact` and threshold auto-compaction with
   reversible folding while falling back to native compaction only if a hard overflow is already saturated.
 - `/accordion sessions` selects another live Pi session on the same machine.
-- `/accordion tasks [expand | collapse | hide | show]` controls the taskfold task list above the editor.
+- `/accordion tasks [lists | expand | collapse | hide | show]` browses task lists and controls the taskfold task list above the editor.
 
 The fork is also a Pi package and can be installed from Git once this branch is published:
 

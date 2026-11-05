@@ -112,6 +112,12 @@ export function foldToolRow(theme: WidgetTheme, tool: "unfold" | "recall", args:
 	return lines;
 }
 
+/** The transcript row for a task list note sent to the agent: its first sentence, all of it expanded. */
+export function noticeRow(theme: WidgetTheme, content: string, expanded: boolean): Text {
+	const head = `${theme.fg("warning", "▲")} ${theme.bold("tasks")} ${theme.fg("dim", "note to the agent ·")} ${firstLine(content)}`;
+	return new Lines(expanded ? [head, ...content.split("\n").map((l) => theme.fg("dim", `  ${l}`))] : [head], 1);
+}
+
 /** A Text that cuts its lines to the width instead of wrapping them; the row is one line by design. */
 class Lines extends Text {
 	constructor(private readonly rows: string[], private readonly pad: number) {

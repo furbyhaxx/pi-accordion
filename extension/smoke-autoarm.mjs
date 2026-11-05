@@ -40,6 +40,8 @@ accordionLive({
 	registerFlag: (name, def) => flags.set(name, def?.default),
 	getFlag: (name) => flags.get(name),
 	registerShortcut: () => {},
+	registerMessageRenderer: () => {},
+	getSessionName: () => undefined,
 	registerCommand: () => {},
 	registerTool: () => {},
 	appendEntry: () => {},

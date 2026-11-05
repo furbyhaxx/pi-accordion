@@ -21,7 +21,7 @@ function runtime(messages = [], options = {}) {
 	const pi = {
 		on: (name, fn) => { handlers[name] = fn; },
 		registerFlag() {}, getFlag() {}, registerTool(tool) { tools[tool.name] = tool; }, appendEntry() {},
-		registerShortcut: () => {},
+		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
 	accordion(pi, { openPanel: async (_ctx, h) => { host = h; } });

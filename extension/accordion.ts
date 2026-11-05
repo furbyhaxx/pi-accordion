@@ -54,7 +54,8 @@ import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import { TaskError, TaskStore, runTasks, type TaskList, type TasksArgs } from "./tasks";
 import { TaskWidgetController } from "./tui/taskWidget";
-import { foldToolRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
+import { NOTICE_MESSAGE, TaskSession, type StartReason } from "./taskSession";
+import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -2845,16 +2846,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const key = JSON.stringify([project, session]);
 		const existing = taskStores.get(key);
 		if (existing) return existing.store;
-		const store = new TaskStore(project, () => session);
+		const store = new TaskStore(project, () => session, () => pi.getSessionName());
 		taskStores.set(key, { session, store });
 		return store;
 	}
+
+	/** Whether the attached conductor provides the `tasks` tool. */
+	function tasksToolActive(): boolean {
+		return (entryById(liveHost.activeMeta()?.id ?? null)?.tools ?? []).includes("tasks");
+	}
+
+	let taskSession: TaskSession | null = null;
 
 	const taskWidget = new TaskWidgetController({
 		lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
 		session: () => (typeof latestCtx?.sessionManager?.getSessionId === "function" ? latestCtx.sessionManager.getSessionId() : null),
 		truth: () => truth,
-		enabled: () => (entryById(liveHost.activeMeta()?.id ?? null)?.tools ?? []).includes("tasks"),
+		enabled: tasksToolActive,
 		settings: () => settings.taskWidget,
 	});
 	nativeListeners.add(() => taskWidget.sync());
@@ -2875,7 +2883,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskStores.clear();
 	}
 
-	pi.on("session_start", (_event, ctx: ExtensionContext) => {
+	pi.on("session_start", (event, ctx: ExtensionContext) => {
 		releaseTaskClaims();
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
 		// session swap invalidates the whole context state (a fresh Truth is authoritative). Detach
@@ -2950,7 +2958,28 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		lastFooter = "";
 		refreshConductorPresentation();
 		taskWidget.attach(ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
+		taskSession?.dispose();
+		taskSession = null;
+		if (typeof ctx.sessionManager?.getSessionId === "function") {
+			taskSession = new TaskSession({
+				store: () => taskStoreFor(ctx),
+				session: () => ctx.sessionManager.getSessionId(),
+				enabled: tasksToolActive,
+				appendEntry: (type, data) => pi.appendEntry(type, data),
+				changed: () => taskWidget.reload(),
+			});
+			taskSession.start(ctx.sessionManager.getBranch(), (event as { reason?: StartReason }).reason ?? "startup", ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
+		}
 	});
+
+	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
+	// with its next prompt. An open resume dialog is answered first.
+	pi.on("before_agent_start", async () => {
+		const content = await taskSession?.takeNotice();
+		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
+	});
+
+	pi.registerMessageRenderer(NOTICE_MESSAGE, (message, options, theme) => noticeRow(theme, typeof message.content === "string" ? message.content : "", options.expanded));
 
 	// ── ghost layer: forward stream lifecycle frames (Phase 4, ADR 0003) ─────────
 	// `message_update` fires for every token delta — we deliberately drop those.
@@ -3159,6 +3188,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// touching `pendingWireEst`, which stays reserved for the final message's own pairing attempt.
 	pi.on("agent_end", (event, ctx: ExtensionContext) => {
 		latestCtx = ctx;
+		taskSession?.record();
 		sendStream({ type: "stream", phase: "abort", kind: "text", contentIndex: -1 });
 		const messages = event.messages as unknown as PiMessage[];
 		let lastAssistantIdx = -1;
@@ -3261,6 +3291,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	pi.on("session_shutdown", () => {
 		taskWidget.detach();
+		taskSession?.dispose();
+		taskSession = null;
 		releaseTaskClaims();
 		// Tear the attached conductor down FIRST (while the Truth still exists): SIGTERM→grace→SIGKILL
 		// any spawned runner, abort in-flight completions, release any pending hold. The freeze kill
@@ -3351,6 +3383,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "compact", label: "compact", description: "Run an immediate Accordion compression pass" },
 				{ value: "web", label: "web", description: "Show the Browser URL and focus the desktop app" },
 				{ value: "tasks", label: "tasks", description: "Expand or collapse the task list above the editor" },
+				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release or start one" },
 				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
 			return items.length ? items : null;
@@ -3369,12 +3402,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const tasksArg = /^tasks(?:\s+(\S+))?$/.exec(argument);
 			if (tasksArg) {
 				const verb = tasksArg[1] ?? "toggle";
+				if (verb === "lists" || verb === "list") {
+					if (ctx.mode !== "tui" || !ctx.hasUI || !taskSession) ctx.ui.notify("Task lists are browsed in the Pi terminal UI.", "info");
+					else await taskSession.browse(ctx.ui, "manage");
+					return;
+				}
 				if (verb === "toggle") taskWidget.toggle();
 				else if (verb === "expand" || verb === "show") taskWidget.setExpanded(verb === "expand" || !!settings.taskWidget.expanded);
 				else if (verb === "collapse") taskWidget.setExpanded(false);
 				else if (verb === "hide") taskWidget.hide();
 				else {
-					ctx.ui.notify("Usage: /accordion tasks [expand | collapse | hide | show]", "warning");
+					ctx.ui.notify("Usage: /accordion tasks [lists | expand | collapse | hide | show]", "warning");
 					return;
 				}
 				taskWidget.reload();
