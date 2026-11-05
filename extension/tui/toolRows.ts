@@ -1,0 +1,151 @@
+/*
+ * toolRows.ts — one-line transcript rows for Accordion's agent tools (`tasks`, `unfold`, `recall`):
+ *
+ *   ✓ tasks start 3.2 Watch config.json
+ *   ✗ tasks start 4 · Task 3 "Settings sync" is still in progress…
+ *
+ * The line builders are pure; `toolRowRenderers` adapts them to Pi's self-shell tool renderers.
+ */
+import { Text, truncateToWidth } from "@earendil-works/pi-tui";
+import type { TaskList, TaskStatus } from "../tasks";
+import { formatDuration, type WidgetTheme } from "./taskWidget";
+
+/** What a successful `tasks` call reports for its row. */
+export interface TasksDetails {
+	action: string;
+	list?: string;
+	task?: { id: string; title: string; status: TaskStatus; startedAt?: string; endedAt?: string; report?: { outcome: string; decisions?: string[]; open?: string[] } };
+	/** Done / total tasks in the list after the call. */
+	progress?: { done: number; total: number };
+	/** Tasks added by `add`, or created by `create`. */
+	added?: number;
+	/** Lists in the project, for `list`. */
+	lists?: number;
+}
+
+/** The structured row data for a finished `tasks` call, read back from the list it touched. */
+export function tasksDetails(args: { action: string; list?: string; id?: string }, list: TaskList | null, added?: number, lists?: number): TasksDetails {
+	const task = args.id && list ? list.tasks.find((t) => t.id === args.id) : undefined;
+	return {
+		action: args.action,
+		...(args.list ? { list: args.list } : {}),
+		...(task ? { task: { id: task.id, title: task.title, status: task.status, startedAt: task.startedAt, endedAt: task.endedAt, report: task.report } } : {}),
+		...(list ? { progress: { done: list.tasks.filter((t) => t.status === "done").length, total: list.tasks.length } } : {}),
+		...(added === undefined ? {} : { added }),
+		...(lists === undefined ? {} : { lists }),
+	};
+}
+
+type Args = Record<string, unknown>;
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+const firstLine = (s: string) => s.split("\n").find((l) => l.trim())?.trim() ?? "";
+
+function textOf(content: readonly { type: string; text?: string }[] | undefined): string {
+	return (content ?? []).map((c) => (c.type === "text" ? (c.text ?? "") : "")).join("\n");
+}
+
+/** `tasks <action> <target>` for a call, from its arguments alone. */
+function tasksTarget(args: Args): string {
+	const action = str(args.action);
+	const list = str(args.list);
+	if (action === "list") return "list";
+	if (action === "add") return `add ${list}${str(args.parent) ? ` ${str(args.parent)}` : ""}`;
+	if (["start", "complete", "fail", "abandon"].includes(action)) return `${action} ${str(args.id) || list}`;
+	return `${action}${list ? ` ${list}` : ""}`;
+}
+
+/** The row for a `tasks` call: pending, succeeded or failed. */
+export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok" | "error", details: TasksDetails | undefined, resultText: string, expanded: boolean): string[] {
+	const glyph = state === "pending" ? theme.fg("dim", "…") : state === "ok" ? theme.fg("success", "✓") : theme.fg("error", "✗");
+	const head = `${glyph} ${theme.bold("tasks")} ${theme.fg("accent", tasksTarget(args))}`;
+	if (state === "pending") return [head];
+	if (state === "error") {
+		const lines = [`${head}${theme.fg("dim", " · ")}${theme.fg("error", firstLine(resultText))}`];
+		if (expanded) lines.push(...resultText.split("\n").slice(1).filter(Boolean).map((l) => theme.fg("dim", `  ${l}`)));
+		return lines;
+	}
+	const action = str(args.action);
+	const task = details?.task;
+	const taskAction = ["start", "complete", "fail", "abandon"].includes(action);
+	// Rows from before details were recorded still carry the title in the result text.
+	const title = taskAction ? (task?.title ?? /"(.*)"/.exec(firstLine(resultText))?.[1] ?? "") : action === "create" ? str(args.title) : "";
+	const sep = theme.fg("dim", " · ");
+	const extra: string[] = [];
+	if (task && (action === "complete" || action === "fail" || action === "abandon")) {
+		if (task.status !== "done") extra.push(theme.fg("warning", task.status));
+		if (task.startedAt && task.endedAt) extra.push(theme.fg("dim", formatDuration(Date.parse(task.endedAt) - Date.parse(task.startedAt))));
+	}
+	if (action === "create" && details?.progress) extra.push(theme.fg("dim", plural(details.progress.total, "task")));
+	if (action === "add" && details?.added !== undefined) extra.push(theme.fg("dim", `+${plural(details.added, "task")}`));
+	if ((action === "claim" || action === "status") && details?.progress) extra.push(theme.fg("dim", `${details.progress.done}/${details.progress.total} done`));
+	if (action === "list" && details?.lists !== undefined) extra.push(theme.fg("dim", plural(details.lists, "list")));
+	const titled = title ? ` ${title}` : "";
+	const lines = [`${head}${titled}${extra.length ? sep + extra.join(sep) : ""}`];
+	if (!expanded) return lines;
+	const report = task?.report;
+	if (report && action !== "start") {
+		lines.push(`  ${theme.fg("muted", "outcome")}  ${report.outcome}`);
+		for (const d of report.decisions ?? []) lines.push(`  ${theme.fg("muted", "decision")} ${d}`);
+		for (const o of report.open ?? []) lines.push(`  ${theme.fg("muted", "open")}     ${o}`);
+	} else if (action === "create" || action === "status" || action === "claim" || action === "list") {
+		lines.push(...resultText.split("\n").slice(action === "list" ? 0 : 1).map((l) => theme.fg("dim", `  ${l}`)));
+	}
+	return lines;
+}
+
+/** The row for an `unfold` / `recall` call: the codes and what came back. */
+export function foldToolRow(theme: WidgetTheme, tool: "unfold" | "recall", args: Args, state: "pending" | "ok" | "error", details: { restored?: unknown[]; missing?: unknown[] } | undefined, resultText: string, expanded: boolean): string[] {
+	const codes = Array.isArray(args.codes) ? args.codes.map((c) => `#${String(c).trim()}`).join(" ") : "";
+	const restored = details?.restored?.length ?? 0;
+	const missing = details?.missing?.length ?? 0;
+	const failed = state === "error" || (state === "ok" && details !== undefined && restored === 0);
+	const glyph = state === "pending" ? theme.fg("dim", "…") : failed ? theme.fg("error", "✗") : missing ? theme.fg("warning", "▲") : theme.fg("success", "✓");
+	const head = `${glyph} ${theme.bold(tool)} ${theme.fg("accent", codes)}`;
+	if (state === "pending") return [head];
+	const sep = theme.fg("dim", " · ");
+	const facts = details
+		? [restored ? `${restored} ${tool === "unfold" ? "unfolded" : "recalled"}` : "", missing ? theme.fg("warning", `${missing} not found`) : ""].filter(Boolean)
+		: [firstLine(resultText)];
+	const lines = [`${head}${facts.length ? sep + facts.join(sep) : ""}`];
+	if (expanded) lines.push(...resultText.split("\n").map((l) => theme.fg("dim", `  ${l}`)));
+	return lines;
+}
+
+/** A Text that cuts its lines to the width instead of wrapping them; the row is one line by design. */
+class Lines extends Text {
+	constructor(private readonly rows: string[], private readonly pad: number) {
+		super(rows.join("\n"), pad, 0);
+	}
+	override render(width: number): string[] {
+		const inner = Math.max(1, width - this.pad);
+		return this.rows.map((r) => " ".repeat(this.pad) + truncateToWidth(r, inner, "…"));
+	}
+}
+
+interface RenderContext {
+	isPartial: boolean;
+	isError: boolean;
+	expanded: boolean;
+	outputPad?: number;
+}
+interface ToolResultLike {
+	content: readonly { type: string; text?: string }[];
+	details?: unknown;
+}
+
+/** Pi tool-definition renderers that draw a row with `build`. */
+export function toolRowRenderers(build: (theme: WidgetTheme, args: Args, state: "pending" | "ok" | "error", details: unknown, text: string, expanded: boolean) => string[]) {
+	const empty = () => new Text("", 0, 0);
+	return {
+		renderShell: "self" as const,
+		renderCall(args: Args, theme: WidgetTheme, ctx: RenderContext) {
+			return ctx.isPartial ? new Lines(build(theme, args ?? {}, "pending", undefined, "", false), ctx.outputPad ?? 1) : empty();
+		},
+		renderResult(result: ToolResultLike, opts: { expanded: boolean; isPartial: boolean }, theme: WidgetTheme, ctx: RenderContext & { args: Args }) {
+			if (opts.isPartial) return empty();
+			const state = ctx.isError ? "error" : "ok";
+			return new Lines(build(theme, ctx.args ?? {}, state, result.details, textOf(result.content), opts.expanded), ctx.outputPad ?? 1);
+		},
+	};
+}
