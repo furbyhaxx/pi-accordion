@@ -83,7 +83,8 @@ export class TaskCoach {
 
 	/** Tasks just started (with any auto-started parents): their spans begin empty. */
 	started(slug: string, ids: readonly string[]): void {
-		for (const id of ids) this.work.set(`${slug}/${id}`, 0);
+		// A tool call batched with the start may report before it; keep what it counted.
+		for (const id of ids) if (!this.work.has(`${slug}/${id}`)) this.work.set(`${slug}/${id}`, 0);
 		this.outside = 0;
 	}
 
@@ -99,7 +100,7 @@ export class TaskCoach {
 			this.outside = 0;
 			for (const id of [current.id, ...ancestors(current.id)]) {
 				const key = `${list.slug}/${id}`;
-				if (this.work.has(key)) this.work.set(key, this.work.get(key)! + 1);
+				this.work.set(key, (this.work.get(key) ?? 0) + 1);
 			}
 			return null;
 		}

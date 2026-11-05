@@ -61,5 +61,13 @@ describe("orientation guidelines", () => {
 		expect(d[0]).toContain('"Orientation: <what you need to find out>"');
 		expect(orientationGuidelines({ fold: "typed", agentTask: true })).toEqual(d);
 	});
+
+	test("counts work that reports before its batched start call", () => {
+		const c = new TaskCoach();
+		c.setList(list([t("1", "doing")]));
+		c.toolResult(false);
+		c.started("w", ["1"]);
+		expect(c.finished("w", "1")).toBeNull();
+	});
 });
 
