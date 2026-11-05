@@ -56,7 +56,7 @@ import { BLOCK_REASONS, TaskError, TaskStore, runTasksTracked, type TaskList, ty
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
-import { IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
+import { IDLE_ENTRY, idleVerdict, orientationGuidelines, TaskCoach } from "./taskCoach";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
@@ -84,7 +84,7 @@ import {
 	type ControllerInfo,
 } from "../core/protocol";
 import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHost";
-import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
+import { catalogMeta, entryById, setTaskfoldOptions, type RegistryEntry } from "../core/conductor/registry";
 import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel } from "./tui/panel";
@@ -439,6 +439,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	let settings: AccordionSettings = loadSettings(HOME);
+	setTaskfoldOptions(() => ({ orientation: settings.conductorOptions.taskfold.orientation }));
 
 	function activeBindHost(): string {
 		try {
@@ -2915,6 +2916,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	let taskSession: TaskSession | null = null;
 	let taskCoach = new TaskCoach();
+	// Orientation experiment: whether this session's agent gave a brief, and whether it was reminded once.
+	let briefSeen = false;
+	let briefNudged = false;
+
+	/** The one-time reminder on the first start without a brief, while typed orientation folding is on. */
+	function briefNudge(args: TasksArgs, started: boolean): string | null {
+		if (args.brief?.trim()) briefSeen = true;
+		const o = settings.conductorOptions.taskfold.orientation;
+		if (!started || briefSeen || briefNudged || o.fold !== "typed" || o.agentTask) return null;
+		briefNudged = true;
+		return "Note: the reading and analysis before this first task will be folded. Call tasks claim on this list with a `brief` (the goal as you understood it, key facts, where things are) so the folded orientation keeps what you learned.";
+	}
 
 	const taskWidget = new TaskWidgetController({
 		lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
@@ -3038,6 +3051,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskSession?.dispose();
 		taskSession = null;
 		taskCoach = new TaskCoach();
+		briefSeen = false;
+		briefNudged = false;
 		if (typeof ctx.sessionManager?.getSessionId === "function") {
 			taskSession = new TaskSession({
 				store: () => taskStoreFor(ctx),
@@ -3805,6 +3820,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"Pick the ending that is true: `complete` when the goal was reached; `fail` when you tried and it was not reached (quote the failing command or error in the report); `abandon` when the task is no longer wanted or another task replaces it (pass `supersededBy`, or add the new task with `supersedes`). Never complete a task whose goal was not reached.",
 			"When you cannot continue, `block` the task instead of leaving it in progress or failing it: `user-decision`, `user-input` or `third-party` when you wait on something outside your control, with a `detail` that states exactly what you need; then ask the user for it, continue with work that does not depend on it, and stop only if nothing else is left. `dependency` (with `blockedBy`) means another task comes first: work on that task now. Stopping while a task is in progress or while unblocked work remains counts as stopping too early.",
 			"Reports become the folded record: `outcome` is what was achieved in one or two sentences, `decisions` are `choice — reason` lines, `open` lists anything unresolved. Files changed and checks run are recorded automatically.",
+			...orientationGuidelines(settings.conductorOptions.taskfold.orientation),
 		],
 		parameters: Type.Object({
 			action: Type.Union(
@@ -3844,6 +3860,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			blockedBy: Type.Optional(Type.String({ description: 'For block with reason dependency: the id of the task this one waits for.' })),
 			supersededBy: Type.Optional(Type.String({ description: "For abandon: the id of the task that replaces this one." })),
 			force: Type.Optional(Type.Boolean({ description: "For claim: take over a list another session holds. Ask the user first." })),
+			brief: Type.Optional(
+				Type.String({ description: "For create or claim: what you understood and found before starting — the goal, key facts and where things are. Orientation is later folded down to this brief." }),
+			),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const store = taskStoreFor(ctx);
@@ -3859,7 +3878,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			try {
 				const run = runTasksTracked(store, args);
 				if (run.started.length && args.list) taskCoach.started(args.list, run.started);
-				const note = run.finished && args.list ? taskCoach.finished(args.list, run.finished) : null;
+				const finishedNote = run.finished && args.list ? taskCoach.finished(args.list, run.finished) : null;
+				const note = [finishedNote, briefNudge(args, run.started.length > 0)].filter(Boolean).join("\n");
 				const text = note ? `${run.text}\n${note}` : run.text;
 				const list = read();
 				const details: TasksDetails = tasksDetails(args, list, before === undefined ? undefined : (list?.tasks.length ?? before) - before, args.action === "list" ? store.lists().length : undefined);

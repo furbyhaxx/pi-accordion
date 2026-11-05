@@ -30,6 +30,34 @@ import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 
+/**
+ * How the orientation phase (everything before the first task starts) is handled. Experimental:
+ * `exp/orientation-modes` compares the combinations (.project/analyses/orientation-modes/).
+ */
+export interface OrientationOptions {
+	/** `off` leaves orientation raw; `typed` folds it into a brief, a source index and verbatim rule files. */
+	fold: "off" | "typed";
+	/** The agent tracks orientation itself as task `0`; its span is then the orientation. */
+	agentTask: boolean;
+	/** Under `typed`: rule files stay verbatim in the record (`live`) or become source lines (`fold`). */
+	rules: "live" | "fold";
+}
+
+export const ORIENTATION_DEFAULTS: Readonly<OrientationOptions> = { fold: "off", agentTask: false, rules: "live" };
+
+/** Keep known values; anything else falls back to the default. */
+export function sanitizeOrientation(value: unknown): OrientationOptions {
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	return {
+		fold: raw.fold === "typed" ? "typed" : "off",
+		agentTask: raw.agentTask === true,
+		rules: raw.rules === "fold" ? "fold" : "live",
+	};
+}
+
+/** Paths whose reads are rules for the rest of the session rather than evidence. */
+export const RULE_FILE_RE = /(^|\/)(SKILL|AGENTS|CLAUDE|GEMINI|CONTRIBUTING)\.md$|\/skills\/[^/]+\/references\/[^/]+\.md$/i;
+
 export interface TaskfoldOptions {
 	/** Start an epoch once live tokens reach `high · budget`. Default 0.8. */
 	high?: number;
@@ -41,6 +69,7 @@ export interface TaskfoldOptions {
 	harnessPatterns?: readonly RegExp[];
 	/** The newest finished top-level tasks that stay open; the working context of the next step. Default 1. */
 	keepRecentTasks?: number;
+	orientation?: OrientationOptions;
 }
 
 export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
@@ -48,6 +77,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	low: 0.6,
 	maxLoss: 0.3,
 	keepRecentTasks: 1,
+	orientation: ORIENTATION_DEFAULTS,
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 

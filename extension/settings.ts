@@ -4,6 +4,7 @@
  * Stored at `<home>/.accordion/config.json` (respecting `ACCORDION_HOME`).
  * Precedence: defaults < config.json < environment variables < CLI flags / runtime edits.
  */
+import { ORIENTATION_DEFAULTS, sanitizeOrientation, type OrientationOptions } from "../conductors/in-process/taskfold/taskfold";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -58,6 +59,18 @@ export interface AccordionSettings {
 	taskWidget: TaskWidgetSettings;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
+	/** Per-conductor options. */
+	conductorOptions: ConductorOptions;
+}
+
+export interface ConductorOptions {
+	taskfold: { orientation: OrientationOptions };
+}
+
+export function sanitizeConductorOptions(value: unknown): ConductorOptions {
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+	const tf = raw.taskfold && typeof raw.taskfold === "object" ? (raw.taskfold as Record<string, unknown>) : {};
+	return { taskfold: { orientation: sanitizeOrientation(tf.orientation) } };
 }
 
 export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
@@ -71,6 +84,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	modelDefaults: {},
+	conductorOptions: { taskfold: { orientation: { ...ORIENTATION_DEFAULTS } } },
 };
 
 const CONFIG_FILE = "config.json";
@@ -281,6 +295,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		privacyConsent: sanitizePrivacyConsent(fileData.privacyConsent),
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
+		conductorOptions: sanitizeConductorOptions(fileData.conductorOptions),
 	};
 }
 
@@ -296,6 +311,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
 		taskWidget: sanitizeTaskWidget(settings.taskWidget),
 		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
+		conductorOptions: sanitizeConductorOptions(settings.conductorOptions),
 	};
 	try {
 		const filePath = configPathForHome(homeDir);

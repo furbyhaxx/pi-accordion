@@ -120,3 +120,16 @@ export class TaskCoach {
 		return `Note: no tool work ran between starting and finishing ${id}, so its record has nothing to summarize and its time is 0s. Start a task before its first tool call and finish it after its last one.`;
 	}
 }
+
+/** Extra `tasks` guidelines for the orientation experiment's settings. */
+export function orientationGuidelines(o: { fold: "off" | "typed"; agentTask: boolean }): string[] {
+	if (o.agentTask)
+		return [
+			'Track orientation as a task: before your first read, search or command, create (or claim) the list with a first task titled "Orientation: <what you need to find out>" and start it. Do all reading and analysis inside it, then add the work plan with `add`, and complete the orientation task with a report whose outcome is the brief: the goal as you understood it, the key facts you found, and where things are.',
+		];
+	if (o.fold === "typed")
+		return [
+			"When you create or claim the list you will work through, pass `brief`: the goal as you understood it, the key facts you found, and where things are. Everything before your first task is later folded down to this brief, an index of what you read, and the rule files you read.",
+		];
+	return [];
+}

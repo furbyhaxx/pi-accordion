@@ -27,7 +27,7 @@ import { HandoffConductor } from "../../conductors/in-process/handoff/handoff";
 import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
 import { KeelLiteConductor, KEEL_LITE_DEFAULTS, type KeelLiteOptions } from "../../conductors/in-process/keel-lite/keel-lite";
 import { KeelNoteConductor, type KeelNoteOptions } from "../../conductors/in-process/keel-note/keel-note";
-import { TASKFOLD_CLASSIFIER, TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_CLASSIFIER, TaskfoldConductor, type TaskfoldOptions } from "../../conductors/in-process/taskfold/taskfold";
 import { taskfoldVerdicts } from "../../conductors/in-process/taskfold/verdicts";
 
 /** One catalog entry: everything the host needs to attach (or detach to) this conductor. */
@@ -178,6 +178,13 @@ export function keelNoteOptionsFromEnv(env?: Record<string, string | undefined>)
 	};
 }
 
+let taskfoldOptions: () => TaskfoldOptions = () => ({});
+
+/** Where Taskfold instances read their options when attached (the extension passes its settings). */
+export function setTaskfoldOptions(source: () => TaskfoldOptions): void {
+	taskfoldOptions = source;
+}
+
 /** The full catalog, in picker order: detach first, then the shipped conductors. */
 export const ENTRIES: readonly RegistryEntry[] = [
 	NONE,
@@ -187,7 +194,7 @@ export const ENTRIES: readonly RegistryEntry[] = [
 	inProcess(() => new KeelLiteConductor(keelLiteOptionsFromEnv())),
 	inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
 	{
-		...inProcess(() => new TaskfoldConductor({}, taskfoldVerdicts)),
+		...inProcess(() => new TaskfoldConductor(taskfoldOptions(), taskfoldVerdicts)),
 		defaultModels: { classifier: TASKFOLD_CLASSIFIER },
 		privacy: {
 			models: ["classifier"],

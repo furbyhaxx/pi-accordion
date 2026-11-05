@@ -562,6 +562,8 @@ export interface TasksArgs {
 	blockedBy?: string;
 	/** For abandon: the task that replaces this one. */
 	supersededBy?: string;
+	/** For create or claim: the agent's orientation brief; Taskfold reads it from the call. */
+	brief?: string;
 }
 
 /** Run one `tasks` tool call. Rejections throw `TaskError` with recovery guidance. */
