@@ -16,11 +16,13 @@ function check(name, fn) { checks.push({ name, fn }); }
 function runtime(messages = [], options = {}) {
 	const handlers = {};
 	const tools = {};
+	const entries = options.entries ?? [];
 	let host;
 	let command;
 	const pi = {
 		on: (name, fn) => { handlers[name] = fn; },
-		registerFlag() {}, getFlag() {}, registerTool(tool) { tools[tool.name] = tool; }, appendEntry() {},
+		registerFlag() {}, getFlag() {}, registerTool(tool) { tools[tool.name] = tool; },
+		appendEntry: (customType, data) => entries.push({ type: "custom", customType, data }),
 		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
@@ -36,7 +38,7 @@ function runtime(messages = [], options = {}) {
 		ui: { notify() {}, setStatus() {}, confirm: async () => true, theme: { fg: (_c, s) => s } },
 		sessionManager: {
 			getSessionId: () => options.sessionId ?? "context-test-session",
-			getBranch: () => messages.map(message => ({ type: "message", message })),
+			getBranch: () => [...messages.map(message => ({ type: "message", message })), ...entries],
 			...(options.branchOnly ? {} : { buildSessionContext: () => ({ messages }) }),
 		},
 		getContextUsage: () => ({ tokens: 132_483, contextWindow: ctx.model.contextWindow }),
@@ -44,7 +46,7 @@ function runtime(messages = [], options = {}) {
 	};
 	handlers.session_start({ reason: "resume" }, ctx);
 	return {
-		handlers, ctx, tools,
+		handlers, ctx, tools, entries,
 		open: async () => { await command("", ctx); return host; },
 		request: async input => {
 			const folded = await handlers.context({ messages: input }, ctx);
@@ -202,6 +204,48 @@ check("the same model selection preserves calibration and human settings", async
 		assert.equal(t.calibration, 0.5);
 		assert.equal(t.budget, 100_000);
 	} finally { r.close(); }
+});
+check("a resumed session restores the budget and tail the user set for its model", async () => {
+	const first = runtime(history(2));
+	let entries;
+	try {
+		const host = await first.open();
+		await host.command({ kind: "setBudget", value: 200_000 });
+		await host.command({ kind: "setProtect", value: 8_000 });
+		entries = first.entries;
+	} finally { first.close(); }
+	const resumed = runtime(history(2), { entries });
+	try {
+		const t = (await resumed.open()).truth();
+		assert.equal(t.budget, 200_000);
+		assert.equal(t.protectTokens, 8_000);
+	} finally { resumed.close(); }
+});
+check("switching models follows each model's own budget: session value, then its default, then the window", async () => {
+	fs.writeFileSync(path.join(home, ".accordion", "config.json"), JSON.stringify({ modelDefaults: { "openrouter/*": { budget: "272k", protect: "10k" } } }));
+	const r = runtime(history(2));
+	try {
+		const host = await r.open();
+		const t = host.truth();
+		assert.equal(t.budget, 272_000);
+		assert.equal(t.protectTokens, 10_000);
+		await host.command({ kind: "setBudget", value: 150_000 });
+		const other = { ...r.ctx.model, provider: "anthropic", id: "claude", contextWindow: 400_000 };
+		const back = r.ctx.model;
+		r.ctx.model = other;
+		r.handlers.model_select({ model: other }, r.ctx);
+		assert.equal(t.budget, 400_000);
+		assert.equal(t.protectTokens, 20_000);
+		r.ctx.model = back;
+		r.handlers.model_select({ model: back }, r.ctx);
+		assert.equal(t.budget, 150_000);
+		assert.equal(t.protectTokens, 10_000);
+		assert.equal(host.saveDialDefault("budget", 180_000), "Saved budget 180k as the default for openrouter/test/model");
+		assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, ".accordion", "config.json"), "utf8")).modelDefaults["openrouter/test/model"], { budget: "180k" });
+	} finally {
+		r.close();
+		fs.rmSync(path.join(home, ".accordion", "config.json"), { force: true });
+	}
 });
 check("a provider-only change and a late-learned model change both invalidate calibration", async () => {
 	const r = runtime(history(2));

@@ -50,6 +50,7 @@ describe("accordion settings & memorable tokens", () => {
 				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
+				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k" } },
 			});
 
 			const loaded = loadSettings(tmp, {});
@@ -63,6 +64,7 @@ describe("accordion settings & memorable tokens", () => {
 				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
+				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k" } },
 			});
 
 			const envOverridden = loadSettings(tmp, {

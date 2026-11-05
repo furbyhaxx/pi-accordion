@@ -7,6 +7,7 @@ import type { CompactMode } from "../settings";
 import type { AccordionTuiHost } from "./host";
 import { buildContextMap, formatCompactTokens, kindGlyph, renderCategoryBar } from "./map";
 import { statusLevel } from "./status";
+import { describeSource, formatTokens, parseTokens } from "../dials";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
@@ -59,6 +60,8 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 	let inspectOffset = 0;
 	let inspectDigest = false;
 	let numberInput = "";
+	// Where Esc/Enter return from the budget or tail input.
+	let dialReturn: Screen = "blocks";
 	let textInput = "";
 	let searchQuery = "";
 	let searching = false;
@@ -149,6 +152,10 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				void send({ kind: "ops", ops: [operation] });
 			};
 			const line = (s: string, width: number) => truncateToWidth(clean(s), Math.max(0, width));
+			const dialSource = (kind: "budget" | "protect") => {
+				const d = host.dials?.();
+				return d ? describeSource(d.sources[kind]) : "this session";
+			};
 			const ansiLine = (s: string, width: number) => truncateToWidth(s, Math.max(0, width));
 
 			return {
@@ -319,8 +326,8 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 							`Auto-Arm on Startup        ${cfg.autoArm ? "☑ on" : "☐ off"}`,
 							`Default Conductor          ${cfg.defaultConductor}`,
 							`/compact Behavior          ${cfg.compactMode} (accordion pass | suppress | native)`,
-							`Token Budget               ${stats?.budget ?? 70000} tok`,
-							`Protected Working Tail     ${stats?.protectTokens ?? 20000} tok`,
+							`Token Budget               ${formatTokens(stats?.budget ?? 70000)} (${dialSource("budget")})`,
+							`Protected Working Tail     ${formatTokens(stats?.protectTokens ?? 20000)} (${dialSource("protect")})`,
 							`Web UI Bind Address        ${cfg.bindHost} (enter edit · h toggle 127.0.0.1/0.0.0.0)`,
 							`Web UI Door Port           ${cfg.doorPort} (0 disables shared door)`,
 							`Web Access Token           ${web?.token ?? cfg.customToken ?? "(8-char)"} (${cfg.customToken ? "custom" : "memorable 8-char"} · enter custom · g regenerate)`,
@@ -337,9 +344,20 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 						const label = screen === "bindHost" ? "Web UI bind address (e.g. 127.0.0.1, 0.0.0.0, Tailscale IP)" : "Custom web token (3–64 URL-safe chars, or empty for memorable 8-char)";
 						body = [`${label}: ${textInput}█`];
 						hint = "type text · backspace · enter apply · esc cancel";
+					} else if (screen === "budget" || screen === "protect") {
+						const kind = screen;
+						const label = kind === "budget" ? "Token budget" : "Protected tail";
+						const current = kind === "budget" ? stats?.budget : stats?.protectTokens;
+						const parsed = numberInput ? parseTokens(numberInput, stats?.contextWindow ?? null) : null;
+						const model = host.dials?.()?.model;
+						body = [
+							`${label}: ${numberInput}█`,
+							parsed === null ? "  e.g. 200k, 272k, 1M, 0.5M, 200000 or 85% of the context window" : typeof parsed === "number" ? `  = ${parsed.toLocaleString("en-US")} tokens` : `  ✗ ${parsed.error}`,
+							`  now ${current === undefined ? "–" : formatTokens(current)} (${dialSource(kind)})${stats?.contextWindow ? ` · window ${formatTokens(stats.contextWindow)}` : ""}${model ? ` · ${model}` : ""}`,
+						];
+						hint = `enter this session · ctrl+s also save as default${model ? ` for ${model}` : ""} · esc cancel`;
 					} else {
-						const label = screen === "budget" ? "budget" : screen === "protect" ? "protected tail" : "door port (0 disables)";
-						body = [`Set ${label}: ${numberInput}█`];
+						body = [`Set door port (0 disables): ${numberInput}█`];
 						hint = "digits · backspace · enter apply · esc cancel";
 					}
 
@@ -400,7 +418,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 							done(undefined);
 							return;
 						}
-						screen = screen === "consent" ? "conductors" : screen === "doorPort" || screen === "bindHost" || screen === "customToken" ? "settings" : "blocks";
+						screen = screen === "consent" ? "conductors" : screen === "budget" || screen === "protect" ? dialReturn : screen === "doorPort" || screen === "bindHost" || screen === "customToken" ? "settings" : "blocks";
 						message = "";
 						update();
 						return;
@@ -539,9 +557,11 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 								});
 							} else if (settingsIndex === 4) {
 								numberInput = "";
+								dialReturn = "settings";
 								screen = "budget";
 							} else if (settingsIndex === 5) {
 								numberInput = "";
+								dialReturn = "settings";
 								screen = "protect";
 							} else if (settingsIndex === 6) {
 								textInput = cfg.bindHost;
@@ -574,20 +594,31 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 						} else if (key && key.length === 1 && key >= " " && key <= "~" && textInput.length < 64) {
 							textInput += key;
 						}
-					} else if (screen === "budget" || screen === "protect" || screen === "doorPort") {
+					} else if (screen === "budget" || screen === "protect") {
+						const kind = screen;
+						const save = matchesKey(data, "ctrl+s");
+						if (matchesKey(data, "backspace")) numberInput = numberInput.slice(0, -1);
+						else if ((confirm || save) && numberInput) {
+							const value = parseTokens(numberInput, host.truth()?.stats().contextWindow ?? null);
+							if (typeof value !== "number") message = value.error;
+							else {
+								void send({ kind: kind === "budget" ? "setBudget" : "setProtect", value }).then(() => {
+									if (!save || disposed) return;
+									message = host.saveDialDefault ? host.saveDialDefault(kind, value) : "Defaults can only be saved for this Pi session's own model";
+									update();
+								});
+								screen = dialReturn;
+							}
+						} else if (key && key.length === 1 && /[0-9.,_kKmM%]/.test(key) && numberInput.length < 16) numberInput += key;
+					} else if (screen === "doorPort") {
 						if (/^\d$/.test(key) && numberInput.length < 12) numberInput += key;
 						else if (matchesKey(data, "backspace")) numberInput = numberInput.slice(0, -1);
 						else if (confirm && numberInput) {
-							if (screen === "doorPort") {
-								void Promise.resolve(host.updateSettings?.({ doorPort: Number(numberInput) })).then(() => {
-									message = `Door port set to ${numberInput}`;
-									update();
-								});
-								screen = "settings";
-							} else {
-								void send({ kind: screen === "budget" ? "setBudget" : "setProtect", value: Number(numberInput) });
-								screen = "blocks";
-							}
+							void Promise.resolve(host.updateSettings?.({ doorPort: Number(numberInput) })).then(() => {
+								message = `Door port set to ${numberInput}`;
+								update();
+							});
+							screen = "settings";
 						}
 					} else if (up || down || (mapMode && (matchesKey(data, "left") || matchesKey(data, "right")))) {
 						const blocks = filteredBlocks();
@@ -622,6 +653,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 						screen = "settings";
 					} else if (key === "b" || key === "t") {
 						screen = key === "b" ? "budget" : "protect";
+						dialReturn = "blocks";
 						numberInput = "";
 					} else if (block && truth) {
 						if (key === "e" || key === "D") {

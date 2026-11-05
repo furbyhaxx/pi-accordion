@@ -9,6 +9,7 @@ import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { DOOR_PORT } from "../core/protocol";
 import { REGISTRY_DIR } from "../app/src/lib/live/registry";
+import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
 
 export type CompactMode = "accordion" | "suppress" | "native";
 
@@ -55,6 +56,8 @@ export interface AccordionSettings {
 	/** Conductor id → ISO timestamp at which the user accepted its privacy notice. */
 	privacyConsent: Record<string, string>;
 	taskWidget: TaskWidgetSettings;
+	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
+	modelDefaults: ModelDefaults;
 }
 
 export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
@@ -67,6 +70,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	models: { defaults: {}, conductors: {} },
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
+	modelDefaults: {},
 };
 
 const CONFIG_FILE = "config.json";
@@ -276,6 +280,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		models: sanitizeModelSettings(fileData.models),
 		privacyConsent: sanitizePrivacyConsent(fileData.privacyConsent),
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
+		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
 }
 
@@ -290,6 +295,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		models: sanitizeModelSettings(settings.models),
 		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
 		taskWidget: sanitizeTaskWidget(settings.taskWidget),
+		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
 	};
 	try {
 		const filePath = configPathForHome(homeDir);

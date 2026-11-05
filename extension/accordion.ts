@@ -54,6 +54,7 @@ import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import { TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
 import { TaskWidgetController } from "./tui/taskWidget";
+import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { TaskCoach } from "./taskCoach";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
@@ -1346,6 +1347,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				truth.setContextWindow(contextWindow);
 				clampBudgetToWindow(truth, contextWindow);
 			}
+			applyDials();
 			// Issue #93: capture the CURRENT effective system prompt on every hook tick (never at
 			// `session_start` — that races pi's own `resources_discover`-driven rebuild, see
 			// `ExtensionContext.getSystemPrompt`'s call site history). `getSystemPrompt` is a cheap field
@@ -2611,6 +2613,56 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		});
 		truth = t;
 		setLastMessages(messages); // fingerprints the full array once (rare rebuild path) — see lastFps
+		if (!prev) applyDials();
+	}
+
+	// ── budget and protected tail: per model, remembered in the session (see dials.ts) ──
+	let dialRecords: DialsRecord[] = [];
+	// The model the current budget/tail were resolved for; a different model re-resolves them.
+	let dialModel: string | null = null;
+
+	function modelSpec(): string | null {
+		const m = latestModelObj as { id?: string; provider?: string } | null;
+		return m?.id && m.provider ? `${m.provider}/${m.id}` : null;
+	}
+
+	function currentDials(): (ResolvedDials & { model: string | null }) | null {
+		const spec = modelSpec();
+		return spec ? { ...resolveDials(spec, contextWindow, dialRecords, settings.modelDefaults), model: spec } : null;
+	}
+
+	/** Set budget and tail for the current model when it differs from the one they were set for. */
+	function applyDials(): void {
+		const spec = modelSpec();
+		if (!truth || !spec || spec === dialModel) return;
+		const r = resolveDials(spec, contextWindow, dialRecords, settings.modelDefaults);
+		dialModel = spec;
+		if (r.budget !== null && r.budget !== truth.budget) truth.setBudget(r.budget);
+		if (r.protect !== truth.protectTokens) truth.setProtect(r.protect);
+	}
+
+	/** Remember a budget or tail the user set, for the current model, in the session file. */
+	function recordDial(kind: DialKind, value: number): void {
+		const spec = modelSpec();
+		if (!spec) return;
+		const rec: DialsRecord = { model: spec, [kind]: value };
+		dialRecords.push(rec);
+		dialModel = spec;
+		try {
+			pi.appendEntry(DIALS_ENTRY, rec);
+		} catch {
+			/* no session to record into (print mode) */
+		}
+	}
+
+	/** Make `value` the default `kind` for the current model in config.json. */
+	function saveDialDefault(kind: DialKind, value: number): string {
+		const spec = modelSpec();
+		if (!spec) return "The current model is not known yet";
+		const prev = settings.modelDefaults[spec] ?? {};
+		settings = saveSettings(HOME, { ...settings, modelDefaults: { ...settings.modelDefaults, [spec]: { ...prev, [kind]: formatTokens(value) } } });
+		notifyNative();
+		return `Saved ${kind === "budget" ? "budget" : "protected tail"} ${formatTokens(value)} as the default for ${spec}`;
 	}
 
 	/**
@@ -2822,9 +2874,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 			case "setBudget":
 				truth.setBudget(cmd.value);
+				if (Number.isFinite(cmd.value)) recordDial("budget", truth.budget);
 				return { results: [], rev: truth.rev };
 			case "setProtect":
 				truth.setProtect(cmd.value);
+				if (Number.isFinite(cmd.value)) recordDial("protect", truth.protectTokens);
 				return { results: [], rev: truth.rev };
 			case "setFolding":
 				setFolding(!!cmd.value);
@@ -2942,6 +2996,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			meta = { title: "pi session", cwd: process?.cwd?.() ?? "", model: "", contextWindow: null, format: "pi" };
 		} catch {
 			/* keep defaults */
+		}
+		// This session's own budget/tail, read before anything resolves them for the new Truth.
+		dialModel = null;
+		try {
+			dialRecords = dialsRecordsOf(typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : []);
+		} catch {
+			dialRecords = [];
 		}
 		refreshFromCtx(ctx); // model / context window may be known already
 		// Build the authoritative Truth from the session's current history. For a fresh session
@@ -3154,6 +3215,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// already exhausted (model-window budget clamp fix). Never raises budget.
 			clampBudgetToWindow(truth, contextWindow);
 		}
+		applyDials();
 	});
 
 	// ── turn settled: the canonical re-plan trigger for a turn-based conductor ───
@@ -3392,7 +3454,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// ── /accordion : open the native context panel ─────────────────────────────
 	pi.registerCommand("accordion", {
-		description: "[sessions | compact | web | tasks] — open the Accordion context panel",
+		description: "[sessions | compact | web | tasks | budget | tail] — open the Accordion context panel",
 		getArgumentCompletions: (text: string) => {
 			const q = text.trim().toLowerCase();
 			const items = [
@@ -3400,6 +3462,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "compact", label: "compact", description: "Run an immediate Accordion compression pass" },
 				{ value: "web", label: "web", description: "Show the Browser URL and focus the desktop app" },
 				{ value: "tasks", label: "tasks", description: "Expand or collapse the task list above the editor" },
+				{ value: "budget ", label: "budget", description: "Set the token budget for this session, e.g. 200k, 1M or 85% (--default saves it for this model)" },
+				{ value: "tail ", label: "tail", description: "Set the protected tail for this session, e.g. 20k (--default saves it for this model)" },
 				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release or start one" },
 				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
@@ -3414,6 +3478,34 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (argument === "compact") {
 				const res = compactNow();
 				ctx.ui.notify(res.message, "info");
+				return;
+			}
+			const dialArg = /^(budget|tail)(?:\s+(.*))?$/.exec(argument);
+			if (dialArg) {
+				const kind: DialKind = dialArg[1] === "budget" ? "budget" : "protect";
+				const words = (dialArg[2] ?? "").split(/\s+/).filter(Boolean);
+				const asDefault = words.includes("--default");
+				const amount = words.filter((w) => w !== "--default").join("");
+				const d = currentDials();
+				const name = kind === "budget" ? "Budget" : "Protected tail";
+				if (!amount) {
+					const now = kind === "budget" ? truth?.budget : truth?.protectTokens;
+					ctx.ui.notify(`${name}: ${now === undefined ? "–" : formatTokens(now)}${d ? ` (${describeSource(d.sources[kind])}, ${d.model})` : ""}. Usage: /accordion ${dialArg[1]} <200k | 1M | 85%> [--default]`, "info");
+					return;
+				}
+				const value = parseTokens(amount, contextWindow);
+				if (typeof value !== "number") {
+					ctx.ui.notify(value.error, "warning");
+					return;
+				}
+				if (!truth) {
+					ctx.ui.notify("No session context yet", "warning");
+					return;
+				}
+				applyCommand({ kind: kind === "budget" ? "setBudget" : "setProtect", value });
+				const set = kind === "budget" ? truth.budget : truth.protectTokens;
+				const clamped = set !== value ? ` (capped at the ${formatTokens(set)} context window)` : "";
+				ctx.ui.notify(asDefault ? `${saveDialDefault(kind, value)}; this session uses ${formatTokens(set)}${clamped}.` : `${name} ${formatTokens(set)} for this session${clamped}.`, "info");
 				return;
 			}
 			const tasksArg = /^tasks(?:\s+(\S+))?$/.exec(argument);
@@ -3444,7 +3536,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const openedSessionId = sessionId;
 			let target: SessionEntry | undefined;
 			if (argument && argument !== "sessions") {
-				ctx.ui.notify("Usage: /accordion [sessions | compact | web | tasks]", "warning");
+				ctx.ui.notify("Usage: /accordion [sessions | compact | web | tasks | budget | tail]", "warning");
 				return;
 			}
 			if (argument === "sessions") {
@@ -3522,6 +3614,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return settings;
 				},
 				regenerateToken: () => regenerateSharedToken(),
+				dials: () => currentDials(),
+				saveDialDefault: (kind, value) => saveDialDefault(kind, value),
 				compactNow: () => compactNow(),
 				listSessions: () => discoverNativeSessions(),
 				command: (command) => {
