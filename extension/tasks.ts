@@ -29,6 +29,8 @@ export interface Task {
 	startedAt?: string;
 	/** When the task was completed, failed or abandoned. */
 	endedAt?: string;
+	/** Set when the store closed this parent itself because the agent moved on after its last subtask. */
+	autoClosed?: boolean;
 }
 
 export interface TaskClaim {
@@ -258,27 +260,48 @@ export class TaskStore {
 	}
 
 	/**
-	 * Start a task. Nesting is a stack: a task may start while its ancestors are open; starting a task
-	 * outside the innermost open one is rejected, because the span boundaries would interleave.
+	 * Start a task. Nesting is a stack: unstarted ancestors start with it, so a parent's span covers
+	 * its subtasks. Moving on from an open parent whose subtasks are all finished closes that parent
+	 * with a report composed from its subtasks; an open task with unfinished subtasks still blocks.
 	 */
-	start(slug: string, id: string): { list: TaskList; task: Task } {
+	start(slug: string, id: string): StartResult {
 		const list = this.owned(slug);
 		const task = this.task(list, id);
 		if (task.status === "doing") throw new TaskError(`Task ${id} is already in progress.`);
 		if (task.status !== "todo") throw new TaskError(`Task ${id} is ${task.status}. Add a follow-up task instead of restarting it.`);
-		const open = list.tasks.filter((t) => t.status === "doing");
-		const blocking = open.filter((t) => !isWithin(id, t.id));
+		const at = now();
+		const autoClosed: Task[] = [];
+		// Innermost first, so a closed child counts as finished when its parent is checked.
+		const open = list.tasks.filter((t) => t.status === "doing" && !isWithin(id, t.id)).sort((a, b) => b.id.length - a.id.length);
+		const blocking: Task[] = [];
+		for (const t of open) {
+			const kids = list.tasks.filter((c) => parentOf(c.id) === t.id);
+			if (kids.length && kids.every((c) => FINISHED.has(c.status))) {
+				closeFromChildren(t, kids, at);
+				autoClosed.push(t);
+			} else blocking.push(t);
+		}
 		if (blocking.length)
-			throw new TaskError(`Task ${blocking.map((t) => `${t.id} "${t.title}"`).join(", ")} is still in progress. Complete, fail or abandon it before starting ${id}, or start one of its subtasks.`);
-		task.status = "doing";
-		task.updatedAt = now();
-		task.startedAt = task.updatedAt;
+			throw new TaskError(
+				`Task ${blocking.map((t) => `${t.id} "${t.title}"`).join(", ")} is still in progress. Complete, fail or abandon it with a report before starting ${id}, or start one of its subtasks.`,
+			);
+		const started: Task[] = [];
+		for (let p = parentOf(id); p !== null; p = parentOf(p)) {
+			const anc = list.tasks.find((t) => t.id === p);
+			if (anc?.status === "todo") started.unshift(anc);
+		}
+		started.push(task);
+		for (const t of started) {
+			t.status = "doing";
+			t.updatedAt = at;
+			t.startedAt = at;
+		}
 		this.write(list);
-		return { list, task };
+		return { list, task, autoStarted: started.slice(0, -1), autoClosed };
 	}
 
 	/** End a task as done, failed or abandoned. Open subtasks block it. */
-	finish(slug: string, id: string, status: "done" | "failed" | "abandoned", report: unknown): { list: TaskList; task: Task } {
+	finish(slug: string, id: string, status: "done" | "failed" | "abandoned", report: unknown): { list: TaskList; task: Task; parentReady?: Task } {
 		const list = this.owned(slug);
 		const task = this.task(list, id);
 		if (task.status !== "doing") throw new TaskError(`Task ${id} is ${task.status}, not in progress. Start it first, or check "status".`);
@@ -289,8 +312,36 @@ export class TaskStore {
 		task.updatedAt = now();
 		task.endedAt = task.updatedAt;
 		this.write(list);
-		return { list, task };
+		const parent = parentOf(id);
+		const siblings = parent === null ? [] : list.tasks.filter((t) => parentOf(t.id) === parent);
+		const parentTask = parent === null ? undefined : list.tasks.find((t) => t.id === parent);
+		const parentReady = parentTask?.status === "doing" && siblings.every((t) => FINISHED.has(t.status)) ? parentTask : undefined;
+		return { list, task, parentReady };
 	}
+}
+
+const FINISHED: ReadonlySet<TaskStatus> = new Set(["done", "failed", "abandoned"]);
+
+/** What `start` did besides starting the task. */
+export interface StartResult {
+	list: TaskList;
+	task: Task;
+	/** Ancestors that were not started yet and started with the task, outermost first. */
+	autoStarted: Task[];
+	/** Open parents whose subtasks were all finished and that closed because the agent moved on. */
+	autoClosed: Task[];
+}
+
+/** Close a parent from its finished subtasks: done when all are done, else failed. */
+function closeFromChildren(t: Task, kids: readonly Task[], at: string): void {
+	const failed = kids.filter((c) => c.status !== "done");
+	const outcomes = kids.map((c) => `${c.id} ${c.status}${c.report?.outcome ? `: ${c.report.outcome}` : ""}`).join("; ");
+	const outcome = `Closed automatically after its subtasks: ${outcomes}`;
+	t.status = failed.length ? "failed" : "done";
+	t.report = { outcome: outcome.length > OUTCOME_MAX ? `${outcome.slice(0, OUTCOME_MAX - 1)}…` : outcome };
+	t.autoClosed = true;
+	t.updatedAt = at;
+	t.endedAt = at;
 }
 
 const MARK: Record<TaskStatus, string> = { todo: "[ ]", doing: "[~]", done: "[x]", failed: "[!]", abandoned: "[-]" };
@@ -368,15 +419,21 @@ export function runTasks(store: TaskStore, args: TasksArgs): string {
 		case "status":
 			return renderList(store.read(need("list")));
 		case "start": {
-			const { task } = store.start(need("list"), need("id"));
-			return `Started ${args.list}/${task.id} "${task.title}".`;
+			const { task, autoStarted, autoClosed } = store.start(need("list"), need("id"));
+			const lines = [`Started ${args.list}/${task.id} "${task.title}".`];
+			for (const t of autoStarted) lines.push(`Also started parent ${t.id} "${t.title}" so its span covers this subtask.`);
+			for (const t of autoClosed)
+				lines.push(`Closed ${t.id} "${t.title}" as ${t.status} from its subtasks' reports, because you moved on without completing it. Complete a parent with its own report right after its last subtask.`);
+			return lines.join("\n");
 		}
 		case "complete":
 		case "fail":
 		case "abandon": {
 			const status = args.action === "complete" ? "done" : args.action === "fail" ? "failed" : "abandoned";
-			const { task } = store.finish(need("list"), need("id"), status, args.report);
-			return `${args.list}/${task.id} "${task.title}" is ${status}.`;
+			const { task, parentReady } = store.finish(need("list"), need("id"), status, args.report);
+			const lines = [`${args.list}/${task.id} "${task.title}" is ${status}.`];
+			if (parentReady) lines.push(`All subtasks of ${parentReady.id} "${parentReady.title}" are finished: complete ${parentReady.id} now with its own report, or add more subtasks to it.`);
+			return lines.join("\n");
 		}
 		default:
 			throw new TaskError(`Unknown action ${JSON.stringify((args as { action?: unknown }).action)}.`);

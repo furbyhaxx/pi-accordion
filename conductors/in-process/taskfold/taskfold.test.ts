@@ -211,5 +211,20 @@ describe("taskfold", () => {
 		expect(taskKeyOfSummary(`${foldTag("g:x")} [task-record] work/1.1 "Inner"  status: done`)).toBe("work/1.1");
 		expect(taskKeyOfSummary("plain summary")).toBeNull();
 	});
+
+	it("opens auto-started parents with the subtask and ends auto-closed parents before the moving-on call", () => {
+		const s = new Session();
+		s.user("Go.");
+		const first = s.call("tasks", { action: "start", list: "work", id: "1.1" }, 'Started work/1.1 "A1".\nAlso started parent 1 "A" so its span covers this subtask.').call;
+		s.work(1, "a");
+		s.finish("1.1", { outcome: "a1" });
+		const next = s.call("tasks", { action: "start", list: "work", id: "2" }, 'Started work/2 "B".\nClosed 1 "A" as done from its subtasks\' reports, because you moved on.').call;
+		const spans = scanTaskSpans(s.blocks, (b) => b.text);
+		const one = spans.find((x) => x.key === "work/1")!;
+		const idx = (id: string) => s.blocks.findIndex((b) => b.id === id);
+		expect(one).toMatchObject({ title: "A", status: "done", start: idx(first) });
+		expect(one.end).toBe(idx(next) - 1);
+		expect(spans.find((x) => x.key === "work/2")).toMatchObject({ title: "B", status: null, start: idx(next) });
+	});
 });
 

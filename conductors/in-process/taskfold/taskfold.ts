@@ -141,7 +141,21 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 		if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
 		const key = `${args.list}/${args.id}`;
 		if (action === "start") {
-			const title = /"(.*)"\.\s*$/.exec(textOf(blocks[ri]))?.[1] ?? "";
+			const lines = textOf(blocks[ri]).split("\n");
+			// Parents the store closed because this start moved on: their span ends just before this call.
+			for (const line of lines) {
+				const m = /^Closed (\S+) "(.*)" as (done|failed) from its subtasks' reports/.exec(line);
+				const ckey = m ? `${args.list}/${m[1]}` : "";
+				const s = m ? open.get(ckey) : undefined;
+				if (!m || !s) continue;
+				open.delete(ckey);
+				out.push({ key: ckey, list: args.list, id: m[1], title: s.title || m[2], status: m[3] as "done" | "failed", report: { outcome: "Closed automatically after its subtasks." }, start: s.start, end: Math.max(s.start, i - 1) });
+			}
+			for (const line of lines) {
+				const m = /^Also started parent (\S+) "(.*)" so its span/.exec(line);
+				if (m) open.set(`${args.list}/${m[1]}`, { start: i, title: m[2], list: args.list, id: m[1] });
+			}
+			const title = /^Started \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
 			open.set(key, { start: i, title, list: args.list, id: args.id });
 		} else if (FINISH[action]) {
 			const s = open.get(key);

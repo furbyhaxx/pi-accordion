@@ -24,7 +24,7 @@ describe("tasks", () => {
 		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1" });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
-		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/still in progress/);
+		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1.1 "A1".*still in progress/);
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report })).toThrow(/Subtask 1.1/);
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
 		runTasks(s, { action: "complete", list: "w", id: "1", report });
@@ -105,5 +105,48 @@ describe("tasks", () => {
 		expect(slugFor("Auth Refactor!", new Set())).toBe("auth-refactor");
 		expect(slugFor("Auth Refactor", new Set(["auth-refactor", "auth-refactor-2"]))).toBe("auth-refactor-3");
 		expect(slugFor("???", new Set())).toBe("tasks");
+	});
+
+	test("starting a subtask starts its unstarted ancestors", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1", subtasks: [{ title: "A1a" }] }] }] });
+		const out = runTasks(s, { action: "start", list: "w", id: "1.1.1" });
+		expect(out.split("\n")).toEqual([
+			'Started w/1.1.1 "A1a".',
+			'Also started parent 1 "A" so its span covers this subtask.',
+			'Also started parent 1.1 "A1" so its span covers this subtask.',
+		]);
+		expect(s.read("w").tasks.map((t) => t.status)).toEqual(["doing", "doing", "doing"]);
+	});
+
+	test("finishing the last subtask asks for the parent's own report", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }] });
+		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		expect(runTasks(s, { action: "complete", list: "w", id: "1.1", report })).not.toContain("All subtasks");
+		runTasks(s, { action: "start", list: "w", id: "1.2" });
+		expect(runTasks(s, { action: "complete", list: "w", id: "1.2", report })).toContain('All subtasks of 1 "A" are finished: complete 1 now');
+	});
+
+	test("moving on from a parent whose subtasks are finished closes it from their reports", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		runTasks(s, { action: "complete", list: "w", id: "1.1", report: { outcome: "one" } });
+		runTasks(s, { action: "start", list: "w", id: "1.2" });
+		runTasks(s, { action: "fail", list: "w", id: "1.2", report: { outcome: "two broke" } });
+		const out = runTasks(s, { action: "start", list: "w", id: "2" });
+		expect(out).toContain('Closed 1 "A" as failed from its subtasks\' reports');
+		const a = s.read("w").tasks[0];
+		expect(a).toMatchObject({ status: "failed", autoClosed: true });
+		expect(a.report?.outcome).toBe("Closed automatically after its subtasks: 1.1 done: one; 1.2 failed: two broke");
+	});
+
+	test("a parent with unfinished subtasks still blocks moving on", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
+		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1 "A" is still in progress/);
 	});
 });
