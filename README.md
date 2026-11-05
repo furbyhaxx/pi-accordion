@@ -157,7 +157,10 @@ note: room for it is reserved in the budget from the first turn.
 nested task list (the `tasks` tool) and ends each task with a short report. Once the context gets
 tight, finished tasks fold into fixed-shape records: outcome, decisions, files changed, checks run,
 open items. User messages stay verbatim unless a classifier model says losing them costs nothing,
-as with approvals, status checks and step steering.
+as with approvals, status checks and step steering. The newest finished task stays open, folding
+goes oldest first, and when that is not enough the oldest records shrink to one line and then to
+a stub; their fold codes still recall the full transcript. Starting a subtask starts its parents,
+and the agent is reminded when it works outside any task.
 
 While taskfold is attached, the task list sits above the editor. Collapsed it shows progress,
 folded tasks (`≡`), working time and the tokens the task spans take before and after folding,
@@ -166,7 +169,7 @@ current one when it gets long:
 
 ```
 ▼ Tasks 5/20 (≡5) · 5m 12s · 26.7k → 10.1k tok
-  ├─ … 3 hidden · 3m 36s (3 folded)
+  ├─ … 3 hidden · 3m 36s (3 folded · 20.0k → 1.2k)
   ├─◐ 3 Secrets Redesign · 2m 45s (3/7)
   │ ├─▶ 3.4 registry rewire to vault · 1m 21s (0/3)
   │ │ ├─▶ 3.4.1 the new registry · 1m 11s
@@ -257,6 +260,11 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   or the `s` Settings tab), replacing Pi's native `/compact` and threshold auto-compaction with
   reversible folding while falling back to native compaction only if a hard overflow is already saturated.
 - `/accordion sessions` selects another live Pi session on the same machine.
+- Budget and protected tail (`b`/`t` in the panel, or `/accordion budget 200k`, `/accordion tail 20k`)
+  accept `200k`, `1M`, `0.5M` or `85%` of the context window. Enter applies them to the session, which
+  remembers them per model across resumes; `ctrl+s` (or `--default`) also saves them as the model's
+  default under `modelDefaults` in `~/.accordion/config.json`, keyed by `provider/model`,
+  `provider/*` or `*`: `{ "anthropic/claude-opus-5-5": { "budget": "200k" }, "openai-codex/*": { "budget": "272k" } }`.
 - `/accordion tasks [lists | expand | collapse | hide | show]` browses task lists and controls the taskfold task list above the editor.
 
 The fork is also a Pi package and can be installed from Git once this branch is published:

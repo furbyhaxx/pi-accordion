@@ -5,9 +5,9 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-05T10:11:16+01:00"
+  updated_at: "2026-11-05T11:00:42+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
@@ -17,6 +17,9 @@ document:
     - revision: 2
       reason: "user request: reattach a session's task list on resume, tell the agent what changed, browse lists"
       changes: ["§4.8 session task list binding, resume dialog and agent notes", "§4.9 /accordion tasks lists browser", "§4.1 claim name, claim state, fingerprint", "§4.5 lists verb"]
+    - revision: 3
+      reason: "user feedback: sloppy task spans, unfolded tasks, missing fold tokens, budget/tail not sticking"
+      changes: ["§4.4 fold token markers", "§4.10 task protocol: auto-started parents, auto-closed parents, coaching reminders", "§4.11 Taskfold folding: overlap-safe edges, keepRecentTasks, aging ladder", "§4.12 budget and tail per model: session memory, modelDefaults, human amounts, ctrl+s", "§6.1 modelDefaults replaces defaultBudget/defaultProtectTokens; Taskfold options add keepRecentTasks"]
 ---
 
 # Accordion UI polish
@@ -141,8 +144,18 @@ The header uses `▼`. Rows: `<prefix><glyph> <id> <title> · <duration> <marker
 | `▶` | in progress, no finished subtask | alternates `warning` / `text` every 1 s |
 | `◐` | in progress with ≥1 finished subtask | `warning` |
 
-Markers: `(fold)` when folded, else `(done/total)` of direct subtasks for unfinished tasks with
-subtasks. Finished tasks' subtasks are closed by default.
+Markers, joined with ` · ` inside one pair of parentheses:
+
+| Row | Marker |
+|---|---|
+| task owning folded group(s) | `(fold 35.2k → 400)`: full → live tokens of its groups (parts summed) |
+| subtask folded inside its parent's group | `(fold)` |
+| unfinished task with subtasks | `(3/7)` done/total direct subtasks |
+| closed branch (finished parent, or user-closed) with folded descendants | `(2 folded · 20.0k → 500)`, after the progress when both apply |
+| hidden run | `… N hidden · <duration> (k folded · full → live)` |
+
+When the row is too narrow for the token form the short form (`(fold)`, `(2 folded)`) is used.
+Finished tasks' subtasks are closed by default.
 
 **Smart hiding**, when the full tree exceeds `taskWidget.maxRows` (default 12) tree rows:
 the anchor is the innermost task in progress, else the first todo, else the last task. The anchor's
@@ -267,6 +280,74 @@ releases this session's other lists; a held list asks for confirmation first), `
 lists only), `n` new list (inline title, slug from `slugFor`). Every attach, release and create
 from the browser queues the matching agent note (§4.8); re-attaching the same unchanged list does
 not.
+
+### 4.10 Task protocol (delivered)
+
+The agent's task spans are only as good as its calls, so the store repairs structure and the
+extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.ts`.
+
+- **Auto-started parents.** `start <id>` starts every unstarted ancestor first; the result adds
+  `Also started parent <id> "<title>" so its span covers this subtask.` per ancestor.
+- **Parent ready.** Finishing the last open subtask of an open parent appends
+  `All subtasks of <id> "<title>" are finished: complete <id> now with its own report, or add more
+  subtasks to it.`
+- **Auto-closed parents.** Starting a task outside an open parent whose subtasks are all finished
+  closes that parent instead of rejecting the call: status `done` when all subtasks are `done`, else
+  `failed`; report outcome `Closed automatically after its subtasks: <id> <status>: <outcome>; …`
+  (capped to 600 chars); `autoClosed: true` on the task. The result adds
+  `Closed <id> "<title>" as <status> from its subtasks' reports, because you moved on without
+  completing it. …`. An open task with unfinished subtasks still blocks, naming the innermost one.
+- `scanTaskSpans` reads both result lines: an auto-started parent's span starts at the subtask's
+  start call; an auto-closed parent's span ends at the block before the moving-on call.
+- **Guidance.** The `tasks` tool description and prompt guidelines state: start before the first
+  tool call of a task's work and finish right after its last; work only inside a started task; never
+  start and finish with no work between; finish a parent with its own report after its last
+  subtask.
+- **Reminders** (`extension/taskCoach.ts`, appended to tool results by a `tool_result` handler,
+  never blocking): with a list attached, a todo task left and none in progress, the 3rd consecutive
+  top-level non-`tasks` tool result and then every 8th (`OUTSIDE_FIRST`, `OUTSIDE_EVERY`) get
+  `[accordion tasks] <n> tool calls in a row ran while no task of "<list>" is in progress, so this
+  work belongs to no task record. If it is part of a planned task, call tasks start {…} before
+  continuing (next to do: <id> "<title>"); if it is new work, add a task for it first.` Finishing a
+  task whose span saw no other tool result (counted in memory since its `start` in this process,
+  ancestors included) appends `Note: no tool work ran between starting and finishing <id>, …`; a
+  task started before this process gets no note.
+
+### 4.11 Taskfold folding (delivered)
+
+- **Overlap-safe edges.** A span snaps outward to whole messages as before; a boundary message
+  already in another group (or planned in this epoch) pulls that edge inward to the next whole
+  message, so `complete A` + `start B` in one assistant message folds both tasks. Interior blocks
+  in a foreign group still reject the span.
+- **`keepRecentTasks`** (default 1): the newest N finished top-level spans are never fold
+  candidates. The token tail still applies to every fold.
+- **Aging ladder.** When folding every candidate still leaves the projection above `low · budget`,
+  Taskfold rewrites its own folded records, oldest first, skipping the newest record and any group
+  touched in the same epoch: level 1 for all of them first (`<tag> [task-record] <key> "<title>"
+  status: <s> · <outcome ≤200>`), then level 2 (`<tag> [task-archived] <key> "<title>" <s>; recall
+  the code for its record and transcript.`), until enough is freed. Each rewrite is `ungroup` +
+  `group` with the same member ids, so group id, fold code and `recall` of the raw span stay.
+  `taskKeyOfSummary` recognizes all three tags.
+
+### 4.12 Budget and protected tail per model (delivered)
+
+Implemented in `extension/dials.ts` and `extension/accordion.ts`.
+
+- **Amounts:** `200000`, `200k`, `1M`, `0.5M`, `1_000k`, or `85%` of the model's context window
+  (`parseTokens`); shown with `formatTokens` (`200k`, `1.5M`).
+- **Resolution** for model `provider/id`: the last value set in this session for that model, else
+  `modelDefaults` by most specific key (`provider/id`, `provider/*`, `*`), else the context window
+  (budget) or 20k (tail). The budget is capped at the window.
+- **When:** on the first Truth build of a session start, and on every model change (`model_select`
+  and the late-learned model in `refreshFromCtx`); the budget follows the model.
+- **Session memory:** every `setBudget`/`setProtect` command (panel, web, `/accordion budget|tail`)
+  appends `accordion.dials` `{ model, budget | protect }`; a resume reads them from the branch.
+- **Panel:** `b`/`t` (and Settings rows) open an input accepting amounts with a live parse preview,
+  the current value and its source (`set in this session`, `default <key>`, `model window`,
+  `built-in`). `enter` applies to the session; `ctrl+s` applies and saves
+  `modelDefaults["provider/id"]`.
+- **Command:** `/accordion budget|tail [<amount>] [--default]`; without an amount it reports the
+  value and its source.
 
 ## 5. Area B: the panel
 
@@ -439,8 +520,7 @@ All keys, after this change. Types are TypeScript; "env/flag" lists overrides th
 |---|---|---|---|---|---|
 | `autoArm` | `boolean` / `true` | Defaults | toggle | `ACCORDION_AUTO_ARM` | next session start |
 | `defaultConductor` | conductor id or `"none"` / `"keel-lite"` | Defaults | picker (registry, readiness shown) | `ACCORDION_DEFAULT_CONDUCTOR` | next session start |
-| `defaultBudget` **new** | `number \| null` / `null` (= model window) | Defaults | number (tokens, ≥ 1 000) + `w` = window | – | next session start; clamped to the window |
-| `defaultProtectTokens` **new** | `number` / `20000` | Defaults | number (0–1 000 000) | – | next session start |
+| `modelDefaults.<pattern>.budget` / `.protect` **delivered** | amount string (`"200k"`, `"1M"`, `"85%"`); pattern `provider/model`, `provider/*` or `*` | Budget & tail | list of patterns; add/edit/remove; amounts as in §4.12 | – | on the next resolution (session start, model switch) |
 | `compact.manual` **new** | `"pass" \| "aggressive" \| "bake" \| "native"` / `"pass"` | Compaction | picker | – | immediately |
 | `compact.threshold` **new** | `"pass" \| "native"` / `"pass"` | Compaction | picker | – | immediately |
 | `compact.onSaturated` **new** | `"native" \| "bake" \| "warn"` / `"native"` | Compaction | picker | – | immediately |
@@ -479,7 +559,8 @@ export interface ConductorOptionSpec {
 v1 declares options for Taskfold only: `high` (fraction 0.5–0.95, 0.8, "Start folding at this
 share of the budget"), `low` (fraction 0.3–0.9, 0.6, "Fold until live tokens reach this share";
 MUST be < `high`, else the save is rejected with that message), `maxLoss` (number 0–3, 0.3,
-"Fold a user message when its predicted loss is below this").
+"Fold a user message when its predicted loss is below this"), `keepRecentTasks` (number 0–10, 1,
+"Newest finished top-level tasks that stay open"; already a `TaskfoldOptions` field, §4.11).
 
 ### 6.2 Settings screen
 
@@ -503,7 +584,7 @@ MUST be < `high`, else the save is rejected with that message), `maxLoss` (numbe
  ↑↓ move · enter edit · space toggle · ctrl+s save · ctrl+r reload · esc back
 ```
 
-Sections in order: This session, Defaults · all sessions, Compaction, Models, Privacy,
+Sections in order: This session, Defaults · all sessions, Budget & tail (`modelDefaults`), Compaction, Models, Privacy,
 Conductor: `<label>` (one per conductor declaring options), Task widget, Web UI.
 
 - Row: label column 30, value, right edge `›` for drill-in editors. Staged rows append `*`

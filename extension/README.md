@@ -34,8 +34,9 @@ Run `/accordion` to manage the current session in Pi's terminal (`1–4` / `Tab`
 between the Claude Code `/context` Overview + Spectrum grid, searchable Blocks list, Conductors,
 and Settings), `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
 collapse the taskfold task list above the editor (also `alt+t`), `/accordion tasks lists` to browse
-and attach the project's task lists, or `/accordion sessions`
-to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
+and attach the project's task lists, `/accordion budget 200k` / `/accordion tail 20k` to set the
+budget and protected tail (remembered per model; `--default` or `ctrl+s` in the panel saves them under
+`modelDefaults`), or `/accordion sessions` to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
 Accordion pass.
 

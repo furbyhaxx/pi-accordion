@@ -91,17 +91,17 @@ Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted
    from `withControllerLeaseLock`/`claimWithControllerLeaseLock` in `extension/accordion.ts`;
    the controller lease uses it (no behavior change; smoke covers it).
-2. `extension/settings.ts`: new keys `defaultBudget`, `defaultProtectTokens`, `compact`,
-   `conductorOptions` (§6.1); `compactMode` migration and `ACCORDION_COMPACT_MODE` mapping;
+2. `extension/settings.ts`: new keys `compact`, `conductorOptions` (§6.1; `modelDefaults` is
+   delivered, §4.12); `compactMode` migration and `ACCORDION_COMPACT_MODE` mapping;
    strict validators returning `{ ok, error }`.
 3. `extension/settingsStore.ts` (§6.3) with `sources`, `rev`, `save` (lock, re-read, conflict,
    merge, validate, atomic write), `poll`.
 4. Wire into `extension/accordion.ts`: replace `settings = loadSettings(...)`/`saveSettings` uses
    with the store; poll inside `pollControllerFile`'s tick; runtime-effects table (§6.3) including
-   door-secret adoption and privacy revoke detach; `defaultBudget`/`defaultProtectTokens` applied
-   where the first Truth build sets the budget (`t.setBudget(contextWindow)` site in `buildTruth`).
+   door-secret adoption and privacy revoke detach; a `modelDefaults` change re-resolves the dials
+   (`dialModel = null; applyDials()`), never overriding a value set in the session.
 5. Registry option specs (§6.1): `ConductorOptionSpec`, factories receive resolved options,
-   Taskfold declares `high`/`low`/`maxLoss`; Taskfold status gains `saved` metric.
+   Taskfold declares `high`/`low`/`maxLoss`/`keepRecentTasks`; Taskfold status gains `saved` metric.
 6. `AccordionTuiHost` (`extension/tui/host.ts`): `settings()` returns `SettingsSnapshot`;
    `updateSettings(patch, baseRev)` returns the store result.
 7. Tests: `extension/settingsStore.test.ts` (merge under lock from two stores on one home,
