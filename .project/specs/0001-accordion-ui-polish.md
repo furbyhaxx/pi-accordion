@@ -1,0 +1,648 @@
+---
+document:
+  type: "specification"
+  id: "SPEC-0001"
+  title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
+  description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
+  status: "published"
+  revision: 1
+  created_at: "2026-11-05T09:30:40+01:00"
+  updated_at: "2026-11-05T09:30:40+01:00"
+  created_by: "orchestrator"
+  updated_by: "orchestrator"
+  changelog:
+    - revision: 1
+      reason: "document creation"
+      changes: ["document creation from the 2026-11-05 analysis, the approved wireframes and the user's Taskfold widget sketch"]
+---
+
+# Accordion UI polish
+
+Inputs: the approved chat wireframes of 2026-11-05 (reproduced here), the user's sketch
+`.project/user-uploaded-assets/2026-11-05T09:00+01:00-taskfold-widget-sketch.md`, and the house UI
+conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md`). The implementation plan is
+`.project/plans/0001-accordion-ui-polish/plan.md`.
+
+"MUST" marks a requirement an implementation is checked against. Everything else is explanation.
+
+## 1. Scope
+
+| Area | In scope |
+|---|---|
+| A. Taskfold visibility | task widget above the editor, one-line tool rows for `tasks`/`unfold`/`recall`. **Delivered** (§4). |
+| B. Panel (`/accordion`) | new shell with chrome, tabs, fitted hints; Overview, Context (timeline, grid, list), Inspector, Conductors, Settings, Help screens. |
+| C. Settings | every `config.json` key editable; staged edits saved with `ctrl+s`; cross-instance sync; source and override display; validation errors. |
+| D. Compaction | one compaction entry point with strategies `pass`, `aggressive`, `bake`, `native`; conductor settle wait; `/compact <instructions>`; threshold handling; preview; undo; result card. |
+| E. Footer status | shorter, fitted status segment. |
+| F. Web app | Overview, Settings (server-side), task list, compaction card, matching the TUI semantics through protocol v23. |
+
+Out of scope: new conductors, changes to folding semantics in `core/truth.ts` beyond what §7 names,
+the desktop (Tauri) shell, the upstream (unforked) Accordion package.
+
+## 2. Decisions
+
+| # | Decision | Reason |
+|---|---|---|
+| D1 | Overview is the landing tab of `/accordion`. | The first question is "how full is it and is folding working", not "which block". |
+| D2 | Context has three views: timeline (default), grid (today's map), list. | Timeline shows turn structure; grid stays for density; list for search. |
+| D3 | Global settings are staged and saved with `ctrl+s`. Session values (folding, budget, tail) apply immediately. | House standard; session values are Truth commands every surface already shares. |
+| D4 | `bake` compaction is included. | Taskfold records and digests make a structured, permanent summary. |
+| D5 | Task widget follows the user's sketch exactly, collapsed by default. | User decision. |
+| D6 | Web app gets the same surfaces through protocol v23. | User decision: all surfaces. |
+| D7 | `compactMode` is replaced by a `compact` object; the old key is migrated on load and dropped on the next save. | Three behaviors (manual, threshold, saturation) cannot share one enum. |
+| D8 | Settings sync piggybacks on the existing ~1 s controller poll and uses a SQLite sidecar mutex like `controller.json`. | Reuses a proven primitive; no new timers or watchers. |
+| D9 | Mouse is optional everywhere; every click action has a key or command. | PiG 0.5.3 does not deliver clicks to extension components (§4.6). |
+
+## 3. Cross-cutting UI rules
+
+These apply to every TUI surface in this spec. Each MUST hold.
+
+1. **Width.** Every line fits its width, measured with `visibleWidth`, cut with
+   `truncateToWidth(text, width, "…")`. Verified at 36, 57, 80 and 140 columns, and at 16 rows.
+2. **Truncation order.** Lines are built as ordered segments and fitted with `fitSegments`
+   (identity first, secondary metrics last). Never a blind right-truncate of a joined string.
+   `fitSegments` moves from `extension/tui/taskWidget.ts` to `extension/tui/chrome.ts` and is
+   shared.
+3. **Theme tokens.** Chrome uses `theme.fg(token)` only: `accent`, `muted`, `dim`, `success`,
+   `warning`, `error`, `text`, `border`, `borderAccent`. The block-kind palette
+   (`extension/tui/map.ts` `KIND_RGB`) is data color and stays, but kind is never shown by color
+   alone: the selected-block strip names it, and `?` shows the legend.
+4. **Glyphs.** `✓ ✗ ▲ ● ○ ◐ ▶ ☐ ▣ ☒ › · …` plus the box-drawing set. No emoji.
+5. **Selection** is a `›` marker plus accent; no row background. The selected row keeps its kind
+   colors (today's `theme.fg("accent", row)` repaint is removed).
+6. **Keys.** Enter confirms or drills in. Esc clears a filter, then goes back one level, then closes.
+   `ctrl+c` closes from any depth. Both ask before discarding staged settings. Bare-letter
+   accelerators are disabled while a text input or filter has focus. Tab/Shift+Tab cycle tabs;
+   `1`–`4` jump to a tab.
+7. **Hints.** One hint row per screen, built from a priority-ordered list and fitted with
+   `fitSegments`; `? keys` is always the last kept segment when anything was dropped.
+8. **Height.** The panel body sizes to content, capped at `rows − 6`, never below 6 rows, and never
+   shrinks while switching tabs inside one panel session (it keeps its maximum).
+9. **Session binding.** A panel belongs to the session that opened it (unchanged rule in
+   `AGENTS.md`); late async results after a session switch touch nothing.
+10. **Untrusted text** (block text, task titles, model output) goes through the existing `clean()`
+    sanitizer before styling.
+
+## 4. Area A: Taskfold visibility (delivered)
+
+Delivered on branch `feat/taskfold-widget` (commits `8c2fb44`…`b61afcb`). This section is the
+contract it implements; changes to it MUST update this section.
+
+### 4.1 Data
+
+- `Task` gains optional `startedAt` / `endedAt` (ISO), set by `TaskStore.start` / `finish`
+  (`extension/tasks.ts`). Lists written before this change render without durations.
+- `scanTaskSpans(blocks, textOf)` and `taskKeyOfSummary(summary)` are exported from
+  `conductors/in-process/taskfold/taskfold.ts`. Spans include open ones (`status: null`, `end` = last
+  block index); the conductor folds finished spans only.
+- `tasks` tool results carry `details: TasksDetails` (`extension/tui/toolRows.ts`).
+
+### 4.2 Visibility
+
+The widget (key `accordion-tasks`, placement `aboveEditor`) is shown iff all hold:
+interactive TUI; `taskWidget.mode === "auto"`; the attached conductor's registry entry declares
+the `tasks` tool; this session claims a list with at least one task; not hidden for the session.
+The shown list is the claimed one with a task in progress, else the most recently updated one.
+List files are read on session start, after every `tasks` call of this session and on
+`/accordion tasks`, never during render.
+
+### 4.3 Collapsed (default)
+
+```
+▲ Tasks 6/20 (≡6) · 6m 21s · 26.7k → 10.1k tok
+  ⎿ 3.4.1 the new registry · 1m 11s
+```
+
+- `6/20`: tasks with status `done` / all tasks.
+- `(≡6)`: tasks inside a folded Taskfold group; subtasks of a folded task count. Omitted at 0.
+- `6m 21s`: sum of the durations of the outermost started tasks. Omitted when no task has timing.
+- `26.7k → 10.1k tok`: tokens of this session's spans of the list at full size → as currently sent
+  (a folded group counts once, at its live size). Omitted without spans.
+- Line 2: the innermost task in progress and its running time; when none is in progress,
+  `⎿ next <id> <title>`; omitted when nothing is left to do.
+- All tasks finished (`done`, `failed` or `abandoned`): a single line with `►`.
+
+### 4.4 Expanded
+
+The header uses `▼`. Rows: `<prefix><glyph> <id> <title> · <duration> <marker>`.
+
+| Glyph | State | Color |
+|---|---|---|
+| `☐` | todo | `dim` (title dim too) |
+| `▣` | done | `success` |
+| `☒` | failed or abandoned ("blocked") | `error` |
+| `▶` | in progress, no finished subtask | alternates `warning` / `text` every 1 s |
+| `◐` | in progress with ≥1 finished subtask | `warning` |
+
+Markers: `(fold)` when folded, else `(done/total)` of direct subtasks for unfinished tasks with
+subtasks. Finished tasks' subtasks are closed by default.
+
+**Smart hiding**, when the full tree exceeds `taskWidget.maxRows` (default 12) tree rows:
+the anchor is the innermost task in progress, else the first todo, else the last task. The anchor's
+ancestor path and the anchor's first unfinished subtask stay visible even beyond the budget. All
+other siblings on each level of the path collapse into `… N hidden · <duration> (k folded)` rows
+(N counts hidden subtasks too). Siblings are then revealed nearest-first (deepest level first; at
+equal distance the upcoming sibling before the earlier one) while the row count stays within the
+budget. A hidden run of one is shown as the task itself. Narrow rows drop the duration before the
+title is truncated; the marker drops when the title would keep fewer than 8 columns.
+
+### 4.5 Controls
+
+| Input | Effect |
+|---|---|
+| `alt+t` (`taskWidget.toggleKey`) | expand ⇄ collapse; shows a hidden widget |
+| `/accordion tasks [expand\|collapse\|hide\|show]` | as named; `show` restores the configured default state; reports why the widget is not shown |
+| click header line | expand ⇄ collapse |
+| click a task row with subtasks | open ⇄ close that branch |
+| click a `… N hidden` row | reveal those tasks for the session |
+
+### 4.6 Known limitation
+
+PiG 0.5.3 delivers wheel events but not clicks to extension components (widget and self-rendered
+tool rows; verified live 2026-11-05). Click handling is implemented (`handleMouse`) for hosts that
+dispatch it. Per-branch toggles therefore have no keyboard path under PiG yet; the panel's Tasks
+view (§5.8) is the keyboard path.
+
+### 4.7 Tool rows
+
+`renderShell: "self"`, one line, expanded with Pi's tool-expand key or a click:
+
+```
+ ✓ tasks start 3.2 Watch config.json
+ ✓ tasks complete 3.2 Watch config.json · 1m 12s          (failed/abandoned add the status word)
+ ✓ tasks create demo Demo · 9 tasks
+ ✓ tasks status demo · 4/5 done
+ ✗ tasks start 2 · Task 2 is done. Add a follow-up task instead of restarting it.
+ ✓ unfold #3f9a2c · 1 unfolded
+ ▲ recall #3f9a2c #000001 · 1 recalled · 1 not found
+```
+
+Expanded: the report (`outcome`/`decision`/`open`) for finishing actions, the outline for
+`create`/`status`/`claim`/`list`, the full text for `unfold`/`recall` and errors.
+
+## 5. Area B: the panel
+
+### 5.1 Module structure
+
+`extension/tui/panel.ts` (723 lines, one closure) is replaced by:
+
+| File | Owns |
+|---|---|
+| `extension/tui/panel.ts` | `openAccordionPanel(ctx, host)`: the `ctx.ui.custom` loop, screen stack, tab switching, digest-editor round trip (kept as today) |
+| `extension/tui/chrome.ts` | `renderFrame({ width, title, crumbs, state, tabs, body, status, hints })`, `fitSegments`, `fitHints(hints, width)`, `ruleLine` |
+| `extension/tui/screens/overview.ts` | Overview screen |
+| `extension/tui/screens/context.ts` | Context screen: timeline, grid, list views and block actions |
+| `extension/tui/screens/inspector.ts` | Inspector |
+| `extension/tui/screens/conductors.ts` | Conductor list, detail, consent |
+| `extension/tui/screens/settings.ts` | Settings list, editors, staging |
+| `extension/tui/screens/help.ts` | Key reference |
+| `extension/tui/timeline.ts` | pure timeline model (§5.4) |
+
+Screen contract (TypeScript, `extension/tui/screens/types.ts`):
+
+```ts
+export interface Hint { key: string; label: string; priority: number } // lower = kept longer
+export interface ScreenFrame { crumbs: string[]; state?: string; body: string[]; status?: string; hints: Hint[] }
+export type ScreenResult =
+  | { kind: "stay" } | { kind: "back" } | { kind: "close" }
+  | { kind: "push"; screen: Screen } | { kind: "tab"; tab: TabId }
+  | { kind: "editDigest"; action: DigestAction };   // today's DigestAction, unchanged
+export interface Screen {
+  render(width: number, bodyRows: number, theme: Theme): ScreenFrame;
+  handleInput(data: string, keys: KeybindingsManager): ScreenResult;
+  /** True when leaving would discard staged edits. */
+  dirty?(): boolean;
+  dispose?(): void;
+}
+export type TabId = "overview" | "context" | "conductors" | "settings";
+```
+
+### 5.2 Frame
+
+```
+────────────────────────────────────────────────────────────────────────────────   borderAccent
+ Accordion › Overview                        ● folding  taskfold ✓  you control    title row
+ [Overview]  Context   Conductors   Settings                     current session   tab row
+────────────────────────────────────────────────────────────────────────────────   border
+ …body…
+────────────────────────────────────────────────────────────────────────────────   border
+ status line (message, warning or scroll position; blank otherwise)                dim / warning
+ enter context · c compact… · o folding off · tab next · ? keys       esc close    hint row
+```
+
+- Title row: crumbs left (`Accordion › Context › Inspector`); right state segments in this order,
+  dropped from the end: folding (`● folding` accent / `○ folding off` dim), conductor
+  (`<label> ✓|▲|✗` by status level), control (`you control` / `READ-ONLY` warning).
+  Below 57 columns the crumbs keep only the last two.
+- Tab row: the four tabs, active one `[Name]` in accent; right: session label (`current session`
+  or `<title> · <cwd>` fish-shortened). Below 57 columns the tab row shows only `‹ Name ›`.
+- Read-only surfaces show `READ-ONLY · reopen /accordion to request control` in the status line.
+
+### 5.3 Overview (landing)
+
+```
+ Context   ███████████▓▓▓▓▒░░░░░░░░░░░░░░░░░░░░░░░░░░░   105.1k / 372.0k   28%
+           ■ system 55.2k  ■ user 0.1k  ■ answer 7.1k  ■ thinking 0.3k
+           ■ calls 8.4k    ■ results 34.0k                       ░ free 266.9k
+ Saved     −42.7k (29%) · 38 blocks folded · 4 groups · tail 20.0k protected
+ Pressure  folds start at 80% (297.6k) · pi auto-compact: accordion pass
+
+ Conductor Taskfold                                                 ✓ healthy
+           Epoch 3: folded 2 task group(s), ~18400 tokens.
+ Tasks     tui-polish 6/20 (≡6) · ▶ 3.4.1 the new registry · 1m 11s
+ Web UI    http://192.168.1.20:24318/?token=ceka3xaz      2 clients · door ●
+```
+
+| Row | Source | Rule |
+|---|---|---|
+| Context bar | `buildContextBreakdown` (`map.ts`) | bar width = `min(44, width − 30)`; label column 10 wide; numbers `formatCompactTokens` |
+| Saved | breakdown + `truth.groups` | omitted when nothing folded |
+| Pressure | the attached conductor's resolved `high` option (§6.1) when it declares one, else omitted; `settings.compact.threshold` | `folds start at <high·100>% (<high·budget>)`; `pi auto-compact: <label of compact.threshold>`; `folding off: pi compacts natively` when disarmed |
+| Conductor | `host.activeConductor()`, `host.conductorStatus()` | line 1 label and level (`✓ healthy` / `▲ warning` / `✗ error`); line 2 the status text, wrapped to 2 lines max |
+| Tasks | task widget controller summary | only when a list is shown; clicking/Enter opens §5.8 |
+| Web UI | `host.webInfo()` | URL host: the bind host, except `0.0.0.0`/`::` which show the first non-internal IPv4 of `os.networkInterfaces()` and fall back to `127.0.0.1`; OSC 8 hyperlink when the terminal supports it |
+
+Keys (priority): `enter` context (1), `c` compact… (2), `o` folding on/off (3), `t` tasks (4),
+`tab` next (5), `?` keys (9).
+
+### 5.4 Context: timeline (default view)
+
+```
+  turn  prompt                         blocks  ▪<500 ■<5k █≥5k     live    full
+  ⛨     system prompt                  █!                         55.2k   55.2k
+  1     analyze the tui panel…         U H ▪▪■█ ▪■ A               12.4k   12.4k
+  2     ▣ task tui/1 "Analyze"         ▣▣▣▣▣▣▣▣▣▣▣▣                 0.6k   11.8k
+  3     now wireframes                 U H ▪█ ▪■ ▪▪ A               8.1k    8.1k
+› 4     tail (protected)               U H ▪■ ▪[█] ▪■ ┃            20.0k   20.0k
+────────────────────────────────────────────────────────────────────────────────
+ R  result · read panel.ts · 7.2k tok · live · protected tail
+    import type { ExtensionContext } from "@earendil-works/pi-coding-agent"…
+```
+
+Model (`extension/tui/timeline.ts`, pure):
+
+```ts
+export interface TimelineCell { blockId: string; glyph: string; kind: BlockKind; folded: boolean; groupId?: string }
+export interface TimelineRow { turn: number; label: string; cells: TimelineCell[]; live: number; full: number; protected: boolean; system: boolean; folded: boolean }
+export function buildTimeline(truth: Truth): TimelineRow[];
+```
+
+- One row per `block.turn`; turn 0 with the system block renders as `⛨ system prompt`.
+- `label`: first line of the turn's first user block, `clean`ed; a turn whose blocks are all in one
+  folded group whose summary parses with `taskKeyOfSummary` shows `▣ task <key> "<title>"`;
+  a turn wholly in the protected tail and last shows `tail (protected)`.
+- Cell glyph by calibrated full tokens: `▪` < 500, `■` < 5 000, `█` ≥ 5 000; user blocks `U`,
+  answer text `A`, thinking `H` (letters, kind-colored); folded blocks dim; blocks of a folded group
+  `▣` (group color); bolted `!` suffix on the system cell; the protected-tail boundary `┃` between
+  the last unprotected and first protected cell.
+- `live`/`full`: calibrated (`calBlockTokens`), per row.
+- Columns: turn 4, prompt `clamp(12, 32, width·0.3)`, blocks flexible, live 7, full 7. Below 80
+  columns `full` drops; below 57 the prompt column drops to 12; at 36 only turn, blocks, live.
+- A row whose cells exceed the blocks column shows a window around the selection with `‹`/`›`.
+- Selection: `↑↓` turn (keeps the cell index, clamped), `←→` cell, `pgup/pgdn` page,
+  `home/end` first/last turn. The detail strip (2 rows) shows kind letter + kind word, tool name or
+  id, tokens, state (`live`/`folded −N%`/`pinned`/`held:<x>`/`protected tail`/`group:<id>`), and
+  the first line of text.
+
+Views: `v` cycles timeline → grid → list. Grid = today's `buildContextMap` with these changes:
+the `.` filler flag is removed (blank instead), `P` is shown only on the first protected cell, the
+cell pitch stays 6. List = today's list with aligned columns
+`kind(10) state(14) tokens(8) label(rest)`.
+
+Block keys (all views; priority in parentheses): `enter` inspect (1), `f` fold/unfold (2),
+`p` pin (3), `/` filter (4), `a` auto (5), `v` view (6), `r` range → `g` group (7),
+`x` expand/collapse group (7), `d` delete group (8), `e` edit digest, `D` engine digest (8),
+`?` keys (9). `b` budget and `t` tail move to Settings › This session.
+
+### 5.5 Inspector
+
+Header row: `<kind word> · <tool or id> · <tokens> tok · <state>`; body: text or digest (`v`
+toggles, the active one named in the header), scroll with `↑↓ pgup pgdn home end`; position in the
+status line (`12–25 / 140`). `e` edits the digest of a folded block or group from here.
+
+### 5.6 Conductors
+
+List rows: `›`, `◉`/`◯` attached, label, readiness (`● ready` success / `✗ <reason>` error),
+`privacy` badge (`▲ sends content off-machine` warning) when `entry.privacy` and the provider is
+not loopback, `locks: …`. Below the list: the selected conductor's `description` wrapped to 3 rows
+and its current status when attached. Enter attaches (through `selectConductor`, keeping the
+consent gate), `d` detaches, `o` opens that conductor's options in Settings (§6.2, section
+`Conductor: <label>`).
+
+### 5.7 Help
+
+Scrollable key reference generated from the screens' hint lists, grouped by screen, plus the
+glyph and color legend of §5.4 and §4.4.
+
+### 5.8 Tasks view
+
+Opened with `t` from Overview or `/accordion tasks open` (new verb). Full-panel rendering of
+§4.4's tree with keyboard: `↑↓` move, `enter`/`→` open branch or reveal a hidden run, `←` close
+branch, `e` toggles expanded as the widget default for this session. Uses the widget controller's
+view state, so changes show in the widget too.
+
+## 6. Area C: settings
+
+### 6.1 Schema (`~/.accordion/config.json`)
+
+All keys, after this change. Types are TypeScript; "env/flag" lists overrides that lock the field.
+
+| Key | Type / default | Section | Editor | Env / flag | Applies |
+|---|---|---|---|---|---|
+| `autoArm` | `boolean` / `true` | Defaults | toggle | `ACCORDION_AUTO_ARM` | next session start |
+| `defaultConductor` | conductor id or `"none"` / `"keel-lite"` | Defaults | picker (registry, readiness shown) | `ACCORDION_DEFAULT_CONDUCTOR` | next session start |
+| `defaultBudget` **new** | `number \| null` / `null` (= model window) | Defaults | number (tokens, ≥ 1 000) + `w` = window | – | next session start; clamped to the window |
+| `defaultProtectTokens` **new** | `number` / `20000` | Defaults | number (0–1 000 000) | – | next session start |
+| `compact.manual` **new** | `"pass" \| "aggressive" \| "bake" \| "native"` / `"pass"` | Compaction | picker | – | immediately |
+| `compact.threshold` **new** | `"pass" \| "native"` / `"pass"` | Compaction | picker | – | immediately |
+| `compact.onSaturated` **new** | `"native" \| "bake" \| "warn"` / `"native"` | Compaction | picker | – | immediately |
+| `models.defaults.chat` | spec / unset (= session model) | Models | model picker + `current` | – | immediately |
+| `models.defaults.classifier` | spec / unset | Models | model picker | – | immediately |
+| `models.conductors.<id>.<type>` | spec | Models › Per conductor | list of overrides; add/remove | – | immediately |
+| `privacyConsent.<id>` | ISO timestamp | Privacy | list; `x` revokes | – | immediately (§6.4) |
+| `conductorOptions.<id>.<key>` **new** | per declared option | Conductor: `<label>` | per option type | – | re-attach of that conductor on save |
+| `taskWidget.mode` | `"auto" \| "off"` / `"auto"` | Task widget | toggle | – | immediately |
+| `taskWidget.expanded` | `boolean` / `false` | Task widget | toggle | – | next session start |
+| `taskWidget.maxRows` | `1–100` / `12` | Task widget | number | – | immediately |
+| `taskWidget.toggleKey` | key id / `"alt+t"` | Task widget | text, validated `^((ctrl\|alt\|shift\|super)\+)*[a-z0-9]$` | – | next Pi start (shortcuts register at load); the row says so |
+| `bindHost` | host / `"127.0.0.1"` | Web UI | text | `ACCORDION_HOST`, `--accordion-host` | immediately (door rebind) |
+| `doorPort` | `0–65535` / `24317` | Web UI | number, `0` disables | `ACCORDION_DOOR_PORT`, `ACCORDION_PORT`, `--accordion-port` | immediately (door rebind) |
+| `customToken` | `string \| null` / `null` | Web UI | text (3–64 `[A-Za-z0-9._~-]`), empty = generated | `ACCORDION_TOKEN`, `--accordion-token` | immediately |
+
+Migration (D7): when `compact` is absent and `compactMode` is present, `loadSettings` maps
+`accordion → {manual:"pass", threshold:"pass", onSaturated:"native"}`,
+`suppress → {manual:"pass", threshold:"pass", onSaturated:"warn"}`,
+`native → {manual:"native", threshold:"native", onSaturated:"native"}`. `saveSettings` writes
+`compact` and never `compactMode`. `ACCORDION_COMPACT_MODE` keeps working through the same map
+and locks the three fields.
+
+Conductor options are declared in the registry (`core/conductor/registry.ts`):
+
+```ts
+export interface ConductorOptionSpec {
+  key: string; label: string; description: string;
+  type: "fraction" | "number" | "boolean";
+  min?: number; max?: number; default: number | boolean;
+}
+// RegistryEntry gains: options?: readonly ConductorOptionSpec[]; and the factory receives the
+// resolved values: inProcess((opts) => new TaskfoldConductor(opts)).
+```
+
+v1 declares options for Taskfold only: `high` (fraction 0.5–0.95, 0.8, "Start folding at this
+share of the budget"), `low` (fraction 0.3–0.9, 0.6, "Fold until live tokens reach this share";
+MUST be < `high`, else the save is rejected with that message), `maxLoss` (number 0–3, 0.3,
+"Fold a user message when its predicted loss is below this").
+
+### 6.2 Settings screen
+
+```
+ Accordion › Settings                               ~/.accordion/config.json
+ Overview  Context  Conductors  [Settings]                        ● 2 unsaved
+────────────────────────────────────────────────────────────────────────────────
+ THIS SESSION                                                  applies at once
+   Folding                       ● armed
+   Budget                        372.0k  (model window)                      ›
+   Protected tail                20.0k                                       ›
+ DEFAULTS · ALL SESSIONS
+   Arm on startup                on
+ › Default conductor             taskfold *                                  ›
+   …
+ WEB UI                                                  shared across sessions
+   Bind address                  0.0.0.0                   ▲ reachable on LAN
+   Access token                  ACCORDION_TOKEN  env · locked
+────────────────────────────────────────────────────────────────────────────────
+ Conductor attached automatically when a session starts with "Arm on startup".
+ ↑↓ move · enter edit · space toggle · ctrl+s save · ctrl+r reload · esc back
+```
+
+Sections in order: This session, Defaults · all sessions, Compaction, Models, Privacy,
+Conductor: `<label>` (one per conductor declaring options), Task widget, Web UI.
+
+- Row: label column 30, value, right edge `›` for drill-in editors. Staged rows append `*`
+  (accent). Locked rows show `<ENV or --flag>  env · locked` / `flag · locked` in dim and refuse
+  edits with a status message naming the override.
+- Description row (dim, 1–2 lines) under the list: the selected row's description from a table in
+  `screens/settings.ts`.
+- Title-row right state: `● N unsaved` (warning) when dirty; `saved` (success, 3 s) after save.
+- Editors: toggles flip on `space`/`enter`; pickers push a searchable `SelectList` screen with one
+  description line per option; number/text push a single-line input with inline validation
+  (`✗ <reason>` in the status line; `enter` refuses invalid input).
+- Keys: `ctrl+s` save, `ctrl+r` reload from disk (discards staged, asks when dirty), `u` revert
+  the selected row, `esc` back (asks when dirty: "Discard N unsaved changes?").
+- Web UI rows: bind address shows `▲ reachable on LAN` (warning) for non-loopback; door port
+  shows `door held` / `door held by another session` / `door unavailable`; access token shows
+  `generated` or `custom` and `g` regenerates (immediate action, confirms first, not staged).
+- Privacy rows: one per consent, `x` revokes (confirm; immediate, not staged).
+
+### 6.3 Store and sync
+
+New module `extension/settingsStore.ts`:
+
+```ts
+export interface SettingsSnapshot { settings: AccordionSettings; sources: Record<SettingPath, "default" | "file" | "env" | "flag">; rev: string }
+export class SettingsStore {
+  constructor(homeDir: string, env: NodeJS.ProcessEnv, flags: () => Partial<Record<SettingPath, string>>);
+  current(): SettingsSnapshot;
+  /** Apply a patch to the latest file content under the lock; rejects invalid values and stale baseRev. */
+  save(patch: SettingsPatch, baseRev: string): { ok: true; snapshot: SettingsSnapshot } | { ok: false; error: string; conflict?: boolean };
+  /** Re-read the file; returns the changed paths (empty when unchanged). */
+  poll(): SettingPath[];
+}
+```
+
+- `rev` = SHA-256 of the file bytes (empty string when absent).
+- `save`: take the SQLite sidecar mutex `~/.accordion/config.json.lock.sqlite` (`BEGIN IMMEDIATE`,
+  retry 25 ms up to 2 s, the same helper shape as `withControllerLeaseLock`; extract a shared
+  `withSidecarLock(path, action)` in `extension/accordion.ts`'s scope or a new
+  `extension/sidecarLock.ts`, used by both); re-read the file; if its rev ≠ `baseRev` and any
+  patched path changed on disk, return `conflict`; else merge the patch into the **file** content
+  (not the in-memory copy), validate every patched value (errors name the field and the rule),
+  write atomically (tmp + rename, mode 0600), return the new snapshot.
+- Validation functions return `{ ok: false, error }` instead of substituting defaults
+  (`sanitizeBindHost` etc. keep their load-time leniency; the store uses strict variants).
+- `poll` runs inside the existing controller poll tick (~1 s). On change: replace `settings`, apply
+  runtime effects (table below), `notifyNative()`, broadcast `settings` (§9).
+- Door secret: the same poll compares `~/.accordion/door-secret` content with `doorSecret`; on
+  change it adopts it (fixes stale tokens after another instance regenerates).
+
+| Changed path | Runtime effect in every instance |
+|---|---|
+| `bindHost`, `doorPort` | `closeDoor(); doorForeign = false; tryBindDoor()` (as today, but in all instances) |
+| `customToken` | `webToken` = custom or regenerate per session as today |
+| `compact.*`, `models.*`, `taskWidget.mode`, `taskWidget.maxRows` | none beyond re-read; next use reads the new value; widget `sync()` |
+| `privacyConsent.<id>` removed | if `<id>` is attached and needs consent (`leavesMachine`), detach it and notify "Taskfold detached: privacy consent revoked" |
+| `conductorOptions.<id>` | if `<id>` is attached, re-select it (detach + attach) |
+| others | none (apply at next session start) |
+
+## 7. Area D: compaction
+
+### 7.1 Entry point
+
+```ts
+type CompactTrigger = "manual" | "threshold" | "overflow" | "panel" | "command";
+type CompactStrategy = "pass" | "aggressive" | "bake" | "native";
+interface CompactRequest { trigger: CompactTrigger; strategy: CompactStrategy; instructions?: string; dryRun?: boolean }
+interface CompactRecord {
+  id: string; at: number; trigger: CompactTrigger; strategy: CompactStrategy; conductor: string | null;
+  before: number; after: number; durationMs: number;
+  folded: { blocks: number; groups: number; byKind: Partial<Record<BlockKind, number>> };
+  undo: Op[] | null;                    // null for bake/native
+  message: string;
+}
+async function runCompaction(req: CompactRequest): Promise<CompactRecord>;
+```
+
+All entry points call it: `session_before_compact` (manual/threshold/overflow), `/accordion compact
+[strategy] [instructions…]`, the panel's `c`. `compactNow()` is removed.
+
+### 7.2 Strategies
+
+| Strategy | Behavior |
+|---|---|
+| `pass` | Arms folding and attaches the default conductor if none (as today). Calls `liveHost.requestPass({ reason: "compact", instructions })` and awaits it (§7.3). If live tokens did not drop, escalates to `aggressive` and records `strategy: "aggressive"` with message "conductor freed nothing; folded all eligible blocks". |
+| `aggressive` | Folds every block that is not protected, not folded, not held, not grouped, `wireFoldable`, and whose folded size is smaller (today's fallback), in one `truth.apply(…, "auto")`. |
+| `bake` | Only from `session_before_compact`. Runs `aggressive` over the range, then returns `{ compaction: { summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, estimatedTokensAfter, details: { accordionBake: 1 } } }`. Summary: `buildBakeSummary(truth, preparation.messagesToSummarize, instructions)` (§7.5). |
+| `native` | Returns nothing from `session_before_compact` (pi summarizes with `customInstructions`). From the panel/command it calls `ctx.compact({ customInstructions })`. |
+
+Trigger mapping while folding is armed (folding off ⇒ pi always compacts natively, unchanged):
+
+| Trigger | Strategy |
+|---|---|
+| `/compact [text]` (manual) | `settings.compact.manual`; `bake`/`native` honor the text |
+| threshold | `settings.compact.threshold`. With `pass`: cancel when `after ≤ contextWindow − reserveTokens` (from `preparation.settings`), else apply `compact.onSaturated` |
+| overflow | `pass`; if still saturated, `compact.onSaturated` (`warn` cancels and notifies error-level "context overflow: Accordion cannot free more; switch /compact to native or bake") |
+| panel `c` / `/accordion compact` | dry-run preview (§7.6), then the chosen strategy |
+
+### 7.3 Waiting for the conductor
+
+`LiveHost` gains `requestPass(opts): Promise<"settled" | "timeout" | "no-conductor">`:
+
+- In-process: fire `{ type: "turn-committed", turn, rev, reason: "compact", instructions }` and
+  await `Promise.allSettled` of the listeners' returned promises (today's `fire` drops them), max
+  10 s.
+- Remote: send `turnCommitted` with the same optional fields; resolve when a `propose` from that
+  conductor has been applied **and** 300 ms passed without another, or on `setConductorStatus`,
+  or after 10 s.
+- `HostEvent` `turn-committed` gains optional `reason?: "turn" | "compact"` and
+  `instructions?: string` (additive; conductors that ignore them keep working).
+
+### 7.4 Undo
+
+`runCompaction` records, for `pass`/`aggressive`, the inverse ops: `unfold` for every block id it
+folded, `ungroup` for every group it created. `/accordion compact undo` (and `u` on the result card
+row in the panel's Overview) applies them with actor `"you"` (sticky open, so the conductor does not
+immediately refold) if `truth.rev` lineage still contains them; ids no longer folded are skipped and
+reported. Only the latest record is undoable; a session switch clears it.
+
+### 7.5 Bake summary
+
+```
+[accordion-bake v1] <N> messages · <before> → <after> tok
+instructions: <customInstructions, if any>
+── turn 3 · user
+<user text verbatim when Taskfold kept it, else its digest>
+── task demo/1 "Survey" done
+<Taskfold record without its {#code FOLDED} tag>
+── turn 4 · results
+<digest lines, one per folded block>
+```
+
+Rules: fold codes are stripped (`stripFoldTags`) because baked blocks can no longer be recalled;
+groups appear once at their first member; unfolded non-user blocks in the range are forced to their
+digests; the summary is capped at `min(20 000, 0.1 · contextWindow)` tokens by dropping the oldest
+turn sections first and adding `… <k> earlier turns omitted`. After pi saves it, the existing
+`session_compact` handler rebuilds the Truth (unchanged).
+
+### 7.6 Preview and result card
+
+Panel `c` opens a confirm screen:
+
+```
+ Accordion › Overview › Compact
+   › pass         Taskfold decides                       ≈ −18.4k (last epoch)
+     aggressive   fold every eligible block             −62.7k → 42.4k
+     bake         permanent summary, no recall           ≈ 9.8k summary
+     native       pi summarizes (model call)             unknown
+   instructions:  (type to add, optional)
+ enter run · ↑↓ strategy · esc cancel
+```
+
+Projections: `aggressive` exact from `truth.foldedTokensOf`; `bake` from `buildBakeSummary(...,
+dryRun)` token count; `pass` from the conductor's last `saved` status metric when it reports one,
+else "conductor decides"; `native` "unknown". Taskfold's epoch status gains the metric
+`saved: <tokens>` (today it reports `epochs`, `groups`, `live_tokens`, `budget`, optional `level`).
+
+Every completed `runCompaction` appends a custom **entry** (not a message, so it never reaches the
+model): `pi.appendEntry("accordion.compact", record)` with an entry renderer
+(`registerEntryRenderer`):
+
+```
+ ✓ accordion compact · pass (taskfold) · 1.4s
+   before ███████████████████░░░░░░░  105.1k
+   after  ██████████░░░░░░░░░░░░░░░░   62.4k   −42.7k (41%)
+   folded 3 task spans · 12 tool results · 2 user messages
+   /accordion compact undo · /accordion to inspect
+```
+
+Threshold passes that cancel quietly append no entry; they update the footer status only.
+
+## 8. Area E: footer status
+
+`footerText` (`extension/tui/status.ts`) becomes segments fitted to 24 columns:
+`acc <usage%> · <conductor id> <level glyph>`, e.g. `acc 28% · taskfold ✓`,
+`acc off`, `acc 81% · taskfold ▲`. The status text moves to the Overview; the one-shot
+`AlertGate` notification is unchanged.
+
+## 9. Area F: web app and protocol v23
+
+`PROTOCOL_VERSION` 22 → 23. Additions (all additive; a v22 client ignores them):
+
+```ts
+// ServerMessage
+| { type: "settings"; snapshot: SettingsSnapshot }                 // on hello and on every change
+| { type: "tasks"; list: TaskList | null; folded: string[]; tokens: { full: number; live: number } | null }
+| { type: "compaction"; record: CompactRecord }
+// WireCommand
+| { kind: "updateSettings"; patch: SettingsPatch; baseRev: string }   // controller only
+| { kind: "compact"; strategy: CompactStrategy; instructions?: string; dryRun?: boolean }
+| { kind: "undoCompact" }
+// CommandResult gains optional: error?: string; conflict?: boolean; compaction?: CompactRecord
+```
+
+Web surfaces (`app/src/lib/ui/…`):
+
+| Surface | Change |
+|---|---|
+| `SettingsPanel.svelte` | adds a "Session host" section driven by `settings` messages: same sections, fields, locks and staging as §6.2 (Save button = `ctrl+s`); local display preferences (`foldDisplayMode`) stay in localStorage under "Display". Read-only clients see values without editors. |
+| new `ui/live/TasksPanel.svelte` | tree of §4.4 (same glyphs, colors via CSS tokens, click to toggle), collapsed summary in `MapHeader.svelte` |
+| `MapHeader.svelte` | Overview numbers of §5.3 (saved, pressure, conductor status) |
+| new `ui/live/CompactDialog.svelte` | §7.6 preview and run; `compaction` records shown as a toast via `notice.svelte.ts` styling with an Undo action |
+| `lib/live/liveClient.svelte.ts` | handle `settings`, `tasks`, `compaction`; send the new commands |
+
+The `tasks` message is broadcast on the same triggers as the widget reload (§4.2) and on Truth
+changes that alter `folded`/`tokens` (debounced 250 ms).
+
+## 10. Verification
+
+Each area MUST pass, in the worktree, before it merges:
+
+- `bun test extension/settings.test.ts extension/tasks.test.ts extension/tui/ conductors/in-process/taskfold/`
+- `npm --prefix extension run smoke`
+- `npm --prefix app run check` and `npm --prefix app test` (Areas F and any shared type change)
+- New pure modules have unit tests: `timeline.ts`, `chrome.ts` (`fitHints` drops by priority),
+  `settingsStore.ts` (merge-under-lock, conflict, migration, strict validation), compaction
+  (`aggressive` set, undo inverse, bake summary cap and tag stripping), `requestPass` (in-process
+  awaits, timeout).
+- Live PiG capture at 36/57/80/140 columns and 16 rows of every screen, using
+  `~/.pig/agent/skills/extending-pig/scripts/tui-capture.sh` or tmux, with an isolated
+  `ACCORDION_HOME` and `doorPort: 0`; captures go to the plan's `evidence/`.
+- Two-instance sync check: two PiG sessions on one `ACCORDION_HOME`; save in one; the other's
+  panel shows the new value within 2 s; concurrent saves of different fields both persist;
+  concurrent saves of the same field report a conflict in the second.
+
+## 11. Open items
+
+1. PiG click routing to extension widgets and self-rendered tool rows (§4.6): report upstream to
+   PiG; until then §5.8 is the keyboard path.
+2. Pre-existing type errors (`agedSummaryConductor.ts` TS2612, `accordion.ts` execute return types
+   of `unfold`/`recall`) are unrelated and stay out of this work.
