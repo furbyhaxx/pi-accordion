@@ -5,15 +5,18 @@ document:
   title: "Resume: Accordion UI polish (SPEC-0001 / PLAN-0001)"
   description: "Self-contained brief to continue the Accordion panel, settings, compaction and web work in a fresh session, starting at slice S1."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-05T10:05:00+01:00"
-  updated_at: "2026-11-05T10:05:00+01:00"
+  updated_at: "2026-11-05T12:10:31+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
     - revision: 1
       reason: "document creation"
       changes: ["document creation"]
+    - revision: 2
+      reason: "S0 grew with SPEC §4.8–4.14 and was pushed and installed"
+      changes: ["state table, done list and verification updated"]
 ---
 
 # Resume: Accordion UI polish
@@ -30,8 +33,8 @@ writing code. The spec is decided and approved by the user; do not re-open its d
 | Item | Value |
 |---|---|
 | Repo | `/mnt/Projects/furbyhaxx/pi-accordion` (Pi-native fork of Accordion; read `AGENTS.md` and `CLAUDE.md` first) |
-| Main checkout branch | `feat/pi-native` (the user installs `git:https://github.com/furbyhaxx/pi-accordion@feat/pi-native` in PiG) |
-| Delivered work | branch `feat/taskfold-widget`, worktree `.pi/worktrees/taskfold-widget`, commits `8c2fb44` → `b61afcb` plus the docs commit holding this file. Not pushed, not merged. |
+| Main checkout branch | `feat/pi-native` |
+| Delivered work | branch `feat/taskfold-widget` (worktree `.pi/worktrees/taskfold-widget`), pushed to `origin`, not merged. The user's PiG installs `git:https://github.com/furbyhaxx/pi-accordion@feat/taskfold-widget`. |
 | Next slice | S1 (panel shell, chrome, footer) |
 | Host | PiG 0.5.3 (`pig`, Go binary hosting Node extensions out of process; docs in `~/.pig/docs/bundle-*/`), Pi packages `@earendil-works/*` 1.5.0 in `extension/node_modules` |
 
@@ -48,8 +51,15 @@ Before starting S1, ask the user whether `feat/taskfold-widget` has been merged 
   (self-shell rows for `tasks`/`unfold`/`recall`), tests next to each.
 - `extension/accordion.ts`: widget controller wiring, `tasks` results with `details`,
   `/accordion tasks [expand|collapse|hide|show]`, `alt+t` shortcut.
+- SPEC §4.8–4.14 on the same branch: resume dialog and agent notes for a session's task list,
+  `/accordion tasks lists` with drill-down (task tree, details, span view, text viewer, fold/pin/
+  unfold actions), `/accordion tasks tree`, task protocol repair and coaching, Taskfold
+  overlap-safe edges, `keepRecentTasks`, aging ladder, persisted classifier verdicts, task
+  `createdAt`, per-model budget/tail with `modelDefaults`, persisted widget expansion.
 - Docs: `README.md`, `extension/README.md`, `AGENTS.md`.
-- Verified: 72 bun tests, `npm --prefix extension run smoke`, live PiG at 36/57/80/140 with a
+- Verified at the latest S0 commit: 129 bun tests (`extension/tui`, `extension/*.test.ts`,
+  `conductors/in-process/taskfold`), smoke, tsc baseline of 7, live PiG runs of every view.
+  Earlier S0 checks: 72 bun tests, `npm --prefix extension run smoke`, live PiG at 36/57/80/140 with a
   real model (rows, collapsed/expanded/all-done, fold markers `(≡3)` and `8.2k → 4.0k tok`,
   hide/show, error row).
 

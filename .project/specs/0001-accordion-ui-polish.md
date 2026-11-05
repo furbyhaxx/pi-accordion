@@ -5,9 +5,9 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-05T11:00:42+01:00"
+  updated_at: "2026-11-05T12:10:07+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
@@ -20,6 +20,9 @@ document:
     - revision: 3
       reason: "user feedback: sloppy task spans, unfolded tasks, missing fold tokens, budget/tail not sticking"
       changes: ["§4.4 fold token markers", "§4.10 task protocol: auto-started parents, auto-closed parents, coaching reminders", "§4.11 Taskfold folding: overlap-safe edges, keepRecentTasks, aging ladder", "§4.12 budget and tail per model: session memory, modelDefaults, human amounts, ctrl+s", "§6.1 modelDefaults replaces defaultBudget/defaultProtectTokens; Taskfold options add keepRecentTasks"]
+    - revision: 4
+      reason: "user request: remember the widget state, show subtask counts, inspect task folds and the session by task"
+      changes: ["§4.4 expanded state persists; finished parents show done/total", "§4.1 task createdAt; persisted classifier verdicts with all answers", "§4.13 task drill-down: tree, details, span view, text viewer, actions", "§4.14 /accordion tasks tree", "§4.11 a protected trailing message ends a record before it"]
 ---
 
 # Accordion UI polish
@@ -328,6 +331,9 @@ extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.
   the code for its record and transcript.`), until enough is freed. Each rewrite is `ungroup` +
   `group` with the same member ids, so group id, fold code and `recall` of the raw span stay.
   `taskKeyOfSummary` recognizes all three tags.
+- **Protected trailing message.** A span's last message that is protected or held (e.g. `complete A`
+  batched with B's work into the newest message) pulls the record's end in before it, like a
+  boundary message in another group.
 
 ### 4.12 Budget and protected tail per model (delivered)
 
@@ -348,6 +354,50 @@ Implemented in `extension/dials.ts` and `extension/accordion.ts`.
   `modelDefaults["provider/id"]`.
 - **Command:** `/accordion budget|tail [<amount>] [--default]`; without an amount it reports the
   value and its source.
+
+### 4.13 Task drill-down (delivered)
+
+Implemented in `extension/tui/taskTranscript.ts` (pure model), `extension/tui/treeView.ts` (shared
+tree component) and `extension/tui/taskViews.ts` (screens). Enter in the §4.9 browser opens it.
+
+- **Data.** Tasks record `createdAt` (absent on older lists). Taskfold's user-message verdicts are
+  stored as `accordion.taskfold.verdict` session entries with `loss`, `source`
+  (`classifier | harness | opening | error`), the other classifier answers (`keep_goal`,
+  `durable_rule`, `overrule` as probabilities of yes), `confidence`, `model` and `at`. A resume
+  reuses them and never classifies a stored block again; `error` verdicts are not stored.
+- **Task tree** `Accordion › Task lists › <slug>`: the list's tasks with §4.4 glyphs, `done/total`
+  on parents, `≡n` folds, duration, tokens `full → live` from this session's transcript. Enter opens
+  details, `i` the span, `u` unfolds/refolds the task's record.
+- **Details** `… › <slug> › <id>`: task position, planned time and wait, ran from → to and
+  duration, status (`closed automatically` when auto-closed), outcome, decisions, open, changed
+  files and checks (from the span), span size and tokens, and per record its code, aging level
+  (`record`, `one line`, `archived`), block count and tokens. Values wrap under the value column.
+- **Span view** `… › <id> span`: start edge; subtasks as rows that open their own span; folds as
+  `≡ {#code} <level> · n items` with their steps beneath; steps as one call with its result
+  (`✓`/`✗`, tool, first argument line, `pinned`/`folded`/`tail`); user messages with their verdict;
+  finish edge with status and outcome.
+- **User message verdicts** read `kept`/`folded` plus the reason: `loss x < t` / `loss x ≥ t`
+  against Taskfold's `maxLoss`, `folds with its task` (eligible, its task not folded yet), `no task
+  covers it` (eligible, between tasks), `harness pattern`, `opening message`, `classifier failed`,
+  `unclassified`. Enter shows the verdict, every answer, model and time, and the classifier input
+  rebuilt from the transcript (`session_goal`, `previous_user_message`, `assistant_last_reply`,
+  `message`).
+- **Text viewer**: a step shows call and result with token counts; a fold shows the record as the
+  agent sees it, `v` toggles the original members.
+- **Actions** through the controller lease (claimed on open, as `/accordion`): `f` fold/unfold a
+  step (a call folds through its result; user messages fold only inside a record), `p` pin/unpin,
+  `u` unfold/refold a record. Refusals name the reason in words (`inside the protected working
+  tail`, …). Without control the views stay read-only.
+- **Keys**: arrows, `→`/`←` expand/collapse, PgUp/PgDn, `/` filter, Enter, Esc one level back,
+  Ctrl+C closes. Hint rows put Enter and Esc first so narrow widths keep them.
+
+### 4.14 Session tasks tree (delivered)
+
+`/accordion tasks tree` shows this session's transcript by task: top-level tasks with subtasks
+(prefixed `<list>/` when the session used several lists), user messages between tasks with their
+verdicts, assistant answers between tasks as `A` rows, and tool calls outside any task as
+`⋯ untracked · n calls · ▲ no task in progress`. Untracked work is visible by default; `t` cycles
+all → tasks only → untracked only. Enter opens a task's span (§4.13).
 
 ## 5. Area B: the panel
 

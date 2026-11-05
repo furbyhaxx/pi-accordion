@@ -179,7 +179,9 @@ current one when it gets long:
 ```
 
 `alt+t` or `/accordion tasks` expands and collapses it; `/accordion tasks hide` hides it for the
-session. `/accordion tasks lists` browses the project's task lists to attach, release or start one.
+session. `/accordion tasks lists` browses the project's task lists to attach, release or start one, and
+opens any task's details, its span and its folds, including why each user message was kept or folded.
+`/accordion tasks tree` shows the whole session by task, with work done outside any task flagged.
 When you resume a session that used a list, Accordion offers it back (or tells you which session
 holds it now) and tells the agent on your next prompt if its list changed or was replaced. Defaults live under `taskWidget` in `~/.accordion/config.json`:
 `{ "mode": "auto" | "off", "expanded": false, "maxRows": 12, "toggleKey": "alt+t" }`.

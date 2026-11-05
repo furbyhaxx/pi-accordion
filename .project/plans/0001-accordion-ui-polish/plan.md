@@ -5,15 +5,18 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-05T09:55:00+01:00"
+  updated_at: "2026-11-05T12:10:31+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
     - revision: 1
       reason: "document creation"
       changes: ["document creation"]
+    - revision: 2
+      reason: "S0 grew with user-requested Taskfold work"
+      changes: ["S0 progress line covers SPEC §4.8–4.14 on feat/taskfold-widget"]
 ---
 
 # Accordion UI polish: plan
@@ -25,7 +28,7 @@ implementation must deviate, update the spec in the same change.
 ## Progress
 
 ```
-done  S0  Taskfold visibility unit (§4)             feat/taskfold-widget  8c2fb44…b61afcb
+done  S0  Taskfold visibility unit and task tooling (§4)  feat/taskfold-widget  8c2fb44…HEAD (pushed)
 next  S1  Panel shell, chrome, footer (§3, §5.1–5.2, §8)
 later S2  Settings store, sync, schema (§6.1, §6.3)
 later S3  Settings screen (§6.2)
