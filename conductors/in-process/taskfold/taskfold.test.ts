@@ -412,7 +412,7 @@ describe("taskfold", () => {
 			expect(groupOf(host, o.plan.result)).toBeUndefined();
 		});
 
-		it("typed folds orientation into a brief and a source index, keeping the goal and rule files", async () => {
+		it("typed folds orientation into a brief, a source index and verbatim rule files, keeping the goal", async () => {
 			const o = oriented({ brief: "Slice 1 means the foundation; start with the failing test." });
 			const host = await run(o.s, { fold: "typed", agentTask: false, rules: "live" });
 			const g = groupOf(host, o.plan.result)!;
@@ -420,8 +420,9 @@ describe("taskfold", () => {
 			expect(g.summary).toContain("brief: Slice 1 means the foundation");
 			expect(g.summary).toContain("read .project/plans/slice-1.md");
 			expect(g.summary).toContain("bash grep -rn P1g1 .project");
-			expect(g.summary).toContain("rules kept verbatim in place: /skills/golang/SKILL.md");
-			expect(groupOf(host, o.skill.result)).toBeUndefined();
+			expect(g.summary).toContain("── rule file /skills/golang/SKILL.md (verbatim) ──\ngolang rules golang rules");
+			expect(g.summary).not.toContain("read /skills/golang/SKILL.md");
+			expect(groupOf(host, o.skill.result)?.id).toBe(g.id);
 			expect(groupOf(host, o.goal)).toBeUndefined();
 			expect(groupOf(host, o.first)).toBeUndefined();
 		});
@@ -432,6 +433,7 @@ describe("taskfold", () => {
 			const g = groupOf(host, o.skill.result)!;
 			expect(g.summary).toContain("read /skills/golang/SKILL.md");
 			expect(g.summary).not.toContain("brief:");
+			expect(g.summary).not.toContain("(verbatim)");
 		});
 
 		it("with agentTask, the agent's orientation task is the orientation and its outcome the brief", async () => {

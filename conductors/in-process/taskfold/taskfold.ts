@@ -530,9 +530,25 @@ export class TaskfoldConductor implements Conductor {
 		const planned = new Set<string>();
 		// Orientation is the oldest work: it folds first, once.
 		if (orient && !foldedKeys.has(ORIENTATION_KEY) && projected > target) {
-			const keep = this.k.orientation.rules === "live" ? ruleBlockIds(blocks.slice(orient.span.start, orient.span.end + 1), (b) => this.textOf(b)) : new Set<string>();
-			const unit = this.unit(host, blocks, orient.span, [], planned, {
-				keep: (b) => keep.has(b.id),
+			// Orientation runs up to the first task, so its end often lies in the protected tail; fold what lies before it.
+			const firstProtected = blocks.findIndex((b) => b.protected);
+			let end = firstProtected < 0 ? orient.span.end : Math.min(orient.span.end, firstProtected - 1);
+			// A tool batch cut by the tail cannot fold half: end before the first message whose call/result pair is split.
+			if (end < orient.span.end) {
+				const inside = new Set(blocks.slice(orient.span.start, end + 1).map((b) => b.callId).filter(Boolean));
+				const outsideCalls = new Set(blocks.slice(end + 1).filter((b) => b.callId && b.kind === "tool_result").map((b) => b.callId));
+				const split = blocks.slice(orient.span.start, end + 1).findIndex((b) => b.kind === "tool_call" && b.callId && inside.has(b.callId) && outsideCalls.has(b.callId));
+				if (split >= 0) {
+					let i = orient.span.start + split;
+					while (i > orient.span.start && messageKey(blocks[i - 1].id) === messageKey(blocks[i].id)) i--;
+					end = i - 1;
+				}
+			}
+			const span = { ...orient.span, end };
+			const keep = this.k.orientation.rules === "live" ? ruleBlockIds(blocks.slice(span.start, span.end + 1), (b) => this.textOf(b)) : new Set<string>();
+			// Rule files cannot stay in place: they share tool batches with evidence, and a kept result pins its whole
+			// batch. Their full text is copied into the record instead.
+			const unit = end < span.start ? null : this.unit(host, blocks, span, [], planned, {
 				record: (members) => this.orientationRecord(orient, members, keep, blocks),
 			});
 			if (unit) {
@@ -699,8 +715,14 @@ export class TaskfoldConductor implements Conductor {
 		const sources = orientationSources(members, textOf, (b) => b.tokens).filter((x) => !kept.has(x.blockId));
 		if (sources.length) lines.push("sources (recall this record's code for their full text):", ...sources.slice(0, 40).map((x) => `  - ${x.line}`));
 		if (sources.length > 40) lines.push(`  - … ${sources.length - 40} more`);
-		const rules = orientationSources(members, textOf, (b) => b.tokens).filter((x) => kept.has(x.blockId));
-		if (rules.length) lines.push(`rules kept verbatim in place: ${rules.map((x) => x.target).join(", ")}`);
+		const results = new Map(members.filter((b) => b.kind === "tool_result" && b.callId).map((b) => [b.callId!, b]));
+		for (const call of members) {
+			if (!kept.has(call.id) || call.kind !== "tool_call" || !call.callId) continue;
+			const r = results.get(call.callId);
+			if (!r || r.isError) continue;
+			const path = parseCall(textOf(call))?.path;
+			lines.push(`── rule file ${path} (verbatim) ──`, textOf(r));
+		}
 		return lines.join("\n");
 	}
 
