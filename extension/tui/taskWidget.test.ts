@@ -132,6 +132,9 @@ describe("task widget", () => {
 		expect(full.find((l) => l.includes(" 3 Secrets"))).toBe("  ├─◐ 3 Secrets Redesign · 2m 45s (3/7 · 2 folded · 20.0k → 500)");
 		const hidden = renderTaskWidget(model, view({ expanded: true, maxRows: 9 }), 120, plain, NOW, true).lines;
 		expect(hidden[1]).toBe("  ├─ … 3 hidden · 3m 36s (1 folded · 35.2k → 400)");
+		const finished = list([task("1", "done", "Unit", 0, 60), task("1.1", "done", "a", 0, 30), task("1.2", "done", "b", 30, 60), task("2", "doing", "next", 60)]);
+		const doneModel = { list: finished, folded: new Set(["1.1", "1.2"]), foldTokens: new Map([["1.1", { full: 9_000, live: 100 }], ["1.2", { full: 1_000, live: 100 }]]), tokens: null };
+		expect(renderTaskWidget(doneModel, view({ expanded: true }), 120, plain, NOW, true).lines[1]).toBe("  ├─▣ 1 Unit · 1m 0s (2/2 · 2 folded · 10.0k → 200)");
 	});
 
 	test("remembers the expanded state for later sessions", () => {

@@ -150,7 +150,7 @@ Markers, joined with ` · ` inside one pair of parentheses:
 |---|---|
 | task owning folded group(s) | `(fold 35.2k → 400)`: full → live tokens of its groups (parts summed) |
 | subtask folded inside its parent's group | `(fold)` |
-| unfinished task with subtasks | `(3/7)` done/total direct subtasks |
+| any task with subtasks | `(3/7)` done/total direct subtasks, first in the marker: `(4/4 · 4 folded · 79.4k → 3.5k)` |
 | closed branch (finished parent, or user-closed) with folded descendants | `(2 folded · 20.0k → 500)`, after the progress when both apply |
 | hidden run | `… N hidden · <duration> (k folded · full → live)` |
 

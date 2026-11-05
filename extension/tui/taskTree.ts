@@ -38,7 +38,7 @@ export type TaskRow =
 			state: TaskGlyphState;
 			durationMs: number | null;
 			folded: boolean;
-			/** Done/total direct subtasks, for unfinished tasks with subtasks. */
+			/** Done/total direct subtasks, for every task with subtasks. */
 			progress: { done: number; total: number } | null;
 			/** Whether the subtasks are listed below this row. */
 			open: boolean;
@@ -272,7 +272,7 @@ function render(
 				state: glyphState(item),
 				durationMs: taskDuration(item.task, options.now),
 				folded: options.folded.has(item.task.id),
-				progress: item.children.length && !isFinished(item.task) ? { done: item.children.filter((c) => c.task.status === "done").length, total: item.children.length } : null,
+				progress: item.children.length ? { done: item.children.filter((c) => c.task.status === "done").length, total: item.children.length } : null,
 				open,
 			});
 			if (open) walk(item.children, `${indent}${last ? "  " : "│ "}`);

@@ -127,8 +127,9 @@ function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, the
 	const duration = row.durationMs !== null ? theme.fg("dim", ` · ${formatDuration(row.durationMs)}`) : "";
 	const own = folds?.get(t.id);
 	const inner = !row.folded && !row.open && row.node.children.length ? foldsWithin([t.id], folds, false) : null;
-	const parts = row.folded ? [own ? `fold ${arrow(own)}` : "fold"] : [row.progress ? `${row.progress.done}/${row.progress.total}` : "", inner?.count ? `${inner.count} folded · ${arrow(inner.tokens)}` : ""].filter(Boolean);
-	const short = row.folded ? ["fold"] : [row.progress ? `${row.progress.done}/${row.progress.total}` : "", inner?.count ? `${inner.count} folded` : ""].filter(Boolean);
+	const progress = row.progress ? `${row.progress.done}/${row.progress.total}` : "";
+	const parts = [progress, row.folded ? (own ? `fold ${arrow(own)}` : "fold") : inner?.count ? `${inner.count} folded · ${arrow(inner.tokens)}` : ""].filter(Boolean);
+	const short = [progress, row.folded ? "fold" : inner?.count ? `${inner.count} folded` : ""].filter(Boolean);
 	const marker = parts.length ? theme.fg("muted", ` (${parts.join(" · ")})`) : "";
 	const shortMarker = short.length ? theme.fg("muted", ` (${short.join(" · ")})`) : "";
 	return fitRow(left, title, [duration + marker, marker, shortMarker], width);
