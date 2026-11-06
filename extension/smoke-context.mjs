@@ -63,15 +63,15 @@ check("shutdown releases only this session's task claims across visited projects
 	const read = (project, slug) => JSON.parse(fs.readFileSync(path.join(project, ".pig", "tasks", `${slug}.json`), "utf8"));
 	try {
 		r.ctx.cwd = dir;
-		await run({ action: "create", list: "owned", title: "Owned", tasks: [{ title: "Work" }] });
+		await run({ action: "create", list: "owned", title: "Owned", goal: "G", tasks: [{ title: "Work" }] });
 		await run({ action: "start", list: "owned", id: "1" });
-		await run({ action: "create", list: "taken", title: "Taken", tasks: [] });
+		await run({ action: "create", list: "taken", title: "Taken", goal: "G", tasks: [] });
 		const takenFile = path.join(dir, ".pig", "tasks", "taken.json");
 		const taken = read(dir, "taken");
 		taken.claim.session = "other";
 		fs.writeFileSync(takenFile, JSON.stringify(taken));
 		r.ctx.cwd = path.join(dir, "second");
-		await run({ action: "create", list: "second", title: "Second", tasks: [] });
+		await run({ action: "create", list: "second", title: "Second", goal: "G", tasks: [] });
 		// A mutable session manager must not make cleanup release the replacement session's claims.
 		r.ctx.sessionManager.getSessionId = () => "other";
 		r.close();
@@ -89,7 +89,7 @@ check("session replacement releases resumed claims before tracking the next sess
 	const taskDir = path.join(dir, ".pig", "tasks");
 	fs.mkdirSync(taskDir, { recursive: true });
 	const file = path.join(taskDir, "resumed.json");
-	fs.writeFileSync(file, JSON.stringify({ slug: "resumed", tasks: [], claim: { session: "old", at: new Date().toISOString() } }));
+	fs.writeFileSync(file, JSON.stringify({ slug: "resumed", title: "Resumed", tasks: [], claim: { session: "old", at: new Date().toISOString() } }));
 	const r = runtime([], { cwd: dir, sessionId: "old" });
 	try {
 		r.ctx.sessionManager.getSessionId = () => "new";

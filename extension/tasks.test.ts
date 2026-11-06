@@ -13,7 +13,7 @@ const report = { outcome: "Done." };
 describe("tasks", () => {
 	test("records when each task was planned, including added tasks", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "plan", title: "Plan", tasks: [{ title: "A" }] });
+		runTasks(s, { action: "create", list: "plan", title: "Plan", goal: "G", tasks: [{ title: "A" }] });
 		runTasks(s, { action: "add", list: "plan", tasks: [{ title: "B" }] });
 		const tasks = s.read("plan").tasks;
 		expect(tasks.map((t) => typeof t.createdAt)).toEqual(["string", "string"]);
@@ -22,15 +22,21 @@ describe("tasks", () => {
 
 	test("create persists a nested list under .pig/tasks and claims it", () => {
 		const { dir, s } = store();
-		runTasks(s, { action: "create", list: "auth", title: "Auth", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "create", list: "auth", title: "Auth", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
 		const saved = JSON.parse(fs.readFileSync(path.join(dir, ".pig", "tasks", "auth.json"), "utf8"));
-		expect(saved.tasks.map((t: { id: string }) => t.id)).toEqual(["1", "1.1", "1.2", "2"]);
+		expect(saved.version).toBe(2);
+		expect(saved.goal).toBe("G");
+		expect(saved.tasks.map((t: { id: string; subtasks?: { id: string }[] }) => [t.id, t.subtasks?.map((c) => c.id)])).toEqual([
+			["1", ["1.1", "1.2"]],
+			["2", undefined],
+		]);
+		expect(s.read("auth").tasks.map((t) => t.id)).toEqual(["1", "1.1", "1.2", "2"]);
 		expect(saved.claim.session).toBe("s1");
 	});
 
 	test("only the innermost open branch may start", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1" });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1.1 "A1".*still in progress/);
@@ -46,7 +52,7 @@ describe("tasks", () => {
 
 	test("finishing requires a report within budget", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A" }] });
 		runTasks(s, { action: "start", list: "w", id: "1" });
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1" })).toThrow(TaskError);
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report: { outcome: "x".repeat(601) } })).toThrow(/under 600/);
@@ -55,7 +61,7 @@ describe("tasks", () => {
 
 	test("another session's live claim blocks writes until forced", () => {
 		const { dir, s } = store("s1");
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A" }] });
 		const other = new TaskStore(dir, () => "s2");
 		expect(() => runTasks(other, { action: "start", list: "w", id: "1" })).toThrow(/not claimed by this session/);
 		expect(() => runTasks(other, { action: "claim", list: "w" })).toThrow(/claimed by another session/);
@@ -65,7 +71,7 @@ describe("tasks", () => {
 
 	test("release rejects a foreign or absent claim without reporting success", () => {
 		const { dir, s } = store();
-		s.create("w", "W", []);
+		s.create("w", "W", "G", []);
 		const other = new TaskStore(dir, () => "s2");
 		expect(() => runTasks(other, { action: "release", list: "w" })).toThrow(/not claimed by this session/);
 		expect(s.read("w").claim?.session).toBe("s1");
@@ -76,20 +82,20 @@ describe("tasks", () => {
 
 	test("add numbers new tasks after existing siblings", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }] });
 		expect(runTasks(s, { action: "add", list: "w", parent: "1", tasks: [{ title: "A2" }] })).toContain("1.2 A2");
 		expect(runTasks(s, { action: "add", list: "w", tasks: [{ title: "B" }] })).toContain("2 B");
 	});
 
 	test("rejects path-like slugs", () => {
 		const { s } = store();
-		expect(() => runTasks(s, { action: "create", list: "../x", title: "X" })).toThrow(/Invalid list slug/);
+		expect(() => runTasks(s, { action: "create", list: "../x", title: "X", goal: "G" })).toThrow(/Invalid list slug/);
 	});
 
 	test("claims carry the session name, and claim state ages from held to stale", () => {
 		const { dir } = store();
 		const s = new TaskStore(dir, () => "s1", () => "Auth work");
-		const list = s.create("w", "W", [{ title: "A" }]);
+		const list = s.create("w", "W", "G", [{ title: "A" }]);
 		expect(list.claim).toMatchObject({ session: "s1", name: "Auth work" });
 		const at = Date.parse(list.claim!.at);
 		expect(claimState(list, "s1", at)).toBe("mine");
@@ -101,7 +107,7 @@ describe("tasks", () => {
 
 	test("the fingerprint changes on task changes, not on claim changes", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A" }] });
 		const before = taskFingerprint(s.read("w"));
 		s.release("w");
 		s.claim("w");
@@ -118,7 +124,7 @@ describe("tasks", () => {
 
 	test("starting a subtask starts its unstarted ancestors", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1", subtasks: [{ title: "A1a" }] }] }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1", subtasks: [{ title: "A1a" }] }] }] });
 		const out = runTasks(s, { action: "start", list: "w", id: "1.1.1" });
 		expect(out.split("\n")).toEqual([
 			'Started w/1.1.1 "A1a".',
@@ -130,7 +136,7 @@ describe("tasks", () => {
 
 	test("finishing the last subtask asks for the parent's own report", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		expect(runTasks(s, { action: "complete", list: "w", id: "1.1", report })).not.toContain("All subtasks");
 		runTasks(s, { action: "start", list: "w", id: "1.2" });
@@ -139,7 +145,7 @@ describe("tasks", () => {
 
 	test("moving on from a parent whose subtasks are finished closes it from their reports", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report: { outcome: "one" } });
 		runTasks(s, { action: "start", list: "w", id: "1.2" });
@@ -153,7 +159,7 @@ describe("tasks", () => {
 
 	test("a parent with unfinished subtasks still blocks moving on", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
 		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1 "A" is still in progress/);
@@ -161,7 +167,7 @@ describe("tasks", () => {
 
 	test("a blocked task frees the agent, keeps its reason and resumes with start", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "user-decision" as never })).toThrow(/needs "detail"/);
 		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "bored" as never, detail: "x" })).toThrow(/needs "reason"/);
@@ -181,7 +187,7 @@ describe("tasks", () => {
 
 	test("a dependency block names a task outside its branch that is not finished", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x" })).toThrow(/needs "blockedBy"/);
 		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x", blockedBy: "1" })).toThrow(/own branch/);
@@ -190,7 +196,7 @@ describe("tasks", () => {
 
 	test("a parent completes only when no subtask is unstarted or blocked; fail and abandon take them along", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B", subtasks: [{ title: "B1" }] }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B", subtasks: [{ title: "B1" }] }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report })).toThrow(/Subtask 1.2 \(not started\) of 1 is unfinished/);
@@ -204,13 +210,105 @@ describe("tasks", () => {
 
 	test("supersededBy links an abandoned task to its replacement, from abandon or from add", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", tasks: [{ title: "A" }, { title: "B" }, { title: "C" }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A" }, { title: "B" }, { title: "C" }] });
 		expect(() => runTasks(s, { action: "abandon", list: "w", id: "1", report, supersededBy: "9" })).toThrow(/No task "9"/);
 		expect(runTasks(s, { action: "abandon", list: "w", id: "1", report: { outcome: "Replaced." }, supersededBy: "3" })).toContain("superseded by 3");
 		expect(runTasks(s, { action: "add", list: "w", tasks: [{ title: "B, done right", supersedes: "2" }] })).toContain('2 "B" is superseded by 4 and was abandoned');
 		const t = s.read("w").tasks;
 		expect(t.find((x) => x.id === "1")).toMatchObject({ status: "abandoned", supersededBy: "3" });
 		expect(t.find((x) => x.id === "2")).toMatchObject({ status: "abandoned", supersededBy: "4" });
-		expect(() => runTasks(s, { action: "create", list: "v", title: "V", tasks: [{ title: "X", supersedes: "1" }] })).toThrow(/only works with "add"/);
+		expect(() => runTasks(s, { action: "create", list: "v", title: "V", goal: "G", tasks: [{ title: "X", supersedes: "1" }] })).toThrow(/only works with "add"/);
+	});
+
+	test("a list needs a goal before work starts or grows; running work can still end", () => {
+		const { dir, s } = store();
+		expect(() => runTasks(s, { action: "create", list: "g", title: "G", tasks: [] })).toThrow(/needs a "goal"/);
+		const tasksPath = path.join(dir, ".pig", "tasks");
+		fs.mkdirSync(tasksPath, { recursive: true });
+		const v1 = {
+			slug: "old",
+			title: "Old",
+			createdAt: "2026-01-01T00:00:00.000Z",
+			updatedAt: "2026-01-01T00:00:00.000Z",
+			claim: { session: "s1", at: new Date().toISOString() },
+			tasks: [
+				{ id: "1", title: "Running", status: "doing", updatedAt: "2026-01-01T00:00:00.000Z" },
+				{ id: "2", title: "Next", status: "todo", updatedAt: "2026-01-01T00:00:00.000Z" },
+			],
+		};
+		fs.writeFileSync(path.join(tasksPath, "old.json"), JSON.stringify(v1));
+		expect(runTasks(s, { action: "status", list: "old" })).toContain("goal: none yet");
+		runTasks(s, { action: "complete", list: "old", id: "1", report });
+		expect(() => runTasks(s, { action: "start", list: "old", id: "2" })).toThrow(/has no goal yet.*tasks update/);
+		expect(() => runTasks(s, { action: "add", list: "old", tasks: [{ title: "X" }] })).toThrow(/has no goal yet/);
+		expect(runTasks(s, { action: "update", list: "old", goal: "Ship it." })).toBe('Updated goal of list "old".');
+		expect(runTasks(s, { action: "start", list: "old", id: "2" })).toContain("Started");
+		const saved = JSON.parse(fs.readFileSync(path.join(tasksPath, "old.json"), "utf8"));
+		expect([saved.version, saved.goal, saved.tasks.length]).toEqual([2, "Ship it.", 2]);
+	});
+
+	test("update edits titles and criteria of unfinished tasks only", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "u", title: "U", goal: "G", tasks: [{ title: "A", acceptanceCriteria: ["a holds"] }, { title: "B" }] });
+		runTasks(s, { action: "update", list: "u", id: "2", title: "B2", acceptanceCriteria: ["b holds"] });
+		expect(s.read("u").tasks[1]).toMatchObject({ title: "B2", acceptanceCriteria: ["b holds"] });
+		expect(s.read("u").tasks[0].acceptanceCriteria).toEqual(["a holds"]);
+		runTasks(s, { action: "start", list: "u", id: "1" });
+		runTasks(s, { action: "complete", list: "u", id: "1", report });
+		expect(() => runTasks(s, { action: "update", list: "u", id: "1", title: "A2" })).toThrow(/finished task's title and criteria stay/);
+		expect(() => runTasks(s, { action: "update", list: "u", id: "2", acceptanceCriteria: ["1", "2", "3", "4"] })).toThrow(/has 4 items/);
+		expect(() => runTasks(s, { action: "update", list: "u", id: "2", goal: "x" })).toThrow(/"goal" belongs to the list/);
+	});
+
+	test("a hand-written file loads, and an invalid one is named with its problems", () => {
+		const { dir, s } = store();
+		const tasksPath = path.join(dir, ".pig", "tasks");
+		fs.mkdirSync(tasksPath, { recursive: true });
+		fs.writeFileSync(path.join(tasksPath, "plan.json"), JSON.stringify({ version: 2, slug: "plan", title: "Plan", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }] }] }));
+		fs.writeFileSync(path.join(tasksPath, "bad.json"), JSON.stringify({ version: 2, slug: "bad", title: "Bad", tasks: [{ title: "A", id: "3" }] }));
+		expect(runTasks(s, { action: "claim", list: "plan" })).toContain("1.1 A1");
+		expect(runTasks(s, { action: "list" })).toMatch(/plan — Plan \(0\/2 done, claimed\)\nbad — invalid file/);
+		expect(() => runTasks(s, { action: "status", list: "bad" })).toThrow(/id "3" does not match its position 1/);
+	});
+
+	test("add before or after a sibling renumbers only unstarted tasks", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "r", title: "R", goal: "G", tasks: [{ title: "A" }, { title: "B" }, { title: "C", subtasks: [{ title: "C1" }] }] });
+		runTasks(s, { action: "start", list: "r", id: "1" });
+		const out = runTasks(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acceptanceCriteria: ["n holds"] }] });
+		expect(out).toContain("Added 2 N.");
+		expect(out).toContain("Renumbered: 2 → 3, 3 → 4, 3.1 → 4.1.");
+		expect(s.read("r").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "2 N", "3 B", "4 C", "4.1 C1"]);
+		expect(() => runTasks(s, { action: "add", list: "r", before: "1", tasks: [{ title: "X" }] })).toThrow(/renumber 1 "A" \(doing\) to 2/);
+		expect(() => runTasks(s, { action: "add", list: "r", parent: "4", after: "2", tasks: [{ title: "X" }] })).toThrow(/not a subtask of 4/);
+		runTasks(s, { action: "add", list: "r", after: "4.1", tasks: [{ title: "C2" }] });
+		expect(s.read("r").tasks.map((t) => t.id)).toEqual(["1", "2", "3", "4", "4.1", "4.2"]);
+	});
+
+	test("move relocates an unstarted subtree and rewrites references", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "m", title: "M", goal: "G", tasks: [{ title: "A" }, { title: "B", subtasks: [{ title: "B1" }] }, { title: "C" }, { title: "D" }] });
+		runTasks(s, { action: "start", list: "m", id: "1" });
+		runTasks(s, { action: "block", list: "m", id: "1", reason: "dependency", detail: "needs D first", blockedBy: "4" });
+		const out = runTasks(s, { action: "move", list: "m", id: "4", before: "2" });
+		expect(out).toContain('Moved 4 "D" to 2.');
+		expect(s.read("m").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "2 D", "3 B", "3.1 B1", "4 C"]);
+		expect(s.read("m").tasks[0].blocks?.[0].on).toBe("2");
+		runTasks(s, { action: "move", list: "m", id: "4", parent: "3" });
+		expect(s.read("m").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "2 D", "3 B", "3.1 B1", "3.2 C"]);
+		expect(() => runTasks(s, { action: "move", list: "m", id: "1", after: "3" })).toThrow(/1 has been blocked, so 1 cannot move/);
+		expect(() => runTasks(s, { action: "move", list: "m", id: "3", parent: "3.1" })).toThrow(/inside 3; a task cannot move into its own subtree/);
+		expect(() => runTasks(s, { action: "move", list: "m", id: "2" })).toThrow(/Say where/);
+		expect(() => runTasks(s, { action: "move", list: "m", id: "2", before: "3" })).toThrow(/already there/);
+	});
+
+	test("nothing moves under a finished parent or deeper than four levels", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "d", title: "D", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1", subtasks: [{ title: "A11", subtasks: [{ title: "A111" }] }] }] }, { title: "B", subtasks: [{ title: "B1" }] }, { title: "C" }] });
+		expect(() => runTasks(s, { action: "move", list: "d", id: "2", parent: "1.1.1.1" })).toThrow(/deeper than 4 levels/);
+		expect(() => runTasks(s, { action: "add", list: "d", parent: "1.1.1.1", tasks: [{ title: "X" }] })).toThrow(/deeper than 4 levels/);
+		runTasks(s, { action: "start", list: "d", id: "3" });
+		runTasks(s, { action: "complete", list: "d", id: "3", report });
+		expect(() => runTasks(s, { action: "move", list: "d", id: "2.1", parent: "3" })).toThrow(/Task 3 is done/);
 	});
 });

@@ -1,19 +1,18 @@
 /*
  * tasks.ts — persistent, project-scoped task lists for the `tasks` tool.
  *
- * One list per file at `<project>/.pig/tasks/<slug>.json`. The file is the authority for structure,
- * status and claims; the session transcript only carries the tool calls and their results, which
- * is what the Taskfold conductor reads to find task spans.
+ * One list per file at `<project>/.pig/tasks/<slug>.json`, stored as a nested tree (format and
+ * validation in `taskSchema.ts`) and held flat in memory, ordered by dotted id. The file is the
+ * authority for structure, status and claims; the session transcript only carries the tool calls
+ * and their results, which is what the Taskfold conductor reads to find task spans. Ids of started
+ * tasks never change: spans, records and folds refer to them. Only unstarted tasks renumber.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { BLOCK_REASONS, checkCriteria, compareIds, GOAL_MAX, MAX_DEPTH, parentId, parseListFile, toListFile, type BlockReason, type FlatList, type TaskStatus } from "./taskSchema";
 
-export type TaskStatus = "todo" | "doing" | "blocked" | "done" | "failed" | "abandoned";
-
-/** Why a task cannot continue. */
-export const BLOCK_REASONS = ["user-decision", "user-input", "third-party", "dependency"] as const;
-export type BlockReason = (typeof BLOCK_REASONS)[number];
+export { BLOCK_REASONS, type BlockReason, type TaskStatus };
 
 /** Block reasons outside the agent's control: waiting on them justifies going idle. `dependency` does not. */
 export const IDLE_REASONS: ReadonlySet<BlockReason> = new Set(["user-decision", "user-input", "third-party"]);
@@ -41,6 +40,8 @@ export interface Task {
 	id: string;
 	title: string;
 	status: TaskStatus;
+	/** Checkable statements that are true when the task is finished. */
+	acceptanceCriteria?: string[];
 	report?: TaskReport;
 	updatedAt: string;
 	/** When the task was planned (absent on tasks planned before this was recorded). */
@@ -67,6 +68,8 @@ export interface TaskClaim {
 export interface TaskList {
 	slug: string;
 	title: string;
+	/** The end state the whole list delivers. Absent only on a list migrated from v1 that has not been given one. */
+	goal?: string;
 	createdAt: string;
 	updatedAt: string;
 	claim: TaskClaim | null;
@@ -76,6 +79,7 @@ export interface TaskList {
 /** A task as the agent writes it in `create` / `add`. */
 export interface TaskInput {
 	title: string;
+	acceptanceCriteria?: string[];
 	subtasks?: TaskInput[];
 	/** For `add`: the id of an earlier task this one replaces; that task is abandoned if it is still open. */
 	supersedes?: string;
@@ -133,39 +137,99 @@ export function cleanReport(report: unknown): TaskReport {
 	return { outcome, ...(decisions ? { decisions } : {}), ...(open ? { open } : {}) };
 }
 
-function flatten(inputs: unknown, prefix: string, startIndex: number, out: Task[], at: string, links: [string, string][] = []): void {
-	if (!Array.isArray(inputs)) throw new TaskError("tasks must be an array of { title, subtasks? }.");
-	inputs.forEach((input, i) => {
-		const id = prefix ? `${prefix}.${startIndex + i}` : String(startIndex + i);
-		out.push({ id, title: cleanTitle((input as TaskInput)?.title), status: "todo", createdAt: at, updatedAt: at });
-		const subs = (input as TaskInput)?.subtasks;
-		const sup = (input as TaskInput)?.supersedes;
+function cleanGoal(goal: unknown): string {
+	if (typeof goal !== "string" || !goal.trim()) throw new TaskError('A list needs a "goal": the end state the whole list delivers, e.g. "All token access goes through TokenStore; npm test passes."');
+	const g = goal.trim().replace(/\s+/g, " ");
+	if (g.length > GOAL_MAX) throw new TaskError(`"goal" is ${g.length} chars; keep it under ${GOAL_MAX}.`);
+	return g;
+}
+
+function cleanCriteria(v: unknown, title: string): string[] {
+	const errors: string[] = [];
+	checkCriteria(v, `acceptanceCriteria of "${title}"`, errors);
+	if (errors.length) throw new TaskError(`${errors[0]}.`);
+	return (v as string[]).map((x) => x.trim().replace(/\s+/g, " "));
+}
+
+/** A task tree node; `kids` in sibling order. */
+interface Node {
+	task: Task;
+	kids: Node[];
+}
+
+function treeOf(tasks: readonly Task[]): Node[] {
+	const roots: Node[] = [];
+	const byId = new Map<string, Node>();
+	for (const task of [...tasks].sort((a, b) => compareIds(a.id, b.id))) {
+		const node: Node = { task, kids: [] };
+		byId.set(task.id, node);
+		const p = parentOf(task.id);
+		(p === null ? roots : byId.get(p)!.kids).push(node);
+	}
+	return roots;
+}
+
+/** Build new task nodes from `create` / `add` input; `links` collects `[new task, superseded id]`. */
+function nodesOf(inputs: unknown, depth: number, at: string, links: [Task, string][]): Node[] {
+	if (!Array.isArray(inputs)) throw new TaskError("tasks must be an array of { title, acceptanceCriteria?, subtasks? }.");
+	return inputs.map((raw) => {
+		const input = raw as TaskInput;
+		const title = cleanTitle(input?.title);
+		if (depth > MAX_DEPTH) throw new TaskError(`"${title}" would be nested deeper than ${MAX_DEPTH} levels; flatten the plan.`);
+		const task: Task = { id: "", title, status: "todo", createdAt: at, updatedAt: at };
+		if (input.acceptanceCriteria !== undefined) task.acceptanceCriteria = cleanCriteria(input.acceptanceCriteria, title);
+		const sup = input.supersedes;
 		if (sup !== undefined) {
-			if (typeof sup !== "string" || !sup.trim()) throw new TaskError(`"supersedes" of "${(input as TaskInput).title}" must be a task id, e.g. "3.2".`);
-			links.push([id, sup.trim()]);
+			if (typeof sup !== "string" || !sup.trim()) throw new TaskError(`"supersedes" of "${title}" must be a task id, e.g. "3.2".`);
+			links.push([task, sup.trim()]);
 		}
-		if (subs !== undefined) flatten(subs, id, 1, out, at, links);
+		return { task, kids: input.subtasks === undefined ? [] : nodesOf(input.subtasks, depth + 1, at, links) };
 	});
 }
 
-function parentOf(id: string): string | null {
-	const dot = id.lastIndexOf(".");
-	return dot < 0 ? null : id.slice(0, dot);
+/**
+ * Give every task the id of its position and write the tree back into `list.tasks`. Refuses, before
+ * anything is changed, a layout that would renumber a started task. Rewrites references to
+ * renumbered tasks and returns the renamings.
+ */
+function renumber(list: TaskList, roots: Node[]): { from: string; to: string }[] {
+	const ids = new Map<Task, string>();
+	const assign = (nodes: Node[], prefix: string) =>
+		nodes.forEach((n, i) => {
+			const id = prefix ? `${prefix}.${i + 1}` : String(i + 1);
+			ids.set(n.task, id);
+			assign(n.kids, id);
+		});
+	assign(roots, "");
+	for (const [t, id] of ids) {
+		if (t.id && t.id !== id && t.status !== "todo")
+			throw new TaskError(`This would renumber ${t.id} "${t.title}" (${t.status}) to ${id}. Ids of started tasks never change; place the new work after it instead.`);
+		if (id.split(".").length > MAX_DEPTH) throw new TaskError(`This would nest ${t.title} deeper than ${MAX_DEPTH} levels (${id}).`);
+	}
+	const renamed = new Map<string, string>();
+	for (const [t, id] of ids) if (t.id && t.id !== id) renamed.set(t.id, id);
+	const map = (id: string) => renamed.get(id) ?? id;
+	for (const [t, id] of ids) {
+		t.id = id;
+		if (t.supersededBy) t.supersededBy = map(t.supersededBy);
+		for (const b of t.blocks ?? []) if (b.on) b.on = map(b.on);
+	}
+	list.tasks = [...ids.entries()].sort((a, b) => compareIds(a[1], b[1])).map(([t]) => t);
+	return [...renamed].map(([from, to]) => ({ from, to }));
 }
+
+function findNode(roots: Node[], id: string): { node: Node; siblings: Node[] } | null {
+	for (const n of roots) {
+		if (n.task.id === id) return { node: n, siblings: roots };
+		if (id.startsWith(n.task.id + ".")) return findNode(n.kids, id);
+	}
+	return null;
+}
+
+const parentOf = parentId;
 
 function isWithin(id: string, ancestor: string): boolean {
 	return id === ancestor || id.startsWith(ancestor + ".");
-}
-
-/** Order ids numerically per segment, so `1.10` follows `1.9`. */
-function compareIds(a: string, b: string): number {
-	const pa = a.split(".").map(Number);
-	const pb = b.split(".").map(Number);
-	for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-		const d = (pa[i] ?? -1) - (pb[i] ?? -1);
-		if (d) return d;
-	}
-	return 0;
 }
 
 export class TaskStore {
@@ -197,54 +261,102 @@ export class TaskStore {
 		} catch {
 			throw new TaskError(`No task list "${slug}". Use action "list" to see existing lists, or "create" to make one.`);
 		}
-		let parsed: TaskList;
+		const rel = path.relative(this.projectDir, file);
+		let json: unknown;
 		try {
-			parsed = JSON.parse(raw) as TaskList;
-		} catch {
-			throw new TaskError(`Task list file ${path.relative(this.projectDir, file)} is not valid JSON; fix or remove it.`);
+			json = JSON.parse(raw);
+		} catch (err) {
+			throw new TaskError(`Task list file ${rel} is not valid JSON (${err instanceof Error ? err.message : String(err)}); fix it.`);
 		}
-		if (!parsed || parsed.slug !== slug || !Array.isArray(parsed.tasks)) throw new TaskError(`Task list file ${path.relative(this.projectDir, file)} is malformed.`);
-		return parsed;
+		const parsed = parseListFile(json, slug, { requireGoal: false });
+		if (!parsed.ok) throw new TaskError(`Task list file ${rel} is invalid:\n${parsed.errors.map((e) => `- ${e}`).join("\n")}\nFix the file; the format is in skill accordion-task-lists.`);
+		const list = parsed.list as FlatList & Partial<TaskList>;
+		// A hand-written file may leave out bookkeeping fields; the file's time stands in for them.
+		const at = list.updatedAt ?? list.createdAt ?? fs.statSync(file).mtime.toISOString();
+		list.createdAt ??= at;
+		list.updatedAt ??= at;
+		list.claim ??= null;
+		for (const t of list.tasks) t.updatedAt ??= at;
+		return list as TaskList;
 	}
 
 	private write(list: TaskList): void {
 		const file = this.file(list.slug);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		list.updatedAt = now();
-		list.tasks.sort((a, b) => compareIds(a.id, b.id));
 		const tmp = `${file}.${process.pid}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(list, null, 2) + "\n");
+		fs.writeFileSync(tmp, JSON.stringify(toListFile(list as unknown as FlatList), null, 2) + "\n");
 		fs.renameSync(tmp, file);
 	}
 
 	/** Every list in the project, newest first. Unreadable files are skipped. */
 	lists(): TaskList[] {
+		return this.scan().lists;
+	}
+
+	/** Every list in the project, newest first, plus the slugs of files that fail to load. */
+	scan(): { lists: TaskList[]; invalid: string[] } {
 		let names: string[];
 		try {
 			names = fs.readdirSync(tasksDir(this.projectDir));
 		} catch {
-			return [];
+			return { lists: [], invalid: [] };
 		}
 		const out: TaskList[] = [];
+		const invalid: string[] = [];
 		for (const n of names) {
-			if (!n.endsWith(".json")) continue;
+			if (!n.endsWith(".json") || !SLUG_RE.test(n.slice(0, -5))) continue;
 			try {
 				out.push(this.read(n.slice(0, -5)));
 			} catch {
-				/* skip malformed */
+				invalid.push(n.slice(0, -5));
 			}
 		}
-		return out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+		return { lists: out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), invalid: invalid.sort() };
 	}
 
-	create(slug: string, title: string, tasks: unknown): TaskList {
+	/** Create and claim a list. A list made without a goal (from the UI) gets one before work starts. */
+	create(slug: string, title: string, goal: string | undefined, tasks: unknown): TaskList {
 		if (fs.existsSync(this.file(slug))) throw new TaskError(`Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
-		const list: TaskList = { slug, title: cleanTitle(title), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
-		const links: [string, string][] = [];
-		flatten(tasks ?? [], "", 1, list.tasks, at, links);
+		const list: TaskList = { slug, title: cleanTitle(title), ...(goal === undefined ? {} : { goal: cleanGoal(goal) }), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
+		const links: [Task, string][] = [];
+		const roots = nodesOf(tasks ?? [], 1, at, links);
 		if (links.length) throw new TaskError('"supersedes" points at a task in the same list, so it only works with "add".');
+		renumber(list, roots);
 		this.write(list);
+		return list;
+	}
+
+	/** Edit the list's title or goal (no `id`), or a task's title or acceptance criteria. */
+	update(slug: string, id: string | undefined, fields: { title?: unknown; goal?: unknown; acceptanceCriteria?: unknown }): { list: TaskList; task?: Task; changed: string[] } {
+		const list = this.owned(slug);
+		const changed: string[] = [];
+		if (id === undefined) {
+			if (fields.acceptanceCriteria !== undefined) throw new TaskError('"acceptanceCriteria" belongs to a task; give its "id".');
+			if (fields.title !== undefined) (list.title = cleanTitle(fields.title)), changed.push("title");
+			if (fields.goal !== undefined) (list.goal = cleanGoal(fields.goal)), changed.push("goal");
+		} else {
+			const task = this.task(list, id);
+			if (fields.goal !== undefined) throw new TaskError('"goal" belongs to the list; leave out "id".');
+			if (FINISHED.has(task.status)) throw new TaskError(`Task ${id} is ${task.status}; a finished task's title and criteria stay as they were. Add a follow-up task instead.`);
+			if (fields.title !== undefined) (task.title = cleanTitle(fields.title)), changed.push("title");
+			if (fields.acceptanceCriteria !== undefined) (task.acceptanceCriteria = cleanCriteria(fields.acceptanceCriteria, task.title)), changed.push("acceptanceCriteria");
+			if (changed.length) task.updatedAt = now();
+			if (!changed.length) throw new TaskError('Nothing to update: give "title" or "acceptanceCriteria".');
+			this.write(list);
+			return { list, task, changed };
+		}
+		if (!changed.length) throw new TaskError('Nothing to update: give "title" or "goal".');
+		this.write(list);
+		return { list, changed };
+	}
+
+	/** A list that may grow or move on: it needs a goal first. */
+	private planned(slug: string): TaskList {
+		const list = this.owned(slug);
+		if (!list.goal)
+			throw new TaskError(`Task list "${slug}" has no goal yet. Set one first: tasks update {list: "${slug}", goal: "<the end state this list delivers>"}. Ending a running task works without it.`);
 		return list;
 	}
 
@@ -281,32 +393,82 @@ export class TaskStore {
 		return t;
 	}
 
+	/**
+	 * Where new or moved tasks go: under `parent` (top level when absent), at the end or next to a
+	 * sibling named by `before`/`after`. The anchor fixes the parent when `parent` is left out.
+	 */
+	private place(list: TaskList, roots: Node[], parent: string | undefined, before: unknown, after: unknown): { siblings: Node[]; index: number; parent: string | null } {
+		if (before !== undefined && after !== undefined) throw new TaskError('Give "before" or "after", not both.');
+		const anchor = before ?? after;
+		if (anchor !== undefined) {
+			const a = this.task(list, anchor);
+			const p = parentOf(a.id);
+			if (parent !== undefined && parent !== (p ?? "")) throw new TaskError(`Task ${a.id} is not a subtask of ${parent || "the top level"}; leave out "parent" to place next to ${a.id}.`);
+			const hit = findNode(roots, a.id)!;
+			return { siblings: hit.siblings, index: hit.siblings.indexOf(hit.node) + (after !== undefined ? 1 : 0), parent: p };
+		}
+		if (parent === undefined || parent === "") return { siblings: roots, index: roots.length, parent: null };
+		const node = findNode(roots, this.task(list, parent).id)!.node;
+		return { siblings: node.kids, index: node.kids.length, parent: node.task.id };
+	}
+
 	/** Add tasks; a task with `supersedes` replaces an earlier one, abandoning it if it is still open. */
-	add(slug: string, parent: string | undefined, tasks: unknown): { added: Task[]; superseded: Task[] } {
-		const list = this.owned(slug);
-		if (parent !== undefined) this.task(list, parent);
-		const siblings = list.tasks.filter((t) => parentOf(t.id) === (parent ?? null)).length;
-		const added: Task[] = [];
-		const links: [string, string][] = [];
+	add(slug: string, parent: string | undefined, tasks: unknown, position: { before?: unknown; after?: unknown } = {}): { added: Task[]; superseded: Task[]; renumbered: { from: string; to: string }[] } {
+		const list = this.planned(slug);
+		const roots = treeOf(list.tasks);
 		const at = now();
-		flatten(tasks, parent ?? "", siblings + 1, added, at, links);
+		const spot = this.place(list, roots, parent, position.before, position.after);
+		if (spot.parent !== null && FINISHED.has(this.task(list, spot.parent).status))
+			throw new TaskError(`Task ${spot.parent} is ${this.task(list, spot.parent).status}; add the new work at the top level or under an open task.`);
+		const links: [Task, string][] = [];
+		const nodes = nodesOf(tasks, (spot.parent?.split(".").length ?? 0) + 1, at, links);
 		const superseded: Task[] = [];
+		const pairs: [Task, Task][] = [];
 		for (const [by, old] of links) {
 			const t = this.task(list, old);
+			pairs.push([by, t]);
 			if (t.status === "doing") throw new TaskError(`Task ${old} is in progress; end it before a new task supersedes it.`);
 			if (t.status === "done") throw new TaskError(`Task ${old} is done; nothing to supersede. Add the new task without "supersedes".`);
-			if (parent !== undefined && isWithin(parent, old)) throw new TaskError(`Task ${old} contains the new task, so it cannot be superseded by it.`);
+			if (spot.parent !== null && isWithin(spot.parent, old)) throw new TaskError(`Task ${old} contains the new task, so it cannot be superseded by it.`);
 			superseded.push(t);
 		}
-		for (const [by, old] of links) {
-			const t = this.task(list, old);
-			if (t.status === "todo" || t.status === "blocked") abandon(t, { outcome: `Superseded by ${by}.` }, at);
-			t.supersededBy = by;
-			t.updatedAt = at;
+		spot.siblings.splice(spot.index, 0, ...nodes);
+		const renumbered = renumber(list, roots);
+		for (const [by, oldTask] of pairs) {
+			if (oldTask.status === "todo" || oldTask.status === "blocked") abandon(oldTask, { outcome: `Superseded by ${by.id}.` }, at);
+			oldTask.supersededBy = by.id;
+			oldTask.updatedAt = at;
 		}
-		list.tasks.push(...added);
+		const added: Task[] = [];
+		const collect = (ns: Node[]) => ns.forEach((n) => (added.push(n.task), collect(n.kids)));
+		collect(nodes);
 		this.write(list);
-		return { added, superseded };
+		return { added, superseded, renumbered };
+	}
+
+	/** Move an unstarted task with its subtasks under another parent or next to a sibling. */
+	move(slug: string, id: string, parent: string | undefined, position: { before?: unknown; after?: unknown }): { task: Task; renumbered: { from: string; to: string }[] } {
+		const list = this.planned(slug);
+		const task = this.task(list, id);
+		const started = list.tasks.filter((t) => isWithin(t.id, id) && t.status !== "todo");
+		if (started.length)
+			throw new TaskError(`${started[0].id} has ${started[0].status === "doing" ? "started" : `been ${started[0].status}`}, so ${id} cannot move: ids of started tasks never change. To change the plan, add new work with tasks add {list: "${slug}", after: "${id}", tasks: [...]} or abandon what is no longer wanted.`);
+		if (parent === undefined && position.before === undefined && position.after === undefined) throw new TaskError('Say where to move it: "parent", "before" or "after".');
+		for (const target of [parent, position.before, position.after])
+			if (typeof target === "string" && target && isWithin(target, id)) throw new TaskError(`Task ${target} is inside ${id}; a task cannot move into its own subtree.`);
+		const roots = treeOf(list.tasks);
+		const from = findNode(roots, id)!;
+		const spot = this.place(list, roots, parent, position.before, position.after);
+		if (spot.parent !== null && FINISHED.has(this.task(list, spot.parent).status))
+			throw new TaskError(`Task ${spot.parent} is ${this.task(list, spot.parent).status}; move ${id} under an open task or to the top level.`);
+		const index = from.siblings === spot.siblings && from.siblings.indexOf(from.node) < spot.index ? spot.index - 1 : spot.index;
+		from.siblings.splice(from.siblings.indexOf(from.node), 1);
+		spot.siblings.splice(index, 0, from.node);
+		const renumbered = renumber(list, roots);
+		if (!renumbered.length) throw new TaskError(`Task ${id} is already there.`);
+		task.updatedAt = now();
+		this.write(list);
+		return { task, renumbered };
 	}
 
 	/**
@@ -356,7 +518,7 @@ export class TaskStore {
 	 * with a report composed from its subtasks; an open task with unfinished subtasks still blocks.
 	 */
 	start(slug: string, id: string): StartResult {
-		const list = this.owned(slug);
+		const list = this.planned(slug);
 		const task = this.task(list, id);
 		if (task.status === "doing") throw new TaskError(`Task ${id} is already in progress.`);
 		if (task.status !== "todo" && task.status !== "blocked")
@@ -535,7 +697,7 @@ export function slugFor(title: string, taken: ReadonlySet<string>): string {
 
 /** A compact outline of a list for tool results. */
 export function renderList(list: TaskList): string {
-	const lines = [`${list.slug} — ${list.title}${list.claim ? `  (claimed ${list.claim.at})` : ""}`];
+	const lines = [`${list.slug} — ${list.title}${list.claim ? `  (claimed ${list.claim.at})` : ""}`, list.goal ? `goal: ${list.goal}` : `goal: none yet — set it with update {list: "${list.slug}", goal}`];
 	for (const t of list.tasks) {
 		const b = currentBlock(t);
 		const note = b ? `  (blocked: ${blockLabel(b)} — ${b.detail})` : t.supersededBy ? `  (superseded by ${t.supersededBy})` : "";
@@ -544,13 +706,23 @@ export function renderList(list: TaskList): string {
 	return lines.join("\n");
 }
 
+export const TASK_ACTIONS = ["create", "list", "claim", "release", "add", "update", "move", "status", "start", "block", "complete", "fail", "abandon"] as const;
+
 /** The tool's argument shape; every field but `action` depends on the action. */
 export interface TasksArgs {
-	action: "create" | "list" | "claim" | "release" | "add" | "status" | "start" | "block" | "complete" | "fail" | "abandon";
+	action: (typeof TASK_ACTIONS)[number];
 	list?: string;
 	title?: string;
+	/** For create and update: the end state the whole list delivers. */
+	goal?: string;
+	/** For update: a task's new acceptance criteria. */
+	acceptanceCriteria?: string[];
 	tasks?: TaskInput[];
 	parent?: string;
+	/** For add and move: the sibling to place before. */
+	before?: string;
+	/** For add and move: the sibling to place after. */
+	after?: string;
 	id?: string;
 	report?: TaskReport;
 	force?: boolean;
@@ -564,20 +736,31 @@ export interface TasksArgs {
 	supersededBy?: string;
 }
 
+function renumberLine(renumbered: readonly { from: string; to: string }[]): string {
+	return `Renumbered: ${renumbered.map((r) => `${r.from} → ${r.to}`).join(", ")}. Use the new ids from now on.`;
+}
+
 /** Run one `tasks` tool call. Rejections throw `TaskError` with recovery guidance. */
 export function runTasks(store: TaskStore, args: TasksArgs): string {
 	return runTasksTracked(store, args).text;
 }
 
-/** A `tasks` call's text plus the task ids it started and the one it finished, for span tracking. */
-export function runTasksTracked(store: TaskStore, args: TasksArgs): { text: string; started: string[]; finished: string | null } {
+/** A `tasks` call's text plus the task ids it started, the one it finished and any renumbering, for span tracking and views. */
+export function runTasksTracked(store: TaskStore, args: TasksArgs): { text: string; started: string[]; finished: string | null; renumbered: Renumbering[] } {
 	let started: string[] = [];
 	let finished: string | null = null;
-	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id));
-	return { text, started, finished };
+	let renumbered: Renumbering[] = [];
+	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id), (r) => (renumbered = r));
+	return { text, started, finished, renumbered };
 }
 
-function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void): string {
+/** One task id that changed because unstarted tasks were inserted or moved. */
+export interface Renumbering {
+	from: string;
+	to: string;
+}
+
+function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void, onRenumber: (r: Renumbering[]) => void): string {
 	const need = <K extends keyof TasksArgs>(k: K): NonNullable<TasksArgs[K]> => {
 		const v = args[k];
 		if (v === undefined || v === null || v === "") throw new TaskError(`Action "${args.action}" needs "${k}".`);
@@ -585,13 +768,15 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 	};
 	switch (args.action) {
 		case "create": {
-			const list = store.create(need("list"), need("title"), args.tasks ?? []);
+			const list = store.create(need("list"), need("title"), cleanGoal(args.goal), args.tasks ?? []);
 			return `Created and claimed task list:\n${renderList(list)}`;
 		}
 		case "list": {
-			const all = store.lists();
-			if (!all.length) return "No task lists in this project yet.";
-			return all.map((l) => `${l.slug} — ${l.title} (${l.tasks.filter((t) => t.status === "done").length}/${l.tasks.length} done${l.claim ? ", claimed" : ""})`).join("\n");
+			const { lists: all, invalid } = store.scan();
+			if (!all.length && !invalid.length) return "No task lists in this project yet.";
+			const lines = all.map((l) => `${l.slug} — ${l.title} (${l.tasks.filter((t) => t.status === "done").length}/${l.tasks.length} done${l.claim ? ", claimed" : ""}${l.goal ? "" : ", no goal"})`);
+			for (const slug of invalid) lines.push(`${slug} — invalid file; "status" shows what to fix`);
+			return lines.join("\n");
 		}
 		case "claim":
 			return `Claimed:\n${renderList(store.claim(need("list"), args.force === true))}`;
@@ -599,10 +784,21 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 			store.release(need("list"));
 			return `Released "${args.list}".`;
 		case "add": {
-			const { added, superseded } = store.add(need("list"), args.parent, need("tasks"));
+			const { added, superseded, renumbered } = store.add(need("list"), args.parent, need("tasks"), { before: args.before, after: args.after });
+			onRenumber(renumbered);
 			const lines = [`Added ${added.map((t) => `${t.id} ${t.title}`).join(", ")}.`];
 			for (const t of superseded) lines.push(`${t.id} "${t.title}" is superseded by ${t.supersededBy}${t.report?.outcome?.startsWith("Superseded by") ? " and was abandoned" : ""}.`);
+			if (renumbered.length) lines.push(renumberLine(renumbered));
 			return lines.join("\n");
+		}
+		case "move": {
+			const { task, renumbered } = store.move(need("list"), need("id"), args.parent, { before: args.before, after: args.after });
+			onRenumber(renumbered);
+			return `Moved ${args.id} "${task.title}" to ${task.id}.\n${renumberLine(renumbered)}`;
+		}
+		case "update": {
+			const { list, task, changed } = store.update(need("list"), args.id, { title: args.title, goal: args.goal, acceptanceCriteria: args.acceptanceCriteria });
+			return `Updated ${changed.join(" and ")} of ${task ? `${list.slug}/${task.id} "${task.title}"` : `list "${list.slug}"`}.`;
 		}
 		case "block": {
 			const { task, ancestors } = store.block(need("list"), need("id"), args.reason, args.detail, args.blockedBy);
