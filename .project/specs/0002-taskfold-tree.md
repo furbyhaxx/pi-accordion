@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T15:12:34+01:00"
+  updated_at: "2026-11-06T15:22:34+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "slice 1 implementation findings"
-      changes: ["§2.1 schema location under the shipped skill", "§2.2 store loads goalless lists and gates work; invalid files named by list", "§3.3 refusal only while the tasks tool is active"]
+    - revision: 3
+      reason: "user-approved attachment freshness and block detail limit"
+      changes: ["§3.1 allow block details up to 1024 characters", "§4 refresh attachment cache outside the context hook", "§4 allow whole user messages as pins"]
 ---
 
 # Taskfold tree
@@ -120,6 +120,7 @@ verdicts, bindings) is unchanged.
 | `move` | `{list, id, parent?, before?, after?}` | New. Moves a `todo` subtree (§3.2) |
 | `pin` / `unpin` | `{list, id?, items}` / `{list, pins}` | New (§4) |
 | `attach` / `detach` | `{list, id?, items}` / `{list, attachments}` | New (§4) |
+| `block` | unchanged | `detail` accepts up to 1,024 characters |
 | `complete` / `fail` | unchanged | Refused on an empty span (§3.3) |
 | others | unchanged | |
 
@@ -182,7 +183,7 @@ moves from session entries into the list file.
 | Field | Rule |
 |---|---|
 | `kind` | `rule`, `convention`, `constraint`, `standard`, `fact` |
-| `text` | Verbatim quote, ≤300 chars. Checked against `source`: the text must occur in the named file or in a user message of this session (whitespace-normalized). A whole user message is refused; user messages already stay in context |
+| `text` | Verbatim quote, ≤300 chars. Checked against `source`: the text must occur in the named file or in a user message of this session (whitespace-normalized). A whole user message can be pinned |
 | `source` | `user`, `path`, `path:line` or `path:start-end` |
 | scope | List (no `id`) or task (`id`): a task pin applies to the task and its subtree |
 | caps | List pins ≤2,000 tokens, pins per task ≤1,500 tokens (char estimate) |
@@ -196,9 +197,9 @@ moves from session entries into the list file.
 | `note` | ≤120 chars, why it is attached |
 | `hash` | sha256 of the attached lines at attach time |
 
-Attachments are re-read on every working-set build. A hash mismatch marks them
-`changed since attached`. The store never updates the hash silently; `attach` again to accept the
-change.
+Attachments are cached and refreshed outside the context hook, preserving the engine's no-disk-I/O
+invariant. An external edit between refresh and request can briefly be stale. A hash mismatch marks
+them `changed since attached`; the store never updates the hash silently.
 
 ### 4.3 Working set
 
