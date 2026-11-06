@@ -20,14 +20,14 @@ Read the entirety of @CLAUDE.md for upstream engine invariants. Fork-specific be
 
 Before making any changes to the code, **always open a dedicated worktree** — never edit in the main checkout.
 
-1. **Create a worktree off the latest `devmain`**, placed under `.pi/worktrees/` (already gitignored):
+1. **Create a worktree off the latest `feat/pi-native`**, placed under `.pi/worktrees/` (already gitignored):
    ```bash
    git fetch origin
-   git worktree add .pi/worktrees/<short-descriptive> -b <branch> origin/devmain
+   git worktree add .pi/worktrees/<short-descriptive> -b <branch> origin/feat/pi-native
    cd .pi/worktrees/<short-descriptive>
    ```
-2. **Do all work in the worktree** — edits, `npm install` (deps are per-worktree), verification (`npm run check`, `npm run test`, `node smoke.mjs`, `npm pack --dry-run` as applicable), commits, and the PR to `devmain`.
-3. **Delete the worktree and its folder once the branch is merged** into `devmain` (or promoted to `main`):
+2. **Do all work in the worktree** — edits, `npm install` (deps are per-worktree), verification (`npm run check`, `npm run test`, `node smoke.mjs`, `npm pack --dry-run` as applicable), commits, and the PR to `feat/pi-native`.
+3. **Delete the worktree and its folder once the branch is merged** into `feat/pi-native` (or promoted to `main`):
    ```bash
    cd <main checkout>
    git worktree remove .pi/worktrees/<short-descriptive>
