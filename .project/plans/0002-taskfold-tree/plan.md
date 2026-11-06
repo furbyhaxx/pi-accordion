@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree implementation"
   description: "Slices, progress and acceptance for implementing SPEC-0002 on branch feat/taskfold-tree."
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T18:17:14+01:00"
+  updated_at: "2026-11-06T19:40:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "record taskfold policy progress"
-      changes: ["update slice statuses for untracked folding and task-age policy"]
+    - revision: 4
+      reason: "record implementation and evaluation progress"
+      changes: ["update slice status and isolated evaluation prerequisites"]
 ---
 
 # Taskfold tree: plan
@@ -44,24 +44,21 @@ worktree `.pi/worktrees/taskfold-tree`, PR into `feat/pi-native`.
 | 2 | Pins, attachments, working set, `tasks.*` settings | §4, §12 | done |
 | 3 | Structured details on blocks, interval planning, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | done; floor ordering remains in slice 9 |
 | 4 | Cross-group handles in core, recall/unfold of child codes | §7.3 | done; integrated with selective unfold in slice 3 |
-| 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | implemented; floor setting waits for slice 9 |
-| 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | done; live folded group still needs checking |
+| 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | done |
+| 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | done; folded groups checked live at four widths |
 | 7 | Tool texts: review gate, stop rule, resume note | §3.4 | done |
-| 8 | Skill `accordion-task-lists` and its eval | §11 | implemented; isolated eval remains |
-| 9 | Floor (same transaction), measurement, default decision | §9.2, §13 | later |
+| 8 | Skill `accordion-task-lists` and its eval | §11 | skill done; isolated comparison awaits user decision |
+| 9 | Floor (same transaction), measurement, default decision | §9.2, §13 | floor implemented, off pending comparison; isolated runs underway |
 
 ## Slice 1: list file v2 and store actions
 
-Current: `extension/tasks.ts` stores `TaskList {slug,title,createdAt,updatedAt,claim,tasks: Task[]}`.
-`tasks` is flat with dotted ids (`flatten`, `parentOf`). There is no goal and no validation on
-read. `TaskCoach` (`extension/taskCoach.ts`) only notes empty spans after the fact.
+Delivered: list files use nested v2 trees with a goal; the store indexes tasks by dotted id and
+validates files on read. `TaskCoach` tracks work for empty-span refusal.
 
-Change:
-1. `extension/taskSchema.ts`: v2 types (`TaskListV2`, `TaskNodeV2`), `validateList(raw) →
-   {list} | {errors: string[]}`, `migrateV1`, `flattenTree`/`buildTree`. The store keeps its
-   flat in-memory `Task[]` index, so most of `tasks.ts` is untouched. Reads go through the
-   validator; writes serialize the tree.
-2. `extension/tasks.schema.json` plus a test asserting that schema and validator agree on fixtures.
+Components:
+1. `extension/taskSchema.ts`: v2 validation, v1 migration, `parseListFile` and `toListFile`. The
+   store keeps a flat in-memory `Task[]` index; reads validate and writes serialize the tree.
+2. `extension/skills/accordion-task-lists/references/tasks.schema.json` plus schema/validator tests.
 3. `goal` required on `create`. `update` action. `start`/`add`/`move` are refused without a goal.
 4. `add {before|after}`, `move`. Only `todo` subtrees move; renumbering with reference rewrite;
    `details.renumbered`.
@@ -72,7 +69,7 @@ Change:
    `move`.
 7. Views that read `Task[]` keep working: widget, tree, lists browser, transcript dump.
 
-Not in this slice: pins, attachments, span scan changes, any taskfold change.
+Pins, attachments and taskfold changes are covered by later slices.
 
 Tests (`extension/tasks.test.ts`, `extension/taskSchema.test.ts`):
 - v1 file → v2 round trip
@@ -81,14 +78,14 @@ Tests (`extension/tasks.test.ts`, `extension/taskSchema.test.ts`):
 - refusal of moving or inserting before a started task
 - empty-span refusal and its exemption for tasks started before the process
 
-Done when the tests and gates pass, SPEC-0001 §4.10/§4.15 mention the new actions, and a v1 list
-from `.pig/tasks/` of this repo loads and is rewritten as v2 on its next write.
+The gates passed, SPEC-0001 §4.10/§4.15 record the new actions, and a v1 list loads and is
+rewritten as v2 on its next write.
 
 ## Slice 2: pins, attachments, working set
 
-Port `extension/pins.ts` from `exp/orientation-modes` (validation, caps, file re-read), storing
-into the list file. Add `pin`/`unpin`/`attach`/`detach`. Build the working set in the
-`context_with_system` hook as the last text part of the last message. Add the `tasks.*` settings.
+Store validated pins and attachments in the list file. Add `pin`/`unpin`/`attach`/`detach` and
+`tasks.*` settings. Build and refresh the working set outside the context hook; the hook reads the
+session-local cache.
 
 Tests:
 - quote check against a user message and a file
@@ -97,15 +94,18 @@ Tests:
 - working set contents for nested doing tasks
 - not persisted (smoke: `node extension/smoke-context.mjs`)
 
-## Slices 3–9
+## Remaining verification
 
-Sparse until slice 2 lands. Key facts:
-- **3:** verify first whether Pi persists tool-result `details` on reload. Keep the prose fallback.
-  Delete the `ownGroups` cache.
-- **4:** bump the protocol and snapshot versions; update `app/` replica types.
-- **6:** real terminal checks at 36/57/80/140 columns.
-- **9:** the measurement needs the tier-2 harness from `exp/orientation-modes`
-  (`harness/make_fixtures.py`, `harness/tier2.py`), copied into this plan's `evidence/`; budget
-  $4–6. Record results in this plan, then set the `taskfold.floor` default.
+- The floor comparison uses frozen revisions, two synthetic fixtures, a verified nested filesystem
+  sandbox, and a credential proxy. A local preflight checked the live Taskfold conductor and
+  16k/3k dials. The first attempt used the wrong config path and must not enter the results.
+- Compare inline and reference attachment rendering with the same seeded specification attachment
+  under the remaining approved budget. Report whether the agent actually used the attachment.
+- The initial skill baseline accessed repository files outside its synthetic fixture and sent tool
+  results to the provider. It also found the skill, contaminating the comparison. Do not use those
+  results; an isolated rerun requires the user's decision.
+- After measurements, choose the floor default from the approved cost/quality rule and rerun the
+  final project and install checks. Product whitespace checks pass; copied branch artifacts retain
+  their original whitespace.
 
 When everything is merged: delete this plan with trailers (`Artifact-Deleted: PLAN-0002`).
