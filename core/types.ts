@@ -140,10 +140,20 @@ export interface Block {
  * `by` is provenance: who created the group (`"you"` human, `"auto"` a strategy). Optional
  * only so legacy / test-constructed literals stay valid; the group op always sets it.
  */
+/** A recoverable subrange carried by a group's summary. */
+export interface GroupHandle {
+	id: string;
+	memberIds: string[];
+}
+
 export interface Group {
 	id: string;
 	memberIds: string[];
 	folded: boolean;
+	/** Recoverable subranges whose tags occur in the group's summary. */
+	handles?: GroupHandle[];
+	/** This group originated from a conductor, even if detach later freezes it. */
+	autoOrigin?: boolean;
 	/** Who created this group. Optional; the group op always sets it (default `"you"`). */
 	by?: Actor;
 	/**

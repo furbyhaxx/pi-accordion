@@ -136,13 +136,14 @@
  *    because a pre-v22 peer would reject every `system` WireBlock at `isWireBlock` and drop the
  *    prompt (and its tokens) silently, while a pre-v22 HOST would send a scalar a v22 client no
  *    longer reads.
+ *  - v23: group operations and snapshots carry recoverable cross-group task handles.
  */
 import type { Actor, Group, Override } from "./types";
 import type { LockName } from "./locks";
 import { sanitizeOps, type Op, type OpResult } from "./ops";
 
 /** Bump on any breaking change to the message shapes below. */
-export const PROTOCOL_VERSION = 22;
+export const PROTOCOL_VERSION = 23;
 
 /**
  * The DOOR: a fixed, well-known loopback port that exactly ONE extension binds at a time as an

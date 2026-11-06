@@ -49,7 +49,7 @@ export function serializeSnapshot(truth: Truth, foldingEnabled: boolean): Snapsh
 	return {
 		blocks: truth.blocks.map(blockToWire),
 		overlay,
-		groups: truth.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() })),
+		groups: truth.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) })),
 		budget: truth.budget,
 		contextWindow: truth.contextWindow,
 		protectTokens: truth.protectTokens,
@@ -87,7 +87,7 @@ export function hydrateSnapshot(meta: SessionMeta, state: SnapshotState): Truth 
 		}
 		return b;
 	});
-	const groups: Group[] = state.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() }));
+	const groups: Group[] = state.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
 	const truth = new Truth({ meta, blocks: [], lineCount: 0, skipped: 0 });
 	truth.adoptSnapshot({
 		blocks,

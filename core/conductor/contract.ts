@@ -106,6 +106,7 @@ export interface GroupInfo {
 	id: string;
 	memberIds: readonly string[];
 	folded: boolean;
+	handles?: readonly { readonly id: string; readonly memberIds: readonly string[] }[];
 	by: Actor | null;
 	summary?: string | null;
 }

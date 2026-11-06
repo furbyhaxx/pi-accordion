@@ -94,6 +94,20 @@ export function resolveUnfold(truth: Truth, codes: string[]): { restored: Unfold
 	const missing: string[] = [];
 	for (const code of codes) {
 		let hit = false;
+		const handles = truth.groups.flatMap((g) => (g.handles ?? []).filter((h) => foldCode(h.id) === code && truth.canRecallHandle(g, h)).map((h) => ({ group: g, handle: h })));
+		for (const { group, handle } of handles) {
+			const groups = new Map<string, Group>([[group.id, group]]);
+			for (const id of handle.memberIds) {
+				const block = truth.get(id);
+				const owner = block ? truth.groupOf(block) : undefined;
+				if (owner?.folded) groups.set(owner.id, owner);
+			}
+			truth.apply([...groups.values()].map((g) => ({ kind: "unfoldGroup" as const, groupId: g.id })), "agent");
+			if ([...groups.keys()].some((id) => truth.groupById(id)?.folded)) continue;
+			const ids = [...new Set([...groups.values()].flatMap((g) => g.memberIds))];
+			restored.push({ code, kind: "text", label: `task ${handle.id}`, ids });
+			hit = true;
+		}
 		// A GROUP code restores the WHOLE range. Checked first; a code can in principle match both a
 		// group and a block (rare collision) → restore both.
 		for (const g of truth.groups) {
@@ -135,6 +149,12 @@ export function resolveRecall(truth: Truth, codes: string[]): { restored: Recall
 	for (const code of codes) {
 		let hit = false;
 		for (const g of truth.groups) {
+			for (const h of g.handles ?? []) {
+				if (foldCode(h.id) !== code || !truth.canRecallHandle(g, h)) continue;
+				const text = h.memberIds.map((id) => truth.get(id)?.text ?? "").filter((t) => t.length > 0).join("\n\n");
+				restored.push({ code, label: `task ${h.id}`, text, ids: h.memberIds.slice() });
+				hit = true;
+			}
 			if (g.folded && groupAgentReachable(truth, g) && foldCode(g.id) === code) {
 				const text = g.memberIds
 					.map((id) => truth.get(id)?.text ?? "")

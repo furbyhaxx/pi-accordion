@@ -13,11 +13,11 @@
  *
  * No Svelte, no runes, no runtime dependencies — plain TypeScript.
  */
-import type { Block, Actor, SessionMeta, ParsedSession, Group } from "./types";
+import type { Block, Actor, SessionMeta, ParsedSession, Group, GroupHandle } from "./types";
 import { SYSTEM_BLOCK_ID, SYSTEM_BLOCK_ORDER } from "./types";
 import type { LockName } from "./locks";
 import { hasLock } from "./locks";
-import { digest, digestTokens, substTokens, groupDigest, groupDigestTokens, wireFoldable, isBolted, foldTag, LEADING_FOLD_TAG, stripFoldTags } from "./digest";
+import { digest, digestTokens, substTokens, groupDigest, groupDigestTokens, wireFoldable, isBolted, foldTag, hasOwnFoldTag, LEADING_FOLD_TAG, stripFoldTags } from "./digest";
 import { estTokens, BLOCK_OVERHEAD } from "./tokens";
 import { isDurableId, applyPlan, computeDegradedDropRuns, roleFloorRecap, type PiMessage, type WireMsgShape } from "./wire";
 import { collapsibleMessageKeys, messageKey } from "./groupShape";
@@ -286,7 +286,7 @@ export class Truth {
 	}): void {
 		this.blockLog = s.blocks.slice();
 		this.reindex();
-		this.groupList = s.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() }));
+		this.groupList = s.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
 		this.budgetTok = s.budget;
 		this.contextWindowTok = s.contextWindow;
 		this.protectTokensTarget = s.protectTokens;
@@ -419,7 +419,7 @@ export class Truth {
 			// per-run summary emission and `classifyGroup`'s run detection both iterate it in order).
 			// Sort surviving members by their new index to restore that invariant; the group's `id`
 			// stays its original handle (an opaque `foldCode` anchor, not re-derived from members).
-			.map((g) => ({ ...g, memberIds: g.memberIds.slice().sort((a, b) => survivors.get(a)! - survivors.get(b)!) }));
+			.map((g) => ({ ...g, memberIds: g.memberIds.slice().sort((a, b) => survivors.get(a)! - survivors.get(b)!), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
 		next.housekeep(new Set<string>());
 		return next;
 	}
@@ -989,7 +989,7 @@ export class Truth {
 	 * no event (the caller projects the mirror itself).
 	 */
 	setGroups(groups: Group[]): void {
-		this.groupList = groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() }));
+		this.groupList = groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
 		this.revCounter++;
 	}
 
@@ -1673,6 +1673,28 @@ export class Truth {
 		});
 	}
 
+	/** A handle may cross recoverable automatic groups and user messages that remain visible. */
+	canRecallHandle(g: Group, handle: GroupHandle): boolean {
+		if (!(g.by === "auto" || g.autoOrigin) || !g.folded || !/^t:[a-z0-9][a-z0-9-]*\/[1-9]\d*(?:\.[1-9]\d*)*$/.test(handle.id)) return false;
+		if (!this.groupSummary(g).includes(foldTag(handle.id)) || !handle.memberIds.length) return false;
+		const own = new Set(g.memberIds);
+		let previous = -1;
+		let touchesGroup = false;
+		for (const id of handle.memberIds) {
+			const index = this.index.get(id);
+			const b = this.get(id);
+			if (index === undefined || index <= previous || !b || b.override !== null || isBolted(b)) return false;
+			previous = index;
+			if (own.has(id)) { touchesGroup = true; continue; }
+			const source = this.groupOf(b);
+			if (source) {
+				if (!source.folded || !(source.by === "auto" || source.autoOrigin) || !hasOwnFoldTag(this.groupSummary(source), source.id)) return false;
+				touchesGroup = true;
+			} else if (b.kind !== "user" || this.isFolded(b)) return false;
+		}
+		return touchesGroup;
+	}
+
 	private opGroup(op: Extract<Op, { kind: "group" }>, by: Actor, baseRev: number | undefined, touched: Set<string>): OpResult {
 		if (by === "you" && this.isLocked("human-steering")) return this.clamp(op, "locked");
 		if (!op.ids.length) return this.clamp(op, "invalid-group", "a group needs ≥1 block");
@@ -1721,7 +1743,8 @@ export class Truth {
 		// ever told `applyPlan` to remove them. Unreachable from the UI (`setGroupSummary` normalizes
 		// an all-whitespace box to `null` before this ever runs); this closes the raw-wire-command path.
 		const summary = by === "you" && typeof op.summary === "string" ? stripFoldTags(op.summary).trim() : op.summary;
-		const g: Group = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary };
+		const g: Group = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...(by === "auto" ? { autoOrigin: true } : {}), ...(op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) };
+		if (g.handles && (by !== "auto" || new Set(g.handles.map((h) => h.id)).size !== g.handles.length || g.handles.some((h) => !this.canRecallHandle(g, h)))) return this.clamp(op, "invalid-group", "invalid or inaccessible group handle");
 		if (this.classifyGroup(g).carrier === null) return this.clamp(op, "invalid-group", "nothing collapses (all stragglers)");
 		this.groupList = [...this.groupList, g];
 		for (const id of memberIds) touched.add(id);

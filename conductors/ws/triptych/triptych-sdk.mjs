@@ -53,6 +53,10 @@ function foldTag(id) {
   return `{#${foldCode(id)} FOLDED}`;
 }
 var LEADING_FOLD_TAG = /^\s*\{#[0-9a-z]{6} FOLDED\}\s*/;
+function hasOwnFoldTag(text, id) {
+  const m = text.match(LEADING_FOLD_TAG);
+  return m ? m[0].includes(`{#${foldCode(id)} `) : false;
+}
 function stripFoldTags(text) {
   let out = text;
   for (let prev = ""; prev !== out; ) {
@@ -189,6 +193,7 @@ function wireToBlock(w) {
     callId: w.callId,
     model: w.model,
     isError: w.isError,
+    details: w.details,
     ...w.signed ? { signed: true } : {},
     override: null,
     autoFolded: false,
@@ -585,7 +590,7 @@ var Truth = class _Truth {
   adoptSnapshot(s) {
     this.blockLog = s.blocks.slice();
     this.reindex();
-    this.groupList = s.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() }));
+    this.groupList = s.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
     this.budgetTok = s.budget;
     this.contextWindowTok = s.contextWindow;
     this.protectTokensTarget = s.protectTokens;
@@ -663,7 +668,7 @@ var Truth = class _Truth {
       if (!g.memberIds.every((id) => survivors.has(id))) return false;
       const idxs = g.memberIds.map((id) => survivors.get(id)).sort((a, b) => a - b);
       return idxs.every((v, k) => k === 0 || v === idxs[k - 1] + 1);
-    }).map((g) => ({ ...g, memberIds: g.memberIds.slice().sort((a, b) => survivors.get(a) - survivors.get(b)) }));
+    }).map((g) => ({ ...g, memberIds: g.memberIds.slice().sort((a, b) => survivors.get(a) - survivors.get(b)), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
     next.housekeep(/* @__PURE__ */ new Set());
     return next;
   }
@@ -1196,7 +1201,7 @@ var Truth = class _Truth {
    * no event (the caller projects the mirror itself).
    */
   setGroups(groups) {
-    this.groupList = groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() }));
+    this.groupList = groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
     this.revCounter++;
   }
   snappedRange(startId, endId) {
@@ -1792,6 +1797,30 @@ var Truth = class _Truth {
       return null;
     });
   }
+  /** A handle may cross recoverable automatic groups and user messages that remain visible. */
+  canRecallHandle(g, handle) {
+    if (!(g.by === "auto" || g.autoOrigin) || !g.folded || !/^t:[a-z0-9][a-z0-9-]*\/[1-9]\d*(?:\.[1-9]\d*)*$/.test(handle.id)) return false;
+    if (!this.groupSummary(g).includes(foldTag(handle.id)) || !handle.memberIds.length) return false;
+    const own = new Set(g.memberIds);
+    let previous = -1;
+    let touchesGroup = false;
+    for (const id of handle.memberIds) {
+      const index = this.index.get(id);
+      const b = this.get(id);
+      if (index === void 0 || index <= previous || !b || b.override !== null || isBolted(b)) return false;
+      previous = index;
+      if (own.has(id)) {
+        touchesGroup = true;
+        continue;
+      }
+      const source = this.groupOf(b);
+      if (source) {
+        if (!source.folded || !(source.by === "auto" || source.autoOrigin) || !hasOwnFoldTag(this.groupSummary(source), source.id)) return false;
+        touchesGroup = true;
+      } else if (b.kind !== "user" || this.isFolded(b)) return false;
+    }
+    return touchesGroup;
+  }
   opGroup(op, by, baseRev, touched) {
     if (by === "you" && this.isLocked("human-steering")) return this.clamp(op, "locked");
     if (!op.ids.length) return this.clamp(op, "invalid-group", "a group needs \u22651 block");
@@ -1805,7 +1834,8 @@ var Truth = class _Truth {
     for (const id of memberIds) if (this.groupOf(this.get(id))) return this.clamp(op, "invalid-group", "overlaps an existing group");
     if (by !== "you" && memberIds.some((id) => this.get(id).override !== null)) return this.clamp(op, "human-override");
     const summary = by === "you" && typeof op.summary === "string" ? stripFoldTags(op.summary).trim() : op.summary;
-    const g = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary };
+    const g = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...by === "auto" ? { autoOrigin: true } : {}, ...op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {} };
+    if (g.handles && (by !== "auto" || new Set(g.handles.map((h) => h.id)).size !== g.handles.length || g.handles.some((h) => !this.canRecallHandle(g, h)))) return this.clamp(op, "invalid-group", "invalid or inaccessible group handle");
     if (this.classifyGroup(g).carrier === null) return this.clamp(op, "invalid-group", "nothing collapses (all stragglers)");
     this.groupList = [...this.groupList, g];
     for (const id of memberIds) touched.add(id);
@@ -1949,7 +1979,7 @@ function hydrateSnapshot(meta, state) {
     }
     return b;
   });
-  const groups = state.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice() }));
+  const groups = state.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
   const truth = new Truth({ meta, blocks: [], lineCount: 0, skipped: 0 });
   truth.adoptSnapshot({
     blocks,
@@ -2022,6 +2052,7 @@ function viewBlockOf(truth, b) {
     toolName: b.toolName,
     callId: b.callId,
     isError: b.isError,
+    details: b.details,
     held: truth.held(b),
     folded: truth.isFolded(b),
     protected: truth.isProtected(b),
@@ -2091,7 +2122,7 @@ function recallHostEvent(ids, by, rev) {
 }
 
 // core/protocol.ts
-var PROTOCOL_VERSION = 22;
+var PROTOCOL_VERSION = 23;
 var SERVER_TYPES = /* @__PURE__ */ new Set([
   "hello",
   "snapshot",
@@ -2224,7 +2255,7 @@ function runRemoteConductor(conductor, opts) {
           return replica.blocks.map((b) => viewBlockOf(replica, b));
         },
         groups() {
-          return replica.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest }));
+          return replica.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest, ...g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {} }));
         },
         textOf(id) {
           return replica.get(id)?.text ?? null;

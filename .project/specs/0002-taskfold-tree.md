@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T16:20:07+01:00"
+  updated_at: "2026-11-06T17:16:17+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 5
-      reason: "review-gate resume guidance"
-      changes: ["§3 do not presume every new user prompt answers a blocked task"]
+    - revision: 6
+      reason: "user approved handles across groups and retained user messages"
+      changes: ["§7.3 validate cross-group handles and revalidate on recall"]
 ---
 
 # Taskfold tree
@@ -343,12 +343,15 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
 
 ### 7.3 Handles (core change)
 
-- `Group.handles?: {id: string; memberIds: string[]}[]`. The `group` op gains an optional
-  `handles`. Truth validates that every handle's members are a subset of the group's members.
+- `Group.handles?: {id: string; memberIds: string[]}[]`. The `group` op gains optional `handles`.
+  A handle may name members of its carrier, other tagged automatic groups and intervening visible
+  user messages, in transcript order. Truth validates it when grouping and again on use; held,
+  human-curated, inaccessible or missing content makes the handle unreachable. The carrier summary
+  must contain the handle's exact tag. Cross-group sources are created before the carrier.
 - Handle id: `t:<list>/<id>`. Its fold code is `foldCode("t:<list>/<id>")`, stable across
   recompiles.
 - `resolveRecall` resolves a handle code to its members' raw content.
-- `resolveUnfold` on a handle code unfolds the owning group and emits a `state-changed` with
+- `resolveUnfold` on a handle code unfolds the carrier and every referenced group and emits a `state-changed` with
   `by:"agent"`. Taskfold marks that node agent-open and recompiles: the parent is parted around a
   raw child.
 - An agent-open node refolds only under pressure and only once its task age is ≥2. After a second

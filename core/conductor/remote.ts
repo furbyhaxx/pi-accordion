@@ -221,7 +221,7 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 					return replica!.blocks.map((b) => viewBlockOf(replica!, b));
 				},
 				groups(): readonly GroupInfo[] {
-					return replica!.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest }));
+					return replica!.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) }));
 				},
 				textOf(id): string | null {
 					return replica!.get(id)?.text ?? null;

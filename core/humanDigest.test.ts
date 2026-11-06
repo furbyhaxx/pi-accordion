@@ -11,6 +11,7 @@ import { Truth } from "./truth";
 import { EMPTY_DIGEST, foldCode, foldTag, hasFoldTag } from "./digest";
 import { BLOCK_OVERHEAD, estTokens } from "./tokens";
 import { resolveUnfold, resolveRecall } from "./agentView";
+import { serializeSnapshot, hydrateSnapshot } from "./replica";
 import type { Block, ParsedSession } from "./types";
 
 const META = { format: "pi" as const, title: "t", cwd: "", model: "" };
@@ -46,6 +47,78 @@ function makeTruth(): Truth {
 }
 
 const TEXT_ID = "a:r1:p0";
+
+describe("cross-group task handles", () => {
+	function setup() {
+		const blocks = [blk("u:1", "user", 0, 20), blk("a:r1:p0", "text", 1, 100), blk("u:2", "user", 2, 20), blk("a:r2:p0", "text", 3, 100), blk("u:3", "user", 4, 20)];
+		const t = new Truth({ meta: META, blocks, lineCount: 0, skipped: 0 });
+		t.setProtect(0);
+		const gid1 = "g:a:r1:p0";
+		const gid2 = "g:a:r2:p0";
+		const id = "t:work/1.1";
+		const first = t.apply([{ kind: "group", ids: ["a:r1:p0"], summary: `${foldTag(gid1)} part` }], "auto");
+		expect(first.results[0].applied).toBe(true);
+		return { t, gid1, gid2, id };
+	}
+
+	it("recalls a child across automatic groups and a kept user message, including after a snapshot", () => {
+		const { t, gid1, gid2, id } = setup();
+		const members = ["a:r1:p0", "u:2", "a:r2:p0"];
+		const result = t.apply([{ kind: "group", ids: ["a:r2:p0"], summary: `${foldTag(gid2)} parent\n  ${foldTag(id)} child`, handles: [{ id, memberIds: members }] }], "auto");
+		expect(result.results[0].applied).toBe(true);
+		for (const truth of [t, hydrateSnapshot(META, serializeSnapshot(t, true))]) {
+			const recalled = resolveRecall(truth, [foldCode(id)]);
+			expect(recalled.missing).toEqual([]);
+			expect(recalled.restored[0].ids).toEqual(members);
+			expect(recalled.restored[0].text).toContain("u:2");
+			expect(truth.groupById(gid1)?.folded).toBe(true);
+		}
+		const unfolded = resolveUnfold(t, [foldCode(id)]);
+		expect(unfolded.missing).toEqual([]);
+		expect(t.groupById(gid1)?.folded).toBe(false);
+		expect(t.groupById(gid2)?.folded).toBe(false);
+	});
+
+	it("preserves child recall and unfold after the conductor freezes its groups", () => {
+		const { t, gid1, gid2, id } = setup();
+		const summary = `${foldTag(gid2)} parent ${foldTag(id)} child`;
+		expect(t.apply([{ kind: "group", ids: ["a:r2:p0"], summary, handles: [{ id, memberIds: ["a:r1:p0", "u:2", "a:r2:p0"] }] }], "auto").results[0].applied).toBe(true);
+		t.apply([{ kind: "freeze" }], "auto");
+		expect(resolveRecall(t, [foldCode(id)]).missing).toEqual([]);
+		expect(resolveUnfold(t, [foldCode(id)]).missing).toEqual([]);
+		expect(t.groupById(gid1)?.folded).toBe(false);
+	});
+
+	it("respects the agent-unfold lock for every group in a handle", () => {
+		const { t, gid1, gid2, id } = setup();
+		const summary = `${foldTag(gid2)} parent ${foldTag(id)} child`;
+		expect(t.apply([{ kind: "group", ids: ["a:r2:p0"], summary, handles: [{ id, memberIds: ["a:r1:p0", "u:2", "a:r2:p0"] }] }], "auto").results[0].applied).toBe(true);
+		t.setLocks(["agent-unfold"], "test");
+		expect(resolveUnfold(t, [foldCode(id)]).missing).toEqual([foldCode(id)]);
+		expect(t.groupById(gid1)?.folded).toBe(true);
+		expect(t.groupById(gid2)?.folded).toBe(true);
+		expect(resolveRecall(t, [foldCode(id)]).missing).toEqual([]);
+	});
+
+	it("rejects handles reaching human-curated or untagged content and invalidates stale references", () => {
+		const { t, gid1, gid2, id } = setup();
+		const summary = `${foldTag(gid2)} parent ${foldTag(id)} child`;
+		const bad = t.apply([{ kind: "group", ids: ["a:r2:p0"], summary, handles: [{ id, memberIds: ["u:1", "a:r2:p0"] }] }], "you");
+		expect(bad.results[0].applied).toBe(false);
+		t.apply([{ kind: "ungroup", groupId: gid1 }], "you");
+		t.apply([{ kind: "group", ids: ["a:r1:p0"], summary: "human summary" }], "you");
+		const foreign = t.apply([{ kind: "group", ids: ["a:r2:p0"], summary, handles: [{ id, memberIds: ["a:r1:p0", "u:2", "a:r2:p0"] }] }], "auto");
+		expect(foreign.results[0].applied).toBe(false);
+		t.apply([{ kind: "ungroup", groupId: gid1 }], "you");
+		t.apply([{ kind: "group", ids: ["a:r1:p0"], summary: `${foldTag(gid1)} part` }], "auto");
+		const good = t.apply([{ kind: "group", ids: ["a:r2:p0"], summary, handles: [{ id, memberIds: ["a:r1:p0", "u:2", "a:r2:p0"] }] }], "auto");
+		expect(good.results[0].applied).toBe(true);
+		t.apply([{ kind: "ungroup", groupId: gid1 }], "you");
+		t.apply([{ kind: "fold", ids: ["a:r1:p0"], digest: "private replacement" }], "you");
+		expect(resolveRecall(t, [foldCode(id)]).missing).toEqual([foldCode(id)]);
+		expect(resolveUnfold(t, [foldCode(id)]).missing).toEqual([foldCode(id)]);
+	});
+});
 
 describe("human-authored digest", () => {
 	it("stores the human's text verbatim, with no fold tag prepended", () => {

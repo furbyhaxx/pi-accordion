@@ -9,6 +9,14 @@
 import { describe, it, expect } from "vitest";
 import { applyGuardingHostOnly, isHostOnlyOp, isValidOp, sanitizeOps, HOST_ONLY_OP_KINDS, type Op, type OpResult, type TxnResult } from "./ops";
 
+describe("group handle validation", () => {
+	it("rejects malformed handle payloads at the wire boundary", () => {
+		expect(isValidOp({ kind: "group", ids: ["a"], handles: [{ id: "t:l/1", memberIds: ["a"] }] })).toBe(true);
+		expect(isValidOp({ kind: "group", ids: ["a"], handles: [{ id: "t:l/1", memberIds: [1] }] })).toBe(false);
+		expect(isValidOp({ kind: "group", ids: ["a"], handles: [null] })).toBe(false);
+	});
+});
+
 describe("host-only op guard", () => {
 	it("classifies freeze as host-only and ordinary ops as not", () => {
 		expect(HOST_ONLY_OP_KINDS.has("freeze")).toBe(true);
