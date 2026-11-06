@@ -485,7 +485,9 @@ editing a list outside the tasks tool."
 
 The skill also encodes how to size, split and nest tasks (`references/decomposition.md`): why open
 tasks keep raw work in the request, orientation first, split by verifiable outcome, two to three
-levels for broad work, no count quotas.
+levels as a minimum for broad work (four allowed), no count quotas; `references/examples.md` translates
+a feature, a bug, a migration, a phased plan and a research task into lists, and a test keeps every
+shipped example valid.
 
 Eval: 3 prompts (convert a plan document, write from scratch, repair an invalid file), with and
 without the skill. Assertions: validator passes, list is ordered, every leaf has criteria.

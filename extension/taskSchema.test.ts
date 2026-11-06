@@ -25,6 +25,17 @@ describe("task list v2 schema", () => {
 		expect([task.acceptanceCriteria.maxItems, task.acceptanceCriteria.items.maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
 	});
 
+	test("every list example in the bundled skill passes the validator", () => {
+		const skill = path.join(import.meta.dir, "skills/accordion-task-lists");
+		const files = [path.join(skill, "SKILL.md"), ...fs.readdirSync(path.join(skill, "references")).filter((f) => f.endsWith(".md")).map((f) => path.join(skill, "references", f))];
+		const lists = files.flatMap((file) => [...fs.readFileSync(file, "utf8").matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]!)).filter((x) => x?.version === 2 && x.slug));
+		expect(lists.length).toBeGreaterThanOrEqual(5);
+		for (const list of lists) {
+			const result = parseListFile(list, list.slug, { requireGoal: true });
+			expect(result.ok ? [] : result.errors).toEqual([]);
+		}
+	});
+
 	test("the bundled validator accepts a valid authored list and reports invalid input", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-author-"));
 		const file = path.join(dir, "auth.json");
