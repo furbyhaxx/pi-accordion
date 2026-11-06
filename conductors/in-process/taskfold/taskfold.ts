@@ -40,6 +40,8 @@ export interface TaskfoldOptions {
 	harnessPatterns?: readonly RegExp[];
 	/** The newest finished top-level tasks that stay open; the working context of the next step. Default 1. */
 	keepRecentTasks?: number;
+	/** Fold long runs outside task spans when pressure remains. */
+	untracked?: { enabled: boolean; minSteps: number };
 }
 
 export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
@@ -47,6 +49,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	low: 0.6,
 	maxLoss: 0.3,
 	keepRecentTasks: 1,
+	untracked: { enabled: true, minSteps: 8 },
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 
@@ -260,7 +263,9 @@ export function ageRecord(summary: string, level: 1 | 2): string | null {
 
 /** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */
 export function taskKeyOfSummary(summary: string | null | undefined): string | null {
-	return typeof summary === "string" ? (/^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part|archived)\] (\S+)/.exec(summary)?.[1] ?? null) : null;
+	if (typeof summary !== "string") return null;
+	if (/^\{#[0-9a-z]{6} FOLDED\} \[untracked-work\]/.test(summary)) return "untracked";
+	return /^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part|archived)\] (\S+)/.exec(summary)?.[1] ?? null;
 }
 
 /** One span's fold: its ops, the span key per group op, and how to restore absorbed child groups. */
@@ -538,7 +543,54 @@ export class TaskfoldConductor implements Conductor {
 		// Folding every finished span was not enough: age the oldest records instead (see `ageRecord`).
 		if (!recompose && projected > target) {
 			const touched = new Set(units.flatMap((u) => u.ops.flatMap((op) => (op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : []))));
-			units.push(...this.ladder(host, blocks, projected - target, touched));
+			const aged = this.ladder(host, blocks, projected - target, touched);
+			units.push(...aged);
+			projected -= aged.reduce((sum, unit) => sum + unit.saved, 0);
+		}
+		if (!recompose && projected > target && this.k.untracked.enabled) units.push(...this.untracked(host, blocks, projected - target, planned));
+		return units;
+	}
+
+	private untracked(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
+		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const occupied = new Set<string>(host.groups().flatMap((g) => [...g.memberIds]));
+		const documentCalls = new Set<string>();
+		for (const b of blocks) {
+			if (b.kind !== "tool_call" || !b.callId || b.toolName !== "read") continue;
+			const path = parseCall(this.textOf(b))?.path;
+			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documentCalls.add(b.callId);
+		}
+		const eligible = (b: ViewBlock, i: number) => !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId)) && !spans.some((s) => s.intervals.some((r) => r.start <= i && i <= r.end));
+		const runs: ViewBlock[][] = [];
+		let run: ViewBlock[] = [];
+		for (let i = 0; i < blocks.length;) {
+			let end = i + 1;
+			while (end < blocks.length && messageKey(blocks[end].id) === messageKey(blocks[i].id)) end++;
+			if (blocks.slice(i, end).every((b, j) => eligible(b, i + j))) run.push(...blocks.slice(i, end));
+			else if (run.length) { runs.push(run); run = []; }
+			i = end;
+		}
+		if (run.length) runs.push(run);
+		const units: Unit[] = [];
+		let saved = 0;
+		for (const members of runs) {
+			if (saved >= need) break;
+			const steps = new Set(members.filter((b) => b.kind === "text" || b.kind === "thinking" || b.kind === "tool_call").map((b) => messageKey(b.id)));
+			if (steps.size < this.k.untracked.minSteps) continue;
+			const collapsible = collapsibleMessageKeys(members, true);
+			if (!collapsible.size) continue;
+			const firstText = members.find((b) => b.kind === "text");
+			const label = firstText ? oneLine(this.textOf(firstText), 120) : "Work outside tasks";
+			const facts = recordFacts(members, (b) => this.textOf(b));
+			const lines = [`${foldTag(`g:${members[0].id}`)} [untracked-work] ${label}`];
+			if (facts.changed.length) lines.push(`changed: ${facts.changed.slice(0, 20).join(", ")}`);
+			if (facts.verified.length) lines.push("verified:", ...facts.verified.slice(-5).map((v) => `  - ${v}`));
+			const summary = lines.join("\n");
+			const current = members.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
+			const reclaimed = current - host.countTokens(summary);
+			if (reclaimed <= 0) continue;
+			units.push({ ops: [{ kind: "group", ids: members.map((b) => b.id), summary }], restore: [], saved: reclaimed });
+			saved += reclaimed;
 		}
 		return units;
 	}

@@ -77,7 +77,9 @@ classifier runs off this machine, attaching taskfold first asks for a one-time c
 its provider receives your user messages. If the classifier is unreachable, every user message is
 kept and the status line counts the unclassified ones.
 
-## Not a fit
+## Untracked work
 
-Sessions that don't use the `tasks` tool get no folding from taskfold. Pair it with work where
-the agent plans in tasks, or use keel-lite.
+If pressure remains after finished tasks and their records are condensed, runs of at least eight
+assistant steps outside task spans can fold into recoverable `[untracked-work]` records. User
+messages, document reads, existing groups, held blocks and the protected tail stay outside those
+runs. Without task boundaries these records have only limited derived facts, not the agent's report.

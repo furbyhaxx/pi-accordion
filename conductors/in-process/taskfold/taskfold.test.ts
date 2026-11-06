@@ -113,6 +113,54 @@ describe("taskfold", () => {
 		expect(groupOf(host, start)?.summary).toContain("[task-record] work/1");
 	});
 
+	it("folds long untracked runs without swallowing user messages or work in an open task", async () => {
+		const s = new Session();
+		const opening = s.user("Go.");
+		s.work(9, "outside");
+		const steering = s.user("Keep this instruction.");
+		const open = s.start("1", "Still working").call;
+		s.work(10, "inside");
+		const host = setup(s, 0.35);
+		await attach(host);
+		const untracked = host.groups().find((g) => g.summary?.includes("[untracked-work]"));
+		expect(untracked).toBeDefined();
+		expect(untracked!.memberIds).not.toContain(opening);
+		expect(untracked!.memberIds).not.toContain(steering);
+		expect(groupOf(host, open)).toBeUndefined();
+		expect(resolveRecall(host.truth, [foldCode(untracked!.id)]).missing).toEqual([]);
+	});
+
+	it("does not fold short untracked runs or run the fallback when disabled", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.work(7, "short");
+		s.user("Continue.");
+		s.work(1, "tail");
+		const host = setup(s, 0.3);
+		await attach(host);
+		expect(host.groups()).toHaveLength(0);
+		const long = new Session();
+		long.user("Go.");
+		long.work(12, "long");
+		const disabled = setup(long, 0.3);
+		new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 8 } }).attach(disabled);
+		await disabled.commitTurn();
+		expect(disabled.groups()).toHaveLength(0);
+	});
+
+	it("preserves document reads inside an untracked run", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.work(9, "outside");
+		const doc = s.call("read", { path: "docs/spec.md" }, "important rules");
+		s.work(9, "later");
+		const host = setup(s, 0.3);
+		await attach(host);
+		expect(host.groups().some((g) => g.summary?.includes("[untracked-work]"))).toBe(true);
+		expect(groupOf(host, doc.call)).toBeUndefined();
+		expect(groupOf(host, doc.result)).toBeUndefined();
+	});
+
 	it("does nothing below HIGH", async () => {
 		const { s, start } = oneTask();
 		const host = setup(s, 2);
