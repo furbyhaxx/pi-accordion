@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createJiti } from "jiti";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
+const { buildSystemPrompt } = await import(new URL("./core/system-prompt.js", import.meta.resolve("@earendil-works/pi-coding-agent")));
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-context-"));
 process.env.ACCORDION_HOME = home;
@@ -56,6 +57,19 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
+	const r = runtime();
+	try {
+		const tool = r.tools.tasks;
+		const options = { cwd: home, toolGuidelines: { tasks: tool.promptGuidelines }, toolSnippets: { tasks: tool.promptSnippet } };
+		const active = buildSystemPrompt({ ...options, selectedTools: ["tasks"] });
+		const inactive = buildSystemPrompt({ ...options, selectedTools: [] });
+		assert.match(active, /split broad features into child tasks/);
+		assert.match(active, /completed work can fold while its parent stays open/);
+		assert.match(active, /avoid splitting trivial steps/);
+		assert.doesNotMatch(inactive, /split broad features into child tasks/);
+	} finally { r.close(); }
+});
 check("task working set refreshes outside the request hook and stays session-local", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-working-set-"));
 	const configDir = path.join(home, ".accordion");

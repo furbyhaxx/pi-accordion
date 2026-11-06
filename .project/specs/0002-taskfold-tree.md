@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T15:22:34+01:00"
+  updated_at: "2026-11-06T15:46:02+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "user-approved attachment freshness and block detail limit"
-      changes: ["§3.1 allow block details up to 1024 characters", "§4 refresh attachment cache outside the context hook", "§4 allow whole user messages as pins"]
+    - revision: 4
+      reason: "user requested granular task planning guidance"
+      changes: ["§3 teach agents to split broad features into independently foldable child tasks"]
 ---
 
 # Taskfold tree
@@ -109,6 +109,12 @@ verdicts, bindings) is unchanged.
   `extension/taskSchema.test.ts` keeps the two in sync.
 
 ## 3. `tasks` tool actions
+
+While `tasks` is active, its system-prompt guidance asks the agent to split broad features into
+independently verifiable child tasks before work, or add children if a leaf grows unexpectedly.
+Finished children can then fold while their parent remains open. Do not impose a fixed task count
+or split trivial steps merely for bookkeeping. Verify that the installed Pi prompt builder includes
+this guidance for the active tool; a replacement system prompt may omit it.
 
 ### 3.1 Summary
 

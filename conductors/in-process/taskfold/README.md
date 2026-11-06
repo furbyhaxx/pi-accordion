@@ -2,6 +2,11 @@
 
 Folds finished task spans into structured task records.
 
+When `tasks` is active, its default system-prompt guidance asks agents to break broad features into
+independently verifiable child tasks. Each child can finish and become eligible for folding while
+its parent remains open. Task size remains a judgment: avoid both large multi-feature leaves and
+bookkeeping-only microtasks. A custom replacement system prompt may omit this default guidance.
+
 The agent tracks its work with the `tasks` tool, which is active only while taskfold is
 attached. A **span** runs from a successful `tasks start <id>` call to the successful `complete`,
 `fail` or `abandon` call for the same task. Lists persist per project in `.pig/tasks/<slug>.json`,
