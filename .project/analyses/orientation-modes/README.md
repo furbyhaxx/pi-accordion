@@ -172,3 +172,65 @@ quality gain, more re-reading and no cost saving. The options stay in this branc
 
 The bigger lever the experiment exposed is folding inside a long open task (old tool results of the
 span) rather than the orientation phase; that is where contexts actually escaped the budget.
+
+## Round 3: Taskfold + Keel rungs (2026-11-05)
+
+Arms: **K** (keel-lite R1–R4 on orientation only), **K+** (R1–R4 everywhere outside finished task
+spans), **K+D** (K+ plus doorman birth skeletons), **K+N** (K+ plus keel-note's note), against **A**.
+Document and rule-file reads (`.md`, `.txt`, …) and finished spans are never touched
+(`conductors/in-process/taskfold/thinning.ts`, options `orientation.thin|note|birthSkeleton`).
+
+### Tier 1 (replay, 6 sessions × 2 cuts, $0.42)
+
+| arm | retention | sent / full |
+|---|---|---|
+| A | 96% | 88% |
+| K | 87% | 68% |
+| K+ / K+D | 88% | 63% |
+| C (round 1) | 70% | 53% |
+
+Losses: values inside function bodies of skeletonized code reads (e.g. a default port), and text
+that only appeared inside long bash dumps. Some "constraint" probes were system-prompt text quoted in
+a 12k bash output, which penalizes any trimming.
+
+### Tier 2 (live, budget 16k, tail 3k, two prompts, 50 runs, $7.58)
+
+| fixture | arm | n | pass | phase 2 | violations | peak ctx | cost/run | cache hit | rereads | recall+unfold | wall |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ratelimit | A | 5 | 5/5 | 5/5 | 0 | 81k | $0.112 (sd 0.031) | 96.5% | 1.2 | 0.0 | 329s |
+| ratelimit | K | 5 | 5/5 | 5/5 | 0 | 77k | $0.130 (sd 0.025) | 94.9% | 3.2 | 0.2 | 389s |
+| ratelimit | K+ | 5 | 5/5 | 5/5 | 0 | 50k | $0.181 (sd 0.080) | 92.3% | 6.8 | 0.2 | 535s |
+| ratelimit | K+D | 5 | 5/5 | 5/5 | 0 | 53k | $0.193 (sd 0.079) | 93.8% | 4.8 | 0.4 | 606s |
+| ratelimit | K+N | 5 | 5/5 | 5/5 | 0 | 44k | $0.163 (sd 0.038) | 89.9% | 3.8 | 0.2 | 480s |
+| invoices | A | 5 | 5/5 | 5/5 | 0 | 96k | $0.129 (sd 0.059) | 96.2% | 2.2 | 0.0 | 354s |
+| invoices | K | 5 | 5/5 | 5/5 | 0 | 95k | $0.155 (sd 0.047) | 94.8% | 1.8 | 0.2 | 544s |
+| invoices | K+ | 5 | 5/5 | 5/5 | 0 | 51k | $0.150 (sd 0.032) | 92.0% | 2.4 | 0.4 | 414s |
+| invoices | K+D | 5 | 5/5 | 5/5 | 0 | 54k | $0.156 (sd 0.074) | 91.8% | 7.0 | 0.4 | 431s |
+| invoices | K+N | 5 | 5/5 | 5/5 | 0 | 46k | $0.148 (sd 0.033) | 89.9% | 4.4 | 0.2 | 345s |
+| all | A | 10 | 10/10 | 10/10 | 0 | 89k | $0.121 (sd 0.048) | 96.4% | 1.7 | 0.0 | 341s |
+| all | K | 10 | 10/10 | 10/10 | 0 | 86k | $0.142 (sd 0.040) | 94.9% | 2.5 | 0.2 | 467s |
+| all | K+ | 10 | 10/10 | 10/10 | 0 | 51k | $0.166 (sd 0.062) | 92.1% | 4.6 | 0.3 | 475s |
+| all | K+D | 10 | 10/10 | 10/10 | 0 | 53k | $0.174 (sd 0.079) | 92.8% | 5.9 | 0.4 | 519s |
+| all | K+N | 10 | 10/10 | 10/10 | 0 | 45k | $0.156 (sd 0.037) | 89.9% | 4.1 | 0.2 | 412s |
+
+Evidence: `evidence/tier2-keel/` (a first wave stopped by a DeepSeek 402 is logged in
+`run-wave1-402.log`; all 50 runs were rerun).
+
+### Verdict
+
+- **Quality is unaffected.** 50/50 pass, every phase-2 requirement found, zero violations.
+- **K (orientation only) changes almost nothing live:** peak context 86k vs 89k. Orientation is not
+  where these sessions grow; open-task work is.
+- **K+/K+D/K+N cut peak context by 40–50%** (89k → 45–53k) and are the first arms that come near the
+  budget at all.
+- **They cost 17–44% more per run.** Every epoch breaks the cache (hit rate 96.4% → 90–93%) and
+  agents re-read thinned results (rereads 1.7 → 4–6) instead of `recall` (≤0.4 per run).
+- **Doorman adds nothing over K+** (slightly more rereads and cost). **Keel-note** gives the lowest
+  peak (45k) at mid cost, but its cache hit is the lowest (89.9%).
+
+**Recommendation:** keep A as the default. Offer `thin: "open"` (with or without `note`) as an
+opt-in **budget guard** for when a hard context limit matters more than cost (small-window models,
+long sessions that would otherwise hit the window). Do not ship `thin: "orientation"` or
+`birthSkeleton`. The cost penalty comes from cache breaks; the next lever is fewer, larger thinning
+epochs (raise `high`, lower `low`) and teaching agents to `recall` instead of re-reading.
+
