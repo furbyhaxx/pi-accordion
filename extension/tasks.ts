@@ -92,6 +92,7 @@ export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const TITLE_MAX = 200;
 const OUTCOME_MAX = 600;
 const ITEM_MAX = 240;
+const BLOCK_DETAIL_MAX = 1024;
 const ITEMS_MAX = 8;
 /** A claim not refreshed for this long may be taken over without `force`. */
 export const CLAIM_STALE_MS = 30 * 60_000;
@@ -482,7 +483,7 @@ export class TaskStore {
 			throw new TaskError(`A block needs "reason": one of ${BLOCK_REASONS.map((r) => `"${r}"`).join(", ")}.`);
 		if (typeof detail !== "string" || !detail.trim()) throw new TaskError('A block needs "detail": what exactly the task waits for, e.g. "the user must choose between Postgres and SQLite".');
 		const text = detail.trim().replace(/\s+/g, " ");
-		if (text.length > ITEM_MAX) throw new TaskError(`"detail" is ${text.length} chars; keep it under ${ITEM_MAX}.`);
+		if (text.length > BLOCK_DETAIL_MAX) throw new TaskError(`"detail" is ${text.length} chars; use at most ${BLOCK_DETAIL_MAX}.`);
 		if (task.status !== "doing") throw new TaskError(`Task ${id} is ${task.status}; only a task in progress can be blocked.`);
 		const inner = list.tasks.filter((t) => t.id !== id && isWithin(t.id, id) && t.status === "doing");
 		if (inner.length) throw new TaskError(`Subtask ${inner.map((t) => t.id).join(", ")} of ${id} is in progress. Block that subtask instead, or end it first.`);

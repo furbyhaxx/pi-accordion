@@ -165,6 +165,17 @@ describe("tasks", () => {
 		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1 "A" is still in progress/);
 	});
 
+	test("block details accept up to 1024 characters and reject longer input without changing state", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Wait" }] });
+		runTasks(s, { action: "start", list: "w", id: "1" });
+		const detail = "x".repeat(1024);
+		expect(() => runTasks(s, { action: "block", list: "w", id: "1", reason: "user-decision", detail: detail + "x" })).toThrow(/1025.*1024/);
+		expect(s.read("w").tasks[0].status).toBe("doing");
+		runTasks(s, { action: "block", list: "w", id: "1", reason: "user-decision", detail });
+		expect(s.read("w").tasks[0].blocks?.[0].detail).toBe(detail);
+	});
+
 	test("a blocked task frees the agent, keeps its reason and resumes with start", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "w", title: "W", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
