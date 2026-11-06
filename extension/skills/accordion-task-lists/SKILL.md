@@ -1,6 +1,6 @@
 ---
 name: "accordion-task-lists"
-description: "Create, edit, or validate Accordion task-list JSON files in .pig/tasks: turn an implementation plan into a nested task tree with a goal and acceptance criteria, or repair an invalid list. Use when a user asks to write a plan directly as tasks JSON or edit an existing task list outside the tasks tool."
+description: "Create, edit, or validate Accordion task-list JSON files in .pig/tasks: turn an implementation plan into a nested task tree of fine-grained, independently foldable subtasks with a goal and acceptance criteria, or repair an invalid list. Use when a user asks to write a plan directly as tasks JSON or edit an existing task list outside the tasks tool."
 ---
 
 # Author an Accordion task list
@@ -10,7 +10,7 @@ Use the `tasks` tool for normal progress and for changes to a running list. Dire
 ## Create a plan
 
 1. Read the source plan and applicable project instructions. Write one `goal`: the end state the whole list delivers, not a list of activities.
-2. Order the tasks by dependency. Split broad features into independently verifiable child outcomes so completed work can fold while its parent remains open. If a leaf grows to include several substantial features, split it; do not create trivial tasks just to reach a count.
+2. Decompose the work before writing JSON; the task tree is how Accordion folds context. A task folds into a short record only when it finishes, so an open task keeps all its raw work in the request, while small finished children fold individually and keep recoverable records. Open with an `Orientation, Analysis, Scope & Objective clarification` task, then split by independently verifiable outcome and nest by scale: two to three levels for a broad feature (area, feature, step), a flat list for a small change. Never put several features in one leaf (`Transcript row: branches, filters, previews, scrolling` becomes `Transcript row` with children `Branches`, `Filters`, `Previews`, `Scrolling`), and do not add levels or tasks only to reach a count. Order by dependency, finishing each child before the next. Read `references/decomposition.md` for the reasoning, a bad and good example, and a checklist.
 3. Give each leaf 1–3 concise, checkable `acceptanceCriteria`. Preserve required verification and unresolved prerequisites. Do not invent a requirement that the source does not support.
 4. Save `.pig/tasks/<slug>.json`. Slugs use lowercase letters, digits and hyphens. The filename and `slug` must match. Omit task IDs when creating the list: the store derives dotted IDs from their positions. The tree may be at most four levels deep.
 5. Validate with Node 22.19 or later, using the script next to this skill:
@@ -45,4 +45,4 @@ Inspect its current structure and claim first. Use `tasks add` with `before` or 
 
 Use `tasks pin` for a durable rule or constraint and `tasks attach` for source material. Give file references as `path:line` or `path:start-end`; use the narrowest relevant range. The tool validates pins and attachments and handles IDs and hashes. List pins apply throughout the list; task pins apply to that task and its descendants. Do not fabricate a quoted constraint or a source location.
 
-For the complete field shapes and limits, read `references/schema.md`. The machine-readable schema is `references/tasks.schema.json`. The validator checks structure, not semantic completeness, file ownership, concurrent edits, or whether a plan is good.
+For the complete field shapes and limits, read `references/schema.md`. For how to size, split and nest tasks, read `references/decomposition.md`. The machine-readable schema is `references/tasks.schema.json`. The validator checks structure, not semantic completeness, file ownership, concurrent edits, or whether a plan is good.
