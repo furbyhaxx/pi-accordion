@@ -101,6 +101,18 @@ describe("taskfold", () => {
 		expect(g!.summary!.startsWith(foldTag(g!.id))).toBe(true);
 	});
 
+	it("re-proposes a task after protected-tail growth prunes its group", async () => {
+		const { s, start } = oneTask();
+		const host = setup(s);
+		await attach(host);
+		expect(groupOf(host, start)).toBeDefined();
+		host.setProtect(host.stats().fullTokens * 2);
+		expect(groupOf(host, start)).toBeUndefined();
+		host.setProtect(200);
+		await host.commitTurn();
+		expect(groupOf(host, start)?.summary).toContain("[task-record] work/1");
+	});
+
 	it("does nothing below HIGH", async () => {
 		const { s, start } = oneTask();
 		const host = setup(s, 2);
