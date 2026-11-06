@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree implementation"
   description: "Slices, progress and acceptance for implementing SPEC-0002 on branch feat/taskfold-tree."
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T19:40:00+01:00"
+  updated_at: "2026-11-06T20:05:27+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "record implementation and evaluation progress"
-      changes: ["update slice status and isolated evaluation prerequisites"]
+    - revision: 5
+      reason: "record floor and attachment measurements"
+      changes: ["mark the comparison complete and retain the floor as opt-in"]
 ---
 
 # Taskfold tree: plan
@@ -42,13 +42,13 @@ worktree `.pi/worktrees/taskfold-tree`, PR into `feat/pi-native`.
 |---|---|---|---|
 | 1 | List file v2, validator, migration, `goal`, `update`/`add before\|after`/`move`, empty-span refusal, `f04f39d` | §2, §3.1–3.3 | done |
 | 2 | Pins, attachments, working set, `tasks.*` settings | §4, §12 | done |
-| 3 | Structured details on blocks, interval planning, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | done; floor ordering remains in slice 9 |
+| 3 | Structured details on blocks, interval planning, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | done |
 | 4 | Cross-group handles in core, recall/unfold of child codes | §7.3 | done; integrated with selective unfold in slice 3 |
 | 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | done |
 | 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | done; folded groups checked live at four widths |
 | 7 | Tool texts: review gate, stop rule, resume note | §3.4 | done |
 | 8 | Skill `accordion-task-lists` and its eval | §11 | skill done; isolated comparison awaits user decision |
-| 9 | Floor (same transaction), measurement, default decision | §9.2, §13 | floor implemented, off pending comparison; isolated runs underway |
+| 9 | Floor (same transaction), measurement, default decision | §9.2, §13 | done; measured floor remains opt-in, inline attachments remain default |
 
 ## Slice 1: list file v2 and store actions
 
@@ -96,16 +96,13 @@ Tests:
 
 ## Remaining verification
 
-- The floor comparison uses frozen revisions, two synthetic fixtures, a verified nested filesystem
-  sandbox, and a credential proxy. A local preflight checked the live Taskfold conductor and
-  16k/3k dials. The first attempt used the wrong config path and must not enter the results.
-- Compare inline and reference attachment rendering with the same seeded specification attachment
-  under the remaining approved budget. Report whether the agent actually used the attachment.
+- The corrected floor and attachment comparisons used frozen revisions and an isolated fixture runner.
+  Results and limitations are in `evidence/floor-comparison/README.md`; every attachment run started
+  the seeded task. The earlier wrong-config attempt is excluded.
 - The initial skill baseline accessed repository files outside its synthetic fixture and sent tool
   results to the provider. It also found the skill, contaminating the comparison. Do not use those
   results; an isolated rerun requires the user's decision.
-- After measurements, choose the floor default from the approved cost/quality rule and rerun the
-  final project and install checks. Product whitespace checks pass; copied branch artifacts retain
-  their original whitespace.
+- Rerun the final project and install checks after recording the decisions. Product whitespace
+  checks pass; copied branch artifacts retain their original whitespace.
 
 When everything is merged: delete this plan with trailers (`Artifact-Deleted: PLAN-0002`).

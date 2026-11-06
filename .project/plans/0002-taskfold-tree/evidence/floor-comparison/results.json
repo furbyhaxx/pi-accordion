@@ -1,0 +1,1758 @@
+{
+  "budget_tokens": 16000,
+  "protected_tail_tokens": 3000,
+  "current_commit": "3aef51e",
+  "baseline_commit": "4827a3b",
+  "floor_default_decision": "off",
+  "attachment_default_decision": "inline",
+  "summary": {
+    "A": {
+      "runs": 10,
+      "valid_processes": 10,
+      "passed_all": 10,
+      "mean_cost": 0.05473837499999999,
+      "mean_peak_input": 40611.3,
+      "max_peak_input": 76641,
+      "budget_exceeding_runs": 10,
+      "cache_read_ratio": 0.9630571002044576,
+      "tool_errors": 43,
+      "recalls": 1
+    },
+    "K+": {
+      "runs": 10,
+      "valid_processes": 10,
+      "passed_all": 8,
+      "mean_cost": 0.0448274778,
+      "mean_peak_input": 20493.0,
+      "max_peak_input": 33182,
+      "budget_exceeding_runs": 9,
+      "cache_read_ratio": 0.8843057650336734,
+      "tool_errors": 49,
+      "recalls": 3
+    },
+    "T": {
+      "runs": 10,
+      "valid_processes": 10,
+      "passed_all": 9,
+      "mean_cost": 0.035509104,
+      "mean_peak_input": 29051.7,
+      "max_peak_input": 36982,
+      "budget_exceeding_runs": 10,
+      "cache_read_ratio": 0.940350729576418,
+      "tool_errors": 45,
+      "recalls": 0
+    },
+    "TF": {
+      "runs": 10,
+      "valid_processes": 10,
+      "passed_all": 9,
+      "mean_cost": 0.039779413199999995,
+      "mean_peak_input": 13380.8,
+      "max_peak_input": 14206,
+      "budget_exceeding_runs": 0,
+      "cache_read_ratio": 0.8238910731438744,
+      "tool_errors": 25,
+      "recalls": 12
+    },
+    "TF-inline": {
+      "runs": 8,
+      "valid_processes": 8,
+      "passed_all": 8,
+      "mean_cost": 0.0377671845,
+      "mean_peak_input": 15070.5,
+      "max_peak_input": 20079,
+      "budget_exceeding_runs": 2,
+      "cache_read_ratio": 0.8185500769851266,
+      "tool_errors": 5,
+      "recalls": 3,
+      "attached_task_started": 8,
+      "spec_command_mentions": 98
+    },
+    "TF-ref": {
+      "runs": 8,
+      "valid_processes": 8,
+      "passed_all": 4,
+      "mean_cost": 0.040642041,
+      "mean_peak_input": 15399.625,
+      "max_peak_input": 25190,
+      "budget_exceeding_runs": 2,
+      "cache_read_ratio": 0.8405383256995969,
+      "tool_errors": 16,
+      "recalls": 3,
+      "attached_task_started": 8,
+      "spec_command_mentions": 111
+    }
+  },
+  "runs": [
+    {
+      "id": "invoices-A-1",
+      "fixture": "invoices",
+      "arm": "A",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 86,
+      "calls": 36,
+      "input": 55776,
+      "cache_read": 703487,
+      "output": 9863,
+      "cost": 0.032789321999999996,
+      "max_input": 27265,
+      "tools": {
+        "bash": 28,
+        "tasks": 14
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-A-2",
+      "fixture": "invoices",
+      "arm": "A",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 141,
+      "calls": 53,
+      "input": 45832,
+      "cache_read": 1246975,
+      "output": 17118,
+      "cost": 0.04177304999999999,
+      "max_input": 36091,
+      "tools": {
+        "bash": 47,
+        "tasks": 9
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-A-3",
+      "fixture": "invoices",
+      "arm": "A",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 113,
+      "calls": 55,
+      "input": 53531,
+      "cache_read": 1277695,
+      "output": 12311,
+      "cost": 0.03849866999999999,
+      "max_input": 35878,
+      "tools": {
+        "bash": 36,
+        "tasks": 26
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 7,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-A-4",
+      "fixture": "invoices",
+      "arm": "A",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 106,
+      "calls": 41,
+      "input": 57089,
+      "cache_read": 852863,
+      "output": 13619,
+      "cost": 0.038586678,
+      "max_input": 31660,
+      "tools": {
+        "bash": 27,
+        "tasks": 25
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 6,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-A-5",
+      "fixture": "invoices",
+      "arm": "A",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 156,
+      "calls": 70,
+      "input": 76444,
+      "cache_read": 1879551,
+      "output": 17306,
+      "cost": 0.054977706,
+      "max_input": 38303,
+      "tools": {
+        "bash": 59,
+        "tasks": 16
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 5,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-K+-1",
+      "fixture": "invoices",
+      "arm": "K+",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 85,
+      "calls": 33,
+      "input": 62175,
+      "cache_read": 483327,
+      "output": 11122,
+      "cost": 0.03489886200000001,
+      "max_input": 20425,
+      "tools": {
+        "bash": 25,
+        "unfold": 1,
+        "tasks": 13,
+        "recall": 1
+      },
+      "recall": 1,
+      "unfold": 1,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-K+-2",
+      "fixture": "invoices",
+      "arm": "K+",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 92,
+      "calls": 44,
+      "input": 64316,
+      "cache_read": 462463,
+      "output": 10527,
+      "cost": 0.034701978,
+      "max_input": 16623,
+      "tools": {
+        "bash": 28,
+        "tasks": 17
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 3,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-K+-3",
+      "fixture": "invoices",
+      "arm": "K+",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 57,
+      "calls": 28,
+      "input": 43476,
+      "cache_read": 259583,
+      "output": 6863,
+      "cost": 0.022835898,
+      "max_input": 13898,
+      "tools": {
+        "bash": 19,
+        "tasks": 19
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-K+-4",
+      "fixture": "invoices",
+      "arm": "K+",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 122,
+      "calls": 58,
+      "input": 97199,
+      "cache_read": 613503,
+      "output": 13525,
+      "cost": 0.049070717999999985,
+      "max_input": 17589,
+      "tools": {
+        "bash": 37,
+        "tasks": 31
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-K+-5",
+      "fixture": "invoices",
+      "arm": "K+",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 42,
+      "calls": 17,
+      "input": 36329,
+      "cache_read": 235135,
+      "output": 5181,
+      "cost": 0.01852671,
+      "max_input": 22055,
+      "tools": {
+        "bash": 17,
+        "recall": 2
+      },
+      "recall": 2,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-T-1",
+      "fixture": "invoices",
+      "arm": "T",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 120,
+      "calls": 49,
+      "input": 59494,
+      "cache_read": 1140480,
+      "output": 14580,
+      "cost": 0.04218707999999999,
+      "max_input": 32186,
+      "tools": {
+        "bash": 38,
+        "tasks": 17
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-T-2",
+      "fixture": "invoices",
+      "arm": "T",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 107,
+      "calls": 46,
+      "input": 59867,
+      "cache_read": 989184,
+      "output": 12564,
+      "cost": 0.038972004,
+      "max_input": 29103,
+      "tools": {
+        "bash": 35,
+        "tasks": 16
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 6,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-T-3",
+      "fixture": "invoices",
+      "arm": "T",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 61,
+      "calls": 24,
+      "input": 36615,
+      "cache_read": 446464,
+      "output": 7975,
+      "cost": 0.023233284000000003,
+      "max_input": 25262,
+      "tools": {
+        "bash": 17,
+        "tasks": 11
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-T-4",
+      "fixture": "invoices",
+      "arm": "T",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 80,
+      "calls": 34,
+      "input": 36022,
+      "cache_read": 611840,
+      "output": 9594,
+      "cost": 0.025990440000000004,
+      "max_input": 24579,
+      "tools": {
+        "bash": 27,
+        "tasks": 8
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-T-5",
+      "fixture": "invoices",
+      "arm": "T",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 85,
+      "calls": 35,
+      "input": 55191,
+      "cache_read": 645888,
+      "output": 11519,
+      "cost": 0.034255428,
+      "max_input": 24869,
+      "tools": {
+        "bash": 24,
+        "tasks": 15
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 6,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-TF-1",
+      "fixture": "invoices",
+      "arm": "TF",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 105,
+      "calls": 49,
+      "input": 88235,
+      "cache_read": 439296,
+      "output": 12017,
+      "cost": 0.04352667599999999,
+      "max_input": 12929,
+      "tools": {
+        "bash": 42,
+        "recall": 2,
+        "tasks": 16
+      },
+      "recall": 2,
+      "unfold": 0,
+      "tool_errors": 3,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-TF-2",
+      "fixture": "invoices",
+      "arm": "TF",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 59,
+      "calls": 26,
+      "input": 66867,
+      "cache_read": 203392,
+      "output": 7585,
+      "cost": 0.030382452,
+      "max_input": 12899,
+      "tools": {
+        "bash": 23,
+        "recall": 4
+      },
+      "recall": 4,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-TF-3",
+      "fixture": "invoices",
+      "arm": "TF",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 127,
+      "calls": 63,
+      "input": 111095,
+      "cache_read": 598656,
+      "output": 13005,
+      "cost": 0.05252643599999999,
+      "max_input": 12834,
+      "tools": {
+        "bash": 56,
+        "tasks": 14
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 6,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-TF-4",
+      "fixture": "invoices",
+      "arm": "TF",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 67,
+      "calls": 30,
+      "input": 88818,
+      "cache_read": 232064,
+      "output": 8317,
+      "cost": 0.038018184000000003,
+      "max_input": 14039,
+      "tools": {
+        "bash": 28,
+        "recall": 2,
+        "tasks": 10
+      },
+      "recall": 2,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-TF-5",
+      "fixture": "invoices",
+      "arm": "TF",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 121,
+      "calls": 58,
+      "input": 104091,
+      "cache_read": 552320,
+      "output": 13684,
+      "cost": 0.05096202,
+      "max_input": 13719,
+      "tools": {
+        "bash": 41,
+        "tasks": 24
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "invoices-TF-inline-1",
+      "fixture": "invoices",
+      "arm": "TF-inline",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 116,
+      "calls": 57,
+      "input": 120062,
+      "cache_read": 599424,
+      "output": 12223,
+      "cost": 0.054282744,
+      "max_input": 19870,
+      "tools": {
+        "bash": 52,
+        "tasks": 7,
+        "recall": 1
+      },
+      "recall": 1,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 17
+    },
+    {
+      "id": "invoices-TF-inline-2",
+      "fixture": "invoices",
+      "arm": "TF-inline",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 70,
+      "calls": 33,
+      "input": 59711,
+      "cache_read": 303232,
+      "output": 8283,
+      "cost": 0.029672292000000003,
+      "max_input": 12731,
+      "tools": {
+        "bash": 31,
+        "tasks": 4
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 10
+    },
+    {
+      "id": "invoices-TF-inline-3",
+      "fixture": "invoices",
+      "arm": "TF-inline",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 58,
+      "calls": 24,
+      "input": 53480,
+      "cache_read": 210432,
+      "output": 6842,
+      "cost": 0.025516992000000002,
+      "max_input": 12827,
+      "tools": {
+        "bash": 22,
+        "tasks": 5
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 6
+    },
+    {
+      "id": "invoices-TF-inline-4",
+      "fixture": "invoices",
+      "arm": "TF-inline",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 78,
+      "calls": 37,
+      "input": 73192,
+      "cache_read": 328192,
+      "output": 8103,
+      "cost": 0.033650351999999994,
+      "max_input": 12979,
+      "tools": {
+        "bash": 32,
+        "tasks": 7
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 16
+    },
+    {
+      "id": "invoices-TF-ref-1",
+      "fixture": "invoices",
+      "arm": "TF-ref",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 49,
+      "calls": 22,
+      "input": 55670,
+      "cache_read": 258944,
+      "output": 5365,
+      "cost": 0.024692664,
+      "max_input": 25190,
+      "tools": {
+        "bash": 12,
+        "tasks": 12,
+        "recall": 3
+      },
+      "recall": 3,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 3
+    },
+    {
+      "id": "invoices-TF-ref-2",
+      "fixture": "invoices",
+      "arm": "TF-ref",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 109,
+      "calls": 52,
+      "input": 97218,
+      "cache_read": 463872,
+      "output": 12366,
+      "cost": 0.04678783199999998,
+      "max_input": 14132,
+      "tools": {
+        "bash": 41,
+        "tasks": 13
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 5,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {
+          "no_float_money": [
+            "rates.py:4 8.1"
+          ]
+        }
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 20
+    },
+    {
+      "id": "invoices-TF-ref-3",
+      "fixture": "invoices",
+      "arm": "TF-ref",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 79,
+      "calls": 35,
+      "input": 79126,
+      "cache_read": 299520,
+      "output": 9525,
+      "cost": 0.03696491999999999,
+      "max_input": 13460,
+      "tools": {
+        "bash": 31,
+        "tasks": 4
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 12
+    },
+    {
+      "id": "invoices-TF-ref-4",
+      "fixture": "invoices",
+      "arm": "TF-ref",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 115,
+      "calls": 54,
+      "input": 84682,
+      "cache_read": 531200,
+      "output": 12358,
+      "cost": 0.043421400000000006,
+      "max_input": 13495,
+      "tools": {
+        "tasks": 7,
+        "bash": 48
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 3,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 23
+    },
+    {
+      "id": "ratelimit-A-1",
+      "fixture": "ratelimit",
+      "arm": "A",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 82,
+      "calls": 28,
+      "input": 54711,
+      "cache_read": 663296,
+      "output": 11317,
+      "cost": 0.033973475999999996,
+      "max_input": 32938,
+      "tools": {
+        "bash": 22,
+        "tasks": 12
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-A-2",
+      "fixture": "ratelimit",
+      "arm": "A",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 103,
+      "calls": 37,
+      "input": 60433,
+      "cache_read": 833024,
+      "output": 13687,
+      "cost": 0.03955244399999999,
+      "max_input": 35126,
+      "tools": {
+        "bash": 24,
+        "tasks": 21,
+        "recall": 1
+      },
+      "recall": 1,
+      "unfold": 0,
+      "tool_errors": 3,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-A-3",
+      "fixture": "ratelimit",
+      "arm": "A",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 360,
+      "calls": 146,
+      "input": 171222,
+      "cache_read": 6697600,
+      "output": 37520,
+      "cost": 0.1365762,
+      "max_input": 76641,
+      "tools": {
+        "bash": 121,
+        "tasks": 40
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 6,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-A-4",
+      "fixture": "ratelimit",
+      "arm": "A",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 198,
+      "calls": 81,
+      "input": 80247,
+      "cache_read": 2505472,
+      "output": 23400,
+      "cost": 0.06718693200000002,
+      "max_input": 45841,
+      "tools": {
+        "bash": 69,
+        "tasks": 17
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 7,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-A-5",
+      "fixture": "ratelimit",
+      "arm": "A",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 182,
+      "calls": 78,
+      "input": 81522,
+      "cache_read": 2547712,
+      "output": 19772,
+      "cost": 0.06346927199999997,
+      "max_input": 46370,
+      "tools": {
+        "bash": 55,
+        "tasks": 35
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-K+-1",
+      "fixture": "ratelimit",
+      "arm": "K+",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 152,
+      "calls": 74,
+      "input": 130746,
+      "cache_read": 972672,
+      "output": 17209,
+      "cost": 0.065710632,
+      "max_input": 21351,
+      "tools": {
+        "bash": 48,
+        "tasks": 43
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 10,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-K+-2",
+      "fixture": "ratelimit",
+      "arm": "K+",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 208,
+      "calls": 89,
+      "input": 160001,
+      "cache_read": 1524096,
+      "output": 23514,
+      "cost": 0.08536167600000003,
+      "max_input": 33182,
+      "tools": {
+        "bash": 78,
+        "tasks": 29
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 9,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-K+-3",
+      "fixture": "ratelimit",
+      "arm": "K+",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 174,
+      "calls": 79,
+      "input": 117874,
+      "cache_read": 1151232,
+      "output": 19891,
+      "cost": 0.06613879199999997,
+      "max_input": 24781,
+      "tools": {
+        "bash": 59,
+        "tasks": 39
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 14,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-K+-4",
+      "fixture": "ratelimit",
+      "arm": "K+",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 93,
+      "calls": 41,
+      "input": 65241,
+      "cache_read": 379136,
+      "output": 11519,
+      "cost": 0.035669916,
+      "max_input": 16525,
+      "tools": {
+        "bash": 25,
+        "tasks": 14
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-K+-5",
+      "fixture": "ratelimit",
+      "arm": "K+",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 84,
+      "calls": 37,
+      "input": 69269,
+      "cache_read": 390016,
+      "output": 10199,
+      "cost": 0.035359596,
+      "max_input": 18501,
+      "tools": {
+        "bash": 30,
+        "tasks": 20
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-T-1",
+      "fixture": "ratelimit",
+      "arm": "T",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 96,
+      "calls": 43,
+      "input": 64774,
+      "cache_read": 912384,
+      "output": 10674,
+      "cost": 0.03771530400000001,
+      "max_input": 26540,
+      "tools": {
+        "bash": 23,
+        "tasks": 28
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 13,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-T-2",
+      "fixture": "ratelimit",
+      "arm": "T",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 122,
+      "calls": 49,
+      "input": 75650,
+      "cache_read": 1066112,
+      "output": 15597,
+      "cost": 0.047808071999999986,
+      "max_input": 31966,
+      "tools": {
+        "bash": 38,
+        "tasks": 19
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 5,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-T-3",
+      "fixture": "ratelimit",
+      "arm": "T",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 103,
+      "calls": 42,
+      "input": 62486,
+      "cache_read": 1177088,
+      "output": 12437,
+      "cost": 0.040732727999999996,
+      "max_input": 36982,
+      "tools": {
+        "bash": 30,
+        "tasks": 19
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-T-4",
+      "fixture": "ratelimit",
+      "arm": "T",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 87,
+      "calls": 33,
+      "input": 41651,
+      "cache_read": 603520,
+      "output": 11243,
+      "cost": 0.029608020000000002,
+      "max_input": 24959,
+      "tools": {
+        "bash": 22,
+        "tasks": 15
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-T-5",
+      "fixture": "ratelimit",
+      "arm": "T",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 95,
+      "calls": 39,
+      "input": 52698,
+      "cache_read": 990080,
+      "output": 10699,
+      "cost": 0.03458867999999999,
+      "max_input": 34071,
+      "tools": {
+        "bash": 21,
+        "tasks": 18
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-TF-1",
+      "fixture": "ratelimit",
+      "arm": "TF",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 97,
+      "calls": 41,
+      "input": 91658,
+      "cache_read": 339968,
+      "output": 11617,
+      "cost": 0.04347760799999998,
+      "max_input": 14206,
+      "tools": {
+        "bash": 31,
+        "recall": 3,
+        "tasks": 12
+      },
+      "recall": 3,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-TF-2",
+      "fixture": "ratelimit",
+      "arm": "TF",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 97,
+      "calls": 43,
+      "input": 78220,
+      "cache_read": 407808,
+      "output": 11946,
+      "cost": 0.040248048,
+      "max_input": 13445,
+      "tools": {
+        "bash": 38,
+        "tasks": 12
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 2,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-TF-3",
+      "fixture": "ratelimit",
+      "arm": "TF",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 67,
+      "calls": 33,
+      "input": 40233,
+      "cache_read": 294656,
+      "output": 7441,
+      "cost": 0.022767036,
+      "max_input": 12618,
+      "tools": {
+        "bash": 26,
+        "tasks": 10
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-TF-4",
+      "fixture": "ratelimit",
+      "arm": "TF",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 70,
+      "calls": 33,
+      "input": 62222,
+      "cache_read": 288000,
+      "output": 8591,
+      "cost": 0.0307038,
+      "max_input": 13270,
+      "tools": {
+        "bash": 23,
+        "tasks": 14
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-TF-5",
+      "fixture": "ratelimit",
+      "arm": "TF",
+      "rep": 5,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 110,
+      "calls": 54,
+      "input": 94132,
+      "cache_read": 506112,
+      "output": 11588,
+      "cost": 0.04518187200000001,
+      "max_input": 13849,
+      "tools": {
+        "bash": 52,
+        "tasks": 15,
+        "recall": 1
+      },
+      "recall": 1,
+      "unfold": 0,
+      "tool_errors": 4,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      }
+    },
+    {
+      "id": "ratelimit-TF-inline-1",
+      "fixture": "ratelimit",
+      "arm": "TF-inline",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 78,
+      "calls": 34,
+      "input": 82580,
+      "cache_read": 281344,
+      "output": 9554,
+      "cost": 0.037926864000000005,
+      "max_input": 13819,
+      "tools": {
+        "bash": 35,
+        "tasks": 6
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 14
+    },
+    {
+      "id": "ratelimit-TF-inline-2",
+      "fixture": "ratelimit",
+      "arm": "TF-inline",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 62,
+      "calls": 27,
+      "input": 45255,
+      "cache_read": 214144,
+      "output": 8072,
+      "cost": 0.024547764,
+      "max_input": 15124,
+      "tools": {
+        "bash": 22,
+        "tasks": 8
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 7
+    },
+    {
+      "id": "ratelimit-TF-inline-3",
+      "fixture": "ratelimit",
+      "arm": "TF-inline",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 70,
+      "calls": 29,
+      "input": 77346,
+      "cache_read": 233728,
+      "output": 8990,
+      "cost": 0.035394168,
+      "max_input": 13135,
+      "tools": {
+        "bash": 26,
+        "tasks": 4
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 10
+    },
+    {
+      "id": "ratelimit-TF-inline-4",
+      "fixture": "ratelimit",
+      "arm": "TF-inline",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 139,
+      "calls": 63,
+      "input": 126989,
+      "cache_read": 710400,
+      "output": 15656,
+      "cost": 0.0611463,
+      "max_input": 20079,
+      "tools": {
+        "bash": 57,
+        "tasks": 7,
+        "recall": 2
+      },
+      "recall": 2,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 18
+    },
+    {
+      "id": "ratelimit-TF-ref-1",
+      "fixture": "ratelimit",
+      "arm": "TF-ref",
+      "rep": 1,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 76,
+      "calls": 32,
+      "input": 61610,
+      "cache_read": 285184,
+      "output": 9161,
+      "cost": 0.031187303999999992,
+      "max_input": 12873,
+      "tools": {
+        "bash": 28,
+        "tasks": 7
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 6
+    },
+    {
+      "id": "ratelimit-TF-ref-2",
+      "fixture": "ratelimit",
+      "arm": "TF-ref",
+      "rep": 2,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 90,
+      "calls": 43,
+      "input": 82772,
+      "cache_read": 391552,
+      "output": 10158,
+      "cost": 0.039370512,
+      "max_input": 13880,
+      "tools": {
+        "bash": 39,
+        "tasks": 4
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 1,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 12
+    },
+    {
+      "id": "ratelimit-TF-ref-3",
+      "fixture": "ratelimit",
+      "arm": "TF-ref",
+      "rep": 3,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 179,
+      "calls": 88,
+      "input": 146766,
+      "cache_read": 903680,
+      "output": 17989,
+      "cost": 0.07103867999999998,
+      "max_input": 17298,
+      "tools": {
+        "bash": 78,
+        "tasks": 13
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 5,
+      "grade": {
+        "exit": 1,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 22
+    },
+    {
+      "id": "ratelimit-TF-ref-4",
+      "fixture": "ratelimit",
+      "arm": "TF-ref",
+      "rep": 4,
+      "statuses": [
+        0,
+        0
+      ],
+      "wall_s": 89,
+      "calls": 40,
+      "input": 58030,
+      "cache_read": 375936,
+      "output": 10007,
+      "cost": 0.031673016,
+      "max_input": 12869,
+      "tools": {
+        "bash": 34,
+        "tasks": 7
+      },
+      "recall": 0,
+      "unfold": 0,
+      "tool_errors": 0,
+      "grade": {
+        "exit": 0,
+        "constraints_exit": 0,
+        "violations": {}
+      },
+      "attached_task_started": true,
+      "spec_command_mentions": 13
+    }
+  ]
+}

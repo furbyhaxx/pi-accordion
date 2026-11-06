@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 9
+  revision: 10
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T19:16:47+01:00"
+  updated_at: "2026-11-06T20:05:27+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 9
-      reason: "keep task pins through compaction"
-      changes: ["§8 retain verbatim task-scoped pins during condensation and aging"]
+    - revision: 10
+      reason: "record isolated floor and attachment measurements"
+      changes: ["§9.2 keep the floor opt-in", "§13 reference the measured comparison"]
 ---
 
 # Taskfold tree
@@ -412,8 +412,10 @@ waived when step 2 still leaves the projection above `low · budget`.
   appends them to its epoch's op list, so there is one `propose` and one cache break.
 - Scope: open spans first (oldest block first), then untracked runs.
 - `unit` savings count members at their current cost (`foldedTokens` when folded).
-- `taskfold.floor`: `true`/`false`. **The default is decided by the measurement** (plan slice 9):
-  on if TF holds the budget at no more than +10% cost per run over A, otherwise off.
+- `taskfold.floor`: `true`/`false`, default `false`. The unseeded TF sample stayed within 16k,
+  but 2/8 inline-attachment runs exceeded it; TF also cost about 12% more than directly comparable T.
+  The floor is an opt-in guard, not a hard budget guarantee. Evidence: `PLAN-0002`'s
+  `evidence/floor-comparison/README.md`.
 
 ### 9.3 Untracked records
 
@@ -517,4 +519,4 @@ applies. `low < high`, aging thresholds strictly increasing.
 | Regression scripts (synthetic, no private sessions) | Each must stay ≤ `low·budget` or end saturated with only unfoldable blocks, and every fold and handle code must round-trip through `recall`: blocked task with sibling work (S2 1.3.4); giant open leaf; prelude before the list; three-level tree folded in two epochs; tail-pruned group re-proposed |
 | Widget | `bun test extension/tui/*.test.ts`, plus a real terminal at 36/57/80/140 |
 | Gates | `npm --prefix extension run smoke`, `npm --prefix app run check`, `npm --prefix app test` |
-| Measurement | Tier-2 harness from `exp/orientation-modes` (ratelimit + invoices, budget 16k, tail 3k, two prompts, deepseek-flash), 4 runs per arm per fixture. Arms: A (taskfold today), T (tree, floor off), TF (tree + floor), TF-ref (TF with `render: "reference"`). Budget $4–6. Metrics: pass, violations, peak context, budget breaches, cost per run, cache hit, re-reads, recalls |
+| Measurement | Isolated synthetic fixture comparison: five runs per fixture for A, K+, T and TF; four for TF-inline and TF-ref. Includes pass/constraint results, peak context, estimated cost and cache reads. See `PLAN-0002`'s `evidence/floor-comparison/README.md` for results and limitations. |

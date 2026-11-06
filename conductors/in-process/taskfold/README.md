@@ -26,6 +26,11 @@ Finished children can fold while their parent is open. When the parent finishes,
 absorbed into the parent's record with their full reports and independent recall handles. A blocked
 task's separate working intervals do not include unrelated work performed while it was paused.
 
+Set `taskfold.floor` to `true` in `~/.accordion/config.json` to also apply recoverable per-block
+folding to older work in open tasks and untracked spans. The floor is off by default. It is a
+best-effort guard, not a hard budget guarantee: protected or otherwise ineligible content can keep
+the request above budget.
+
 ## The record
 
 ```
