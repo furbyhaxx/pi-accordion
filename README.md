@@ -182,6 +182,10 @@ current one when it gets long:
 session. `/accordion tasks lists` browses the project's task lists to attach, release or start one, and
 opens any task's details, its span and its folds, including why each user message was kept or folded.
 `/accordion tasks tree` shows the whole session by task, with work done outside any task flagged.
+`/accordion tasks dump-transcript` writes the projection the agent actually holds to a file — the tree
+by default, or YAML, XML, Markdown or the flat wire order by extension or `--format`, with `--formats
+all` writing every one. Folded tasks appear as the record that replaced them and name how many messages
+they took off the wire.
 When you resume a session that used a list, Accordion offers it back (or tells you which session
 holds it now) and tells the agent on your next prompt if its list changed or was replaced. Defaults live under `taskWidget` in `~/.accordion/config.json`:
 `{ "mode": "auto" | "off", "expanded": false, "maxRows": 12, "toggleKey": "alt+t" }`.

@@ -36,7 +36,8 @@ and Settings), `/accordion compact` to run an immediate compression pass, `/acco
 collapse the taskfold task list above the editor (also `alt+t`), `/accordion tasks lists` to browse
 and attach the project's task lists (tasks show as ☐ todo, ▶/◐ in progress, ⧗ blocked with its
 reason, ▣ done, ☒ failed, ⊘ abandoned) and drill into a task's details and folds, `/accordion tasks tree`
-to see this session's transcript by task, `/accordion budget 200k` / `/accordion tail 20k` to set the
+to see this session's transcript by task, `/accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]`
+to write that projection to a file, `/accordion budget 200k` / `/accordion tail 20k` to set the
 budget and protected tail (remembered per model; `--default` or `ctrl+s` in the panel saves them under
 `modelDefaults`), or `/accordion sessions` to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible

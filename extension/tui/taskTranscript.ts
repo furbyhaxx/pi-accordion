@@ -15,11 +15,14 @@ export interface TBlock {
 	text: string;
 	full: number;
 	live: number;
+	turn?: number;
 	toolName?: string;
 	callId?: string;
 	isError?: boolean;
 	/** Folded on its own (not through a group). */
 	folded?: boolean;
+	/** What such a block rides as: its digest, the only text the agent holds for it. */
+	digest?: string;
 	pinned?: boolean;
 	/** Inside the protected working tail. */
 	protected?: boolean;
@@ -64,12 +67,13 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 			id: b.id,
 			kind: b.kind,
 			text: b.text,
+			turn: b.turn,
 			full: truth.calBlockTokens(b, b.tokens),
 			live: truth.calBlockTokens(b, truth.effTokens(b)),
 			...(b.toolName ? { toolName: b.toolName } : {}),
 			...(b.callId ? { callId: b.callId } : {}),
 			...(b.isError ? { isError: true } : {}),
-			...(truth.isFolded(b) && !truth.groupOf(b)?.folded ? { folded: true } : {}),
+			...(truth.isFolded(b) && !truth.groupOf(b)?.folded ? { folded: true, digest: truth.digestOf(b) } : {}),
 			...(b.override === "pinned" ? { pinned: true } : {}),
 			...(truth.isProtected(b) ? { protected: true } : {}),
 		})),

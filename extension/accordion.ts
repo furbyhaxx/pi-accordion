@@ -59,6 +59,8 @@ import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./t
 import { IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
+import { transcriptSource } from "./tui/taskTranscript";
+import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
@@ -3539,6 +3541,90 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		};
 	}
 
+	/**
+	 * `/accordion tasks dump-transcript` — write this session's outgoing projection to disk.
+	 *
+	 * The projection is what the next `context` hook sends the model: every block in order, with
+	 * folded spans standing in as their records. `transcriptDump.ts` renders one document in five
+	 * formats from a single snapshot, so several files written at once always agree. The tree is the
+	 * default; a file's extension picks the format, and `--format`/`--formats` overrides both.
+	 */
+	async function dumpTranscript(args: string, ctx: ExtensionCommandContext): Promise<void> {
+		const words = args.trim().split(/\s+/).filter(Boolean);
+		let spec: string | null = null;
+		let target: string | null = null;
+		const usage = "Usage: /accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]";
+		for (let i = 0; i < words.length; i++) {
+			const flag = /^--(formats?)(?:=(.+))?$/.exec(words[i]);
+			if (flag) {
+				const value = flag[2] ?? words[++i];
+				if (!value || value.startsWith("--")) {
+					ctx.ui.notify(`--${flag[1]} needs a value: ${DUMP_FORMATS.join(", ")} or all.`, "warning");
+					return;
+				}
+				spec = value;
+				continue;
+			}
+			if (words[i].startsWith("--")) {
+				ctx.ui.notify(`Unknown option ${words[i]}. ${usage}`, "warning");
+				return;
+			}
+			if (target !== null) {
+				ctx.ui.notify(`Give at most one file name. ${usage}`, "warning");
+				return;
+			}
+			target = words[i];
+		}
+		if (!truth) {
+			ctx.ui.notify("No session context yet — nothing to dump.", "warning");
+			return;
+		}
+		let formats: DumpFormat[];
+		if (spec !== null) {
+			const parsed = parseFormatSpec(spec);
+			if ("error" in parsed) {
+				ctx.ui.notify(parsed.error, "warning");
+				return;
+			}
+			formats = parsed.formats;
+		} else formats = [target ? (formatOfPath(target) ?? "tree") : "tree"];
+
+		const cwd = path.resolve(ctx.cwd);
+		const at = new Date();
+		// One name per format: an explicit single format keeps the caller's path verbatim, several
+		// formats share its stem, and with no path each gets the session-stamped default name.
+		const files = formats.map((format) =>
+			target === null
+				? path.join(cwd, dumpFileName(sessionId, format, at))
+				: path.resolve(cwd, formats.length > 1 ? withExtension(target, format) : target),
+		);
+		const stats = truth.stats();
+		const doc = dumpDocument({
+			source: transcriptSource(truth, () => undefined, null),
+			meta: { sessionId, model: meta.model || model || "unknown-model" },
+			system: truth.systemPrompt ? { tokens: truth.systemPrompt.tokens } : null,
+			totals: { full: stats.fullTokens, live: stats.liveTokens, budget: stats.budget },
+			generatedAt: at,
+		});
+		const written: string[] = [];
+		const failures: string[] = [];
+		formats.forEach((format, i) => {
+			const file = files[i];
+			try {
+				fs.mkdirSync(path.dirname(file), { recursive: true });
+				fs.writeFileSync(file, `${renderDump(doc, format)}\n`);
+				written.push(path.relative(cwd, file) || file);
+			} catch (error) {
+				failures.push(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		});
+		if (failures.length) ctx.ui.notify(`Could not write ${failures.join("; ")}`, "error");
+		if (written.length) {
+			const kinds = formats.length === 1 ? formats[0] : `${formats.length} formats`;
+			ctx.ui.notify(`Wrote ${written.join(", ")} (${kinds} · ${doc.totals.live} tok live, ${doc.totals.full} tok full)`, "info");
+		}
+	}
+
 	/** Run `body` with a claimed surface; the surface is released from this extension afterwards. */
 	async function withTaskViews(ctx: ExtensionCommandContext, body: (host: TaskViewsHost) => Promise<void>): Promise<void> {
 		const openedSessionId = sessionId;
@@ -3565,6 +3651,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "tail ", label: "tail", description: "Set the protected tail for this session, e.g. 20k (--default saves it for this model)" },
 				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release, start one, or drill into tasks and their folds" },
 				{ value: "tasks tree", label: "tasks tree", description: "This session's transcript by task: spans, folds, kept user messages, untracked work" },
+				{ value: "tasks dump-transcript ", label: "tasks dump-transcript", description: "Write the outgoing projection to a file: [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]" },
 				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
 			return items.length ? items : null;
@@ -3608,6 +3695,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				ctx.ui.notify(asDefault ? `${saveDialDefault(kind, value)}; this session uses ${formatTokens(set)}${clamped}.` : `${name} ${formatTokens(set)} for this session${clamped}.`, "info");
 				return;
 			}
+			const tasksDump = /^tasks\s+dump-transcript\b(.*)$/.exec(argument);
+			if (tasksDump) {
+				await dumpTranscript(tasksDump[1], ctx);
+				return;
+			}
 			const tasksArg = /^tasks(?:\s+(\S+))?$/.exec(argument);
 			if (tasksArg) {
 				const verb = tasksArg[1] ?? "toggle";
@@ -3633,7 +3725,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				else if (verb === "collapse") taskWidget.setExpanded(false);
 				else if (verb === "hide") taskWidget.hide();
 				else {
-					ctx.ui.notify("Usage: /accordion tasks [lists | tree | expand | collapse | hide | show]", "warning");
+					ctx.ui.notify("Usage: /accordion tasks [lists | tree | dump-transcript | expand | collapse | hide | show]", "warning");
 					return;
 				}
 				taskWidget.reload();
