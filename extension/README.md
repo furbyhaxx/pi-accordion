@@ -144,9 +144,8 @@ menu, or leave it on "None" for fully manual steering. `compaction-naive`, `hand
 `doorman`, `keel-lite`, `keel-note`, and `taskfold` run right inside this extension, no extra setup. Two more, `thermocline`
 (attention-gated compression under a hard budget invariant) and `triptych` (pressure-gated
 thirds with tree-sitter code skeletons), each run as their own out-of-process Node program.
-Their runners ship with the full [GitHub repo](https://github.com/a-Fig/Accordion) and not
-with this npm package, so they only show up in the picker when Accordion is running from a
-repo checkout (e.g. the desktop app build) rather than a bare `pi install`. Picking a
+The root Git-installable package includes their runners; availability also depends on their runtime
+dependencies. The separately bundled extension package may omit them. Picking a
 conductor that takes over any steering control shows you a consent screen first — cancel or
 detach anytime and your own edits are preserved.
 
