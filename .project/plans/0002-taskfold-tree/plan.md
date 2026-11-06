@@ -40,9 +40,9 @@ worktree `.pi/worktrees/taskfold-tree`, PR into `feat/pi-native`.
 
 | # | Slice | Spec | Status |
 |---|---|---|---|
-| 1 | List file v2, validator, migration, `goal`, `update`/`add before\|after`/`move`, empty-span refusal, `f04f39d` | §2, §3.1–3.3 | now |
-| 2 | Pins, attachments, working set, `tasks.*` settings | §4, §12 | next |
-| 3 | Structured details on blocks, tree scan with intervals, compile/diff planner, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | later |
+| 1 | List file v2, validator, migration, `goal`, `update`/`add before\|after`/`move`, empty-span refusal, `f04f39d` | §2, §3.1–3.3 | done |
+| 2 | Pins, attachments, working set, `tasks.*` settings | §4, §12 | now |
+| 3 | Structured details on blocks, tree scan with intervals, compile/diff planner, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | next |
 | 4 | `Group.handles` in core, recall/unfold of child codes | §7.3 | later |
 | 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | later |
 | 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | later |
