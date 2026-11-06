@@ -39,6 +39,7 @@ export function viewBlockOf(truth: Truth, b: Block): ViewBlock {
 		toolName: b.toolName,
 		callId: b.callId,
 		isError: b.isError,
+		details: b.details,
 		held: truth.held(b),
 		folded: truth.isFolded(b),
 		protected: truth.isProtected(b),

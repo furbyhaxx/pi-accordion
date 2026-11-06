@@ -113,6 +113,8 @@ export interface TaskSpan {
 	start: number;
 	/** The finishing result's index, or the last block for an open span. */
 	end: number;
+	/** Inclusive periods belonging to this task, separated by blocks and resumes. */
+	intervals: { start: number; end: number }[];
 }
 
 /** One finished task span, as indices into `host.blocks()`. */
@@ -124,6 +126,7 @@ export interface SpanBlock {
 	toolName?: string;
 	callId?: string;
 	isError?: boolean;
+	details?: unknown;
 }
 
 /**
@@ -135,44 +138,86 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	blocks.forEach((b, i) => {
 		if (b.kind === "tool_result" && b.callId && b.toolName === "tasks") resultIdx.set(b.callId, i);
 	});
-	const open = new Map<string, { start: number; title: string; list: string; id: string }>();
+	type State = { key: string; list: string; id: string; title: string; start: number; active: number | null; waiting: boolean; intervals: { start: number; end: number }[] };
+	const open = new Map<string, State>();
 	const out: TaskSpan[] = [];
+	const closeInterval = (s: State, end: number) => {
+		if (s.active !== null) s.intervals.push({ start: s.active, end: Math.max(s.active, end) });
+		s.active = null;
+		s.waiting = false;
+	};
+	const finish = (s: State, status: Span["status"], report: TaskSpan["report"], end: number) => {
+		closeInterval(s, end);
+		open.delete(s.key);
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, start: s.start, end, intervals: s.intervals });
+	};
 	blocks.forEach((b, i) => {
+		if (b.kind === "user") {
+			for (const s of open.values()) if (s.waiting) closeInterval(s, i - 1);
+		}
 		if (b.kind !== "tool_call" || b.toolName !== "tasks" || !b.callId) return;
 		const ri = resultIdx.get(b.callId);
 		if (ri === undefined || blocks[ri].isError) return;
 		const args = parseCall(textOf(b));
 		const action = typeof args?.action === "string" ? args.action : "";
 		if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
-		const key = `${args.list}/${args.id}`;
+		const list = args.list;
+		const id = args.id;
+		const key = `${list}/${id}`;
+		const details = blocks[ri].details && typeof blocks[ri].details === "object" ? blocks[ri].details as Record<string, unknown> : null;
 		if (action === "start") {
+			for (const s of open.values()) if (s.waiting && !(key === s.key || key.startsWith(`${s.key}.`))) closeInterval(s, i - 1);
 			const lines = textOf(blocks[ri]).split("\n");
-			// Parents the store closed because this start moved on: their span ends just before this call.
-			for (const line of lines) {
+			const closed = Array.isArray(details?.closed) ? details.closed : lines.flatMap((line) => {
 				const m = /^Closed (\S+) "(.*)" as (done|failed) from its subtasks' reports/.exec(line);
-				const ckey = m ? `${args.list}/${m[1]}` : "";
-				const s = m ? open.get(ckey) : undefined;
-				if (!m || !s) continue;
-				open.delete(ckey);
-				out.push({ key: ckey, list: args.list, id: m[1], title: s.title || m[2], status: m[3] as "done" | "failed", report: { outcome: "Closed automatically after its subtasks." }, start: s.start, end: Math.max(s.start, i - 1) });
+				return m ? [{ id: m[1], title: m[2], status: m[3] }] : [];
+			});
+			for (const item of closed) {
+				if (!item || typeof item !== "object") continue;
+				const c = item as { id?: unknown; title?: unknown; status?: unknown; report?: TaskSpan["report"] };
+				const s = typeof c.id === "string" ? open.get(`${list}/${c.id}`) : undefined;
+				if (!s || (c.status !== "done" && c.status !== "failed")) continue;
+				if (!s.title && typeof c.title === "string") s.title = c.title;
+				finish(s, c.status, c.report ?? { outcome: "Closed automatically after its subtasks." }, Math.max(s.start, i - 1));
 			}
-			for (const line of lines) {
+			const parents = lines.flatMap((line) => {
 				const m = /^Also (?:started|resumed) parent (\S+) "(.*)" so its span/.exec(line);
-				const pkey = m ? `${args.list}/${m[1]}` : "";
-				if (m && !open.has(pkey)) open.set(pkey, { start: i, title: m[2], list: args.list, id: m[1] });
+				return m ? [{ id: m[1], title: m[2] }] : [];
+			});
+			const task = details?.task && typeof details.task === "object" ? details.task as { title?: unknown } : undefined;
+			const title = typeof task?.title === "string" ? task.title : /^(?:Started|Resumed) \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
+			const started = Array.isArray(details?.started) ? details.started.filter((x): x is string => typeof x === "string") : [...parents.map((p) => p.id), id];
+			for (const startedId of started) {
+				const skey = `${list}/${startedId}`;
+				const existing = open.get(skey);
+				if (existing) {
+					if (existing.waiting) closeInterval(existing, i - 1);
+					if (existing.active === null) existing.active = i;
+				} else open.set(skey, { key: skey, list, id: startedId, title: startedId === id ? title : parents.find((p) => p.id === startedId)?.title ?? "", start: i, active: i, waiting: false, intervals: [] });
 			}
-			// A resumed (blocked) task keeps the span it opened when it first started.
-			const title = /^(?:Started|Resumed) \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
-			if (!open.has(key)) open.set(key, { start: i, title, list: args.list, id: args.id });
+		} else if (action === "block") {
+			for (const s of open.values()) if (s.key === key || key.startsWith(`${s.key}.`)) s.waiting = true;
 		} else if (FINISH[action]) {
+			const cascaded = Array.isArray(details?.cascaded) ? details.cascaded : textOf(blocks[ri]).split("\n").flatMap((line) => {
+				const m = /^Also abandoned its unfinished subtasks? ([\d., ]+)\.$/.exec(line);
+				return m ? m[1].split(", ").map((childId) => ({ id: childId })) : [];
+			});
+			for (const item of cascaded) {
+				if (!item || typeof item !== "object") continue;
+				const c = item as { id?: unknown; report?: TaskSpan["report"] };
+				const s = typeof c.id === "string" ? open.get(`${list}/${c.id}`) : undefined;
+				if (s) finish(s, "abandoned", c.report ?? {}, ri);
+			}
 			const s = open.get(key);
 			if (!s) return;
-			open.delete(key);
 			const report = (args.report && typeof args.report === "object" ? args.report : {}) as TaskSpan["report"];
-			out.push({ key, list: args.list, id: args.id, title: s.title, status: FINISH[action], report, start: s.start, end: ri });
+			finish(s, FINISH[action], report, ri);
 		}
 	});
-	for (const [key, s] of open) out.push({ key, list: s.list, id: s.id, title: s.title, status: null, report: {}, start: s.start, end: blocks.length - 1 });
+	for (const s of open.values()) {
+		closeInterval(s, blocks.length - 1);
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status: null, report: {}, start: s.start, end: blocks.length - 1, intervals: s.intervals });
+	}
 	return out;
 }
 
@@ -401,6 +446,7 @@ export class TaskfoldConductor implements Conductor {
 			this.pending = true;
 			return;
 		}
+		this.adoptGroups(host);
 		const stats = host.stats();
 		if (stats.budget <= 0 || stats.liveTokens < this.k.high * stats.budget) return;
 		const plan = this.plan(host);
@@ -415,7 +461,7 @@ export class TaskfoldConductor implements Conductor {
 		const blocks = host.blocks();
 		const stats = host.stats();
 		const spans = this.spans(blocks);
-		const contains = (outer: Span, inner: Span) => outer !== inner && outer.start <= inner.start && inner.end <= outer.end;
+		const contains = (outer: Span, inner: Span) => inner.key.startsWith(`${outer.key}.`);
 		// Outermost finished spans are the fold units; finished descendants fold inside them.
 		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(this.ownGroups.values());
@@ -479,6 +525,7 @@ export class TaskfoldConductor implements Conductor {
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
 	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): Unit | null {
+		if (span.intervals.length !== 1 || children.some((child) => child.intervals.length !== 1)) return null;
 		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);

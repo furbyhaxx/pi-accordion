@@ -48,6 +48,13 @@ describe("core/wire — linearize", () => {
 		expect(blocks[3].callId).toBe("c1");
 		expect(blocks[4].callId).toBe("c1");
 	});
+	it("preserves task result metadata through the block and snapshot conversion", () => {
+		const m: PiMessage = { role: "toolResult", toolCallId: "c1", toolName: "tasks", content: "done", details: { started: ["1"] } };
+		const wire = linearize([m])[0];
+		expect(blockToWire(wireToBlock(wire)).details).toEqual({ started: ["1"] });
+		expect(contentFingerprint(m)).not.toBe(contentFingerprint({ ...m, details: { started: ["2"] } }));
+		expect(linearize([{ ...m, toolName: "read" }])[0].details).toBeUndefined();
+	});
 	it("wireToBlock produces a fresh, auto-controlled engine block", () => {
 		const w = linearize(session())[2];
 		const b = wireToBlock(w);

@@ -284,6 +284,56 @@ describe("taskfold", () => {
 		expect(one).toMatchObject({ status: "done", title: "A", start: s.blocks.findIndex((b) => b.id === first) });
 	});
 
+	it("ends blocked intervals before unrelated work and opens a new interval on resume", () => {
+		const s = new Session();
+		s.user("Go.");
+		const start = s.start("1", "First").call;
+		s.call("tasks", { action: "block", list: "work", id: "1", reason: "user-decision", detail: "choose" }, "blocked");
+		const question = s.text("Which option?");
+		s.user("Choose A.");
+		const other = s.start("2", "Other").call;
+		s.finish("2", { outcome: "other" });
+		const resume = s.call("tasks", { action: "start", list: "work", id: "1" }, 'Resumed work/1 "First".').call;
+		s.finish("1", { outcome: "finished" });
+		const span = scanTaskSpans(s.blocks, (b) => b.text).find((x) => x.key === "work/1")!;
+		const idx = (id: string) => s.blocks.findIndex((b) => b.id === id);
+		expect(span.intervals).toEqual([{ start: idx(start), end: idx(question) }, { start: idx(resume), end: s.blocks.length - 1 }]);
+		expect(span.intervals.some((r) => r.start <= idx(other) && idx(other) <= r.end)).toBe(false);
+	});
+
+	it("does not fold unrelated work between a blocked task and its resume", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const start = s.start("1", "First").call;
+		s.work(1, "first");
+		s.call("tasks", { action: "block", list: "work", id: "1", reason: "user-decision", detail: "choose" }, "blocked");
+		s.text("Which option?");
+		s.user("A.");
+		const other = s.start("2", "Other").call;
+		s.work(1, "other");
+		s.finish("2", { outcome: "other" });
+		s.call("tasks", { action: "start", list: "work", id: "1" }, 'Resumed work/1 "First".');
+		s.work(1, "resumed");
+		s.finish("1", { outcome: "done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		expect(groupOf(host, start)).toBeUndefined();
+		expect(groupOf(host, other)?.summary).toContain("[task-record] work/2");
+	});
+
+	it("uses persisted task details to identify automatic closures and cascaded abandons", () => {
+		const s = new Session();
+		s.user("Go.");
+		const one = s.start("1", "Parent");
+		const child = s.start("1.1", "Child");
+		const end = s.call("tasks", { action: "abandon", list: "work", id: "1", report: { outcome: "stopped" } }, "ok");
+		s.blocks.find((b) => b.id === end.result)!.details = { cascaded: [{ id: "1.1", title: "Child", status: "abandoned", report: { outcome: "cascaded" } }] };
+		const spans = scanTaskSpans(s.blocks, (b) => b.text);
+		expect(spans.find((x) => x.key === "work/1.1")).toMatchObject({ status: "abandoned", report: { outcome: "cascaded" }, start: s.blocks.findIndex((b) => b.id === child.call) });
+		expect(spans.find((x) => x.key === "work/1")).toMatchObject({ status: "abandoned", start: s.blocks.findIndex((b) => b.id === one.call) });
+	});
+
 	it("keeps the newest finished task open by default and folds the older ones", async () => {
 		const s = new Session();
 		s.user("Two things.");

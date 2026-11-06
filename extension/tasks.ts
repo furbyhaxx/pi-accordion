@@ -818,12 +818,14 @@ export function runTasks(store: TaskStore, args: TasksArgs): string {
 }
 
 /** A `tasks` call's text plus the task ids it started, the one it finished and any renumbering, for span tracking and views. */
-export function runTasksTracked(store: TaskStore, args: TasksArgs, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): { text: string; started: string[]; finished: string | null; renumbered: Renumbering[] } {
+export function runTasksTracked(store: TaskStore, args: TasksArgs, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): { text: string; started: string[]; finished: string | null; renumbered: Renumbering[]; closed: Task[]; cascaded: Task[] } {
 	let started: string[] = [];
 	let finished: string | null = null;
 	let renumbered: Renumbering[] = [];
-	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id), (r) => (renumbered = r), userTexts, limits);
-	return { text, started, finished, renumbered };
+	let closed: Task[] = [];
+	let cascaded: Task[] = [];
+	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id), (r) => (renumbered = r), userTexts, limits, (tasks) => (closed = tasks), (tasks) => (cascaded = tasks));
+	return { text, started, finished, renumbered, closed, cascaded };
 }
 
 /** One task id that changed because unstarted tasks were inserted or moved. */
@@ -832,7 +834,7 @@ export interface Renumbering {
 	to: string;
 }
 
-function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void, onRenumber: (r: Renumbering[]) => void, userTexts: readonly string[], limits: PinLimits): string {
+function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void, onRenumber: (r: Renumbering[]) => void, userTexts: readonly string[], limits: PinLimits, onClosed: (tasks: Task[]) => void, onCascaded: (tasks: Task[]) => void): string {
 	const need = <K extends keyof TasksArgs>(k: K): NonNullable<TasksArgs[K]> => {
 		const v = args[k];
 		if (v === undefined || v === null || v === "") throw new TaskError(`Action "${args.action}" needs "${k}".`);
@@ -897,6 +899,7 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 		case "start": {
 			const { task, autoStarted, autoClosed, resumed } = store.start(need("list"), need("id"));
 			onStart([...autoStarted.map((t) => t.id), task.id]);
+			onClosed(autoClosed);
 			const was = (t: Task) => resumed.includes(t);
 			const lines = [`${was(task) ? "Resumed" : "Started"} ${args.list}/${task.id} "${task.title}".`];
 			for (const t of autoStarted) lines.push(`Also ${was(t) ? "resumed" : "started"} parent ${t.id} "${t.title}" so its span covers this subtask.`);
@@ -910,6 +913,7 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 			const status = args.action === "complete" ? "done" : args.action === "fail" ? "failed" : "abandoned";
 			const { task, parentReady, cascaded, blockedParents } = store.finish(need("list"), need("id"), status, args.report, args.supersededBy);
 			onFinish(task.id);
+			onCascaded(cascaded);
 			const lines = [`${args.list}/${task.id} "${task.title}" is ${status}${task.supersededBy && args.action === "abandon" ? `, superseded by ${task.supersededBy}` : ""}.`];
 			if (cascaded.length) lines.push(`Also abandoned its unfinished subtask${cascaded.length === 1 ? "" : "s"} ${cascaded.map((t) => t.id).join(", ")}.`);
 			for (const t of blockedParents) lines.push(`Parent ${t.id} "${t.title}" was blocked on ${task.id}; resume it with start ${t.id}, or abandon it.`);

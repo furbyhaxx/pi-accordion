@@ -189,6 +189,8 @@ export interface WireBlock {
 	callId?: string;
 	model?: string;
 	isError?: boolean;
+	/** Structured task-tool result metadata. */
+	details?: unknown;
 	/** A `thinking` block sealed by a provider signature (`core/wire.ts → thinkingIsSigned`). Optional
 	 *  and additive: a peer that does not know it just treats the block as unsigned. */
 	signed?: boolean;

@@ -19,6 +19,8 @@ export interface TasksDetails {
 		id: string;
 		title: string;
 		status: TaskStatus;
+		acceptanceCriteria?: string[];
+		pins?: TaskList["pins"];
 		startedAt?: string;
 		endedAt?: string;
 		report?: { outcome: string; decisions?: string[]; open?: string[] };
@@ -33,6 +35,9 @@ export interface TasksDetails {
 	lists?: number;
 	/** Ids that changed because `add` inserted or `move` moved unstarted tasks. */
 	renumbered?: Renumbering[];
+	started?: string[];
+	closed?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] } }[];
+	cascaded?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] } }[];
 }
 
 /** The structured row data for a finished `tasks` call, read back from the list it touched. */
@@ -48,6 +53,8 @@ export function tasksDetails(args: { action: string; list?: string; id?: string 
 						id: task.id,
 						title: task.title,
 						status: task.status,
+						...(task.acceptanceCriteria ? { acceptanceCriteria: task.acceptanceCriteria } : {}),
+						...(task.pins ? { pins: task.pins } : {}),
 						startedAt: task.startedAt,
 						endedAt: task.endedAt,
 						report: task.report,

@@ -76,6 +76,7 @@ export interface PiMessage {
 	toolCallId?: string;
 	toolName?: string;
 	isError?: boolean;
+	details?: unknown;
 	summary?: string;
 	/** Set once at message creation; the primary anchor for user/summary/assistant fallback ids. */
 	timestamp?: number;
@@ -160,7 +161,7 @@ export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0):
 		id: string,
 		kind: WireBlock["kind"],
 		text: string,
-		extra: Partial<Pick<WireBlock, "toolName" | "callId" | "model" | "isError" | "signed">> = {},
+		extra: Partial<Pick<WireBlock, "toolName" | "callId" | "model" | "isError" | "signed" | "details">> = {},
 	) => {
 		if (!text && kind !== "tool_result") return; // drop empty non-results (parity with parse.ts)
 		out.push({ id, kind, turn, order: order++, text, tokens: tokensFor(text), ...extra });
@@ -196,6 +197,7 @@ export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0):
 					toolName: m.toolName || "tool",
 					callId: m.toolCallId,
 					isError: !!m.isError,
+					...(m.toolName === "tasks" && m.details !== undefined ? { details: m.details } : {}),
 				});
 				break;
 			}
@@ -222,6 +224,7 @@ export function wireToBlock(w: WireBlock): Block {
 		callId: w.callId,
 		model: w.model,
 		isError: w.isError,
+		details: w.details,
 		...(w.signed ? { signed: true } : {}),
 		override: null,
 		autoFolded: false,
@@ -386,6 +389,7 @@ export function contentFingerprint(m: PiMessage): number {
 			h = fnvByte(h, 3);
 			h = fnvByte(h, m.isError ? 1 : 0); // metadata covered — sol P1 gap #3
 			if (typeof m.toolName === "string") h = fnvStr(h, m.toolName);
+			if (m.toolName === "tasks" && m.details !== undefined) h = fnvStr(h, JSON.stringify(m.details));
 			h = fnvContent(h, m.content);
 			break;
 		default:

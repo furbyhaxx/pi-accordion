@@ -57,6 +57,8 @@ export interface ViewBlock {
 	toolName?: string;
 	callId?: string;
 	isError?: boolean;
+	/** Structured task-tool result metadata. */
+	details?: unknown;
 	/** A human override (pin / manual fold / manual unfold) owns this block. */
 	held: boolean;
 	/** Currently rendered folded in the view. */

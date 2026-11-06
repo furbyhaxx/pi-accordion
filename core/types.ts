@@ -96,6 +96,8 @@ export interface Block {
 	/** Model that produced an assistant block, if known. */
 	model?: string;
 	isError?: boolean;
+	/** Structured task-tool result metadata; never part of the model wire. */
+	details?: unknown;
 	/**
 	 * A `thinking` block whose provider signature is replayed with it (`core/wire.ts →
 	 * thinkingIsSigned`): rewriting its text keeps the old signature, which the API may reject.

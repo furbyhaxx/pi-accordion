@@ -4007,7 +4007,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (run.finished && args.list) taskCoach.finished(args.list, run.finished);
 				const text = run.text;
 				const list = read();
-				const details: TasksDetails = tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered);
+				const details: TasksDetails = {
+					...tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered),
+					...(run.started.length ? { started: run.started } : {}),
+					...(run.closed.length ? { closed: run.closed.map(({ id, title, status, report }) => ({ id, title, status, report })) } : {}),
+					...(run.cascaded.length ? { cascaded: run.cascaded.map(({ id, title, status, report }) => ({ id, title, status, report })) } : {}),
+				};
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {
 				if (err instanceof TaskError) throw err;
