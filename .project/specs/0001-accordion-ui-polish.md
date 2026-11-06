@@ -5,27 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-05T13:17:39+01:00"
+  updated_at: "2026-11-06T15:12:34+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["document creation from the 2026-11-05 analysis, the approved wireframes and the user's Taskfold widget sketch"]
-    - revision: 2
-      reason: "user request: reattach a session's task list on resume, tell the agent what changed, browse lists"
-      changes: ["§4.8 session task list binding, resume dialog and agent notes", "§4.9 /accordion tasks lists browser", "§4.1 claim name, claim state, fingerprint", "§4.5 lists verb"]
-    - revision: 3
-      reason: "user feedback: sloppy task spans, unfolded tasks, missing fold tokens, budget/tail not sticking"
-      changes: ["§4.4 fold token markers", "§4.10 task protocol: auto-started parents, auto-closed parents, coaching reminders", "§4.11 Taskfold folding: overlap-safe edges, keepRecentTasks, aging ladder", "§4.12 budget and tail per model: session memory, modelDefaults, human amounts, ctrl+s", "§6.1 modelDefaults replaces defaultBudget/defaultProtectTokens; Taskfold options add keepRecentTasks"]
-    - revision: 4
-      reason: "user request: remember the widget state, show subtask counts, inspect task folds and the session by task"
-      changes: ["§4.4 expanded state persists; finished parents show done/total", "§4.1 task createdAt; persisted classifier verdicts with all answers", "§4.13 task drill-down: tree, details, span view, text viewer, actions", "§4.14 /accordion tasks tree", "§4.11 a protected trailing message ends a record before it"]
-    - revision: 5
-      reason: "user decisions: blocked tasks with reasons, distinct end states, supersededBy, strict parent completion"
-      changes: ["§4.15 task end states: definitions, blocked with reasons, supersededBy/supersedes, parent completion rule, tool description", "§4.4 glyphs ☐ ▶ ◐ ⧗ ▣ ☒ ⊘, abandoned struck through, blocked reason, (fold) only on tasks that ran", "§4.3 collapsed line 2 shows a blocked task", "§4.7 block rows", "§2 glyph set"]
+    - revision: 6
+      reason: "SPEC-0002 slice 1: task list v2 and store actions"
+      changes: ["§4.1 v2 list files and renumbered details", "§4.10 empty spans are refused instead of noted"]
 ---
 
 # Accordion UI polish
@@ -108,7 +96,10 @@ contract it implements; changes to it MUST update this section.
 - `scanTaskSpans(blocks, textOf)` and `taskKeyOfSummary(summary)` are exported from
   `conductors/in-process/taskfold/taskfold.ts`. Spans include open ones (`status: null`, `end` = last
   block index); the conductor folds finished spans only.
-- `tasks` tool results carry `details: TasksDetails` (`extension/tui/toolRows.ts`).
+- `tasks` tool results carry `details: TasksDetails` (`extension/tui/toolRows.ts`), with
+  `renumbered` when `add`/`move` renumbered unstarted tasks.
+- List files are v2 nested trees with a `goal` and per-task `acceptanceCriteria`; format, migration,
+  `update`, `add before|after` and `move` are specified in SPEC-0002 §2–3.
 - `TaskClaim` gains optional `name` (the claiming session's display name). `claimState(list,
   session)` returns `mine`, `free`, `held` (another session, active within `CLAIM_STALE_MS`) or
   `stale`. `taskFingerprint(list)` hashes ids, statuses, titles and `updatedAt`; claim changes do not
@@ -326,8 +317,8 @@ extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.
   work belongs to no task record. If it is part of a planned task, call tasks start {…} before
   continuing (next to do: <id> "<title>"); if it is new work, add a task for it first.` Finishing a
   task whose span saw no other tool result (counted in memory since its `start` in this process,
-  ancestors included) appends `Note: no tool work ran between starting and finishing <id>, …`; a
-  task started before this process gets no note.
+  ancestors included) and assistant texts over 40 characters is refused (SPEC-0002 §3.3); a task
+  started before this process is never refused.
 
 ### 4.11 Taskfold folding (delivered)
 

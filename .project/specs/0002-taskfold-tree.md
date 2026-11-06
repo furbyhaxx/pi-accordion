@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T14:44:51+01:00"
+  updated_at: "2026-11-06T15:12:34+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["design agreed with the user in the 2026-11-06 taskfold analysis session"]
+    - revision: 2
+      reason: "slice 1 implementation findings"
+      changes: ["§2.1 schema location under the shipped skill", "§2.2 store loads goalless lists and gates work; invalid files named by list", "§3.3 refusal only while the tasks tool is active"]
 ---
 
 # Taskfold tree
@@ -50,12 +50,13 @@ commit `f04f39d`.
 
 ### 2.1 Format
 
-File: `<project>/.pig/tasks/<slug>.json`. JSON Schema shipped as `extension/tasks.schema.json`,
+File: `<project>/.pig/tasks/<slug>.json`. JSON Schema shipped as
+`extension/skills/accordion-task-lists/references/tasks.schema.json` (the package ships `skills/`),
 referenced by `$schema`.
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/tasks.schema.json",
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
   "version": 2,
   "slug": "auth",
   "title": "Token store",
@@ -77,7 +78,7 @@ referenced by `$schema`.
 | Field | Rule |
 |---|---|
 | `version` | `2`. Absent means v1 |
-| `goal` | Required, 1–600 chars. One goal per list: the end state the whole list delivers |
+| `goal` | Required for authoring and for `create`, 1–600 chars. One goal per list: the end state the whole list delivers. The store loads a list without one (v1, or created from the UI) and gates new work on it (§2.2) |
 | `tasks[].subtasks` | Nested tree, up to 4 levels (`1.2.3.4`) |
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
 | `acceptanceCriteria` | Optional now, 1–3 strings of ≤120 chars, checkable end-state statements |
@@ -94,14 +95,18 @@ verdicts, bindings) is unchanged.
   match its position 2.1; remove the id or move the task`. The file is not rewritten.
 - **v1 files** (flat `tasks[]`, no `version`) are converted in memory: the tree is rebuilt from the
   dotted ids. The next write stores v2.
-- **Missing goal after migration:** `start`, `add` and `move` are refused until
+- **Missing goal** (a migrated v1 list, or one created from the UI lists browser, which asks only
+  for a title): `start`, `add` and `move` are refused until
   `tasks update {list, goal}` sets one. `list`, `status`, `claim` and the finishing actions still
   work, so a running task can always be ended.
 - **Hand edits** made while a list is claimed are accepted if they validate. Changing the id or
   position of a started task is a validation error: started ids are frozen (§3.2).
-- Validator: `extension/taskSchema.ts`, pure, used by the store and by the skill's
-  `scripts/validate.mjs`. The store does not call the JSON-Schema file at runtime. The schema is
-  the authoring contract, and a test keeps the two in sync.
+- `tasks list` names files that fail to load (`<slug> — invalid file; "status" shows what to fix`)
+  instead of skipping them silently.
+- Validator: `extension/taskSchema.ts`, pure and import-free, used by the store
+  (`requireGoal: false`) and by the skill's `scripts/validate.mjs` (goal required). The store does
+  not call the JSON-Schema file at runtime. The schema is the authoring contract, and
+  `extension/taskSchema.test.ts` keeps the two in sync.
 
 ## 3. `tasks` tool actions
 
@@ -147,8 +152,10 @@ If you are about to present results or ask the user, block 5 {reason:"user-decis
 If the work ran in the task before it, abandon 5 {supersededBy:"4"}.
 ```
 
-Tasks started before this process have no count and are never refused. Cherry-pick `f04f39d` so a
-tool call batched with its `start` counts.
+Tasks started before this process have no count and are never refused. The refusal applies only
+while the `tasks` tool is active (its conductor attached), because only then does the coach count.
+A tool call batched with its `start` counts, and a resumed task keeps its count (port of
+`f04f39d`). The after-the-fact "no tool work" note is removed.
 
 ### 3.4 Review gate and resume
 
