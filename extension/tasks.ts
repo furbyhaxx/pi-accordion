@@ -267,8 +267,9 @@ export class TaskStore {
 		let raw: string;
 		try {
 			raw = fs.readFileSync(file, "utf8");
-		} catch {
-			throw new TaskError(`No task list "${slug}". Use action "list" to see existing lists, or "create" to make one.`);
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") throw new TaskError(`No task list "${slug}". Use action "list" to see existing lists, or "create" to make one.`);
+			throw new TaskError(`Cannot read task list ${path.relative(this.projectDir, file)}: ${err instanceof Error ? err.message : String(err)}`);
 		}
 		const rel = path.relative(this.projectDir, file);
 		let json: unknown;
@@ -308,8 +309,9 @@ export class TaskStore {
 		let names: string[];
 		try {
 			names = fs.readdirSync(tasksDir(this.projectDir));
-		} catch {
-			return { lists: [], invalid: [] };
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return { lists: [], invalid: [] };
+			throw new TaskError(`Cannot read task lists: ${err instanceof Error ? err.message : String(err)}`);
 		}
 		const out: TaskList[] = [];
 		const invalid: string[] = [];

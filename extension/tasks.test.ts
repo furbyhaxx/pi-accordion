@@ -20,6 +20,17 @@ describe("tasks", () => {
 		expect(Date.parse(tasks[1].createdAt!)).toBeGreaterThanOrEqual(Date.parse(tasks[0].createdAt!));
 	});
 
+	test("reports filesystem errors instead of presenting unreadable lists as absent", () => {
+		const { dir, s } = store();
+		fs.mkdirSync(path.join(dir, ".pig", "tasks", "broken.json"), { recursive: true });
+		expect(() => s.read("broken")).toThrow(/Cannot read.*broken\.json/);
+		expect(() => s.read("missing")).toThrow(/No task list "missing"/);
+		const other = store();
+		fs.mkdirSync(path.join(other.dir, ".pig"), { recursive: true });
+		fs.writeFileSync(path.join(other.dir, ".pig", "tasks"), "not a directory");
+		expect(() => other.s.scan()).toThrow(/Cannot read task lists/);
+	});
+
 	test("create persists a nested list under .pig/tasks and claims it", () => {
 		const { dir, s } = store();
 		runTasks(s, { action: "create", list: "auth", title: "Auth", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
