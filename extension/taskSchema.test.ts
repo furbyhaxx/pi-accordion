@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, LIST_KEYS, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
 
 const schema = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "skills/accordion-task-lists/references/tasks.schema.json"), "utf8"));
@@ -21,6 +23,25 @@ describe("task list v2 schema", () => {
 		expect(task.blocks.items.properties.reason.enum).toEqual([...BLOCK_REASONS]);
 		expect([task.title.maxLength, schema.properties.title.maxLength, schema.properties.goal.maxLength]).toEqual([TITLE_MAX, TITLE_MAX, GOAL_MAX]);
 		expect([task.acceptanceCriteria.maxItems, task.acceptanceCriteria.items.maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
+	});
+
+	test("the bundled validator accepts a valid authored list and reports invalid input", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-author-"));
+		const file = path.join(dir, "auth.json");
+		const script = path.join(import.meta.dir, "skills/accordion-task-lists/scripts/validate.mjs");
+		try {
+			fs.writeFileSync(file, JSON.stringify(v2([{ title: "Survey", acceptanceCriteria: ["All callers listed"] }])));
+			const valid = spawnSync("node", [script, file], { encoding: "utf8" });
+			expect(valid.status).toBe(0);
+			expect(valid.stdout).toContain("Valid task list: auth");
+			fs.writeFileSync(file, JSON.stringify(v2([{ title: "Survey", id: "2" }], { goal: "" })));
+			const invalid = spawnSync("node", [script, file], { encoding: "utf8" });
+			expect(invalid.status).toBe(1);
+			expect(invalid.stderr).toContain("goal: required");
+			expect(invalid.stderr).toContain("does not match its position");
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
 	});
 
 	test("a hand-written tree without ids or statuses loads flat with positional ids", () => {
