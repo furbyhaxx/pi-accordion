@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { idleVerdict, nextTask, TaskCoach } from "./taskCoach";
+import { emptySpanRefusal, idleVerdict, nextTask, TaskCoach, TEXT_WORK_CHARS } from "./taskCoach";
 import type { Task, TaskList } from "./tasks";
 
 const t = (id: string, status: Task["status"], title = `T${id}`): Task => ({ id, title, status, updatedAt: "" });
@@ -24,17 +24,38 @@ describe("task coach", () => {
 		expect([1, 2, 3].map(() => c.toolResult(false))).toEqual([null, null, null]);
 	});
 
-	test("flags a finished task whose span saw no work, counting work for its ancestors too", () => {
+	test("counts span work for the task and its ancestors, including long assistant text", () => {
 		const c = new TaskCoach();
 		c.started("w", ["1", "1.1"]);
 		c.setList(list([t("1", "doing"), t("1.1", "doing")]));
 		c.toolResult(false);
-		expect(c.finished("w", "1.1")).toBeNull();
+		expect([c.spanWork("w", "1.1"), c.spanWork("w", "1")]).toEqual([1, 1]);
+		c.finished("w", "1.1");
 		c.started("w", ["1.2"]);
 		c.setList(list([t("1", "doing"), t("1.1", "done"), t("1.2", "doing")]));
-		expect(c.finished("w", "1.2")).toContain("no tool work ran between starting and finishing 1.2");
-		expect(c.finished("w", "1")).toBeNull();
-		expect(c.finished("w", "9")).toBeNull();
+		c.assistantText(TEXT_WORK_CHARS);
+		expect(c.spanWork("w", "1.2")).toBe(0);
+		c.assistantText(TEXT_WORK_CHARS + 1);
+		expect([c.spanWork("w", "1.2"), c.spanWork("w", "1")]).toEqual([1, 2]);
+		expect(c.spanWork("w", "9")).toBeUndefined();
+	});
+
+	test("counts work that reports before its batched start call, and keeps a resumed task's work", () => {
+		const c = new TaskCoach();
+		c.setList(list([t("1", "doing")]));
+		c.toolResult(false);
+		c.started("w", ["1"]);
+		expect(c.spanWork("w", "1")).toBe(1);
+		c.started("w", ["1"]);
+		expect(c.spanWork("w", "1")).toBe(1);
+	});
+
+	test("the empty-span refusal offers block before replying and abandon onto the previous task", () => {
+		const text = emptySpanRefusal("w", "5", "4");
+		expect(text).toContain("Nothing ran inside 5 since tasks start.");
+		expect(text).toContain('block 5 {reason: "user-decision"');
+		expect(text).toContain('abandon 5 {supersededBy: "4"}');
+		expect(emptySpanRefusal("w", "1", null)).toContain("abandon 1 with a report");
 	});
 
 	test("suggests resuming a task whose dependency finished, and skips work under a user wait", () => {

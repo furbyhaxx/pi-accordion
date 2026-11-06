@@ -52,11 +52,11 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
-import { BLOCK_REASONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
+import { BLOCK_REASONS, TASK_ACTIONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
-import { IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
+import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource } from "./tui/taskTranscript";
@@ -3066,6 +3066,19 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return note ? { content: [...event.content, { type: "text" as const, text: note }] } : undefined;
 	});
 
+	// Prose the agent writes inside a task is work too: an analysis may need no tool call.
+	function countAssistantText(msg: PiMessage | undefined, ctx: ExtensionContext): void {
+		if (msg?.role !== "assistant" || !Array.isArray(msg.content) || !tasksToolActive() || latestCtx?.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()) return;
+		const chars = msg.content.reduce((n, p) => n + (p.type === "text" && typeof p.text === "string" ? p.text.trim().length : 0), 0);
+		if (!chars) return;
+		try {
+			taskCoach.setList(attachedList(taskStoreFor(ctx).claimedBySession()));
+		} catch {
+			return;
+		}
+		taskCoach.assistantText(chars);
+	}
+
 	// Each stop is judged against the attached list and kept in the session, so a premature stop
 	// (open or startable work left) can be told apart from waiting on the user or a third party.
 	function recordIdleVerdict(ctx: ExtensionContext): void {
@@ -3263,7 +3276,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// mid-tool-loop — so appending here (idempotent by id) is what KILLS the one-turn lag: the
 	// reply's blocks enter the Truth (and stream to every client) the instant they exist, not at
 	// the next model call. View-only: folding still happens only at `context`.
-	pi.on("message_end", (event) => {
+	pi.on("message_end", (event, ctx: ExtensionContext) => {
+		countAssistantText(event.message as unknown as PiMessage, ctx);
 		// Sweep all active ghosts (invariant #2, ADR 0003) BEFORE the committed blocks stream, so a
 		// client swaps its ghost placeholders for the real blocks in the same tick.
 		sendStream({ type: "stream", phase: "abort", kind: "text", contentIndex: -1 });
@@ -3888,8 +3902,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- fail: you tried and the goal was not reached, and you are not pursuing it further. The report says what was tried and quotes the failing command or error.\n" +
 			"- abandon: stopped on purpose without a verdict (no longer wanted, replaced, the user changed course). Works on unstarted and blocked tasks too. Pass supersededBy when another task replaces it.\n" +
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
-			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks.\n" +
-			"Actions: create {list, title, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, tasks[{title, subtasks?, supersedes?}]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
+			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
+			"Every list has one goal: the end state the whole list delivers. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
+			"Actions: create {list, title, goal, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goal? (list), acceptanceCriteria? (task)}, move {list, id, parent?, before?|after?} (unstarted tasks only), status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
 		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
 		promptGuidelines: [
 			"Use the `tasks` tool for work with more than one step; a single question or a one-step change needs no list. Create or claim a list, then call `start` BEFORE the first tool call of a task's work and end the task right AFTER its last one. Work done while no task is in progress belongs to no record; if new work comes up, `add` a task for it and start it first.",
@@ -3900,22 +3915,27 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		],
 		parameters: Type.Object({
 			action: Type.Union(
-				["create", "list", "claim", "release", "add", "status", "start", "block", "complete", "fail", "abandon"].map((a) => Type.Literal(a)),
+				TASK_ACTIONS.map((a) => Type.Literal(a)),
 				{ description: "What to do." },
 			),
 			list: Type.Optional(Type.String({ description: 'List slug, e.g. "auth-refactor" (lowercase, digits, dashes).' })),
-			title: Type.Optional(Type.String({ description: "List title, for create." })),
+			title: Type.Optional(Type.String({ description: "For create: the list title. For update: the new title of the list or of task id." })),
+			goal: Type.Optional(Type.String({ description: "For create and update: the end state the whole list delivers, in one or two sentences." })),
+			acceptanceCriteria: Type.Optional(Type.Array(Type.String(), { description: "For update with id: 1–3 checkable statements that are true when the task is finished." })),
 			tasks: Type.Optional(
 				Type.Array(
 					Type.Object({
 						title: Type.String(),
+						acceptanceCriteria: Type.Optional(Type.Array(Type.String(), { description: "1–3 checkable statements that are true when the task is finished." })),
 						subtasks: Type.Optional(Type.Array(Type.Any())),
 						supersedes: Type.Optional(Type.String({ description: "For add: id of an earlier task this one replaces; it is abandoned if still open." })),
 					}),
-					{ description: "Tasks to create or add: [{ title, subtasks?: [{ title, subtasks? }], supersedes? }]." },
+					{ description: "Tasks to create or add: [{ title, acceptanceCriteria?, subtasks?: [{ title, … }], supersedes? }]." },
 				),
 			),
-			parent: Type.Optional(Type.String({ description: "Parent task id for add, e.g. \"2\" or \"2.1\"." })),
+			parent: Type.Optional(Type.String({ description: "Parent task id for add or move, e.g. \"2\" or \"2.1\"." })),
+			before: Type.Optional(Type.String({ description: "For add and move: place before this sibling task id." })),
+			after: Type.Optional(Type.String({ description: "For add and move: place after this sibling task id." })),
 			id: Type.Optional(Type.String({ description: 'Task id, e.g. "1.2".' })),
 			report: Type.Optional(
 				Type.Object(
@@ -3947,14 +3967,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return null;
 				}
 			};
-			const before = args.action === "add" ? read()?.tasks.length : undefined;
+			const sizeBefore = args.action === "add" ? read()?.tasks.length : undefined;
 			try {
+				if ((args.action === "complete" || args.action === "fail") && args.list && args.id && tasksToolActive() && taskCoach.spanWork(args.list, args.id) === 0) {
+					const ended = read()?.tasks.filter((t) => t.endedAt && t.id !== args.id && !t.id.startsWith(`${args.id}.`)).sort((a, b) => b.endedAt!.localeCompare(a.endedAt!))[0];
+					throw new TaskError(emptySpanRefusal(args.list, args.id, ended?.id ?? null));
+				}
 				const run = runTasksTracked(store, args);
 				if (run.started.length && args.list) taskCoach.started(args.list, run.started);
-				const note = run.finished && args.list ? taskCoach.finished(args.list, run.finished) : null;
-				const text = note ? `${run.text}\n${note}` : run.text;
+				if (run.finished && args.list) taskCoach.finished(args.list, run.finished);
+				const text = run.text;
 				const list = read();
-				const details: TasksDetails = tasksDetails(args, list, before === undefined ? undefined : (list?.tasks.length ?? before) - before, args.action === "list" ? store.lists().length : undefined);
+				const details: TasksDetails = tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered);
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {
 				if (err instanceof TaskError) throw err;

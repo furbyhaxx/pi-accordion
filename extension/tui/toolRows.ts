@@ -7,7 +7,7 @@
  * The line builders are pure; `toolRowRenderers` adapts them to Pi's self-shell tool renderers.
  */
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
-import { blockLabel, type TaskBlock, type TaskList, type TaskStatus } from "../tasks";
+import { blockLabel, type Renumbering, type TaskBlock, type TaskList, type TaskStatus } from "../tasks";
 import { taskDuration } from "./taskTree";
 import { formatDuration, type WidgetTheme } from "./taskWidget";
 
@@ -31,11 +31,14 @@ export interface TasksDetails {
 	added?: number;
 	/** Lists in the project, for `list`. */
 	lists?: number;
+	/** Ids that changed because `add` inserted or `move` moved unstarted tasks. */
+	renumbered?: Renumbering[];
 }
 
 /** The structured row data for a finished `tasks` call, read back from the list it touched. */
-export function tasksDetails(args: { action: string; list?: string; id?: string }, list: TaskList | null, added?: number, lists?: number): TasksDetails {
-	const task = args.id && list ? list.tasks.find((t) => t.id === args.id) : undefined;
+export function tasksDetails(args: { action: string; list?: string; id?: string }, list: TaskList | null, added?: number, lists?: number, renumbered: readonly Renumbering[] = []): TasksDetails {
+	const id = renumbered.find((r) => r.from === args.id)?.to ?? args.id;
+	const task = id && list ? list.tasks.find((t) => t.id === id) : undefined;
 	return {
 		action: args.action,
 		...(args.list ? { list: args.list } : {}),
@@ -56,6 +59,7 @@ export function tasksDetails(args: { action: string; list?: string; id?: string 
 		...(list ? { progress: { done: list.tasks.filter((t) => t.status === "done").length, total: list.tasks.length } } : {}),
 		...(added === undefined ? {} : { added }),
 		...(lists === undefined ? {} : { lists }),
+		...(renumbered.length ? { renumbered: [...renumbered] } : {}),
 	};
 }
 
@@ -76,7 +80,8 @@ function tasksTarget(args: Args): string {
 	const list = str(args.list);
 	if (action === "list") return "list";
 	if (action === "add") return `add ${list}${str(args.parent) ? ` ${str(args.parent)}` : ""}`;
-	if (TASK_ACTIONS.includes(action)) return `${action} ${str(args.id) || list}`;
+	if (TASK_ACTIONS.includes(action) || action === "move") return `${action} ${str(args.id) || list}`;
+	if (action === "update") return `update ${str(args.id) || list}`;
 	return `${action}${list ? ` ${list}` : ""}`;
 }
 
@@ -110,6 +115,8 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 	if (action === "add" && details?.added !== undefined) extra.push(theme.fg("dim", `+${plural(details.added, "task")}`));
 	if ((action === "claim" || action === "status") && details?.progress) extra.push(theme.fg("dim", `${details.progress.done}/${details.progress.total} done`));
 	if (action === "list" && details?.lists !== undefined) extra.push(theme.fg("dim", plural(details.lists, "list")));
+	if (action === "move" && task) extra.push(theme.fg("dim", `→ ${task.id} ${task.title}`));
+	if (details?.renumbered?.length && action !== "move") extra.push(theme.fg("dim", `renumbered ${details.renumbered.length}`));
 	const titled = title ? ` ${title}` : "";
 	const lines = [`${head}${titled}${extra.length ? sep + extra.join(sep) : ""}`];
 	if (!expanded) return lines;

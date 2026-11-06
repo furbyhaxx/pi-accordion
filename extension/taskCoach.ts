@@ -69,10 +69,13 @@ export function idleVerdict(list: TaskList): IdleVerdict {
 	return waiting.length ? { state: "waiting", tasks: waiting } : { state: "finished" };
 }
 
+/** Assistant text longer than this inside a span counts as work, e.g. an analysis answered in prose. */
+export const TEXT_WORK_CHARS = 40;
+
 export class TaskCoach {
 	private list: TaskList | null = null;
 	private outside = 0;
-	/** `<list>/<id>` → tool results inside that task's span since this session saw it start. */
+	/** `<list>/<id>` → tool results and assistant texts inside that task's span since this process saw it. */
 	private readonly work = new Map<string, number>();
 
 	/** The list this session works on; null when none is attached. */
@@ -81,10 +84,34 @@ export class TaskCoach {
 		this.list = list;
 	}
 
-	/** Tasks just started (with any auto-started parents): their spans begin empty. */
+	/** Tasks just started or resumed (with any auto-started parents). */
 	started(slug: string, ids: readonly string[]): void {
-		for (const id of ids) this.work.set(`${slug}/${id}`, 0);
+		// A tool call batched with the start may report before it, and a resumed task keeps its work.
+		for (const id of ids) if (!this.work.has(`${slug}/${id}`)) this.work.set(`${slug}/${id}`, 0);
 		this.outside = 0;
+	}
+
+	private countWork(list: TaskList, current: Task): void {
+		for (const id of [current.id, ...ancestors(current.id)]) {
+			const key = `${list.slug}/${id}`;
+			this.work.set(key, (this.work.get(key) ?? 0) + 1);
+		}
+	}
+
+	/** An assistant message finished; its text counts as work of the task in progress when long enough. */
+	assistantText(chars: number): void {
+		const current = this.list && innermostDoing(this.list);
+		if (current && chars > TEXT_WORK_CHARS) this.countWork(this.list!, current);
+	}
+
+	/** Work counted inside a task's span, or undefined when this process did not see it start. */
+	spanWork(slug: string, id: string): number | undefined {
+		return this.work.get(`${slug}/${id}`);
+	}
+
+	/** A task ended: forget its count. */
+	finished(slug: string, id: string): void {
+		this.work.delete(`${slug}/${id}`);
 	}
 
 	/**
@@ -97,10 +124,7 @@ export class TaskCoach {
 		const current = innermostDoing(list);
 		if (current) {
 			this.outside = 0;
-			for (const id of [current.id, ...ancestors(current.id)]) {
-				const key = `${list.slug}/${id}`;
-				if (this.work.has(key)) this.work.set(key, this.work.get(key)! + 1);
-			}
+			this.countWork(list, current);
 			return null;
 		}
 		const pick = nextTask(list);
@@ -111,12 +135,16 @@ export class TaskCoach {
 		if (!due) return null;
 		return `[accordion tasks] ${this.outside} tool calls in a row ran while no task of "${list.slug}" is in progress, so this work belongs to no task record. If it is part of a planned task, call tasks start {list: "${list.slug}", id: "<id>"} before continuing (${pick.resume ? `next: resume ${next.id} "${next.title}", which was waiting for ${currentBlock(next)?.on}` : `next to do: ${next.id} "${next.title}"`}); if it is new work, add a task for it first.`;
 	}
+}
 
-	/** The note for finishing a task whose span had no tool work, or null (also when its start was not seen). */
-	finished(slug: string, id: string): string | null {
-		const n = this.work.get(`${slug}/${id}`);
-		this.work.delete(`${slug}/${id}`);
-		if (n !== 0) return null;
-		return `Note: no tool work ran between starting and finishing ${id}, so its record has nothing to summarize and its time is 0s. Start a task before its first tool call and finish it after its last one.`;
-	}
+/**
+ * The refusal for completing or failing a task whose span holds no work. `previous` is the task that
+ * finished last, where the work may have gone instead.
+ */
+export function emptySpanRefusal(slug: string, id: string, previous: string | null): string {
+	return [
+		`Nothing ran inside ${id} since tasks start. Start a task before its first tool call and end it after its last.`,
+		`If you are about to present results or ask the user, block ${id} {reason: "user-decision", detail: "<what the user must decide>"} instead, then reply; start ${id} again when they answer.`,
+		previous ? `If the work ran in the task before it, abandon ${id} {supersededBy: "${previous}"} with a report.` : `If the task is not needed, abandon ${id} with a report.`,
+	].join("\n");
 }
