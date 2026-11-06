@@ -6,6 +6,7 @@
   "engines": { "node": ">=22.19.0" },
   "description": "Pi-native context visualization and reversible folding",
   "keywords": ["pi-package"],
+  "files": ["app", "brand", "conductors", "core", "docs", "extension", "extension/dist/client", "!**/node_modules", "!**/node_modules/**", "CONTRIBUTING.md", "VISION.md"],
   "scripts": {
     "build:client": "npm --prefix app ci --include=dev --ignore-scripts && npm --prefix app run build && node extension/build-client.mjs",
     "prepare": "npm run build:client"

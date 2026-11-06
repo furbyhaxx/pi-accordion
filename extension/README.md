@@ -107,7 +107,8 @@ need no prior Accordion state.
 
 The optional browser and desktop entry point is `/accordion web` (or `/accordion-web`), using
 memorable 8-character tokens (or a custom token) and an optional custom bind address (`ACCORDION_HOST`)
-with single-port Door session proxying. Git installs build browser assets automatically.
+with single-port Door session proxying. Git installs build browser assets automatically. The package
+excludes `.project/` development evidence, task-list state, worktrees and installed dependencies.
 If installation scripts were disabled, run `npm run build:client` from the repository root;
 see the [project README](https://github.com/furbyhaxx/pi-accordion).
 Only one surface may steer at a time; another surface may ask to take control.

@@ -225,8 +225,9 @@ if (TOKEN && TOKEN.length !== 8) fails.push(`expected an 8-char memorable token 
 
 	const COOKIE_NAME = `accordion_token_p${PORT}`;
 	if (TOKEN) {
-		const buildIndex = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "app", "build", "index.html");
-		if (fs.existsSync(buildIndex)) {
+		const here = path.dirname(fileURLToPath(import.meta.url));
+		const built = [path.resolve(here, "dist", "client", "index.html"), path.resolve(here, "..", "app", "build", "index.html")].some((file) => fs.existsSync(file));
+		if (built) {
 			const ok = await httpGet(`/?token=${TOKEN}`);
 			if (ok.status !== 200) fails.push(`GET /?token=<valid> returned ${ok.status}, expected 200`);
 			const setCookie = ok.headers["set-cookie"];
@@ -236,8 +237,14 @@ if (TOKEN && TOKEN.length !== 8) fails.push(`expected an 8-char memorable token 
 			if (wrongPortCookie.status !== 403) fails.push(`GET / with a wrong-port cookie returned ${wrongPortCookie.status}, expected 403`);
 			const viaCookie = await httpGet("/", { Cookie: `${COOKIE_NAME}=${TOKEN}` });
 			if (viaCookie.status !== 200) fails.push(`GET / with cookie auth returned ${viaCookie.status}, expected 200`);
+			const asset = ok.body.match(/href="(\/_app\/immutable\/entry\/[^" ]+\.js)"/)?.[1];
+			if (!asset) fails.push("the browser index did not reference a client entry asset");
+			else {
+				const js = await httpGet(asset, { Cookie: `${COOKIE_NAME}=${TOKEN}` });
+				if (js.status !== 200 || !js.body) fails.push(`authenticated client entry returned ${js.status} or an empty body`);
+			}
 		} else {
-			console.log("NOTE: app/build/index.html absent — skipping the index 200 assertion (meta + 403 still verified). Run `npm run build` in app/ to cover it.");
+			console.log("NOTE: browser build absent — skipping authenticated index and asset assertions (meta + 403 still verified). Run `npm run build:client` at the package root to cover them.");
 		}
 	}
 
