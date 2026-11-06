@@ -10,7 +10,7 @@
  *   [task-record] <list>/<id> "<title>"  status: done
  *   outcome / decisions / open      ← agent-written, from the finishing call's `report`
  *   changed / verified              ← derived from the span's own tool calls
- *   children                        ← one line per finished subtask
+ *   children                        ← composed finished subtask records
  *
  * User messages inside a span stay verbatim unless a classifier scores that losing them costs the
  * later work nothing (approvals, status checks, step steering, consumed facts, harness notices).
@@ -20,9 +20,8 @@
  * Cache economics: nothing is proposed below HIGH, and an epoch commits as ONE transaction, so the
  * prompt cache breaks once per epoch at the oldest folded span, never once per completed task.
  *
- * Monotone like keel-lite: it only proposes `group`, plus `ungroup` of its own child groups in the
- * same transaction that groups their parent. Every record carries its group's `{#code FOLDED}` tag,
- * so `recall`/`unfold` return the raw span.
+ * Folding proposes `group`, plus `ungroup` of absorbed child groups. Child handles remain recoverable
+ * across group boundaries; an agent unfold reopens the selected task and recompiles its siblings.
  */
 import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
@@ -110,6 +109,8 @@ export interface TaskSpan {
 	title: string;
 	status: "done" | "failed" | "abandoned" | null;
 	report: { outcome?: string; decisions?: string[]; open?: string[] };
+	acceptanceCriteria?: string[];
+	pins?: { kind: string; text: string; source: string }[];
 	start: number;
 	/** The finishing result's index, or the last block for an open span. */
 	end: number;
@@ -138,7 +139,7 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	blocks.forEach((b, i) => {
 		if (b.kind === "tool_result" && b.callId && b.toolName === "tasks") resultIdx.set(b.callId, i);
 	});
-	type State = { key: string; list: string; id: string; title: string; start: number; active: number | null; waiting: boolean; intervals: { start: number; end: number }[] };
+	type State = { key: string; list: string; id: string; title: string; start: number; active: number | null; waiting: boolean; intervals: { start: number; end: number }[]; acceptanceCriteria?: string[]; pins?: TaskSpan["pins"] };
 	const open = new Map<string, State>();
 	const out: TaskSpan[] = [];
 	const closeInterval = (s: State, end: number) => {
@@ -149,7 +150,7 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	const finish = (s: State, status: Span["status"], report: TaskSpan["report"], end: number) => {
 		closeInterval(s, end);
 		open.delete(s.key);
-		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, start: s.start, end, intervals: s.intervals });
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end, intervals: s.intervals });
 	};
 	blocks.forEach((b, i) => {
 		if (b.kind === "user") {
@@ -165,6 +166,13 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 		const id = args.id;
 		const key = `${list}/${id}`;
 		const details = blocks[ri].details && typeof blocks[ri].details === "object" ? blocks[ri].details as Record<string, unknown> : null;
+		const taskDetails = details?.task && typeof details.task === "object" ? details.task as Record<string, unknown> : null;
+		const updateMetadata = (s: State, source: unknown = taskDetails) => {
+			if (!source || typeof source !== "object") return;
+			const data = source as Record<string, unknown>;
+			if (Array.isArray(data.acceptanceCriteria) && data.acceptanceCriteria.every((v) => typeof v === "string")) s.acceptanceCriteria = data.acceptanceCriteria;
+			if (Array.isArray(data.pins) && data.pins.every((v) => v && typeof v.kind === "string" && typeof v.text === "string" && typeof v.source === "string")) s.pins = data.pins;
+		};
 		if (action === "start") {
 			for (const s of open.values()) if (s.waiting && !(key === s.key || key.startsWith(`${s.key}.`))) closeInterval(s, i - 1);
 			const lines = textOf(blocks[ri]).split("\n");
@@ -178,6 +186,7 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 				const s = typeof c.id === "string" ? open.get(`${list}/${c.id}`) : undefined;
 				if (!s || (c.status !== "done" && c.status !== "failed")) continue;
 				if (!s.title && typeof c.title === "string") s.title = c.title;
+				updateMetadata(s, c);
 				finish(s, c.status, c.report ?? { outcome: "Closed automatically after its subtasks." }, Math.max(s.start, i - 1));
 			}
 			const parents = lines.flatMap((line) => {
@@ -195,6 +204,8 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 					if (existing.active === null) existing.active = i;
 				} else open.set(skey, { key: skey, list, id: startedId, title: startedId === id ? title : parents.find((p) => p.id === startedId)?.title ?? "", start: i, active: i, waiting: false, intervals: [] });
 			}
+			const startedTask = open.get(key);
+			if (startedTask) updateMetadata(startedTask);
 		} else if (action === "block") {
 			for (const s of open.values()) if (s.key === key || key.startsWith(`${s.key}.`)) s.waiting = true;
 		} else if (FINISH[action]) {
@@ -204,19 +215,29 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 			});
 			for (const item of cascaded) {
 				if (!item || typeof item !== "object") continue;
-				const c = item as { id?: unknown; report?: TaskSpan["report"] };
-				const s = typeof c.id === "string" ? open.get(`${list}/${c.id}`) : undefined;
-				if (s) finish(s, "abandoned", c.report ?? {}, ri);
+				const c = item as { id?: unknown; title?: unknown; report?: TaskSpan["report"] };
+				if (typeof c.id !== "string") continue;
+				const childKey = `${list}/${c.id}`;
+				const s = open.get(childKey);
+				if (s) {
+					updateMetadata(s, c);
+					finish(s, "abandoned", c.report ?? {}, ri);
+				} else if (typeof c.title === "string") {
+					const state: State = { key: childKey, list, id: c.id, title: c.title, start: i, active: null, waiting: false, intervals: [] };
+					updateMetadata(state, c);
+					finish(state, "abandoned", c.report ?? {}, ri);
+				}
 			}
 			const s = open.get(key);
 			if (!s) return;
 			const report = (args.report && typeof args.report === "object" ? args.report : {}) as TaskSpan["report"];
+			updateMetadata(s);
 			finish(s, FINISH[action], report, ri);
 		}
 	});
 	for (const s of open.values()) {
 		closeInterval(s, blocks.length - 1);
-		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status: null, report: {}, start: s.start, end: blocks.length - 1, intervals: s.intervals });
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status: null, report: {}, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end: blocks.length - 1, intervals: s.intervals });
 	}
 	return out;
 }
@@ -229,10 +250,12 @@ export function ageRecord(summary: string, level: 1 | 2): string | null {
 	const m = /^(\{#[0-9a-z]{6} FOLDED\}) \[task-(record|archived)\] (\S+) "(.*)"\s+status: (\w+)/.exec(summary);
 	if (!m) return null;
 	const [, tag, kind, key, title, status] = m;
-	if (level === 1 && !summary.includes("\n")) return summary;
-	if (level === 2 || kind === "archived") return `${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall the code for its record and transcript.`;
+	if (level === 1 && !/^outcome: /m.test(summary)) return summary;
+	const tags = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((t) => t !== tag);
+	const suffix = tags.length ? ` · handles: ${tags.join(" ")}` : "";
+	if (level === 2 || kind === "archived") return `${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall the code for its record and transcript.${suffix}`;
 	const outcome = /^outcome: (.*)$/m.exec(summary)?.[1];
-	return `${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""}`;
+	return `${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""}${suffix}`;
 }
 
 /** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */
@@ -303,6 +326,7 @@ export class TaskfoldConductor implements Conductor {
 	private pending = false;
 	/** Our groups: group id → span key (`<list>/<id>`). */
 	private readonly ownGroups = new Map<string, string>();
+	private readonly agentOpen = new Set<string>();
 	/** User block id → verdict; computed once and never recomputed, kept across resumes by the ledger. */
 	private readonly verdicts: VerdictLedger;
 	private readonly classifying = new Set<string>();
@@ -327,6 +351,7 @@ export class TaskfoldConductor implements Conductor {
 		this.host?.setStatus(null);
 		this.host = null;
 		this.ownGroups.clear();
+		this.agentOpen.clear();
 		this.classifying.clear();
 		this.busy = false;
 		this.pending = false;
@@ -343,11 +368,51 @@ export class TaskfoldConductor implements Conductor {
 				return this.evaluate();
 			case "turn-committed":
 				return this.evaluate();
-			case "state-changed":
+			case "state-changed": {
+				const unfolded = e.changes.filter((c) => c.by === "agent" && c.what === "ungroup" && c.id && c.groupId);
+				if (unfolded.length) return this.reconcileAgentUnfold(unfolded.map((c) => ({ id: c.id!, groupId: c.groupId! })));
 				if (this.busy || e.changes.every((c) => c.by === "auto")) return;
 				return this.evaluate();
+			}
 			default:
 				return;
+		}
+	}
+
+	private async reconcileAgentUnfold(changes: { id: string; groupId: string }[]): Promise<void> {
+		const host = this.host;
+		if (!host) return;
+		const groups = host.groups();
+		const owners = new Set<string>();
+		for (const change of changes) {
+			const carrier = groups.find((g) => g.handles?.some((h) => h.id === change.id));
+			const owner = carrier ? taskKeyOfSummary(carrier.summary) : taskKeyOfSummary(groups.find((g) => g.id === change.groupId)?.summary);
+			if (owner) owners.add(owner);
+			if (change.id.startsWith("t:")) this.agentOpen.add(change.id.slice(2));
+			else if (owner && carrier) {
+				const ids = new Set(carrier.handles?.find((h) => h.id === change.id)?.memberIds ?? []);
+				const blocks = host.blocks();
+				const matching = this.spans(blocks).filter((s) => s.key.startsWith(`${owner}.`) && s.intervals.some((r) => blocks.slice(r.start, r.end + 1).some((b) => ids.has(b.id))));
+				const leaves = matching.filter((s) => !matching.some((other) => other.key.startsWith(`${s.key}.`)));
+				if (leaves.length) for (const s of leaves) this.agentOpen.add(s.key);
+				else this.agentOpen.add(owner);
+			} else if (owner) this.agentOpen.add(owner);
+		}
+		const ops: Op[] = groups.filter((g) => g.by === "auto" && owners.has(taskKeyOfSummary(g.summary) ?? "")).map((g) => ({ kind: "ungroup", groupId: g.id }));
+		if (!ops.length) return;
+		this.busy = true;
+		try {
+			const result = await host.propose({ baseRev: host.stats().rev, ops });
+			if (result.results.some((r) => !r.applied)) host.setStatus("Could not recompose the unfolded task; its groups remain open.", { level: "warning" });
+		} catch (error) {
+			host.setStatus(`Could not recompose the unfolded task: ${error instanceof Error ? error.message : String(error)}`, { level: "warning" });
+		} finally {
+			this.busy = false;
+			if (this.host === host) {
+				this.adoptGroups(host);
+				const plan = this.plan(host, owners);
+				if (plan.length) void this.commit(host, plan);
+			}
 		}
 	}
 
@@ -457,22 +522,22 @@ export class TaskfoldConductor implements Conductor {
 		return this.commit(host, plan);
 	}
 
-	private plan(host: ConductorHost): Unit[] {
+	private plan(host: ConductorHost, recompose?: ReadonlySet<string>): Unit[] {
 		const blocks = host.blocks();
 		const stats = host.stats();
-		const spans = this.spans(blocks);
+		const spans = this.spans(blocks).filter((s) => ![...this.agentOpen].some((key) => s.key === key || s.key.startsWith(`${key}.`) || key.startsWith(`${s.key}.`)));
 		const contains = (outer: Span, inner: Span) => inner.key.startsWith(`${outer.key}.`);
 		// Outermost finished spans are the fold units; finished descendants fold inside them.
 		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(this.ownGroups.values());
 		// Oldest first: the newest finished work stays open longest, and the cache breaks once, early.
-		const candidates = roots.slice(0, Math.max(0, roots.length - this.k.keepRecentTasks)).filter((s) => !foldedKeys.has(s.key));
+		const candidates = (recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.slice(0, Math.max(0, roots.length - this.k.keepRecentTasks))).filter((s) => !foldedKeys.has(s.key));
 		const units: Unit[] = [];
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
 		const planned = new Set<string>();
 		for (const span of candidates) {
-			if (projected <= target) break;
+			if (!recompose && projected <= target) break;
 			const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)), planned);
 			if (!unit) continue;
 			units.push(unit);
@@ -480,7 +545,7 @@ export class TaskfoldConductor implements Conductor {
 			projected -= unit.saved;
 		}
 		// Folding every finished span was not enough: age the oldest records instead (see `ageRecord`).
-		if (projected > target) {
+		if (!recompose && projected > target) {
 			const touched = new Set(units.flatMap((u) => u.ops.flatMap((op) => (op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : []))));
 			units.push(...this.ladder(host, blocks, projected - target, touched));
 		}
@@ -516,16 +581,15 @@ export class TaskfoldConductor implements Conductor {
 		return ours
 			.filter((g) => aged.has(g.id))
 			.map((g) => ({
-				ops: [{ kind: "ungroup", groupId: g.id } as Op, { kind: "group", ids: g.memberIds.slice(), summary: aged.get(g.id)! } as Op],
+				ops: [{ kind: "ungroup", groupId: g.id } as Op, { kind: "group", ids: g.memberIds.slice(), summary: aged.get(g.id)!, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) } as Op],
 				keys: [this.ownGroups.get(g.id)!],
-				restore: [{ kind: "group", ids: g.memberIds.slice(), summary: g.summary! } as Op],
+				restore: [{ kind: "group", ids: g.memberIds.slice(), summary: g.summary!, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) } as Op],
 				saved: host.countTokens(g.summary!) - host.countTokens(aged.get(g.id)!),
 			}));
 	}
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
 	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): Unit | null {
-		if (span.intervals.length !== 1 || children.some((child) => child.intervals.length !== 1)) return null;
 		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
@@ -556,60 +620,101 @@ export class TaskfoldConductor implements Conductor {
 		}
 		if (lo > hi) return null;
 		const members = blocks.slice(lo, hi + 1);
-		if (members.some((b) => b.protected || b.held || b.kind === "system" || foreign(b))) return null;
-
-		const memberIds = new Set(members.map((m) => m.id));
-		const ours = host.groups().filter((g) => this.ownGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id)));
-		const oursIds = new Set(ours.flatMap((g) => g.memberIds));
-
-		const runs: ViewBlock[][] = [];
-		let run: ViewBlock[] = [];
-		for (const b of members) {
-			if (b.kind === "user" && !this.folds(b)) {
-				if (run.length) runs.push(run);
-				run = [];
-				continue;
-			}
-			run.push(b);
+		const allowed = new Set<number>();
+		for (const interval of span.intervals) {
+			let a = interval.start;
+			let z = interval.end;
+			while (a > 0 && sameMsg(a - 1, a)) a--;
+			while (z < blocks.length - 1 && sameMsg(z + 1, z)) z++;
+			for (let i = Math.max(lo, a); i <= Math.min(hi, z); i++) allowed.add(i);
 		}
-		if (run.length) runs.push(run);
-		const viable = runs.filter((r) => collapsibleMessageKeys(r, true).size > 0);
+		const excludedGroups = new Set<string>();
+		const makeRuns = (): ViewBlock[][] => {
+			const runs: ViewBlock[][] = [];
+			let run: ViewBlock[] = [];
+			for (let i = lo; i <= hi; i++) {
+				const b = blocks[i];
+				const gid = groupOf.get(b.id);
+				if (!allowed.has(i) || foreign(b) || (gid && excludedGroups.has(gid)) || b.protected || b.held || b.kind === "system" || (b.kind === "user" && !this.folds(b))) {
+					if (run.length) runs.push(run);
+					run = [];
+				} else run.push(b);
+			}
+			if (run.length) runs.push(run);
+			return runs.filter((r) => collapsibleMessageKeys(r, true).size > 0);
+		};
+		let viable = makeRuns();
+		for (const g of host.groups()) {
+			if (!childKey(this.ownGroups.get(g.id))) continue;
+			const matching = viable.filter((r) => r.some((b) => g.memberIds.includes(b.id)));
+			if (matching.length && (matching.length !== 1 || g.memberIds.some((id) => !matching[0].some((b) => b.id === id)))) excludedGroups.add(g.id);
+		}
+		if (excludedGroups.size) viable = makeRuns();
 		if (!viable.length) return null;
+		const memberIds = new Set(viable.flatMap((r) => r.map((b) => b.id)));
+		const positions = new Map(blocks.map((b, i) => [b.id, i]));
+		const ours = host.groups().filter((g) => childKey(this.ownGroups.get(g.id)) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
 
-		const record = this.record(span, members, children);
+		const included = new Set(viable.flatMap((r) => r.map((b) => b.id)));
+		const spanHandle = (task: Span) => ({ id: `t:${task.key}`, memberIds: blocks.filter((_b, i) => task.intervals.some((r) => r.start <= i && i <= r.end)).map((b) => b.id) });
+		const covered = (h: { memberIds: string[] }) => h.memberIds.every((id) => included.has(id) || members.some((b) => b.id === id && b.kind === "user" && !this.folds(b)));
+		const rootHandle = spanHandle(span);
+		const handles = [...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle), ...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] })))];
+		const unique = [...new Map(handles.map((h) => [h.id, h])).values()];
+		if (unique.some((h) => !covered(h))) return null;
+		const aliases = unique.filter((h) => h.id.startsWith("g:")).map((h) => foldTag(h.id));
+		const prior = new Map<string, string>();
+		for (const g of ours) {
+			const key = taskKeyOfSummary(g.summary);
+			if (key && typeof g.summary === "string" && !g.summary.includes(PART_TAG)) prior.set(key, g.summary);
+		}
+		const body = this.record(span, blocks, children, covered(rootHandle), prior);
+		const missingAliases = aliases.filter((tag) => !body.includes(tag));
+		const record = `${body}${missingAliases.length ? `\nearlier handles: ${missingAliases.join(" ")}` : ""}`;
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
-		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary }) as Op);
+		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) }) as Op);
 		let saved = 0;
 		viable.forEach((r, i) => {
 			const gid = `g:${r[0].id}`;
 			const last = i === viable.length - 1;
 			const body = last ? record : `${PART_TAG} ${span.key} "${span.title}" part ${i + 1}/${viable.length}; the task record follows the kept message(s) below.`;
 			const summary = `${foldTag(gid)} ${body}`;
-			ops.push({ kind: "group", ids: r.map((b) => b.id), summary });
-			const full = r.reduce((n, b) => n + (oursIds.has(b.id) ? b.foldedTokens : b.tokens), 0);
-			saved += Math.max(0, full - host.countTokens(summary));
+			ops.push({ kind: "group", ids: r.map((b) => b.id), summary, ...(last && unique.length ? { handles: unique } : {}) });
+			const collapsible = collapsibleMessageKeys(r, true);
+			const current = r.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
+			saved += Math.max(0, current - host.countTokens(summary));
 		});
 		return { ops, keys: viable.map(() => span.key), restore, saved };
 	}
 
-	/** The fixed-shape record for a span. Deterministic fields come from the span's own tool traffic. */
-	record(span: Span, members: readonly ViewBlock[], children: readonly Span[]): string {
+	/** The fixed-shape record for a span, with descendant records kept intact. */
+	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], exposeHandle = true, prior: ReadonlyMap<string, string> = new Map()): string {
 		const lines = [`${RECORD_TAG} ${span.key} "${span.title}"  status: ${span.status}`];
-		if (span.report.outcome) lines.push(`outcome: ${oneLine(span.report.outcome, 600)}`);
+		if (exposeHandle) lines.push(`handle: ${foldTag(`t:${span.key}`)}`);
 		const list = (name: string, items: readonly string[] | undefined) => {
-			if (items?.length) lines.push(`${name}:`, ...items.map((x) => `  - ${oneLine(x, 240)}`));
+			if (items?.length) lines.push(`${name}:`, ...items.map((x) => `  - ${x}`));
 		};
+		list("acceptance criteria", span.acceptanceCriteria);
+		if (span.report.outcome) lines.push(`outcome: ${span.report.outcome}`);
 		list("decisions", span.report.decisions);
-
-		const { changed, verified } = recordFacts(members, (b) => this.textOf(b));
+		list("pins", span.pins?.map((p) => `${p.kind}: ${p.text} (${p.source})`));
+		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
+		const own = blocks.filter((_b, i) => inside(span, i) && !children.some((c) => inside(c, i)));
+		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
 		if (changed.length) lines.push(`changed: ${changed.slice(0, 20).join(", ")}${changed.length > 20 ? `, +${changed.length - 20} more` : ""}`);
 		list("verified", verified.slice(-5));
 		list("open", span.report.open);
-		const direct = children.filter((c) => !children.some((o) => o !== c && o.start <= c.start && c.end <= o.end));
-		list(
-			"children",
-			direct.map((c) => `${c.id} "${c.title}" ${c.status}${c.report.outcome ? `: ${c.report.outcome}` : ""}`),
-		);
+		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)));
+		if (direct.length) {
+			lines.push("children:");
+			for (const child of direct) {
+				const descendants = children.filter((c) => c.key.startsWith(`${child.key}.`));
+				const tag = foldTag(`t:${child.key}`);
+				const existing = prior.get(child.key);
+				const content = existing ? `${existing}${child.intervals.length && !existing.includes(tag) ? `\nhandle: ${tag}` : ""}` : `${child.intervals.length ? `${tag} ` : ""}${this.record(child, blocks, descendants, false, prior)}`;
+				lines.push(...content.split("\n").map((line) => `  ${line}`));
+			}
+		}
 		return lines.join("\n");
 	}
 
@@ -622,17 +727,21 @@ export class TaskfoldConductor implements Conductor {
 			let at = 0;
 			let applied = 0;
 			let saved = 0;
+			const undo: Op[] = [];
 			const restore: Op[] = [];
-			const restoreKeys: string[] = [];
+			let rollbackFailed = false;
 			for (const u of units) {
 				const rs = res.results.slice(at, at + u.ops.length);
 				at += u.ops.length;
 				let gi = 0;
 				let unitApplied = 0;
+				const appliedGroups: string[] = [];
+				const removedGroups = new Set<string>();
 				let failed = false;
 				for (const r of rs) {
 					if (r.op.kind === "ungroup") {
-						if (r.applied) this.ownGroups.delete(r.op.groupId);
+						if (r.applied) { this.ownGroups.delete(r.op.groupId); removedGroups.add(r.op.groupId); }
+						else failed = true;
 						continue;
 					}
 					if (r.op.kind !== "group") continue;
@@ -641,36 +750,40 @@ export class TaskfoldConductor implements Conductor {
 						failed = true;
 						continue;
 					}
-					this.ownGroups.set(r.detail ?? `g:${r.op.ids[0]}`, key);
+					const gid = r.detail ?? `g:${r.op.ids[0]}`;
+					this.ownGroups.set(gid, key);
+					appliedGroups.push(gid);
 					unitApplied++;
 				}
-				applied += unitApplied;
+				if (!failed) applied += unitApplied;
 				if (unitApplied && !failed) saved += u.saved;
-				// A parent that did not fold must not leave its children unfolded: put their groups back.
-				if (failed && u.restore.length) {
-					restore.push(...u.restore);
-					for (const op of u.restore) if (op.kind === "group") restoreKeys.push(taskKeyOfSummary(op.summary) ?? "");
+				if (failed) {
+					undo.push(...appliedGroups.map((groupId) => ({ kind: "ungroup" as const, groupId })));
+					restore.push(...u.restore.filter((op) => op.kind === "group" && removedGroups.has(`g:${op.ids[0]}`)));
 				}
 			}
-			if (restore.length) {
-				const back = await host.propose({ baseRev: host.stats().rev, ops: restore });
+			if (undo.length || restore.length) {
+				const back = await host.propose({ baseRev: host.stats().rev, ops: [...undo, ...restore] });
 				if (this.host !== host) return;
-				back.results.forEach((r, i) => {
-					if (r.applied && r.op.kind === "group") this.ownGroups.set(r.detail ?? `g:${r.op.ids[0]}`, restoreKeys[i]);
-				});
+				rollbackFailed = back.results.some((r) => !r.applied);
+				for (const r of back.results) {
+					if (!r.applied) continue;
+					if (r.op.kind === "ungroup") this.ownGroups.delete(r.op.groupId);
+					else if (r.op.kind === "group") this.ownGroups.set(r.detail ?? `g:${r.op.ids[0]}`, taskKeyOfSummary(r.op.summary) ?? "");
+				}
 			}
 			this.epochs++;
 			const s = host.stats();
 			const unclassified = this.classifyFailures ? `; ${this.classifyFailures} user message(s) unclassified, kept` : "";
-			host.setStatus(`Epoch ${this.epochs}: folded ${applied} task group(s), ~${saved} tokens${unclassified}.`, {
+			host.setStatus(rollbackFailed ? `Taskfold could not restore every group after a rejected fold; inspect the context.` : `Epoch ${this.epochs}: folded ${applied} task group(s), ~${saved} tokens${unclassified}.`, {
 				epochs: this.epochs,
 				groups: this.ownGroups.size,
 				live_tokens: s.liveTokens,
 				budget: s.budget,
-				...(this.classifyFailures ? { level: "warning" } : {}),
+				...(rollbackFailed ? { level: "error" } : this.classifyFailures ? { level: "warning" } : {}),
 			});
-		} catch {
-			/* a rejected propose leaves state unchanged; the next event re-plans */
+		} catch (error) {
+			if (this.host === host) host.setStatus(`Taskfold could not commit its plan: ${error instanceof Error ? error.message : String(error)}`, { level: "error" });
 		} finally {
 			this.busy = false;
 			if (this.pending && this.host === host) {

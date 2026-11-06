@@ -36,6 +36,7 @@ export function viewBlockOf(truth: Truth, b: Block): ViewBlock {
 		tokens: truth.calBlockTokens(b, b.tokens),
 		rawTokens: b.tokens,
 		foldedTokens: truth.calBlockTokens(b, truth.foldedTokensOf(b)),
+		liveTokens: truth.calBlockTokens(b, truth.effTokens(b)),
 		toolName: b.toolName,
 		callId: b.callId,
 		isError: b.isError,
@@ -79,7 +80,7 @@ export function stateChangeFromOp(op: Op, by: Actor): StateChange | null {
 		case "foldGroup":
 			return { groupId: op.groupId, what: "group", by };
 		case "unfoldGroup":
-			return { groupId: op.groupId, what: "ungroup", by };
+			return { groupId: op.groupId, ...(op.handleId ? { id: op.handleId } : {}), what: "ungroup", by };
 		case "resetAll":
 			return { what: "unfold", by };
 		case "freeze":

@@ -7,6 +7,7 @@ import { TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary } from ".
 import { TestHost } from "../../../core/conductor/testhost";
 import { VERDICT_ENTRY, VerdictLedger, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
+import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
 
 class Session {
@@ -208,6 +209,7 @@ describe("taskfold", () => {
 		const host = setup(s, 0.75);
 		const c = await attach(host);
 		const child = groupOf(host, childStart)!;
+		const oldChildCode = foldCode(child.id);
 		expect(child.summary).toContain("[task-record] work/1.1");
 		expect(groupOf(host, parentStart)).toBeUndefined();
 
@@ -222,9 +224,182 @@ describe("taskfold", () => {
 		const parent = groupOf(host, parentStart)!;
 		expect(parent.memberIds).toEqual(expect.arrayContaining([childStart, childEnd, parentEnd]));
 		expect(parent.summary).toContain("[task-record] work/1 ");
-		expect(parent.summary).toContain('children:\n  - 1.1 "Extract token store" done: Token store extracted.');
-		expect(host.groups().filter((g) => g.summary?.includes("[task-record] work/1.1"))).toHaveLength(0);
+		for (const line of child.summary!.split("\n")) expect(parent.summary).toContain(`  ${line}`);
+		expect(parent.summary).toContain(foldTag("t:work/1.1"));
+		expect(parent.summary).toContain("outcome: Token store extracted.");
+		expect(groupOf(host, childStart)?.id).toBe(parent.id);
+		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
+		expect(recalled.missing).toEqual([]);
+		expect(recalled.restored[0].ids).toContain(childStart);
+		expect(recalled.restored[0].ids).toContain(childEnd);
+		expect(resolveRecall(host.truth, [oldChildCode]).missing).toEqual([]);
 		c.detach();
+	});
+
+	it("does not recreate full detail when an already-aged child is absorbed", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		const child = s.start("1.1", "Child").call;
+		s.work(2, "child");
+		s.finish("1.1", { outcome: "done", decisions: ["Aged detail"] });
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		const old = groupOf(host, child)!;
+		const aged = ageRecord(old.summary!, 1)!;
+		host.truth.apply([{ kind: "ungroup", groupId: old.id }, { kind: "group", ids: [...old.memberIds], summary: aged, handles: old.handles?.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) }], "auto");
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		more.finish("1", { outcome: "parent done" });
+		more.work(3, "tail2");
+		host.appendBlocks(more.blocks);
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		await host.commitTurn();
+		const summary = groupOf(host, parent)?.summary ?? "";
+		expect(summary).toContain(aged);
+		expect(summary).not.toContain("Aged detail");
+		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+	});
+
+	it("composes complete child reports and preserves child handles across a kept user message", async () => {
+		const s = new Session();
+		s.user("Refactor auth.");
+		const parentStart = s.start("1", "Auth").call;
+		const childStart = s.start("1.1", "Store").call;
+		s.call("edit", { path: "child.ts" }, "edited");
+		const message = s.user("Keep the interface stable.");
+		s.work(1, "child");
+		const childEnd = s.finish("1.1", { outcome: "Store ready", decisions: ["Keep interface — clients rely on it"], open: ["Refresh still untested"] }).result;
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		const firstCode = foldCode(groupOf(host, childStart)!.id);
+		const lastCode = foldCode(groupOf(host, childEnd)!.id);
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		more.call("edit", { path: "parent.ts" }, "edited");
+		const parentEnd = more.finish("1", { outcome: "Auth ready" }).result;
+		more.work(3, "tail2");
+		host.appendBlocks(more.blocks);
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		await host.commitTurn();
+		const record = groupOf(host, parentEnd)!;
+		expect(groupOf(host, parentStart)?.summary).toContain("[task-part] work/1");
+		expect(record.summary).toContain("Keep interface — clients rely on it");
+		expect(record.summary).toContain("Refresh still untested");
+		expect(record.summary).toContain("changed: parent.ts");
+		expect(record.summary).toContain("changed: child.ts");
+		expect(groupOf(host, message)).toBeUndefined();
+		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1"), firstCode, lastCode]);
+		expect(recalled.missing).toEqual([]);
+		expect(recalled.restored.find((r) => r.code === foldCode("t:work/1.1"))?.ids).toContain(message);
+	});
+
+	it("keeps nested child records and precise descendant recall in a folded three-level tree", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		s.start("1.1", "First child");
+		const leaf = s.start("1.1.1", "Leaf").call;
+		s.call("edit", { path: "leaf.ts" }, "edited");
+		s.finish("1.1.1", { outcome: "Leaf done", decisions: ["A — reason"] });
+		s.finish("1.1", { outcome: "First done", open: ["Pending review"] });
+		for (const id of ["1.2", "1.3"]) {
+			s.start(id, `Child ${id}`);
+			s.work(1, id);
+			s.finish(id, { outcome: `${id} done` });
+		}
+		s.finish("1", { outcome: "Parent done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		const summary = groupOf(host, parent)?.summary ?? "";
+		for (const id of ["1.1", "1.1.1", "1.2", "1.3"]) expect(summary).toContain(foldTag(`t:work/${id}`));
+		expect(summary).toContain("A — reason");
+		expect(summary).toContain("Pending review");
+		expect(summary).toContain("changed: leaf.ts");
+		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1.1")]);
+		expect(recalled.missing).toEqual([]);
+		expect(recalled.restored[0].ids).toContain(leaf);
+		expect(recalled.restored[0].ids).not.toContain(parent);
+	});
+
+	it("rolls back partial parent groups and restores children when its record is rejected", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		const child = s.start("1.1", "Child").call;
+		s.work(1, "child");
+		s.finish("1.1", { outcome: "done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		const old = groupOf(host, child)!;
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		more.user("Preserve this message.");
+		more.work(1, "parent");
+		more.finish("1", { outcome: "parent done" });
+		more.work(3, "tail2");
+		host.setBudget(host.stats().liveTokens * 10);
+		host.appendBlocks(more.blocks);
+		const propose = host.propose.bind(host);
+		host.propose = async (txn) => {
+			const index = txn.ops.findIndex((op) => op.kind === "group" && typeof op.summary === "string" && op.summary.includes('[task-record] work/1 "Parent"'));
+			if (index < 0) return propose(txn);
+			const result = await propose({ ...txn, ops: txn.ops.filter((_op, i) => i !== index) });
+			result.results.splice(index, 0, { op: txn.ops[index], applied: false, clamped: "invalid-group" });
+			return result;
+		};
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		await host.commitTurn();
+		expect(groupOf(host, parent)).toBeUndefined();
+		expect(groupOf(host, child)?.id).toBe(old.id);
+		expect(groupOf(host, child)?.summary).toBe(old.summary);
+	});
+
+	it("unfolds one child while refolding its siblings, even below the pressure threshold", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		const first = s.start("1.1", "First").call;
+		s.work(1, "first");
+		s.finish("1.1", { outcome: "First done" });
+		const second = s.start("1.2", "Second").call;
+		s.work(1, "second");
+		s.finish("1.2", { outcome: "Second done" });
+		s.finish("1", { outcome: "Parent done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		expect(groupOf(host, parent)?.summary).toContain('[task-record] work/1 ');
+		host.setBudget(host.stats().liveTokens * 10);
+		expect(resolveUnfold(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(groupOf(host, parent)).toBeUndefined();
+		expect(groupOf(host, first)).toBeUndefined();
+		expect(groupOf(host, second)?.summary).toContain('[task-record] work/1.2 ');
+	});
+
+	it("includes criteria, exact pinned text and unstarted cascaded children without fake handles", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Parent");
+		s.work(1, "parent");
+		const end = s.finish("1", { outcome: "Cannot continue" }, "fail");
+		s.blocks.find((b) => b.id === end.result)!.details = {
+			task: { acceptanceCriteria: ["All checks pass"], pins: [{ kind: "rule", text: "Keep\nthis exactly", source: "user" }] },
+			cascaded: [{ id: "1.1", title: "Not started", status: "abandoned", report: { outcome: "Abandoned with parent" } }],
+		};
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		const summary = groupOf(host, end.result)?.summary;
+		expect(summary).toContain("acceptance criteria:\n  - All checks pass");
+		expect(summary).toContain("Keep\nthis exactly");
+		expect(summary).toContain('[task-record] work/1.1 "Not started"  status: abandoned');
+		expect(summary).not.toContain(foldTag("t:work/1.1"));
 	});
 
 	it("ignores a rejected finish call", async () => {
@@ -318,8 +493,12 @@ describe("taskfold", () => {
 		s.work(3, "tail");
 		const host = setup(s);
 		await attach(host);
-		expect(groupOf(host, start)).toBeUndefined();
+		expect(groupOf(host, start)?.summary).toContain("[task-part] work/1");
 		expect(groupOf(host, other)?.summary).toContain("[task-record] work/2");
+		const recalled = resolveRecall(host.truth, [foldCode("t:work/1")]);
+		expect(recalled.missing).toEqual([]);
+		expect(recalled.restored[0].ids).toContain(start);
+		expect(recalled.restored[0].ids).not.toContain(other);
 	});
 
 	it("uses persisted task details to identify automatic closures and cascaded abandons", () => {
@@ -425,6 +604,7 @@ describe("taskfold", () => {
 		await host.commitTurn();
 		const summaries = starts.map((id) => groupOf(host, id)?.summary ?? "");
 		expect(summaries[0]).not.toContain("\n");
+		expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
 		expect(summaries[3]).toContain("\noutcome: 4 done");
 		expect(summaries.every((x, i) => taskKeyOfSummary(x) === `work/${i + 1}`)).toBe(true);
 		c.detach();

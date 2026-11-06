@@ -54,7 +54,7 @@ export type Op =
 	/** Collapse an existing (open) group. */
 	| { kind: "foldGroup"; groupId: string }
 	/** Expand a folded group. */
-	| { kind: "unfoldGroup"; groupId: string }
+	| { kind: "unfoldGroup"; groupId: string; handleId?: string }
 	/** Clear every override + strategy fold AND dissolve every group — back to raw. */
 	| { kind: "resetAll" }
 	/** Conductor-detach kill switch (Phase C). Host-only — issued on conductor detach BEFORE
@@ -199,8 +199,9 @@ export function isValidOp(op: unknown): op is Op {
 			return typeof o.id === "string" && typeof o.content === "string" && (o.recoverable === undefined || typeof o.recoverable === "boolean");
 		case "ungroup":
 		case "foldGroup":
-		case "unfoldGroup":
 			return typeof o.groupId === "string";
+		case "unfoldGroup":
+			return typeof o.groupId === "string" && (o.handleId === undefined || typeof o.handleId === "string");
 		case "resetAll":
 		case "freeze":
 			return true;

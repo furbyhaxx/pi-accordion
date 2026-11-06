@@ -102,7 +102,7 @@ export function resolveUnfold(truth: Truth, codes: string[]): { restored: Unfold
 				const owner = block ? truth.groupOf(block) : undefined;
 				if (owner?.folded) groups.set(owner.id, owner);
 			}
-			truth.apply([...groups.values()].map((g) => ({ kind: "unfoldGroup" as const, groupId: g.id })), "agent");
+			truth.apply([...groups.values()].map((g) => ({ kind: "unfoldGroup" as const, groupId: g.id, handleId: handle.id })), "agent");
 			if ([...groups.keys()].some((id) => truth.groupById(id)?.folded)) continue;
 			const ids = [...new Set([...groups.values()].flatMap((g) => g.memberIds))];
 			restored.push({ code, kind: "text", label: `task ${handle.id}`, ids });

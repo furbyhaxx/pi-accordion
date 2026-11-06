@@ -1675,7 +1675,7 @@ export class Truth {
 
 	/** A handle may cross recoverable automatic groups and user messages that remain visible. */
 	canRecallHandle(g: Group, handle: GroupHandle): boolean {
-		if (!(g.by === "auto" || g.autoOrigin) || !g.folded || !/^t:[a-z0-9][a-z0-9-]*\/[1-9]\d*(?:\.[1-9]\d*)*$/.test(handle.id)) return false;
+		if (!(g.by === "auto" || g.autoOrigin) || !g.folded || !(/^t:[a-z0-9][a-z0-9-]*\/[1-9]\d*(?:\.[1-9]\d*)*$/.test(handle.id) || /^g:.+/.test(handle.id))) return false;
 		if (!this.groupSummary(g).includes(foldTag(handle.id)) || !handle.memberIds.length) return false;
 		const own = new Set(g.memberIds);
 		let previous = -1;

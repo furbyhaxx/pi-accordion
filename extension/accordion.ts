@@ -4010,8 +4010,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const details: TasksDetails = {
 					...tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered),
 					...(run.started.length ? { started: run.started } : {}),
-					...(run.closed.length ? { closed: run.closed.map(({ id, title, status, report }) => ({ id, title, status, report })) } : {}),
-					...(run.cascaded.length ? { cascaded: run.cascaded.map(({ id, title, status, report }) => ({ id, title, status, report })) } : {}),
+					...(run.closed.length ? { closed: run.closed.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria, pins })) } : {}),
+					...(run.cascaded.length ? { cascaded: run.cascaded.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria, pins })) } : {}),
 				};
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {

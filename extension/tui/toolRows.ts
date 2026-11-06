@@ -36,8 +36,8 @@ export interface TasksDetails {
 	/** Ids that changed because `add` inserted or `move` moved unstarted tasks. */
 	renumbered?: Renumbering[];
 	started?: string[];
-	closed?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] } }[];
-	cascaded?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] } }[];
+	closed?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] }; acceptanceCriteria?: string[]; pins?: TaskList["pins"] }[];
+	cascaded?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] }; acceptanceCriteria?: string[]; pins?: TaskList["pins"] }[];
 }
 
 /** The structured row data for a finished `tasks` call, read back from the list it touched. */

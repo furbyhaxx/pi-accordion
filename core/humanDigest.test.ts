@@ -84,6 +84,7 @@ describe("cross-group task handles", () => {
 		const summary = `${foldTag(gid2)} parent ${foldTag(id)} child`;
 		expect(t.apply([{ kind: "group", ids: ["a:r2:p0"], summary, handles: [{ id, memberIds: ["a:r1:p0", "u:2", "a:r2:p0"] }] }], "auto").results[0].applied).toBe(true);
 		t.apply([{ kind: "freeze" }], "auto");
+		expect(resolveRecall(hydrateSnapshot(META, serializeSnapshot(t, true)), [foldCode(id)]).missing).toEqual([]);
 		expect(resolveRecall(t, [foldCode(id)]).missing).toEqual([]);
 		expect(resolveUnfold(t, [foldCode(id)]).missing).toEqual([]);
 		expect(t.groupById(gid1)?.folded).toBe(false);

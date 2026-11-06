@@ -1798,7 +1798,7 @@ var Truth = class _Truth {
   }
   /** A handle may cross recoverable automatic groups and user messages that remain visible. */
   canRecallHandle(g, handle) {
-    if (!(g.by === "auto" || g.autoOrigin) || !g.folded || !/^t:[a-z0-9][a-z0-9-]*\/[1-9]\d*(?:\.[1-9]\d*)*$/.test(handle.id)) return false;
+    if (!(g.by === "auto" || g.autoOrigin) || !g.folded || !(/^t:[a-z0-9][a-z0-9-]*\/[1-9]\d*(?:\.[1-9]\d*)*$/.test(handle.id) || /^g:.+/.test(handle.id))) return false;
     if (!this.groupSummary(g).includes(foldTag(handle.id)) || !handle.memberIds.length) return false;
     const own = new Set(g.memberIds);
     let previous = -1;
@@ -2048,6 +2048,7 @@ function viewBlockOf(truth, b) {
     tokens: truth.calBlockTokens(b, b.tokens),
     rawTokens: b.tokens,
     foldedTokens: truth.calBlockTokens(b, truth.foldedTokensOf(b)),
+    liveTokens: truth.calBlockTokens(b, truth.effTokens(b)),
     toolName: b.toolName,
     callId: b.callId,
     isError: b.isError,
@@ -2082,7 +2083,7 @@ function stateChangeFromOp(op, by) {
     case "foldGroup":
       return { groupId: op.groupId, what: "group", by };
     case "unfoldGroup":
-      return { groupId: op.groupId, what: "ungroup", by };
+      return { groupId: op.groupId, ...op.handleId ? { id: op.handleId } : {}, what: "ungroup", by };
     case "resetAll":
       return { what: "unfold", by };
     case "freeze":

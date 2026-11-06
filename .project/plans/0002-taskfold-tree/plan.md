@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree implementation"
   description: "Slices, progress and acceptance for implementing SPEC-0002 on branch feat/taskfold-tree."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T14:44:51+01:00"
+  updated_at: "2026-11-06T17:42:36+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["slices 1–9 from SPEC-0002"]
+    - revision: 2
+      reason: "record current implementation progress"
+      changes: ["update slice status after cross-group handles and interval composition"]
 ---
 
 # Taskfold tree: plan
@@ -41,13 +41,13 @@ worktree `.pi/worktrees/taskfold-tree`, PR into `feat/pi-native`.
 | # | Slice | Spec | Status |
 |---|---|---|---|
 | 1 | List file v2, validator, migration, `goal`, `update`/`add before\|after`/`move`, empty-span refusal, `f04f39d` | §2, §3.1–3.3 | done |
-| 2 | Pins, attachments, working set, `tasks.*` settings | §4, §12 | now |
-| 3 | Structured details on blocks, tree scan with intervals, compile/diff planner, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | next |
-| 4 | `Group.handles` in core, recall/unfold of child codes | §7.3 | later |
-| 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | later |
-| 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | later |
-| 7 | Tool texts: review gate, stop rule, resume note | §3.4 | later |
-| 8 | Skill `accordion-task-lists` and its eval | §11 | later |
+| 2 | Pins, attachments, working set, `tasks.*` settings | §4, §12 | done |
+| 3 | Structured details on blocks, tree scan with intervals, compile/diff planner, composed records, untracked records | §5, §6, §7.1–7.2, §9.3 | in progress: interval folding and nested records implemented; planner and untracked work remain |
+| 4 | Cross-group handles in core, recall/unfold of child codes | §7.3 | done; integrated with selective unfold in slice 3 |
+| 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | next |
+| 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | done; live folded group still needs checking |
+| 7 | Tool texts: review gate, stop rule, resume note | §3.4 | done |
+| 8 | Skill `accordion-task-lists` and its eval | §11 | implemented; isolated eval remains |
 | 9 | Floor (same transaction), measurement, default decision | §9.2, §13 | later |
 
 ## Slice 1: list file v2 and store actions

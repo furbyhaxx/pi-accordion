@@ -54,6 +54,8 @@ export interface ViewBlock {
 	/** Token cost if folded — the digest/subst size for a foldable kind, else full tokens. Same
 	 *  calibration convention as `tokens`. */
 	foldedTokens: number;
+	/** Current calibrated wire cost, including group summaries and stragglers. */
+	liveTokens?: number;
 	toolName?: string;
 	callId?: string;
 	isError?: boolean;

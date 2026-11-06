@@ -22,13 +22,17 @@ Nothing happens below 80% of the budget. Above that, one epoch folds the oldest 
 until the projection is back under 60%. Each epoch commits as one transaction, so the prompt cache
 breaks once per epoch, at the oldest folded span. It does not break once per finished task.
 
-Nested tasks fold outermost first. When a parent finishes, its folded children are absorbed into
-the parent's group in the same transaction, and each child becomes one line under `children:`.
+Finished children can fold while their parent is open. When the parent finishes, its children are
+absorbed into the parent's record with their full reports and independent recall handles. A blocked
+task's separate working intervals do not include unrelated work performed while it was paused.
 
 ## The record
 
 ```
 {#3f9a2c FOLDED} [task-record] auth/2 "Extract token store"  status: done
+handle: {#0rwe62 FOLDED}
+acceptance criteria:
+  - callers use TokenStore
 outcome: Token storage moved to TokenStore; callers use get/set.
 decisions:
   - in-memory map, not sqlite — single process
@@ -38,14 +42,17 @@ verified:
 open:
   - refresh path untested
 children:
-  - 2.1 "Add interface" done: TokenStore interface added.
+  {#087c9f FOLDED} [task-record] auth/2.1 "Add interface"  status: done
+  outcome: TokenStore interface added.
 ```
 
 `outcome`, `decisions` and `open` come from the agent's `report` in the finishing call. The tool
 rejects reports that are missing or over budget, with a message saying how to fix them.
-`changed` and `verified` come from the span's own `edit`/`write` calls and its check-like `bash`
-commands. The `{#code FOLDED}` tag means `recall` and
-`unfold` always return the raw span.
+`changed` and `verified` come from the task's own `edit`/`write` calls and check-like `bash`
+commands, excluding child spans. Task pins and acceptance criteria appear when available. A task's
+handle recalls its raw intervals, including any user messages kept between its groups. `unfold`
+opens the relevant groups; while taskfold remains attached it re-folds eligible siblings around the
+requested child.
 
 ## User messages
 
