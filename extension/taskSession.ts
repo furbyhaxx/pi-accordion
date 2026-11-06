@@ -72,7 +72,7 @@ export class TaskSession {
 	private async dialog(ui: TaskSessionUi, situation: ResumeSituation): Promise<void> {
 		let message = "";
 		while (!this.disposed) {
-			const r = await ui.custom<{ choice: ResumeChoice; title?: string }>((tui, theme, keys, done) => new ResumeDialog(tui, theme, keys, situation, done, message));
+			const r = await ui.custom<{ choice: ResumeChoice; title?: string; goal?: string }>((tui, theme, keys, done) => new ResumeDialog(tui, theme, keys, situation, done, message));
 			if (this.disposed) return;
 			const choice = r?.choice ?? "without";
 			if (choice === "without") return this.settle(situation, { kind: "without" });
@@ -81,7 +81,7 @@ export class TaskSession {
 				if (picked) return this.settle(situation, picked);
 				continue;
 			}
-			const res = choice === "reclaim" ? this.attach(situation.slug, situation.kind === "held") : this.create(r.title ?? "");
+			const res = choice === "reclaim" ? this.attach(situation.slug, situation.kind === "held") : this.create(r.title ?? "", r.goal ?? "");
 			if (res.ok) return this.settle(situation, { kind: choice === "reclaim" ? "reclaimed" : "created", list: res.list });
 			message = res.message;
 		}
@@ -125,7 +125,7 @@ export class TaskSession {
 					this.deps.changed();
 				}
 			},
-			create: (title) => this.create(title),
+			create: (title, goal) => this.create(title, goal),
 		};
 	}
 
@@ -146,8 +146,8 @@ export class TaskSession {
 				if (r.ok && wasAttached) this.notices.push(releasedNotice(slug));
 				return r;
 			},
-			create: (title) => {
-				const r = base.create(title);
+			create: (title, goal) => {
+				const r = base.create(title, goal);
 				if (r.ok) this.notices.push(attachedNotice({ kind: "created", list: r.list }));
 				return r;
 			},
@@ -168,12 +168,12 @@ export class TaskSession {
 		}
 	}
 
-	private create(title: string): { ok: true; list: TaskList; message: string } | { ok: false; message: string } {
+	private create(title: string, goal: string): { ok: true; list: TaskList; message: string } | { ok: false; message: string } {
 		const store = this.deps.store();
 		try {
 			if (!title.trim()) throw new TaskError("A task list needs a title.");
 			const slug = slugFor(title, new Set(store.lists().map((l) => l.slug)));
-			const list = store.create(slug, title, undefined, []);
+			const list = store.create(slug, title, goal, []);
 			for (const o of store.claimedBySession().filter((l) => l.slug !== slug)) store.release(o.slug);
 			this.record();
 			this.deps.changed();

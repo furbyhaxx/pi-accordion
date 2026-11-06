@@ -19,8 +19,8 @@ export interface TaskListsHost {
 	/** Attach `slug` to this session (claiming it, `force` takes over a live foreign claim). */
 	attach(slug: string, force: boolean): { ok: true; list: TaskList; message: string } | { ok: false; message: string };
 	release(slug: string): { ok: boolean; message: string };
-	/** Create and attach a new empty list titled `title`. */
-	create(title: string): { ok: true; list: TaskList; message: string } | { ok: false; message: string };
+	/** Create and attach a new empty list with its goal. */
+	create(title: string, goal: string): { ok: true; list: TaskList; message: string } | { ok: false; message: string };
 }
 
 interface Keys {
@@ -130,6 +130,7 @@ export class TaskListsBrowser {
 	private lists: TaskList[] = [];
 	private index = 0;
 	private screen: "list" | "detail" | "confirm" | "create" = "list";
+	private createTitle = "";
 	private scroll = 0;
 	private input = { text: "" };
 	private message = "";
@@ -173,7 +174,8 @@ export class TaskListsBrowser {
 		const bodyRows = Math.max(4, Math.min(18, this.rows() - 8));
 		const sel = this.selected;
 		if (this.screen === "create") {
-			return frame("Accordion › Task lists › New list", [` Title: ${clean(this.input.text)}█`, t.fg("dim", " The slug is derived from the title.")], this.message, "type title · enter create · esc back", width, t);
+			const prompt = this.createTitle ? ` Goal: ${clean(this.input.text)}█` : ` Title: ${clean(this.input.text)}█`;
+			return frame("Accordion › Task lists › New list", [prompt, t.fg("dim", this.createTitle ? ` Title: ${clean(this.createTitle)}` : " The slug is derived from the title.")], this.message, this.createTitle ? "type goal · enter create · esc back" : "type title · enter next · esc back", width, t);
 		}
 		if (this.screen === "confirm" && sel?.claim) {
 			const body = [
@@ -216,8 +218,10 @@ export class TaskListsBrowser {
 		const key = decodeKittyPrintable(data) ?? data;
 		if (this.screen === "create") {
 			if (cancel) this.screen = "list";
-			else if (confirm) {
-				const r = this.host.create(this.input.text.trim());
+			else if (confirm && !this.createTitle) {
+				if (this.input.text.trim()) { this.createTitle = this.input.text.trim(); this.input.text = ""; }
+			} else if (confirm) {
+				const r = this.host.create(this.createTitle, this.input.text.trim());
 				this.message = r.message;
 				if (r.ok) {
 					if (this.mode === "pick") return this.done({ kind: "created", list: r.list });
@@ -245,6 +249,7 @@ export class TaskListsBrowser {
 			if (this.screen === "detail") this.scroll++;
 			else this.index = Math.min(this.lists.length - 1, this.index + 1);
 		} else if (key === "n") {
+			this.createTitle = "";
 			this.input = { text: "" };
 			this.screen = "create";
 		} else if (sel && (key === "c" || (confirm && this.mode === "pick" && this.screen === "list"))) {
@@ -325,6 +330,7 @@ export class ResumeDialog {
 	private index = 0;
 	private confirming = false;
 	private creating = false;
+	private createTitle = "";
 	private input = { text: "" };
 	private readonly choices: ResumeChoice[];
 
@@ -333,7 +339,7 @@ export class ResumeDialog {
 		private readonly theme: WidgetTheme,
 		private readonly keys: Keys,
 		private readonly situation: ResumeSituation,
-		private readonly done: Done<{ choice: ResumeChoice; title?: string }>,
+		private readonly done: Done<{ choice: ResumeChoice; title?: string; goal?: string }>,
 		/** Why the dialog is shown again, e.g. a reclaim that failed. */
 		private message = "",
 	) {
@@ -343,7 +349,7 @@ export class ResumeDialog {
 	render(width: number): string[] {
 		const t = this.theme;
 		const title = "Accordion › This session's task list";
-		if (this.creating) return frame(`${title} › New list`, [` Title: ${clean(this.input.text)}█`], this.message, "type title · enter create · esc back", width, t);
+		if (this.creating) return frame(`${title} › New list`, [this.createTitle ? ` Goal: ${clean(this.input.text)}█` : ` Title: ${clean(this.input.text)}█`], this.message, this.createTitle ? "type goal · enter create · esc back" : "type title · enter next · esc back", width, t);
 		if (this.confirming && this.situation.kind === "held" && this.situation.holder) {
 			const body = [` Take over "${this.situation.slug}" from ${holderLabel(this.situation.holder)}?`, " That session loses its claim; its agent can no longer change the list."];
 			return frame(`${title} › Take over`, body, this.message, "enter take over · esc back", width, t);
@@ -363,7 +369,8 @@ export class ResumeDialog {
 		const confirm = k.matches(data, "tui.select.confirm");
 		if (this.creating) {
 			if (cancel) this.creating = false;
-			else if (confirm && this.input.text.trim()) return this.done({ choice: "create", title: this.input.text.trim() });
+			else if (confirm && this.input.text.trim() && !this.createTitle) { this.createTitle = this.input.text.trim(); this.input.text = ""; }
+			else if (confirm && this.input.text.trim()) return this.done({ choice: "create", title: this.createTitle, goal: this.input.text.trim() });
 			else editText(this.input, data);
 			return this.tui.requestRender();
 		}
@@ -379,6 +386,7 @@ export class ResumeDialog {
 			const choice = this.choices[this.index];
 			if (choice === "reclaim" && this.situation.kind === "held") this.confirming = true;
 			else if (choice === "create") {
+				this.createTitle = "";
 				this.input = { text: "" };
 				this.creating = true;
 			} else return this.done({ choice });

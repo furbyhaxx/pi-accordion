@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 8
+  revision: 9
   created_at: "2026-11-05T09:30:40+01:00"
   updated_at: "2026-11-06T16:26:15+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "review-gate and resume guidance"
-      changes: ["§4.10 distinguish user-decision waits from completed work"]
+    - revision: 9
+      reason: "require a goal when creating task lists in the UI"
+      changes: ["§4.9 browser and resume creation collect the goal"]
 ---
 
 # Accordion UI polish
@@ -272,6 +272,8 @@ a displayed custom message `accordion.tasks.notice` (rendered as `▲ tasks note
 `updatedAt` later than 2 s after the session's last `tasks` result counts as a change.
 
 ### 4.9 Task list browser
+
+Creating a list in the browser or resume dialog collects its title and required goal before writing it.
 
 `/accordion tasks lists` (alias `list`) opens a full-panel browser of `.pig/tasks/*.json`:
 

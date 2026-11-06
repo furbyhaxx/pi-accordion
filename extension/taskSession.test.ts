@@ -50,6 +50,15 @@ function setup() {
 }
 
 describe("task session", () => {
+	test("browser creation stores the entered goal and refuses an empty goal", () => {
+		const { mine, ts } = setup();
+		const invalid = ts.host().create("Empty", "");
+		expect(invalid.ok).toBe(false);
+		const created = ts.host().create("Plan", "Ship the implementation");
+		expect(created.ok).toBe(true);
+		expect(mine.read("plan").goal).toBe("Ship the implementation");
+	});
+
 	test("reminds on the next prompt when an attached task awaits the user", async () => {
 		const { mine, ts } = setup();
 		runTasks(mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "Review" }] });

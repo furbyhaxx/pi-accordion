@@ -39,9 +39,9 @@ function project() {
 			mine.release(slug);
 			return { ok: true, message: `Released "${slug}".` };
 		},
-		create(title) {
+		create(title, goal) {
 			const slug = slugFor(title, new Set(mine.lists().map((l) => l.slug)));
-			return { ok: true, list: mine.create(slug, title, "G", []), message: `Created "${slug}".` };
+			return { ok: true, list: mine.create(slug, title, goal, []), message: `Created "${slug}".` };
 		},
 	};
 	return { mine, other, host };
@@ -86,7 +86,10 @@ describe("task list browser", () => {
 		type(b, "r");
 		expect(mine.read("held").claim).toBeNull();
 		type(b, "n", "My new list", "enter");
+		expect(b.render(80).join("\n")).toContain("Goal:");
+		type(b, "Deliver changes", "enter");
 		expect(mine.read("my-new-list").claim?.session).toBe("s1");
+		expect(mine.read("my-new-list").goal).toBe("Deliver changes");
 		expect(closed).toBeUndefined();
 		type(b, "esc");
 		expect(closed).toBeNull();
@@ -99,7 +102,7 @@ describe("task list browser", () => {
 		let picked: AttachOutcome | null | undefined;
 		type(new TaskListsBrowser(tui, theme, keys, host, "pick", (v) => (picked = v), () => 30), "enter");
 		expect(picked).toMatchObject({ kind: "replaced", list: { slug: "other" } });
-		type(new TaskListsBrowser(tui, theme, keys, host, "pick", (v) => (picked = v), () => 30), "n", "Fresh", "enter");
+		type(new TaskListsBrowser(tui, theme, keys, host, "pick", (v) => (picked = v), () => 30), "n", "Fresh", "enter", "Finish work", "enter");
 		expect(picked).toMatchObject({ kind: "created", list: { slug: "fresh" } });
 	});
 });
@@ -124,13 +127,15 @@ describe("resume dialog", () => {
 		expect(chosen).toEqual({ choice: "without" });
 	});
 
-	test("starting a new list asks for its title", () => {
+	test("starting a new list asks for its title and goal", () => {
 		const { mine } = project();
 		const s = resumeSituation({ slug: "gone", fingerprint: null, seenAt: new Date().toISOString() }, mine.lists(), "s1");
-		let chosen: { choice: string; title?: string } | undefined;
+		let chosen: { choice: string; title?: string; goal?: string } | undefined;
 		const d = new ResumeDialog(tui, theme, keys, s, (v) => (chosen = v));
 		expect(d.render(80).join("\n")).toContain('"gone" no longer exists');
 		type(d, "down", "enter", "Next steps", "enter");
-		expect(chosen).toEqual({ choice: "create", title: "Next steps" });
+		expect(d.render(80).join("\n")).toContain("Goal:");
+		type(d, "Finish work", "enter");
+		expect(chosen).toEqual({ choice: "create", title: "Next steps", goal: "Finish work" });
 	});
 });

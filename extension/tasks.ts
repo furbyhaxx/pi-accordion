@@ -324,11 +324,11 @@ export class TaskStore {
 		return { lists: out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), invalid: invalid.sort() };
 	}
 
-	/** Create and claim a list. A list made without a goal (from the UI) gets one before work starts. */
-	create(slug: string, title: string, goal: string | undefined, tasks: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): TaskList {
+	/** Create and claim a list with its goal. */
+	create(slug: string, title: string, goal: string, tasks: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): TaskList {
 		if (fs.existsSync(this.file(slug))) throw new TaskError(`Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
-		const list: TaskList = { slug, title: cleanTitle(title), ...(goal === undefined ? {} : { goal: cleanGoal(goal) }), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
+		const list: TaskList = { slug, title: cleanTitle(title), goal: cleanGoal(goal), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
 		const links: [Task, string][] = [];
 		const roots = nodesOf(tasks ?? [], 1, at, links);
 		if (links.length) throw new TaskError('"supersedes" points at a task in the same list, so it only works with "add".');

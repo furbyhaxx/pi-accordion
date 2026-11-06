@@ -64,7 +64,7 @@ until you configure it:
 A conductor that sends session content to a model running off this machine asks once for consent
 before it attaches. Accepted notices are stored under `privacyConsent`.
 
-Taskfold lists can hold a goal, scoped pins and file attachments. Pins on the list and pins,
+Every new Taskfold list has a goal and can hold scoped pins and file attachments. The list browser asks for the title and goal when creating a list. Pins on the list and pins,
 acceptance criteria and attachments on the active task's branch are sent with requests. Attachments
 accept a path and optional lines (`spec.md:12` or `spec.md:12-20`); their contents are cached and
 refreshed between turns, so an external edit may briefly be stale. Configure their display and pin
