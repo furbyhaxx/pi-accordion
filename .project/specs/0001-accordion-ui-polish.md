@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 7
+  revision: 8
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-06T16:20:07+01:00"
+  updated_at: "2026-11-06T16:26:15+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 7
-      reason: "SPEC-0002 task widget legibility"
-      changes: ["§4.3 list title in header", "§4.4 fold column, leaf progress and legend"]
+    - revision: 8
+      reason: "review-gate and resume guidance"
+      changes: ["§4.10 distinguish user-decision waits from completed work"]
 ---
 
 # Accordion UI polish
@@ -312,7 +312,8 @@ extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.
 - **Guidance.** The `tasks` tool description and prompt guidelines state: start before the first
   tool call of a task's work and finish right after its last; work only inside a started task; never
   start and finish with no work between; finish a parent with its own report after its last
-  subtask.
+  subtask. If finishing requires the user's approval or choice, block on `user-decision` before
+  replying. A later prompt reminds the agent to resume only if it resolves the block.
 - **Reminders** (`extension/taskCoach.ts`, appended to tool results by a `tool_result` handler,
   never blocking): with a list attached, a todo task left and none in progress, the 3rd consecutive
   top-level non-`tasks` tool result and then every 8th (`OUTSIDE_FIRST`, `OUTSIDE_EVERY`) get

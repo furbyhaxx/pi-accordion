@@ -144,7 +144,7 @@ export class TaskCoach {
 export function emptySpanRefusal(slug: string, id: string, previous: string | null): string {
 	return [
 		`Nothing ran inside ${id} since tasks start. Start a task before its first tool call and end it after its last.`,
-		`If you are about to present results or ask the user, block ${id} {reason: "user-decision", detail: "<what the user must decide>"} instead, then reply; start ${id} again when they answer.`,
+		`If this task needs the user's approval or choice before it can finish, block ${id} {reason: "user-decision", detail: "<what the user must decide>"} before replying; resume it when the answer resolves the block.`,
 		previous ? `If the work ran in the task before it, abandon ${id} {supersededBy: "${previous}"} with a report.` : `If the task is not needed, abandon ${id} with a report.`,
 	].join("\n");
 }

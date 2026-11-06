@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { BINDING_ENTRY, agentNotice, previousBinding, resumeSituation } from "./taskBinding";
+import { BINDING_ENTRY, agentNotice, previousBinding, replyNotice, resumeSituation } from "./taskBinding";
 import { TaskStore, runTasks, taskFingerprint } from "./tasks";
 
 const call = (id: string, args: Record<string, unknown>, at: string) => ({
@@ -19,6 +19,18 @@ function project() {
 }
 
 describe("task list binding", () => {
+	test("only suggests resuming user-blocked tasks if the new prompt answers them", () => {
+		const { mine } = project();
+		runTasks(mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "Review" }] });
+		expect(replyNotice(mine.read("a"))).toBeNull();
+		runTasks(mine, { action: "start", list: "a", id: "1" });
+		runTasks(mine, { action: "block", list: "a", id: "1", reason: "user-decision", detail: "Approve the proposal?" });
+		expect(replyNotice(mine.read("a"))).toContain('1 "Review"');
+		expect(replyNotice(mine.read("a"))).toContain("otherwise leave it blocked");
+		runTasks(mine, { action: "start", list: "a", id: "1" });
+		expect(replyNotice(mine.read("a"))).toBeNull();
+	});
+
 	test("infers the attached list from tool calls when no binding entry exists", () => {
 		const entries = [
 			call("c1", { action: "create", list: "a", title: "A", goal: "G" }, "2026-11-05T08:00:00.000Z"),

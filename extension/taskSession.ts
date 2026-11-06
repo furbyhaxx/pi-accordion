@@ -3,7 +3,7 @@
  * resume, recording which list is attached, and queueing the notes the agent must get when the
  * attachment changed outside its own tool calls.
  */
-import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
+import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, replyNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
 import { TaskError, slugFor, taskFingerprint, type TaskList, type TaskStore } from "./tasks";
 import { ResumeDialog, TaskListsBrowser, type ListDrillDown, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
 
@@ -202,6 +202,11 @@ export class TaskSession {
 	async takeNotice(): Promise<string | null> {
 		if (this.resume) await this.resume;
 		this.resume = null;
+		if (this.deps.enabled()) {
+			const list = attachedList(this.deps.store().claimedBySession());
+			const reminder = list ? replyNotice(list) : null;
+			if (reminder) this.notices.push(reminder);
+		}
 		if (!this.notices.length) return null;
 		const text = this.notices.join("\n\n");
 		this.notices = [];

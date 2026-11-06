@@ -5,7 +5,17 @@
  * The session file is the memory: `accordion.tasks.binding` custom entries record every attachment
  * change. Sessions recorded before those entries existed fall back to their `tasks` tool calls.
  */
-import { claimState, renderList, taskFingerprint, type TaskClaim, type TaskList } from "./tasks";
+import { claimState, currentBlock, renderList, taskFingerprint, type TaskClaim, type TaskList } from "./tasks";
+
+/** Remind the agent to check whether a new prompt resolves a user-blocked task. */
+export function replyNotice(list: TaskList): string | null {
+	const waiting = list.tasks.filter((t) => {
+		const block = currentBlock(t);
+		return block?.reason === "user-decision" || block?.reason === "user-input";
+	});
+	if (!waiting.length) return null;
+	return `Tasks waiting for the user in "${list.slug}": ${waiting.map((t) => `${t.id} "${t.title}"`).join(", ")}. If this message answers one, start it before continuing or completing its work; otherwise leave it blocked.`;
+}
 
 /** Custom entry type recording the list this session has attached (`slug: null` = none). */
 export const BINDING_ENTRY = "accordion.tasks.binding";

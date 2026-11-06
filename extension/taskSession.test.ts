@@ -50,6 +50,16 @@ function setup() {
 }
 
 describe("task session", () => {
+	test("reminds on the next prompt when an attached task awaits the user", async () => {
+		const { mine, ts } = setup();
+		runTasks(mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "Review" }] });
+		runTasks(mine, { action: "start", list: "a", id: "1" });
+		runTasks(mine, { action: "block", list: "a", id: "1", reason: "user-input", detail: "Which option?" });
+		expect(await ts.takeNotice()).toContain('1 "Review"');
+		runTasks(mine, { action: "start", list: "a", id: "1" });
+		expect(await ts.takeNotice()).toBeNull();
+	});
+
 	test("a reload silently reclaims a free, unchanged list and tells the agent nothing", async () => {
 		const s = setup();
 		runTasks(s.mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }] });

@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T15:46:02+01:00"
+  updated_at: "2026-11-06T16:20:07+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "user requested granular task planning guidance"
-      changes: ["§3 teach agents to split broad features into independently foldable child tasks"]
+    - revision: 5
+      reason: "review-gate resume guidance"
+      changes: ["§3 do not presume every new user prompt answers a blocked task"]
 ---
 
 # Taskfold tree
@@ -177,7 +177,7 @@ A tool call batched with its `start` counts, and a resumed task keeps its count 
 - **Resume note** (`extension/taskBinding.ts` text, delivered through the existing
   `before_agent_start` note path in `extension/taskSession.ts`). On a user prompt while this
   session's list has a task blocked on `user-decision` or `user-input`:
-  `The user replied while 7 "…" is blocked on user-decision: start 7, then complete it or continue its work.`
+  `Tasks waiting for the user in "…": 7 "…". If this message answers one, start it before continuing or completing its work; otherwise leave it blocked.`
 
 ## 4. Pins, attachments, working set
 
