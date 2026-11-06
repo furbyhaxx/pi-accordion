@@ -61,6 +61,23 @@ until you configure it:
 A conductor that sends session content to a model running off this machine asks once for consent
 before it attaches. Accepted notices are stored under `privacyConsent`.
 
+Taskfold lists can hold a goal, scoped pins and file attachments. Pins on the list and pins,
+acceptance criteria and attachments on the active task's branch are sent with requests. Attachments
+accept a path and optional lines (`spec.md:12` or `spec.md:12-20`); their contents are cached and
+refreshed between turns, so an external edit may briefly be stale. Configure their display and pin
+limits in `~/.accordion/config.json`:
+
+```json
+{
+  "tasks": {
+    "attachments": { "render": "reference", "maxLines": 60 },
+    "pins": { "listTokens": 2000, "taskTokens": 1500 }
+  }
+}
+```
+
+`render` defaults to `inline`; `reference` sends only the locator and note.
+
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
 output against the actual serialized prompt, including restored content. Stored usage and costs
 remain unchanged. Model switches reset provider-specific token calibration, and resumed sessions

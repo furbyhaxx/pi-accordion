@@ -56,6 +56,45 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("task working set refreshes outside the request hook and stays session-local", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-working-set-"));
+	const configDir = path.join(home, ".accordion");
+	const config = path.join(configDir, "config.json");
+	fs.mkdirSync(configDir, { recursive: true });
+	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
+	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
+	fs.writeFileSync(path.join(dir, "spec.md"), "before");
+	const messages = [{ role: "user", content: "Always use decimal.", timestamp: 1 }];
+	const r = runtime(messages, { cwd: dir, sessionId: "work-set" });
+	const run = args => r.tools.tasks.execute("call", args, undefined, undefined, r.ctx);
+	try {
+		await run({ action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Task" }] });
+		await run({ action: "start", list: "w", id: "1" });
+		await run({ action: "pin", list: "w", items: [{ kind: "constraint", text: "Always use decimal.", source: "user" }] });
+		await run({ action: "attach", list: "w", id: "1", items: [{ path: "spec.md:1" }] });
+		fs.writeFileSync(path.join(dir, "spec.md"), "after");
+		const request = () => r.handlers.context_with_system({ messages: messages.map(m => ({ ...m })) }, r.ctx).messages[0].content;
+		assert.match(request(), /Always use decimal\./);
+		assert.match(request(), /│ before/);
+		r.handlers.turn_end({}, r.ctx);
+		assert.match(request(), /│ after/);
+		assert.match(request(), /changed since attached/);
+		const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 2 };
+		const resultWire = r.handlers.context_with_system({ messages: [toolResult] }, r.ctx).messages[0];
+		assert.match(resultWire.content.at(-1).text, /\[tasks\]/);
+		assert.equal(toolResult.content.length, 1);
+		await run({ action: "unpin", list: "w", pins: ["p1"] });
+		await run({ action: "detach", list: "w", id: "1", attachments: ["a1"] });
+		assert.doesNotMatch(request(), /spec\.md/);
+		r.ctx.sessionManager.getSessionId = () => "different-session";
+		assert.doesNotMatch(request(), /\[tasks\]/);
+		assert.equal(messages[0].content, "Always use decimal.");
+	} finally {
+		r.close();
+		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 check("shutdown releases only this session's task claims across visited projects", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-claims-"));
 	const r = runtime([], { sessionId: "owner" });

@@ -51,6 +51,14 @@ describe("task list v2 schema", () => {
 		expect(errors.join("\n")).toMatch(/tasks\[2\]: a done task needs a report/);
 	});
 
+	test("pin and attachment ids must be unique across the whole list", () => {
+		const pin = { id: "p1", kind: "rule", text: "Use decimals", source: "user", at: "now" };
+		const attachment = { id: "a1", path: "spec.md" };
+		const errors = errorsOf(v2([{ title: "A", pins: [pin], attachments: [attachment] }], { pins: [pin], attachments: [attachment] }));
+		expect(errors.join("\n")).toContain("duplicate pin id p1");
+		expect(errors.join("\n")).toContain("duplicate attachment id a1");
+	});
+
 	test("depth beyond four levels and impossible status trees are rejected", () => {
 		const deep = { title: "1", subtasks: [{ title: "2", subtasks: [{ title: "3", subtasks: [{ title: "4", subtasks: [{ title: "5" }] }] }] }] };
 		expect(errorsOf(v2([deep])).join("\n")).toMatch(/deeper than 4 levels/);

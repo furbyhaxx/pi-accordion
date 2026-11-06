@@ -41,6 +41,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.bindHost).toBe("127.0.0.1");
 
 			saveSettings(tmp, {
+				tasks: { attachments: { render: "reference", maxLines: 40 }, pins: { listTokens: 1000, taskTokens: 500 } },
 				autoArm: false,
 				defaultConductor: "keel-note",
 				compactMode: "suppress",
@@ -55,6 +56,7 @@ describe("accordion settings & memorable tokens", () => {
 
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
+				tasks: { attachments: { render: "reference", maxLines: 40 }, pins: { listTokens: 1000, taskTokens: 500 } },
 				autoArm: false,
 				defaultConductor: "keel-note",
 				compactMode: "suppress",

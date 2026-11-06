@@ -57,6 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
+import { PIN_LIMITS, workingSet } from "./taskPins";
 import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource } from "./tui/taskTranscript";
@@ -3091,9 +3092,22 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
+	let cachedWorkingSet: { session: string; cwd: string; text: string } | null = null;
+	function refreshWorkingSet(ctx: ExtensionContext): void {
+		cachedWorkingSet = null;
+		if (!tasksToolActive()) return;
+		try {
+			const list = attachedList(taskStoreFor(ctx).claimedBySession());
+			if (list) cachedWorkingSet = { session: ctx.sessionManager.getSessionId(), cwd: ctx.cwd, text: workingSet(list, ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines) };
+		} catch (err) {
+			ctx.ui.notify(`Cannot refresh task working set: ${err instanceof Error ? err.message : String(err)}`, "error");
+		}
+	}
+
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
-	pi.on("before_agent_start", async () => {
+	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
+		refreshWorkingSet(ctx);
 		const content = await taskSession?.takeNotice();
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
@@ -3232,16 +3246,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	// ── model swap: keep the context window in lockstep ─────────────────────────
-	pi.on("context_with_system", (event) => {
-		if (!foldingEnabled) return;
-		// Historical receipts describe a different prefix; Pi must estimate the serialized wire.
-		return { messages: event.messages.map((message) => {
-			if (message.role !== "assistant" || !message.usage) return message;
-			return { ...message, usage: {
-				...message.usage,
-				input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
-			} };
-		}) };
+	pi.on("context_with_system", (event, ctx: ExtensionContext) => {
+		const cache = cachedWorkingSet;
+		const suffix = tasksToolActive() && cache?.session === ctx.sessionManager.getSessionId() && cache.cwd === ctx.cwd ? cache.text : null;
+		if (!foldingEnabled && !suffix) return;
+		const messages = event.messages.map((message) => {
+			if (!foldingEnabled || message.role !== "assistant" || !message.usage) return message;
+			return { ...message, usage: { ...message.usage, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
+		});
+		if (suffix && messages.length) {
+			const last = messages[messages.length - 1];
+			if (last.role === "user") {
+				messages[messages.length - 1] = { ...last, content: typeof last.content === "string" ? `${last.content}\n\n${suffix}` : [...last.content, { type: "text", text: suffix }] };
+			} else if (last.role === "toolResult") {
+				messages[messages.length - 1] = { ...last, content: [...last.content, { type: "text", text: suffix }] };
+			}
+		}
+		return { messages };
 	});
 
 	// `/model` fires `model_select` immediately, carrying the NEW model. Adopt its context window
@@ -3264,7 +3285,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// `TestHost.commitTurn` — an attached conductor (in-process) or the remote replica (over the
 	// wire) treats it as the moment to re-run its pass. Purely a notification; folding still happens
 	// only at `context`, and there is no conductor attached ⇒ this is a no-op.
-	pi.on("turn_end", () => {
+	pi.on("turn_end", (_event, ctx: ExtensionContext) => {
+		if (ctx) refreshWorkingSet(ctx);
 		if (!truth) return;
 		const last = truth.blocks[truth.blocks.length - 1];
 		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
@@ -3904,7 +3926,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
 			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
 			"Every list has one goal: the end state the whole list delivers. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
-			"Actions: create {list, title, goal, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goal? (list), acceptanceCriteria? (task)}, move {list, id, parent?, before?|after?} (unstarted tasks only), status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
+			"Actions: create {list, title, goal, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goal? (list), acceptanceCriteria? (task)}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
 		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
 		promptGuidelines: [
 			"Use the `tasks` tool for work with more than one step; a single question or a one-step change needs no list. Create or claim a list, then call `start` BEFORE the first tool call of a task's work and end the task right AFTER its last one. Work done while no task is in progress belongs to no record; if new work comes up, `add` a task for it and start it first.",
@@ -3927,12 +3949,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					Type.Object({
 						title: Type.String(),
 						acceptanceCriteria: Type.Optional(Type.Array(Type.String(), { description: "1–3 checkable statements that are true when the task is finished." })),
+						pins: Type.Optional(Type.Array(Type.Any())),
+						attachments: Type.Optional(Type.Array(Type.Any())),
 						subtasks: Type.Optional(Type.Array(Type.Any())),
 						supersedes: Type.Optional(Type.String({ description: "For add: id of an earlier task this one replaces; it is abandoned if still open." })),
 					}),
 					{ description: "Tasks to create or add: [{ title, acceptanceCriteria?, subtasks?: [{ title, … }], supersedes? }]." },
 				),
 			),
+			items: Type.Optional(Type.Array(Type.Any(), { description: 'For pin: [{kind, text, source}]; attach: [{path, lines?, note?}]. Omit id for list scope.' })),
+			pins: Type.Optional(Type.Array(Type.String(), { description: "For unpin: pin ids to remove." })),
+			attachments: Type.Optional(Type.Array(Type.String(), { description: "For detach: attachment ids to remove." })),
 			parent: Type.Optional(Type.String({ description: "Parent task id for add or move, e.g. \"2\" or \"2.1\"." })),
 			before: Type.Optional(Type.String({ description: "For add and move: place before this sibling task id." })),
 			after: Type.Optional(Type.String({ description: "For add and move: place after this sibling task id." })),
@@ -3973,7 +4000,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					const ended = read()?.tasks.filter((t) => t.endedAt && t.id !== args.id && !t.id.startsWith(`${args.id}.`)).sort((a, b) => b.endedAt!.localeCompare(a.endedAt!))[0];
 					throw new TaskError(emptySpanRefusal(args.list, args.id, ended?.id ?? null));
 				}
-				const run = runTasksTracked(store, args);
+				const userTexts = ["pin", "create", "add"].includes(args.action) ? readSessionMessages(ctx).filter((m) => m.role === "user").map((m) => typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((p) => p.type === "text" ? p.text ?? "" : "").join("\n") : "") : [];
+				const run = runTasksTracked(store, args, userTexts, { ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines });
 				if (run.started.length && args.list) taskCoach.started(args.list, run.started);
 				if (run.finished && args.list) taskCoach.finished(args.list, run.finished);
 				const text = run.text;
@@ -3984,7 +4012,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (err instanceof TaskError) throw err;
 				throw new Error(`tasks: ${err instanceof Error ? err.message : String(err)}`);
 			} finally {
-				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) taskWidget.reload();
+				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) {
+					taskWidget.reload();
+					refreshWorkingSet(ctx);
+				}
 			}
 		},
 		...toolRowRenderers((theme, args, state, details, text, expanded) => tasksRow(theme, args, state, details as TasksDetails | undefined, text, expanded)),

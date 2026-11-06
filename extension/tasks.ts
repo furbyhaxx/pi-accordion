@@ -11,6 +11,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BLOCK_REASONS, checkCriteria, compareIds, GOAL_MAX, MAX_DEPTH, parentId, parseListFile, toListFile, type BlockReason, type FlatList, type TaskStatus } from "./taskSchema";
+import { checkPinCap, makeAttachment, makePin, nextId, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
 
 export { BLOCK_REASONS, type BlockReason, type TaskStatus };
 
@@ -42,6 +43,8 @@ export interface Task {
 	status: TaskStatus;
 	/** Checkable statements that are true when the task is finished. */
 	acceptanceCriteria?: string[];
+	pins?: Pin[];
+	attachments?: Attachment[];
 	report?: TaskReport;
 	updatedAt: string;
 	/** When the task was planned (absent on tasks planned before this was recorded). */
@@ -70,6 +73,8 @@ export interface TaskList {
 	title: string;
 	/** The end state the whole list delivers. Absent only on a list migrated from v1 that has not been given one. */
 	goal?: string;
+	pins?: Pin[];
+	attachments?: Attachment[];
 	createdAt: string;
 	updatedAt: string;
 	claim: TaskClaim | null;
@@ -80,6 +85,8 @@ export interface TaskList {
 export interface TaskInput {
 	title: string;
 	acceptanceCriteria?: string[];
+	pins?: unknown[];
+	attachments?: unknown[];
 	subtasks?: TaskInput[];
 	/** For `add`: the id of an earlier task this one replaces; that task is abandoned if it is still open. */
 	supersedes?: string;
@@ -156,6 +163,7 @@ function cleanCriteria(v: unknown, title: string): string[] {
 interface Node {
 	task: Task;
 	kids: Node[];
+	input?: TaskInput;
 }
 
 function treeOf(tasks: readonly Task[]): Node[] {
@@ -184,7 +192,7 @@ function nodesOf(inputs: unknown, depth: number, at: string, links: [Task, strin
 			if (typeof sup !== "string" || !sup.trim()) throw new TaskError(`"supersedes" of "${title}" must be a task id, e.g. "3.2".`);
 			links.push([task, sup.trim()]);
 		}
-		return { task, kids: input.subtasks === undefined ? [] : nodesOf(input.subtasks, depth + 1, at, links) };
+		return { task, input, kids: input.subtasks === undefined ? [] : nodesOf(input.subtasks, depth + 1, at, links) };
 	});
 }
 
@@ -317,7 +325,7 @@ export class TaskStore {
 	}
 
 	/** Create and claim a list. A list made without a goal (from the UI) gets one before work starts. */
-	create(slug: string, title: string, goal: string | undefined, tasks: unknown): TaskList {
+	create(slug: string, title: string, goal: string | undefined, tasks: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): TaskList {
 		if (fs.existsSync(this.file(slug))) throw new TaskError(`Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
 		const list: TaskList = { slug, title: cleanTitle(title), ...(goal === undefined ? {} : { goal: cleanGoal(goal) }), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
@@ -325,6 +333,7 @@ export class TaskStore {
 		const roots = nodesOf(tasks ?? [], 1, at, links);
 		if (links.length) throw new TaskError('"supersedes" points at a task in the same list, so it only works with "add".');
 		renumber(list, roots);
+		this.prepareReferences(list, roots, userTexts, limits);
 		this.write(list);
 		return list;
 	}
@@ -351,6 +360,64 @@ export class TaskStore {
 		if (!changed.length) throw new TaskError('Nothing to update: give "title" or "goal".');
 		this.write(list);
 		return { list, changed };
+	}
+
+	private prepareReferences(list: TaskList, nodes: readonly Node[], userTexts: readonly string[], limits: PinLimits): void {
+		const holders: PinHolder[] = [list, ...list.tasks];
+		const pinId = nextId(holders, "p");
+		const attachmentId = nextId(holders, "a");
+		const context = { projectDir: this.projectDir, userTexts, limits, now: now() };
+		const visit = (node: Node) => {
+			const input = node.input;
+			if (input?.pins !== undefined) {
+				if (!Array.isArray(input.pins)) throw new TaskError('Task "pins" must be an array.');
+				const pins: Pin[] = [];
+				for (const item of input.pins) pins.push(makePin(item, context, pinId(), pins));
+				checkPinCap(pins, limits.taskTokens, node.task.id);
+				node.task.pins = pins;
+			}
+			if (input?.attachments !== undefined) {
+				if (!Array.isArray(input.attachments)) throw new TaskError('Task "attachments" must be an array.');
+				const attachments: Attachment[] = [];
+				for (const item of input.attachments) attachments.push(makeAttachment(item, context, attachmentId(), attachments));
+				node.task.attachments = attachments;
+			}
+			for (const child of node.kids) visit(child);
+		};
+		for (const node of nodes) visit(node);
+	}
+
+	/** Add or remove pins or attachments on a list or task. All additions are validated before writing. */
+	references(slug: string, id: string | undefined, action: "pin" | "unpin" | "attach" | "detach", items: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): string[] {
+		const list = this.owned(slug);
+		const holder: PinHolder = id === undefined ? list : this.task(list, id);
+		if (!Array.isArray(items) || !items.length) throw new TaskError('Give a non-empty "items" array.');
+		const holders: PinHolder[] = [list, ...list.tasks];
+		if (action === "pin") {
+			const fresh: Pin[] = [];
+			const alloc = nextId(holders, "p");
+			for (const item of items) fresh.push(makePin(item, { projectDir: this.projectDir, userTexts, limits, now: now() }, alloc(), [...(holder.pins ?? []), ...fresh]));
+			checkPinCap([...(holder.pins ?? []), ...fresh], id === undefined ? limits.listTokens : limits.taskTokens, id ?? slug);
+			holder.pins = [...(holder.pins ?? []), ...fresh];
+			this.write(list);
+			return fresh.map((p) => p.id);
+		}
+		if (action === "attach") {
+			const fresh: Attachment[] = [];
+			const alloc = nextId(holders, "a");
+			for (const item of items) fresh.push(makeAttachment(item, { projectDir: this.projectDir, userTexts, limits, now: now() }, alloc(), [...(holder.attachments ?? []), ...fresh]));
+			holder.attachments = [...(holder.attachments ?? []), ...fresh];
+			this.write(list);
+			return fresh.map((a) => a.id);
+		}
+		if (items.some((x) => typeof x !== "string")) throw new TaskError('Removal items must be pin or attachment ids.');
+		const ids = items as string[];
+		const present = action === "unpin" ? holder.pins ?? [] : holder.attachments ?? [];
+		for (const key of ids) if (!present.some((p) => p.id === key)) throw new TaskError(`No ${action === "unpin" ? "pin" : "attachment"} ${key} in this scope.`);
+		if (action === "unpin") holder.pins = (holder.pins ?? []).filter((p) => !ids.includes(p.id));
+		else holder.attachments = (holder.attachments ?? []).filter((a) => !ids.includes(a.id));
+		this.write(list);
+		return ids;
 	}
 
 	/** A list that may grow or move on: it needs a goal first. */
@@ -414,7 +481,7 @@ export class TaskStore {
 	}
 
 	/** Add tasks; a task with `supersedes` replaces an earlier one, abandoning it if it is still open. */
-	add(slug: string, parent: string | undefined, tasks: unknown, position: { before?: unknown; after?: unknown } = {}): { added: Task[]; superseded: Task[]; renumbered: { from: string; to: string }[] } {
+	add(slug: string, parent: string | undefined, tasks: unknown, position: { before?: unknown; after?: unknown } = {}, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): { added: Task[]; superseded: Task[]; renumbered: { from: string; to: string }[] } {
 		const list = this.planned(slug);
 		const roots = treeOf(list.tasks);
 		const at = now();
@@ -435,6 +502,7 @@ export class TaskStore {
 		}
 		spot.siblings.splice(spot.index, 0, ...nodes);
 		const renumbered = renumber(list, roots);
+		this.prepareReferences(list, nodes, userTexts, limits);
 		for (const [by, oldTask] of pairs) {
 			if (oldTask.status === "todo" || oldTask.status === "blocked") abandon(oldTask, { outcome: `Superseded by ${by.id}.` }, at);
 			oldTask.supersededBy = by.id;
@@ -707,7 +775,7 @@ export function renderList(list: TaskList): string {
 	return lines.join("\n");
 }
 
-export const TASK_ACTIONS = ["create", "list", "claim", "release", "add", "update", "move", "status", "start", "block", "complete", "fail", "abandon"] as const;
+export const TASK_ACTIONS = ["create", "list", "claim", "release", "add", "update", "move", "pin", "unpin", "attach", "detach", "status", "start", "block", "complete", "fail", "abandon"] as const;
 
 /** The tool's argument shape; every field but `action` depends on the action. */
 export interface TasksArgs {
@@ -718,6 +786,9 @@ export interface TasksArgs {
 	goal?: string;
 	/** For update: a task's new acceptance criteria. */
 	acceptanceCriteria?: string[];
+	items?: unknown[];
+	pins?: string[];
+	attachments?: string[];
 	tasks?: TaskInput[];
 	parent?: string;
 	/** For add and move: the sibling to place before. */
@@ -747,11 +818,11 @@ export function runTasks(store: TaskStore, args: TasksArgs): string {
 }
 
 /** A `tasks` call's text plus the task ids it started, the one it finished and any renumbering, for span tracking and views. */
-export function runTasksTracked(store: TaskStore, args: TasksArgs): { text: string; started: string[]; finished: string | null; renumbered: Renumbering[] } {
+export function runTasksTracked(store: TaskStore, args: TasksArgs, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): { text: string; started: string[]; finished: string | null; renumbered: Renumbering[] } {
 	let started: string[] = [];
 	let finished: string | null = null;
 	let renumbered: Renumbering[] = [];
-	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id), (r) => (renumbered = r));
+	const text = runAction(store, args, (ids) => (started = ids), (id) => (finished = id), (r) => (renumbered = r), userTexts, limits);
 	return { text, started, finished, renumbered };
 }
 
@@ -761,7 +832,7 @@ export interface Renumbering {
 	to: string;
 }
 
-function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void, onRenumber: (r: Renumbering[]) => void): string {
+function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) => void, onFinish: (id: string) => void, onRenumber: (r: Renumbering[]) => void, userTexts: readonly string[], limits: PinLimits): string {
 	const need = <K extends keyof TasksArgs>(k: K): NonNullable<TasksArgs[K]> => {
 		const v = args[k];
 		if (v === undefined || v === null || v === "") throw new TaskError(`Action "${args.action}" needs "${k}".`);
@@ -769,7 +840,7 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 	};
 	switch (args.action) {
 		case "create": {
-			const list = store.create(need("list"), need("title"), cleanGoal(args.goal), args.tasks ?? []);
+			const list = store.create(need("list"), need("title"), cleanGoal(args.goal), args.tasks ?? [], userTexts, limits);
 			return `Created and claimed task list:\n${renderList(list)}`;
 		}
 		case "list": {
@@ -785,7 +856,7 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 			store.release(need("list"));
 			return `Released "${args.list}".`;
 		case "add": {
-			const { added, superseded, renumbered } = store.add(need("list"), args.parent, need("tasks"), { before: args.before, after: args.after });
+			const { added, superseded, renumbered } = store.add(need("list"), args.parent, need("tasks"), { before: args.before, after: args.after }, userTexts, limits);
 			onRenumber(renumbered);
 			const lines = [`Added ${added.map((t) => `${t.id} ${t.title}`).join(", ")}.`];
 			for (const t of superseded) lines.push(`${t.id} "${t.title}" is superseded by ${t.supersededBy}${t.report?.outcome?.startsWith("Superseded by") ? " and was abandoned" : ""}.`);
@@ -800,6 +871,14 @@ function runAction(store: TaskStore, args: TasksArgs, onStart: (ids: string[]) =
 		case "update": {
 			const { list, task, changed } = store.update(need("list"), args.id, { title: args.title, goal: args.goal, acceptanceCriteria: args.acceptanceCriteria });
 			return `Updated ${changed.join(" and ")} of ${task ? `${list.slug}/${task.id} "${task.title}"` : `list "${list.slug}"`}.`;
+		}
+		case "pin":
+		case "unpin":
+		case "attach":
+		case "detach": {
+			const items = args.action === "unpin" ? need("pins") : args.action === "detach" ? need("attachments") : need("items");
+			const ids = store.references(need("list"), args.id, args.action, items, userTexts, limits);
+			return `${args.action}: ${ids.join(", ")} on ${args.id ?? args.list}.`;
 		}
 		case "block": {
 			const { task, ancestors } = store.block(need("list"), need("id"), args.reason, args.detail, args.blockedBy);

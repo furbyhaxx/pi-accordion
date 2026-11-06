@@ -165,6 +165,34 @@ describe("tasks", () => {
 		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1 "A" is still in progress/);
 	});
 
+	test("task creation validates and persists nested pins and attachments atomically", () => {
+		const { dir, s } = store();
+		fs.writeFileSync(path.join(dir, "spec.md"), "one\ntwo");
+		const tasks = [{ title: "Parent", subtasks: [{ title: "Child", pins: [{ kind: "rule", text: "Never float", source: "user" }], attachments: [{ path: "spec.md:2" }] }] }];
+		s.create("w", "Work", "Goal", tasks, ["Never float"]);
+		expect(s.read("w").tasks[1]).toMatchObject({ pins: [{ id: "p1", text: "Never float" }], attachments: [{ id: "a1", path: "spec.md", lines: "2" }] });
+		expect(() => s.add("w", undefined, [{ title: "Bad", attachments: [{ path: "missing" }] }])).toThrow();
+		expect(s.read("w").tasks).toHaveLength(2);
+	});
+
+	test("pins and attachments persist at list and task scope and can be removed", () => {
+		const { dir, s } = store();
+		fs.writeFileSync(path.join(dir, "spec.md"), "one\ntwo\nthree");
+		runTasks(s, { action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Task" }] });
+		const pin = s.references("w", undefined, "pin", [{ kind: "constraint", text: "never float", source: "user" }], ["Always use decimal, never float"]);
+		const attachment = s.references("w", "1", "attach", [{ path: "spec.md:2-3" }]);
+		expect(pin).toEqual(["p1"]);
+		expect(attachment).toEqual(["a1"]);
+		expect(s.read("w").pins?.[0].text).toBe("never float");
+		expect(s.read("w").tasks[0].attachments?.[0]).toMatchObject({ path: "spec.md", lines: "2-3" });
+		expect(() => s.references("w", "1", "detach", ["a1", "a9"])).toThrow(/a9/);
+		expect(s.read("w").tasks[0].attachments).toHaveLength(1);
+		s.references("w", "1", "detach", ["a1"]);
+		s.references("w", undefined, "unpin", ["p1"]);
+		expect(s.read("w").pins).toEqual([]);
+		expect(s.read("w").tasks[0].attachments).toEqual([]);
+	});
+
 	test("block details accept up to 1024 characters and reject longer input without changing state", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Wait" }] });

@@ -26,9 +26,9 @@ export const CRITERION_MAX = 120;
 const FINISHED: readonly string[] = ["done", "failed", "abandoned"];
 
 /** Keys a task may carry in a file, besides `subtasks`. */
-export const TASK_KEYS = ["id", "title", "status", "acceptanceCriteria", "report", "createdAt", "updatedAt", "startedAt", "endedAt", "autoClosed", "blocks", "supersededBy"] as const;
+export const TASK_KEYS = ["id", "title", "status", "acceptanceCriteria", "pins", "attachments", "report", "createdAt", "updatedAt", "startedAt", "endedAt", "autoClosed", "blocks", "supersededBy"] as const;
 /** Keys a list file may carry, besides `tasks`. */
-export const LIST_KEYS = ["$schema", "version", "slug", "title", "goal", "createdAt", "updatedAt", "claim"] as const;
+export const LIST_KEYS = ["$schema", "version", "slug", "title", "goal", "pins", "attachments", "createdAt", "updatedAt", "claim"] as const;
 
 /** A task as the store holds it: flat, with its dotted id. */
 export interface FlatTask {
@@ -87,10 +87,23 @@ export function parseListFile(raw: unknown, slug: string, options: { requireGoal
 	} else if (typeof raw.goal !== "string" || !raw.goal.trim()) errors.push('goal: required: the end state this whole list delivers, e.g. "All token access goes through TokenStore; npm test passes."');
 	else if (raw.goal.trim().length > GOAL_MAX) errors.push(`goal: ${raw.goal.trim().length} chars; keep it under ${GOAL_MAX}`);
 	if (raw.claim !== undefined && raw.claim !== null && !(isObj(raw.claim) && typeof raw.claim.session === "string" && typeof raw.claim.at === "string")) errors.push("claim: must be null or { session, at, name? }; leave it null in a hand-written file");
+	checkReferences(raw, "list", errors);
 	const tasks: FlatTask[] = [];
 	if (!Array.isArray(raw.tasks)) errors.push("tasks: required: an array of { title, subtasks?, acceptanceCriteria? }");
 	else walk(raw.tasks, "", "tasks", tasks, errors);
 	checkStatusTree(tasks, errors);
+	for (const [field, label] of [["pins", "pin"], ["attachments", "attachment"]] as const) {
+		const seen = new Set<string>();
+		for (const holder of [raw, ...tasks]) {
+			const entries = holder[field];
+			if (!Array.isArray(entries)) continue;
+			for (const entry of entries) {
+				if (!isObj(entry) || typeof entry.id !== "string") continue;
+				if (seen.has(entry.id)) errors.push(`duplicate ${label} id ${entry.id}; ids must be unique within the list`);
+				seen.add(entry.id);
+			}
+		}
+	}
 	if (errors.length) return { ok: false, errors };
 	const list: FlatList = { ...withoutKeys(raw, ["$schema", "version", "tasks"]), slug, title: (raw.title as string).trim(), ...(typeof raw.goal === "string" ? { goal: raw.goal.trim() } : {}), tasks } as FlatList;
 	return { ok: true, list, migrated: false };
@@ -134,6 +147,7 @@ function walk(nodes: unknown[], prefix: string, at: string, out: FlatTask[], err
 		const status = node.status ?? "todo";
 		if (!(TASK_STATUSES as readonly string[]).includes(status as string)) errors.push(`${where}.status: ${JSON.stringify(node.status)} is not one of ${TASK_STATUSES.join(", ")}`);
 		if (node.acceptanceCriteria !== undefined) checkCriteria(node.acceptanceCriteria, `${where}.acceptanceCriteria`, errors);
+		checkReferences(node, where, errors);
 		if (node.report !== undefined && !(isObj(node.report) && typeof node.report.outcome === "string")) errors.push(`${where}.report: must be { outcome, decisions?, open? }`);
 		if (FINISHED.includes(status as string) && !isObj(node.report)) errors.push(`${where}: a ${String(status)} task needs a report { outcome }`);
 		if (node.blocks !== undefined && !Array.isArray(node.blocks)) errors.push(`${where}.blocks: must be an array`);
@@ -144,6 +158,21 @@ function walk(nodes: unknown[], prefix: string, at: string, out: FlatTask[], err
 		else if (node.subtasks.length && id.split(".").length >= MAX_DEPTH) errors.push(`${where}: subtasks would be deeper than ${MAX_DEPTH} levels; flatten the plan`);
 		else walk(node.subtasks, id, `${where}.subtasks`, out, errors);
 	});
+}
+
+function checkReferences(node: Record<string, unknown>, where: string, errors: string[]): void {
+	if (node.pins !== undefined) {
+		if (!Array.isArray(node.pins)) errors.push(`${where}.pins: must be an array`);
+		else node.pins.forEach((p: unknown, i: number) => {
+			if (!isObj(p) || typeof p.id !== "string" || !/^p[1-9]\d*$/.test(p.id) || !["rule", "convention", "constraint", "standard", "fact"].includes(String(p.kind)) || typeof p.text !== "string" || !p.text.trim() || p.text.length > 300 || typeof p.source !== "string" || !p.source.trim() || typeof p.at !== "string") errors.push(`${where}.pins[${i}]: invalid pin`);
+		});
+	}
+	if (node.attachments !== undefined) {
+		if (!Array.isArray(node.attachments)) errors.push(`${where}.attachments: must be an array`);
+		else node.attachments.forEach((a: unknown, i: number) => {
+			if (!isObj(a) || typeof a.id !== "string" || !/^a[1-9]\d*$/.test(a.id) || typeof a.path !== "string" || !a.path.trim() || (a.lines !== undefined && (typeof a.lines !== "string" || !/^[1-9]\d*(?:-[1-9]\d*)?$/.test(a.lines))) || (a.note !== undefined && (typeof a.note !== "string" || a.note.length > 120)) || (a.hash !== undefined && typeof a.hash !== "string") || (a.at !== undefined && typeof a.at !== "string")) errors.push(`${where}.attachments[${i}]: invalid attachment`);
+		});
+	}
 }
 
 function checkTitle(v: unknown, where: string, errors: string[]): void {

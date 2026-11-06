@@ -38,6 +38,11 @@ export interface TaskWidgetSettings {
 	toggleKey: string;
 }
 
+export interface TaskSettings {
+	attachments: { render: "inline" | "reference"; maxLines: number };
+	pins: { listTokens: number; taskTokens: number };
+}
+
 export interface AccordionSettings {
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
@@ -56,6 +61,7 @@ export interface AccordionSettings {
 	/** Conductor id → ISO timestamp at which the user accepted its privacy notice. */
 	privacyConsent: Record<string, string>;
 	taskWidget: TaskWidgetSettings;
+	tasks: TaskSettings;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
 }
@@ -70,6 +76,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	models: { defaults: {}, conductors: {} },
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
+	tasks: { attachments: { render: "inline", maxLines: 60 }, pins: { listTokens: 2000, taskTokens: 1500 } },
 	modelDefaults: {},
 };
 
@@ -181,6 +188,17 @@ export function sanitizeTaskWidget(value: unknown): TaskWidgetSettings {
 	};
 }
 
+export function sanitizeTaskSettings(value: unknown): TaskSettings {
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const attachments = raw.attachments && typeof raw.attachments === "object" && !Array.isArray(raw.attachments) ? raw.attachments as Record<string, unknown> : {};
+	const pins = raw.pins && typeof raw.pins === "object" && !Array.isArray(raw.pins) ? raw.pins as Record<string, unknown> : {};
+	const integer = (v: unknown, fallback: number, max: number) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= max ? v : fallback;
+	return {
+		attachments: { render: attachments.render === "reference" ? "reference" : "inline", maxLines: integer(attachments.maxLines, 60, 1000) },
+		pins: { listTokens: integer(pins.listTokens, 2000, 100000), taskTokens: integer(pins.taskTokens, 1500, 100000) },
+	};
+}
+
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
@@ -280,6 +298,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		models: sanitizeModelSettings(fileData.models),
 		privacyConsent: sanitizePrivacyConsent(fileData.privacyConsent),
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
+		tasks: sanitizeTaskSettings(fileData.tasks),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
 }
@@ -295,6 +314,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		models: sanitizeModelSettings(settings.models),
 		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
 		taskWidget: sanitizeTaskWidget(settings.taskWidget),
+		tasks: sanitizeTaskSettings(settings.tasks),
 		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
 	};
 	try {
