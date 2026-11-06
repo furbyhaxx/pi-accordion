@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 6
+  revision: 7
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-06T15:12:34+01:00"
+  updated_at: "2026-11-06T16:20:07+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 6
-      reason: "SPEC-0002 slice 1: task list v2 and store actions"
-      changes: ["§4.1 v2 list files and renumbered details", "§4.10 empty spans are refused instead of noted"]
+    - revision: 7
+      reason: "SPEC-0002 task widget legibility"
+      changes: ["§4.3 list title in header", "§4.4 fold column, leaf progress and legend"]
 ---
 
 # Accordion UI polish
@@ -117,10 +117,11 @@ List files are read on session start, after every `tasks` call of this session a
 ### 4.3 Collapsed (default)
 
 ```
-▲ Tasks 6/20 (≡6) · 6m 21s · 26.7k → 10.1k tok
+▲ Tasks Secrets 6/20 (≡6) · 6m 21s · 26.7k → 10.1k tok
   ⎿ 3.4.1 the new registry · 1m 11s
 ```
 
+- The header includes the list title, shortened or omitted when narrow to preserve counts and metrics.
 - `6/20`: tasks with status `done` / all tasks.
 - `(≡6)`: tasks inside a folded Taskfold group; subtasks of a folded task count. Omitted at 0.
 - `6m 21s`: sum of the durations of the outermost started tasks. Omitted when no task has timing.
@@ -148,23 +149,25 @@ The header uses `▼`. Rows: `<prefix><glyph> <id> <title> · <duration> <marker
 Reason labels: `needs user decision`, `needs user input`, `waits on third party`, `waits for <id>`.
 Durations exclude blocked periods.
 
+A second glyph distinguishes folded (`≡`), finished but raw (`·`), and a finished task with unfinished descendants (`!`). First expansion shows a legend; `?` opens it in the task list view. Hidden rows distinguish finished and upcoming siblings. Progress is a breakdown of leaf states, e.g. `3✓ 1☒ 2☐`.
+
 Markers, joined with ` · ` inside one pair of parentheses:
 
 | Row | Marker |
 |---|---|
-| task owning folded group(s) | `(fold 35.2k → 400)`: full → live tokens of its groups (parts summed) |
-| subtask folded inside its parent's group | `(fold)`, only when it ran (started or blocked at some point); a never-started subtask shows nothing |
-| any task with subtasks | `(3/7)` done/total direct subtasks, first in the marker: `(4/4 · 4 folded · 79.4k → 3.5k)` |
-| closed branch (finished parent, or user-closed) with folded descendants | `(2 folded · 20.0k → 500)`, after the progress when both apply |
-| hidden run | `… N hidden · <duration> (k folded · full → live)` |
+| task owning folded group(s) | `≡` and `(35.2k → 400)`: full → live tokens of its groups (parts summed) |
+| subtask folded inside its parent's group | `≡`, only when it ran; a never-started subtask shows no fold marker |
+| any task with subtasks | leaf-status counts, e.g. `(3✓ 1☒ 2☐)` |
+| closed branch with folded descendants | `(2≡ · 20.0k → 500)`, after progress |
+| hidden run | `… N finished` or `… N upcoming`, duration and folded totals when available |
 
-When the row is too narrow for the token form the short form (`(fold)`, `(2 folded)`) is used.
+When the row is too narrow for token counts the short form (`(2≡)`) is used.
 Finished tasks' subtasks are closed by default.
 
 **Smart hiding**, when the full tree exceeds `taskWidget.maxRows` (default 12) tree rows:
 the anchor is the innermost task in progress, else the first todo, else the last task. The anchor's
 ancestor path and the anchor's first unfinished subtask stay visible even beyond the budget. All
-other siblings on each level of the path collapse into `… N hidden · <duration> (k folded)` rows
+other siblings on each level of the path collapse into `… N finished` or `… N upcoming` rows
 (N counts hidden subtasks too). Siblings are then revealed nearest-first (deepest level first; at
 equal distance the upcoming sibling before the earlier one) while the row count stays within the
 budget. A hidden run of one is shown as the task itself. Narrow rows drop the duration before the

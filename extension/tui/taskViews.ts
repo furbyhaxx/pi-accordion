@@ -453,7 +453,7 @@ export class TaskViews {
 		const enter = ref?.type === "task" ? (s.kind === "list" ? "enter details · i span" : "enter span") : ref?.type === "untracked" ? "→ expand" : ref ? "enter open" : "";
 		const esc = this.stack.length > 1 || s.kind === "list" ? "esc back" : "esc close";
 		// Most needed first: narrow widths cut from the end.
-		return [enter, esc, act, "→← expand", "/ filter", s.kind === "session" ? "t show" : ""].filter(Boolean).join(" · ");
+		return [enter, esc, act, "→← expand", "/ filter", s.kind === "list" ? "? legend" : "", s.kind === "session" ? "t show" : ""].filter(Boolean).join(" · ");
 	}
 
 	handleInput(input: string): void {
@@ -508,6 +508,7 @@ export class TaskViews {
 		else if (matchesKey(input, "right")) tree.right();
 		else if (matchesKey(input, "left")) tree.left();
 		else if (key === "/") tree.filtering = true;
+		else if (key === "?" && s.kind === "list") this.stack.push({ kind: "text", title: "task legend", main: ["▣ done    ☒ failed    ⊘ abandoned", "◐ partly done    ▶ doing    ⧗ blocked    ☐ todo", "≡ folded    · finished but raw    ! unfinished descendants"], alt: null, altLabel: "", showAlt: false, scroll: 0 });
 		else if (key === "t" && s.kind === "session") s.show = s.show === "all" ? "tasks" : s.show === "tasks" ? "untracked" : "all";
 		else {
 			const ref = tree.current?.node.data;

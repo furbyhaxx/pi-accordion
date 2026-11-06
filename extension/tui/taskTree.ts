@@ -51,6 +51,7 @@ export type TaskRow =
 			/** The hidden sibling tasks this row stands for; their subtasks are hidden with them. */
 			ids: string[];
 			count: number;
+			finished: boolean;
 			durationMs: number | null;
 			folded: number;
 	  };
@@ -257,7 +258,7 @@ function render(
 		const items: Array<TaskNode | TaskNode[]> = [];
 		for (const s of siblings) {
 			if (isVisible(s, siblings)) items.push(s);
-			else if (Array.isArray(items[items.length - 1])) (items[items.length - 1] as TaskNode[]).push(s);
+			else if (Array.isArray(items[items.length - 1]) && isFinished((items[items.length - 1] as TaskNode[])[0].task) === isFinished(s.task)) (items[items.length - 1] as TaskNode[]).push(s);
 			else items.push([s]);
 		}
 		items.forEach((item, i) => {
@@ -269,6 +270,7 @@ function render(
 					prefix,
 					ids: item.map((n) => n.task.id),
 					count: count(item),
+					finished: isFinished(item[0].task),
 					durationMs: outermostDuration(item, options.now),
 					folded: countFolded(item, options.folded),
 				});

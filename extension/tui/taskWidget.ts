@@ -10,7 +10,7 @@ import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/tas
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
 import { formatCompactTokens } from "./map";
-import { buildTaskTree, layoutTaskTree, summarizeTasks, taskDuration, type TaskGlyphState, type TaskRow } from "./taskTree";
+import { buildTaskTree, isFinished, layoutTaskTree, summarizeTasks, taskDuration, type TaskGlyphState, type TaskNode, type TaskRow } from "./taskTree";
 
 /** The theme subset the widget draws with. */
 export interface WidgetTheme {
@@ -35,6 +35,7 @@ export interface TaskWidgetView {
 	maxRows: number;
 	toggles: Map<string, boolean>;
 	revealed: Set<string>;
+	showLegend?: boolean;
 }
 
 /** A folded span's size before and after folding. */
@@ -72,13 +73,18 @@ function headerLine(model: TaskWidgetModel, view: TaskWidgetView, width: number,
 	const roots = buildTaskTree(model.list.tasks);
 	const sum = summarizeTasks(roots, model.folded, now);
 	const sep = theme.fg("dim", " · ");
+	const label = `${theme.fg("accent", glyph)} ${theme.bold("Tasks")}`;
+	const counts = ` ${sum.done}/${sum.total}`;
+	const title = clean(model.list.title || model.list.slug);
+	const suffix = [
+		sum.folded ? theme.fg("muted", ` (≡${sum.folded})`) : "",
+		sum.durationMs !== null ? `${sep}${formatDuration(sum.durationMs)}` : "",
+		model.tokens ? `${sep}${theme.fg("muted", `${formatCompactTokens(model.tokens.full)} → ${formatCompactTokens(model.tokens.live)} tok`)}` : "",
+	].filter(Boolean);
+	const titleRoom = width - visibleWidth(label + counts + suffix.join("")) - 1;
+	const titlePart = titleRoom >= 8 ? ` ${truncateToWidth(title, titleRoom, ELLIPSIS)}` : "";
 	return fitSegments(
-		[
-			`${theme.fg("accent", glyph)} ${theme.bold("Tasks")} ${sum.done}/${sum.total}`,
-			sum.folded ? theme.fg("muted", ` (≡${sum.folded})`) : "",
-			sum.durationMs !== null ? `${sep}${formatDuration(sum.durationMs)}` : "",
-			model.tokens ? `${sep}${theme.fg("muted", `${formatCompactTokens(model.tokens.full)} → ${formatCompactTokens(model.tokens.live)} tok`)}` : "",
-		].filter(Boolean),
+		[`${label}${titlePart}${counts}`, ...suffix],
 		width,
 	);
 }
@@ -109,8 +115,8 @@ export function glyphColor(state: TaskGlyphState, blinkOn: boolean): "dim" | "su
  * `<glyph> <id> ` and the styled title: not started dims both, abandoned strikes both through
  * (the glyph stays plain so it reads).
  */
-export function taskParts(task: Task, state: TaskGlyphState, theme: WidgetTheme, blinkOn = true): { head: string; title: string } {
-	const glyph = theme.fg(glyphColor(state, blinkOn), GLYPH[state]);
+export function taskParts(task: Task, state: TaskGlyphState, theme: WidgetTheme, blinkOn = true, fold = ""): { head: string; title: string } {
+	const glyph = theme.fg(glyphColor(state, blinkOn), GLYPH[state]) + fold;
 	const title = clean(task.title);
 	if (state === "abandoned") return { head: `${glyph} ${theme.fg("dim", theme.strikethrough(task.id))}${theme.fg("dim", theme.strikethrough(" "))}`, title: theme.fg("dim", theme.strikethrough(title)) };
 	const dim = state === "todo";
@@ -141,27 +147,41 @@ function foldsWithin(ids: readonly string[], folds: ReadonlyMap<string, FoldToke
 	return { count, tokens };
 }
 
+function leafCounts(node: TaskNode): { done: number; failed: number; abandoned: number; pending: number } {
+	const counts = { done: 0, failed: 0, abandoned: 0, pending: 0 };
+	const visit = (n: TaskNode) => {
+		if (n.children.length) { n.children.forEach(visit); return; }
+		if (n.task.status === "done" || n.task.status === "failed" || n.task.status === "abandoned") counts[n.task.status]++;
+		else counts.pending++;
+	};
+	node.children.forEach(visit);
+	return counts;
+}
+
 function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, theme: WidgetTheme, blinkOn: boolean, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
 	const t = row.node.task;
-	const { head, title } = taskParts(t, row.state, theme, blinkOn);
+	const counts = leafCounts(row.node);
+	const inconsistent = isFinished(t) && counts.pending > 0;
+	const fold = inconsistent ? theme.fg("warning", "!") : row.folded ? theme.fg("muted", "≡") : isFinished(t) ? theme.fg("dim", "·") : " ";
+	const { head, title } = taskParts(t, row.state, theme, blinkOn, fold);
 	const left = `  ${theme.fg("dim", row.prefix)}${head}`;
 	const note = taskNote(t);
 	const noteText = note ? theme.fg(row.state === "blocked" ? "warning" : "dim", ` · ${note}`) : "";
 	const duration = noteText + (row.durationMs !== null ? theme.fg("dim", ` · ${formatDuration(row.durationMs)}`) : "");
 	const own = folds?.get(t.id);
 	const inner = !row.folded && !row.open && row.node.children.length ? foldsWithin([t.id], folds, false) : null;
-	const progress = row.progress ? `${row.progress.done}/${row.progress.total}` : "";
-	const parts = [progress, row.folded ? (own ? `fold ${arrow(own)}` : "fold") : inner?.count ? `${inner.count} folded · ${arrow(inner.tokens)}` : ""].filter(Boolean);
-	const short = [progress, row.folded ? "fold" : inner?.count ? `${inner.count} folded` : ""].filter(Boolean);
+	const progress = row.progress ? [counts.done ? `${counts.done}✓` : "", counts.failed ? `${counts.failed}☒` : "", counts.abandoned ? `${counts.abandoned}⊘` : "", counts.pending ? `${counts.pending}☐` : ""].filter(Boolean).join(" ") : "";
+	const parts = [progress, row.folded ? (own ? arrow(own) : "") : inner?.count ? `${inner.count}≡ · ${arrow(inner.tokens)}` : ""].filter(Boolean);
+	const short = [progress, inner?.count ? `${inner.count}≡` : ""].filter(Boolean);
 	const marker = parts.length ? theme.fg("muted", ` (${parts.join(" · ")})`) : "";
 	const shortMarker = short.length ? theme.fg("muted", ` (${short.join(" · ")})`) : "";
 	return fitRow(left, title, [duration + marker, noteText + marker, noteText + shortMarker, shortMarker], width);
 }
 
 function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
-	const parts = [`… ${row.count} hidden`, row.durationMs !== null ? formatDuration(row.durationMs) : ""].filter(Boolean).join(" · ");
+	const parts = [`… ${row.count} ${row.finished ? "finished" : "upcoming"}`, row.durationMs !== null ? formatDuration(row.durationMs) : ""].filter(Boolean).join(" · ");
 	const within = foldsWithin(row.ids, folds, true);
-	const folded = row.folded ? ` (${row.folded} folded${within.count ? ` · ${arrow(within.tokens)}` : ""})` : "";
+	const folded = row.folded ? ` (${row.folded}≡${within.count ? ` · ${arrow(within.tokens)}` : ""})` : "";
 	return truncateToWidth(`  ${theme.fg("dim", row.prefix)} ${theme.fg("dim", parts + folded)}`, width, ELLIPSIS);
 }
 
@@ -186,6 +206,10 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 	const rows = layoutTaskTree(roots, { maxRows: Math.max(1, view.maxRows), now, folded: model.folded, toggles: view.toggles, revealed: view.revealed });
 	const lines = [headerLine(model, view, width, theme, now, "▼")];
 	const hits: TaskWidgetHit[] = [{ kind: "header" }];
+	if (view.showLegend) {
+		lines.push(truncateToWidth(theme.fg("dim", "  ≡ folded · raw ! inconsistent · ▣ done ☒ failed ⊘ abandoned ◐ partly done ▶ doing ⧗ blocked ☐ todo"), width, ELLIPSIS));
+		hits.push(null);
+	}
 	for (const row of rows) {
 		if (row.kind === "hidden") {
 			lines.push(hiddenRowLine(row, width, theme, model.foldTokens));
@@ -243,7 +267,7 @@ export function taskSpanTokens(list: TaskList, truth: Truth): { full: number; li
 	const spans = scanTaskSpans(blocks, (b) => b.text).filter((s) => s.list === list.slug);
 	if (!spans.length) return null;
 	const covered = new Set<number>();
-	for (const s of spans) for (let i = s.start; i <= s.end; i++) covered.add(i);
+	for (const s of spans) for (const range of s.intervals) for (let i = range.start; i <= range.end; i++) covered.add(i);
 	let full = 0;
 	let live = 0;
 	const seenGroups = new Set<string>();
@@ -356,6 +380,7 @@ export class TaskWidgetController {
 	private installed: TaskWidgetComponent | null = null;
 	private installing = false;
 	private hidden = false;
+	private legendSeen = false;
 	private view: TaskWidgetView;
 	private cache: { key: string; model: TaskWidgetModel } | null = null;
 
@@ -365,7 +390,8 @@ export class TaskWidgetController {
 
 	private freshView(): TaskWidgetView {
 		const s = this.deps.settings();
-		return { expanded: s.expanded, maxRows: s.maxRows, toggles: new Map(), revealed: new Set() };
+		const showLegend = s.expanded && !this.legendSeen;
+		return { expanded: s.expanded, maxRows: s.maxRows, toggles: new Map(), revealed: new Set(), showLegend };
 	}
 
 	/** Bind to a new session's UI; `ui` is null without an interactive terminal. */
@@ -393,13 +419,14 @@ export class TaskWidgetController {
 	sync(): void {
 		const want = !!this.ui && !this.hidden && !!this.list && this.deps.settings().mode === "auto" && this.deps.enabled();
 		if (want && !this.installed && !this.installing) {
+			if (this.view.showLegend) this.legendSeen = true;
 			this.installing = true;
 			try {
 				this.ui!.setWidget(
 					WIDGET_KEY,
 					(tui, theme) => {
 						this.installed?.dispose();
-						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view, (expanded) => this.deps.saveExpanded(expanded));
+						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view, (expanded) => { this.updateLegend(expanded); this.deps.saveExpanded(expanded); });
 						return this.installed;
 					},
 					{ placement: "aboveEditor" },
@@ -413,11 +440,17 @@ export class TaskWidgetController {
 		else this.installed?.requestRender();
 	}
 
+	private updateLegend(expanded: boolean): void {
+		this.view.showLegend = expanded && !this.legendSeen;
+		if (this.view.showLegend) this.legendSeen = true;
+	}
+
 	/** Expand or collapse; shows the widget again if it was hidden. */
 	toggle(): void {
 		if (this.hidden) this.hidden = false;
 		else {
 			this.view.expanded = !this.view.expanded;
+			this.updateLegend(this.view.expanded);
 			this.deps.saveExpanded(this.view.expanded);
 		}
 		this.sync();
@@ -426,6 +459,7 @@ export class TaskWidgetController {
 	setExpanded(expanded: boolean): void {
 		this.hidden = false;
 		if (this.view.expanded !== expanded) this.deps.saveExpanded(expanded);
+		if (this.view.expanded !== expanded) this.updateLegend(expanded);
 		this.view.expanded = expanded;
 		this.sync();
 	}

@@ -86,6 +86,16 @@ describe("task views", () => {
 		expect(steps.some((l) => l.startsWith("✓ edit  src/a.ts"))).toBe(true);
 	});
 
+	it("opens the list legend with question mark", () => {
+		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => 0.3, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+		const keys = { matches: (d: string, k: string) => k === "tui.select.cancel" && d === "\x1b" };
+		const v = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "list", slug: "l" }, () => {}, () => 30);
+		v.handleInput("?");
+		expect(v.render(80).join("\n")).toContain("finished but raw");
+		v.handleInput("\x1b");
+		expect(v.render(80).join("\n")).toContain("Parent");
+	});
+
 	it("refuses actions without control and stays inside the width", async () => {
 		const applied: unknown[] = [];
 		const b = blocks();
