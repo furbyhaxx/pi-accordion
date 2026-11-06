@@ -394,6 +394,58 @@ describe("taskfold", () => {
 		expect(groupOf(host, second)?.summary).toContain('[task-record] work/1.2 ');
 	});
 
+	it("does not reconstruct facts from a human-dropped group inside a task", async () => {
+		const { s, end } = oneTask();
+		const call = s.blocks.find((b) => b.toolName === "edit" && b.kind === "tool_call")!;
+		const result = s.blocks.find((b) => b.callId === call.callId && b.kind === "tool_result")!;
+		const host = setup(s);
+		expect(host.truth.apply([{ kind: "group", ids: [call.id, result.id], summary: null }], "you").results[0].applied).toBe(true);
+		await attach(host);
+		const summary = groupOf(host, end)?.summary ?? "";
+		expect(summary).toContain("[task-record] work/1");
+		expect(summary).not.toContain("src/parse.ts");
+		expect(groupOf(host, call.id)?.by).toBe("you");
+	});
+
+	it("does not reconstruct a task report hidden by a human group", async () => {
+		const { s, start, end } = oneTask();
+		const result = s.blocks.find((b) => b.id === end)!;
+		const call = s.blocks.find((b) => b.kind === "tool_call" && b.callId === result.callId)!;
+		const host = setup(s);
+		expect(host.truth.apply([{ kind: "group", ids: [call.id, result.id], summary: null }], "you").results[0].applied).toBe(true);
+		await attach(host);
+		expect(groupOf(host, start)).toBeUndefined();
+	});
+
+	it("reopens the same child using its original group code after the parent absorbs it", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		const first = s.start("1.1", "First").call;
+		s.work(2, "first");
+		s.finish("1.1", { outcome: "First done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		await attach(host);
+		const oldCode = foldCode(groupOf(host, first)!.id);
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		const second = more.start("1.2", "Second").call;
+		more.work(2, "second");
+		more.finish("1.2", { outcome: "Second done" });
+		more.finish("1", { outcome: "Parent done" });
+		more.work(3, "tail2");
+		host.appendBlocks(more.blocks);
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		await host.commitTurn();
+		expect(groupOf(host, parent)?.summary).toContain("[task-record] work/1 ");
+		host.setBudget(host.stats().liveTokens * 10);
+		expect(resolveUnfold(host.truth, [oldCode]).missing).toEqual([]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(groupOf(host, first)).toBeUndefined();
+		expect(groupOf(host, second)?.summary).toContain("[task-record] work/1.2 ");
+	});
+
 	it("includes criteria, exact pinned text and unstarted cascaded children without fake handles", async () => {
 		const s = new Session();
 		s.user("Go.");

@@ -592,6 +592,14 @@ export class TaskfoldConductor implements Conductor {
 			const gid = groupOf.get(b.id);
 			return !!gid && !childKey(groupKeys.get(gid));
 		};
+		if ([span, ...children].some((s) => {
+			const end = blocks[s.end];
+			const call = end?.callId ? blocks.find((b) => b.kind === "tool_call" && b.callId === end.callId) : undefined;
+			const start = blocks[s.start];
+			const result = start?.callId ? blocks.find((b) => b.kind === "tool_result" && b.callId === start.callId) : undefined;
+			const heldByHuman = (b: ViewBlock | undefined) => !!b && (b.held || host.groups().some((g) => g.by !== "auto" && g.memberIds.includes(b.id)));
+			return s.intervals.length > 0 && ([end, call].some((b) => b && (b.held || foreign(b))) || [start, result].some(heldByHuman));
+		})) return null;
 		const sameMsg = (i: number, j: number) => messageKey(blocks[i].id) === messageKey(blocks[j].id);
 		let lo = span.start;
 		let hi = span.end;
@@ -660,7 +668,7 @@ export class TaskfoldConductor implements Conductor {
 			const key = taskKeyOfSummary(g.summary);
 			if (key && typeof g.summary === "string" && !g.summary.includes(PART_TAG)) prior.set(key, g.summary);
 		}
-		const body = this.record(span, blocks, children, covered(rootHandle), prior);
+		const body = this.record(span, blocks, children, covered(rootHandle), prior, included);
 		const missingAliases = aliases.filter((tag) => !body.includes(tag));
 		const record = `${body}${missingAliases.length ? `\nearlier handles: ${missingAliases.join(" ")}` : ""}`;
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
@@ -680,7 +688,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** The fixed-shape record for a span, with descendant records kept intact. */
-	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], exposeHandle = true, prior: ReadonlyMap<string, string> = new Map()): string {
+	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], exposeHandle = true, prior: ReadonlyMap<string, string> = new Map(), included?: ReadonlySet<string>): string {
 		const lines = [`${RECORD_TAG} ${span.key} "${span.title}"  status: ${span.status}`];
 		if (exposeHandle) lines.push(`handle: ${foldTag(`t:${span.key}`)}`);
 		const list = (name: string, items: readonly string[] | undefined) => {
@@ -691,7 +699,7 @@ export class TaskfoldConductor implements Conductor {
 		list("decisions", span.report.decisions);
 		list("pins", span.pins?.map((p) => `${p.kind}: ${p.text} (${p.source})`));
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
-		const own = blocks.filter((_b, i) => inside(span, i) && !children.some((c) => inside(c, i)));
+		const own = blocks.filter((b, i) => (!included || included.has(b.id)) && inside(span, i) && !children.some((c) => inside(c, i)));
 		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
 		if (changed.length) lines.push(`changed: ${changed.slice(0, 20).join(", ")}${changed.length > 20 ? `, +${changed.length - 20} more` : ""}`);
 		list("verified", verified.slice(-5));
@@ -703,7 +711,7 @@ export class TaskfoldConductor implements Conductor {
 				const descendants = children.filter((c) => c.key.startsWith(`${child.key}.`));
 				const tag = foldTag(`t:${child.key}`);
 				const existing = prior.get(child.key);
-				const content = existing ? `${existing}${child.intervals.length && !existing.includes(tag) ? `\nhandle: ${tag}` : ""}` : `${child.intervals.length ? `${tag} ` : ""}${this.record(child, blocks, descendants, false, prior)}`;
+				const content = existing ? `${existing}${child.intervals.length && !existing.includes(tag) ? `\nhandle: ${tag}` : ""}` : `${child.intervals.length ? `${tag} ` : ""}${this.record(child, blocks, descendants, false, prior, included)}`;
 				lines.push(...content.split("\n").map((line) => `  ${line}`));
 			}
 		}
