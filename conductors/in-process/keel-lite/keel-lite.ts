@@ -85,6 +85,10 @@ export interface KeelLiteOptions {
 	deepFoldMinTokens?: number;
 	/** R7 groups at most this many whole assistant steps per group. Default 8. */
 	groupChunkSteps?: number;
+	/** Highest per-block folding rung; the default retains the full ladder. */
+	maxRung?: number;
+	/** Whether to group old steps after the per-block rungs. */
+	groupSteps?: boolean;
 	/** How many distinct `spec_*.md` paths (newest first) stay roots. Default 2. */
 	rootSpecPaths?: number;
 	/**
@@ -106,6 +110,8 @@ export const KEEL_LITE_DEFAULTS: Readonly<Required<KeelLiteOptions>> = Object.fr
 	readFoldMinTokens: 300,
 	deepFoldMinTokens: 200,
 	groupChunkSteps: 8,
+	maxRung: 6,
+	groupSteps: true,
 	rootSpecPaths: 2,
 	wholeBashCommand: /platform_client\.py["']?\s+guide\b/,
 });
@@ -206,6 +212,7 @@ export class KeelLiteConductor implements Conductor {
 		if (!(k.low > 0 && k.low < k.high)) throw new RangeError(`keel-lite: low must be in (0, high), got ${k.low} (high ${k.high})`);
 		if (!(k.trimMinSavings >= 0 && k.trimMinSavings < 1)) throw new RangeError(`keel-lite: trimMinSavings must be in [0, 1)`);
 		if (!(k.groupChunkSteps >= 1)) throw new RangeError(`keel-lite: groupChunkSteps must be ≥ 1`);
+		if (!Number.isInteger(k.maxRung) || k.maxRung < 0 || k.maxRung > 6) throw new RangeError(`keel-lite: maxRung must be 0–6`);
 		this.k = Object.freeze(k);
 	}
 
@@ -270,17 +277,17 @@ export class KeelLiteConductor implements Conductor {
 
 	// ── planning ───────────────────────────────────────────────────────────────────────────
 
-	private plan(host: ConductorHost): EpochPlan | null {
+	private plan(host: ConductorHost, pressure?: { live: number; target: number }): EpochPlan | null {
 		const st = host.stats();
 		const budget = st.budget;
 		if (!(budget > 0)) return null;
 		this.prune(host);
-		const live = st.liveTokens;
-		if (live < this.k.high * budget) return null; // hysteresis: under HIGH, say nothing
+		const live = pressure?.live ?? st.liveTokens;
+		if (!pressure && live < this.k.high * budget) return null; // hysteresis: under HIGH, say nothing
 
 		const blocks = host.blocks();
 		const pfi = Math.min(st.protectedFromIndex, blocks.length);
-		const target = this.k.low * budget;
+		const target = pressure?.target ?? this.k.low * budget;
 		const a = this.analyze(blocks);
 
 		const inAnyGroup = new Set<string>();
@@ -393,14 +400,15 @@ export class KeelLiteConductor implements Conductor {
 			],
 		];
 
-		for (const [, visit] of ladder) {
+		for (const [rung, visit] of ladder) {
+			if (rung > this.k.maxRung) continue;
 			if (done()) break;
 			for (let i = 0; i < pfi && !done(); i++) visit(blocks[i], i);
 		}
 
 		// R7 — group the oldest runs of whole assistant steps, only if still over LOW.
 		// Chunks are disjoint, so no member's cost needs updating between them.
-		if (!done()) {
+		if (this.k.groupSteps && !done()) {
 			for (const g of this.planGroups(host, blocks, pfi, a, inAnyGroup, cur)) {
 				if (done()) break;
 				groups.push(g);
@@ -513,6 +521,15 @@ export class KeelLiteConductor implements Conductor {
 		for (const m of members) before += cur(m);
 		const saved = before - cost;
 		return saved > 0 ? { ids, saved } : null;
+	}
+
+	/** Build pressure-relief ops without committing or recording a successful epoch. */
+	planPressure(host: ConductorHost, live: number, target: number): { ops: Op[]; saved: number } | null {
+		const plan = this.plan(host, { live, target });
+		if (!plan) return null;
+		const ops: Op[] = plan.blockOps.map((p) => p.form === "replace" ? { kind: "replace", id: p.id, content: p.content ?? "", recoverable: true } : { kind: "fold", ids: [p.id] });
+		ops.push(...plan.groups.map((g) => ({ kind: "group" as const, ids: g.ids })));
+		return { ops, saved: Math.max(0, plan.live - plan.projected) };
 	}
 
 	// ── commit ─────────────────────────────────────────────────────────────────────────────

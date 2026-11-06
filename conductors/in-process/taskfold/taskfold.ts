@@ -28,6 +28,7 @@ import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
+import { KeelLiteConductor } from "../keel-lite/keel-lite";
 
 export interface TaskfoldOptions {
 	/** Start an epoch once live tokens reach `high · budget`. Default 0.8. */
@@ -44,6 +45,8 @@ export interface TaskfoldOptions {
 	recordTokens?: number;
 	/** Finished-root ages at which children, then the root, then its archive are condensed. */
 	aging?: readonly [number, number, number];
+	/** Apply recoverable per-block pressure relief before folding untracked work. */
+	floor?: boolean;
 	/** Fold long runs outside task spans when pressure remains. */
 	untracked?: { enabled: boolean; minSteps: number };
 }
@@ -55,6 +58,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	keepRecentTasks: 1,
 	recordTokens: 1500,
 	aging: [3, 6, 11],
+	floor: false,
 	untracked: { enabled: true, minSteps: 8 },
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
@@ -320,6 +324,22 @@ function parseCall(text: string | null | undefined): Record<string, unknown> | n
 	}
 }
 
+function taskCoverage(length: number, spans: readonly TaskSpan[]): { open: Uint8Array; finished: Uint8Array } {
+	const openDiff = new Int32Array(length + 1);
+	const finishedDiff = new Int32Array(length + 1);
+	for (const span of spans) for (const interval of span.intervals) {
+		const diff = span.status === null ? openDiff : finishedDiff;
+		const start = Math.max(0, interval.start);
+		const end = Math.min(length - 1, interval.end);
+		if (start <= end) { diff[start]++; diff[end + 1]--; }
+	}
+	const open = new Uint8Array(length);
+	const finished = new Uint8Array(length);
+	let a = 0, b = 0;
+	for (let i = 0; i < length; i++) { a += openDiff[i]; b += finishedDiff[i]; open[i] = Number(a > 0); finished[i] = Number(b > 0); }
+	return { open, finished };
+}
+
 function oneLine(s: string, max: number): string {
 	const t = s.replace(/\s+/g, " ").trim();
 	return t.length > max ? t.slice(0, max - 1) + "…" : t;
@@ -374,7 +394,7 @@ export class TaskfoldConductor implements Conductor {
 		if (!Number.isFinite(k.high) || !Number.isFinite(k.low) || !(k.low > 0 && k.low < k.high && k.high <= 1)) throw new RangeError("taskfold: require 0 < low < high <= 1");
 		if (!Number.isSafeInteger(k.keepRecentTasks) || k.keepRecentTasks < 0 || !Number.isSafeInteger(k.recordTokens) || k.recordTokens < 1) throw new RangeError("taskfold: invalid recent-task or record-token limit");
 		if (k.aging.length !== 3 || !k.aging.every((n) => Number.isSafeInteger(n) && n > 0) || !(k.aging[0] < k.aging[1] && k.aging[1] < k.aging[2])) throw new RangeError("taskfold: aging thresholds must be positive and strictly increasing");
-		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean") throw new RangeError("taskfold: invalid untracked-work settings");
+		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
 		this.verdicts = verdicts;
 	}
 
@@ -615,13 +635,56 @@ export class TaskfoldConductor implements Conductor {
 				units.push(...agedRecent);
 				projected -= agedRecent.reduce((sum, unit) => sum + unit.saved, 0);
 			}
+			if (projected > target && this.k.floor) {
+				for (const scope of ["open", "untracked"] as const) {
+					if (projected <= target) break;
+					const floor = this.floor(host, blocks, projected, target, planned, scope);
+					if (!floor) continue;
+					units.push(floor);
+					for (const op of floor.ops) {
+						if (op.kind === "fold") for (const id of op.ids) planned.add(id);
+						else if (op.kind === "replace") planned.add(op.id);
+					}
+					projected -= floor.saved;
+				}
+			}
 			if (projected > target && this.k.untracked.enabled) units.push(...this.untracked(host, blocks, projected - target, planned));
 		}
 		return units;
 	}
 
+	private floor(host: ConductorHost, blocks: readonly ViewBlock[], live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
+		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const coverage = taskCoverage(blocks.length, spans);
+		const positions = new Map(blocks.map((b, i) => [b.id, i]));
+		const documents = new Set<string>();
+		for (const b of blocks) {
+			if (b.kind !== "tool_call" || !b.callId || b.toolName !== "read") continue;
+			const path = parseCall(this.textOf(b))?.path;
+			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documents.add(b.callId);
+		}
+		const mask = (b: ViewBlock): ViewBlock => {
+			const i = positions.get(b.id) ?? -1;
+			const allowed = i >= 0 && (scope === "open" ? !!coverage.open[i] && !coverage.finished[i] : !coverage.open[i] && !coverage.finished[i]);
+			return !allowed || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
+		};
+		const proxy: ConductorHost = {
+			on: () => () => {}, get: (id) => { const b = host.get(id); return b ? mask(b) : undefined; },
+			blocks: () => host.blocks().map(mask), groups: () => host.groups(), textOf: (id) => host.textOf(id),
+			stats: () => host.stats(), systemPrompt: () => host.systemPrompt(), countTokens: (text) => host.countTokens(text),
+			digestOf: (id) => host.digestOf(id), complete: (req) => host.complete(req), setStatus: () => {}, propose: (txn) => host.propose(txn),
+		};
+		const keel = new KeelLiteConductor({ high: this.k.high, low: this.k.low, maxRung: 5, groupSteps: false });
+		keel.attach(proxy);
+		try {
+			const result = keel.planPressure(proxy, live, target);
+			return result ? { ops: result.ops, saved: result.saved, restore: [] } : null;
+		} finally { keel.detach(); }
+	}
+
 	private untracked(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
 		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const coverage = taskCoverage(blocks.length, spans);
 		const occupied = new Set<string>(host.groups().flatMap((g) => [...g.memberIds]));
 		const documentCalls = new Set<string>();
 		for (const b of blocks) {
@@ -629,7 +692,7 @@ export class TaskfoldConductor implements Conductor {
 			const path = parseCall(this.textOf(b))?.path;
 			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documentCalls.add(b.callId);
 		}
-		const eligible = (b: ViewBlock, i: number) => !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId)) && !spans.some((s) => s.intervals.some((r) => r.start <= i && i <= r.end));
+		const eligible = (b: ViewBlock, i: number) => !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId)) && !coverage.open[i] && !coverage.finished[i];
 		const runs: ViewBlock[][] = [];
 		let run: ViewBlock[] = [];
 		for (let i = 0; i < blocks.length;) {
@@ -872,7 +935,13 @@ export class TaskfoldConductor implements Conductor {
 				const appliedGroups: string[] = [];
 				const removedGroups = new Set<string>();
 				let failed = false;
+				const isFloor = u.ops.every((op) => op.kind === "fold" || op.kind === "replace");
 				for (const r of rs) {
+					if (r.op.kind === "fold" || r.op.kind === "replace") {
+						if (r.applied) unitApplied++;
+						else failed = true;
+						continue;
+					}
 					if (r.op.kind === "ungroup") {
 						if (r.applied) removedGroups.add(r.op.groupId);
 						else failed = true;
@@ -887,9 +956,9 @@ export class TaskfoldConductor implements Conductor {
 					appliedGroups.push(gid);
 					unitApplied++;
 				}
-				if (!failed) applied += unitApplied;
+				if (!failed || isFloor) applied += unitApplied;
 				if (unitApplied && !failed) saved += u.saved;
-				if (failed) {
+				if (failed && !isFloor) {
 					undo.push(...appliedGroups.map((groupId) => ({ kind: "ungroup" as const, groupId })));
 					restore.push(...u.restore.filter((op) => op.kind === "group" && removedGroups.has(`g:${op.ids[0]}`)));
 				}
@@ -902,7 +971,7 @@ export class TaskfoldConductor implements Conductor {
 			this.epochs++;
 			const s = host.stats();
 			const unclassified = this.classifyFailures ? `; ${this.classifyFailures} user message(s) unclassified, kept` : "";
-			host.setStatus(rollbackFailed ? `Taskfold could not restore every group after a rejected fold; inspect the context.` : `Epoch ${this.epochs}: folded ${applied} task group(s), ~${saved} tokens${unclassified}.`, {
+			host.setStatus(rollbackFailed ? `Taskfold could not restore every group after a rejected fold; inspect the context.` : `Epoch ${this.epochs}: applied ${applied} fold operation(s), ~${saved} tokens${unclassified}.`, {
 				epochs: this.epochs,
 				groups: this.groupKeys(host).size,
 				live_tokens: s.liveTokens,

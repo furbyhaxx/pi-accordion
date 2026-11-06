@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 7
+  revision: 8
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T18:13:16+01:00"
+  updated_at: "2026-11-06T18:22:18+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 7
-      reason: "record implemented interval planner and safe aging behavior"
-      changes: ["§6 refuse records that cannot fit without truncation", "§7 clarify ownership and persistent unfold state", "§8 retain old handle tags"]
+    - revision: 8
+      reason: "describe the composed pressure-floor implementation"
+      changes: ["§9.2 preview keel-lite pressure ops and commit them with taskfold"]
 ---
 
 # Taskfold tree
@@ -400,13 +400,14 @@ waived when step 2 still leaves the projection above `low · budget`.
 
 ### 9.2 Floor
 
-- Composition, ported from `exp/orientation-modes` `conductors/in-process/taskfold/thinning.ts`.
-  Taskfold owns an unmodified `KeelLiteConductor` behind a proxy host.
+- Composition, adapted from `exp/orientation-modes` `conductors/in-process/taskfold/thinning.ts`.
+  Taskfold previews a `KeelLiteConductor` behind a masked host; its decisions are rebuilt from
+  Truth each epoch and it does not independently commit.
 - **Hidden from keel-lite:** blocks in Taskfold groups and planned groups, document and rule-file
   reads (`DOC_PATH_RE`, `RULE_FILE_RE`), the protected tail, kept user messages.
-- R7 off through a new keel-lite option `groupSteps: false`.
-- **Same transaction:** the proxy collects keel-lite's proposed ops instead of committing them.
-  Taskfold appends them to its epoch's op list, so there is one `propose` and one cache break.
+- R1–R5 only (`maxRung: 5`); R7 is off (`groupSteps: false`).
+- **Same transaction:** `planPressure` previews keel-lite's ops without committing them. Taskfold
+  appends them to its epoch's op list, so there is one `propose` and one cache break.
 - Scope: open spans first (oldest block first), then untracked runs.
 - `unit` savings count members at their current cost (`foldedTokens` when folded).
 - `taskfold.floor`: `true`/`false`. **The default is decided by the measurement** (plan slice 9):

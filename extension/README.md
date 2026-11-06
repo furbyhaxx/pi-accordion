@@ -89,14 +89,16 @@ attaches):
   "taskfold": {
     "high": 0.8, "low": 0.6,
     "keepRecentTasks": 1, "recordTokens": 1500,
-    "aging": [3, 6, 11],
+    "aging": [3, 6, 11], "floor": false,
     "untracked": { "enabled": true, "minSteps": 8 }
   }
 }
 ```
 
 The newest completed work stays open when older work suffices; under pressure it can fold too.
-Aging advances older records during a folding epoch, preserving their recall handles.
+Aging advances older records during a folding epoch, preserving their recall handles. Setting
+`floor` to `true` additionally applies recoverable per-block folding inside long open tasks and
+untracked work, outside the protected tail; it is off by default.
 
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
 output against the actual serialized prompt, including restored content. Stored usage and costs

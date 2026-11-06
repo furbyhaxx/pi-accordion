@@ -162,6 +162,30 @@ describe("taskfold", () => {
 		expect(groupOf(host, doc.result)).toBeUndefined();
 	});
 
+	it("combines finished-task groups and open-task floor folds in one proposal", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const finished = s.start("1", "Finished").call;
+		s.work(3, "done");
+		s.finish("1", { outcome: "done" });
+		const open = s.start("2", "Open").call;
+		const doc = s.call("read", { path: "docs/spec.md" }, "Important policy");
+		s.work(12, "open");
+		const host = setup(s, 0.5);
+		const proposals: string[][] = [];
+		const propose = host.propose.bind(host);
+		host.propose = (txn) => { proposals.push(txn.ops.map((op) => op.kind)); return propose(txn); };
+		new TaskfoldConductor({ keepRecentTasks: 0, floor: true, untracked: { enabled: false, minSteps: 8 } }).attach(host);
+		await host.commitTurn();
+		expect(proposals).toHaveLength(1);
+		expect(proposals[0]).toContain("group");
+		expect(proposals[0].some((kind) => kind === "replace" || kind === "fold")).toBe(true);
+		expect(groupOf(host, finished)?.summary).toContain("[task-record] work/1");
+		expect(groupOf(host, open)).toBeUndefined();
+		expect(host.truth.isFolded(host.truth.get(doc.result)!)).toBe(false);
+		expect(host.blocks().filter((b) => b.protected).every((b) => !b.folded)).toBe(true);
+	});
+
 	it("reports the largest open task when no safe folding can relieve pressure", async () => {
 		const s = new Session();
 		s.user("Go.");

@@ -50,6 +50,7 @@ export interface TaskfoldSettings {
 	keepRecentTasks: number;
 	recordTokens: number;
 	aging: [number, number, number];
+	floor: boolean;
 	untracked: { enabled: boolean; minSteps: number };
 }
 
@@ -88,7 +89,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60 }, pins: { listTokens: 2000, taskTokens: 1500 } },
-	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, aging: [...TASKFOLD_DEFAULTS.aging], untracked: { ...TASKFOLD_DEFAULTS.untracked } },
+	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, aging: [...TASKFOLD_DEFAULTS.aging], floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked } },
 	modelDefaults: {},
 };
 
@@ -221,7 +222,7 @@ export function sanitizeTaskfoldSettings(value: unknown): TaskfoldSettings {
 	const age = raw.aging;
 	const aging: [number, number, number] = Array.isArray(age) && age.length === 3 && age.every((n) => Number.isSafeInteger(n) && n > 0) && age[0] < age[1] && age[1] < age[2] ? [age[0], age[1], age[2]] : [...defaults.aging];
 	const untracked = raw.untracked && typeof raw.untracked === "object" && !Array.isArray(raw.untracked) ? raw.untracked as Record<string, unknown> : {};
-	return { high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), aging, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) } };
+	return { high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), aging, floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) } };
 }
 
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
