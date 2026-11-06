@@ -1,0 +1,2 @@
+#!/usr/bin/sh
+exec /usr/bin/bwrap --unshare-all --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --bind /work /work --proc /proc --dev /dev --tmpfs /tmp --chdir /work --clearenv --setenv HOME /tmp --setenv PATH /usr/bin:/bin /usr/bin/bash "$@"

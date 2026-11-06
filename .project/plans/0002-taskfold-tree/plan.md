@@ -5,12 +5,15 @@ document:
   title: "Taskfold tree implementation"
   description: "Slices, progress and acceptance for implementing SPEC-0002 on branch feat/taskfold-tree."
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-06T14:44:51+01:00"
   updated_at: "2026-11-06T20:05:27+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 6
+      reason: "record skill comparison"
+      changes: ["add isolated skill evaluation result"]
     - revision: 5
       reason: "record floor and attachment measurements"
       changes: ["mark the comparison complete and retain the floor as opt-in"]
@@ -47,7 +50,7 @@ worktree `.pi/worktrees/taskfold-tree`, PR into `feat/pi-native`.
 | 5 | Aging by task age, cache rule, keep-recent by finish order and waiver, `taskfold.*` settings | §8, §9.1, §12 | done |
 | 6 | Task widget title, fold column, breakdown, split hidden rows, legend | §10 | done; folded groups checked live at four widths |
 | 7 | Tool texts: review gate, stop rule, resume note | §3.4 | done |
-| 8 | Skill `accordion-task-lists` and its eval | §11 | skill done; isolated comparison awaits user decision |
+| 8 | Skill `accordion-task-lists` and its eval | §11 | done; isolated comparison showed no validity gain, more compact lists |
 | 9 | Floor (same transaction), measurement, default decision | §9.2, §13 | done; measured floor remains opt-in, inline attachments remain default |
 
 ## Slice 1: list file v2 and store actions
@@ -99,9 +102,8 @@ Tests:
 - The corrected floor and attachment comparisons used frozen revisions and an isolated fixture runner.
   Results and limitations are in `evidence/floor-comparison/README.md`; every attachment run started
   the seeded task. The earlier wrong-config attempt is excluded.
-- The initial skill baseline accessed repository files outside its synthetic fixture and sent tool
-  results to the provider. It also found the skill, contaminating the comparison. Do not use those
-  results; an isolated rerun requires the user's decision.
+- The initial unsandboxed skill baseline is excluded. The isolated rerun is recorded in
+  `evidence/skill-comparison/README.md`: all lists valid in both arms; the skill arm was more compact.
 - Rerun the final project and install checks after recording the decisions. Product whitespace
   checks pass; copied branch artifacts retain their original whitespace.
 
