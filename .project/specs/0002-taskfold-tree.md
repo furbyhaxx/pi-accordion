@@ -24,11 +24,12 @@ This spec amends SPEC-0001 §4.3, §4.4, §4.10, §4.11 and §4.15. Each slice t
 behaviours updates SPEC-0001 in the same commit.
 
 Evidence it builds on:
-- branch `exp/orientation-modes`: analysis `ANA-orientation-modes`
-- branch `fix/failing-sessions`: analysis `ANA-2026-11-05-taskfold-session-failures` and draft
-  `DRAFT-taskfold-reliability`
+- `.project/analyses/orientation-modes/README.md` (experiments from branch `exp/orientation-modes`)
+- `.project/analyses/2026-11-05-taskfold-session-failures/analysis.md` and
+  `.project/drafts/taskfold-reliability.md` (from branch `fix/failing-sessions`)
 
-Neither branch is merged. Ideas are ported, not cherry-picked, except commit `f04f39d`.
+Only these artifacts were copied from the two branches. Their code is ported, not merged, except
+commit `f04f39d`.
 
 ## 1. Scope
 

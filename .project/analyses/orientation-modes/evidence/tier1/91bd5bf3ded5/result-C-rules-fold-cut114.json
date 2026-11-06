@@ -1,0 +1,55 @@
+{
+  "arm": "C-rules-fold-cut114",
+  "answers": {
+    "p1": "The entire agreed Slice 1, including integration, documentation and acceptance evidence.",
+    "p2": "The real pig-web co-load dependency; fixtures cannot substitute for that exit gate.",
+    "p3": "Preserve them; inspect before modifying or integrating.",
+    "p4": "unknown",
+    "p5": "-modfile=.tmp/go.mod",
+    "p6": "unknown",
+    "p7": "internal/prompt/filesystem_test.go",
+    "p8": ".project/handoff/slice-1-resume-2026-11-05.md",
+    "p9": "internal/host/edit.go",
+    "p10": "256 KiB",
+    "p11": "8b9edc6",
+    "p12": "unknown"
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "unknown",
+    "p5": "partial",
+    "p6": "unknown",
+    "p7": "partial",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "partial",
+    "p11": "correct",
+    "p12": "unknown"
+  },
+  "overall": 63,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 38,
+    "path": 83,
+    "value": 75,
+    "decision": 0
+  },
+  "fullTokens": 85711,
+  "liveTokens": 35804,
+  "cacheBreakAt": 1,
+  "groups": [
+    {
+      "key": "orientation",
+      "members": 38,
+      "tokens": 1384
+    },
+    {
+      "key": "slice-1-completion/1.1",
+      "members": 34,
+      "tokens": 1300
+    }
+  ]
+}

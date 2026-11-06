@@ -1,0 +1,44 @@
+{
+  "arm": "K+D-cut411",
+  "answers": {
+    "p1": "Fix pi-auth-plus so it refreshes the synthetic catalog online and supports pig, then remove the synthetic-kimi provider from models.json.",
+    "p2": "In the pi-auth-plus repo (cd into it) before updating the pig-installed extension copy.",
+    "p3": "The user said they do not care about the underlying issue for now.",
+    "p4": "unknown",
+    "p5": "unknown",
+    "p6": "unknown",
+    "p7": "/mnt/Projects/furbyhaxx/pi-auth-plus",
+    "p8": "assets/synthetic/models.json",
+    "p9": "src/families/synthetic/index.ts",
+    "p10": "CATALOG_TTL_MS = 4 * 60 * 60 * 1000 (4 hours)",
+    "p11": "Catalog URL is https://api.synthetic.new/v1/models; base URL is https://api.synthetic.new/anthropic.",
+    "p12": "Fix refresh in pi-auth-plus, verify in pig and pi/pi-bolt, update the pig-installed extension copy, then remove synthetic-kimi from models.json and confirm the model lists under synthetic."
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "partial",
+    "p4": "unknown",
+    "p5": "unknown",
+    "p6": "unknown",
+    "p7": "correct",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "correct",
+    "p11": "correct",
+    "p12": "correct"
+  },
+  "overall": 71,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 13,
+    "path": 100,
+    "value": 100,
+    "decision": 100
+  },
+  "fullTokens": 213947,
+  "liveTokens": 89256,
+  "cacheBreakAt": 1,
+  "groups": []
+}

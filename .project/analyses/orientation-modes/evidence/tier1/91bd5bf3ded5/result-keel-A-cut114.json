@@ -1,0 +1,50 @@
+{
+  "arm": "A-cut114",
+  "answers": {
+    "p1": "The entire agreed Slice 1, including integration, documentation and acceptance evidence.",
+    "p2": "The real pig-web co-load gate (P2 blocks P1g1); fixtures cannot substitute.",
+    "p3": "Preserve them; inspect before modifying or integrating, and do not discard, overwrite or blindly stage them.",
+    "p4": "Use explicit-path `git commit --only`; no bare git commit and no broad git add.",
+    "p5": "`-modfile=.tmp/go.mod` (prepared by `just _modfile`).",
+    "p6": "Only against a quiet source tree, because the packer hashes the whole module and races any writer.",
+    "p7": "`internal/prompt/filesystem_test.go`.",
+    "p8": "`.project/handoff/slice-1-resume-2026-11-05.md`.",
+    "p9": "`internal/host/edit.go`.",
+    "p10": "256 KiB (262144 bytes).",
+    "p11": "8b9edc6.",
+    "p12": "Fix the stale 256 KiB test assertion, rerun prompt and dirty host/domain checks, then live edit/read/ask/jobs integration."
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "correct",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "partial",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "correct",
+    "p11": "correct",
+    "p12": "correct"
+  },
+  "overall": 96,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 100,
+    "path": 83,
+    "value": 100,
+    "decision": 100
+  },
+  "fullTokens": 85711,
+  "liveTokens": 79720,
+  "cacheBreakAt": 39,
+  "groups": [
+    {
+      "key": "slice-1-completion/1.1",
+      "members": 34,
+      "tokens": 1300
+    }
+  ]
+}

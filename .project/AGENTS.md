@@ -17,5 +17,5 @@ Development artifacts. Committed. Never in `docs/`. Full standard: skill `dot-pr
 - One artifact = one file or one `<slug>/` dir. Evidence in `<slug>/evidence/`, credentials redacted.
 - Every Markdown artifact (except `user-uploaded-assets/`) starts with `document:` frontmatter: type, id, title, description, status (sketch|draft|published|archived), revision, created_at, updated_at, created_by, updated_by, changelog. Timestamps `date -Iseconds`.
 - Revise: bump revision, update updated_*, append changelog entry.
-- Superseded → status `archived` + successor path. Never delete.
+- Same topic, new facts: overwrite the file. No longer needed: delete it. Git history is the archive.
 - New type → dir + AGENTS.md + row here.

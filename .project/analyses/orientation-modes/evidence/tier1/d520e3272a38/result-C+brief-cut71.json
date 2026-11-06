@@ -1,0 +1,50 @@
+{
+  "arm": "C+brief-cut71",
+  "answers": {
+    "p1": "Extend the extension to match 5xx/no-body/transport errors (e.g. `500 status code (no body)`) with a longer retry budget, adapting on repeated identical failures, so such turns recover.",
+    "p2": "kimi k3.1 and kimi k3.1 flash (empty response bodies).",
+    "p3": "unknown",
+    "p4": "unknown",
+    "p5": "unknown",
+    "p6": "/mnt/shared/.agents/pi/extensions/empty-response-retry.ts",
+    "p7": "/home/furbyhaxx/.pig/agent/sessions/--mnt-Projects-furbyhaxx-pig-workbench--/2026-11-05T12-53-01-949Z_01a1abc5-137d-715c-9612-91bd5bf3ded5.jsonl",
+    "p8": "MAX_RETRIES_PER_RUN=5, BASE_DELAY_MS=500.",
+    "p9": "maxRetries 3, baseDelayMs 2000, maxAgentDelayMs 60000.",
+    "p10": "errorMessage `500 status code (no body)`, durationMs ~20600 each (20619/20609/20667/20656).",
+    "p11": "Pi's built-in retry policy (failed-attempt omission via context_edit, per divergence D136), not the extension.",
+    "p12": "(1) Analyze failing session and retry layers; (2) reproduce the 500 (no body) against synthetic.new (small request, then session-sized context); (3) fix the extension so these cases recover."
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "unknown",
+    "p4": "unknown",
+    "p5": "unknown",
+    "p6": "correct",
+    "p7": "correct",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "correct",
+    "p11": "correct",
+    "p12": "correct"
+  },
+  "overall": 75,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 0,
+    "path": 100,
+    "value": 100,
+    "decision": 100
+  },
+  "fullTokens": 53017,
+  "liveTokens": 22311,
+  "cacheBreakAt": 1,
+  "groups": [
+    {
+      "key": "orientation",
+      "members": 54,
+      "tokens": 4348
+    }
+  ]
+}

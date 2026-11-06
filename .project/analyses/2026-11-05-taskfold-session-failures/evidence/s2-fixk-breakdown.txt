@@ -1,0 +1,16 @@
+calibration 1.70 stats {"rev":1574,"liveTokens":410465,"fullTokens":730012,"budget":272000,"contextWindow":null,"protectTokens":20000,"protectedFromIndex":951,"blockCount":990}
+in folded groups (raw)         322662
+OPEN 4.1.3                     180155
+abandoned 1.3.4                147471
+outside:tool_result            68130
+outside:tool_call              5011
+OPEN 4                         3219
+outside:text                   1214
+outside:thinking               896
+done 4.1.2                     795
+outside:user                   519
+groups: {#xwym4m FOLDED} [task-archived] slice-1-completion/1.1 "Correct and v
+  {#hedhpq FOLDED} [task-archived] slice-1-completion/1.2 "Review and in
+  {#t9b9l2 FOLDED} [task-archived] slice-1-completion/1.3.1 "Integrate s
+  {#ydvwoh FOLDED} [task-record] slice-1-completion/1.3.3 "Integrate HTM
+  {#hr5pvv FOLDED} [task-archived] slice-1-completion/1.3.2 "Integrate s

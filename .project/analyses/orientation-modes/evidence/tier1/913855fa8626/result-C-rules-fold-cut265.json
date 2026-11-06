@@ -1,0 +1,70 @@
+{
+  "arm": "C-rules-fold-cut265",
+  "answers": {
+    "p1": "The TaskFold widgets, tool renders, etc. as one unit that can be installed and used",
+    "p2": "UX and UI polish, chrome and improvements, plus an above-editor TaskFold widget and /compact enhancements",
+    "p3": "The wireframes and changes for approval",
+    "p4": "Stage with ctrl+s",
+    "p5": "/home/furbyhaxx/.pig/agent/skills/extending-pig/references/ui-ux.md",
+    "p6": "36, 57, 80 and 140 columns",
+    "p7": "unknown",
+    "p8": "~/.accordion/config.json",
+    "p9": "extension/tui/panel.ts",
+    "p10": "24318",
+    "p11": "unknown",
+    "p12": "Overview"
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "partial",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "unknown",
+    "p8": "partial",
+    "p9": "correct",
+    "p10": "wrong",
+    "p11": "unknown",
+    "p12": "correct"
+  },
+  "overall": 67,
+  "wrong": 1,
+  "byKind": {
+    "goal": 100,
+    "constraint": 88,
+    "path": 50,
+    "value": 0,
+    "decision": 100
+  },
+  "fullTokens": 141962,
+  "liveTokens": 25612,
+  "cacheBreakAt": 1,
+  "groups": [
+    {
+      "key": "orientation",
+      "members": 68,
+      "tokens": 115
+    },
+    {
+      "key": "orientation",
+      "members": 37,
+      "tokens": 5188
+    },
+    {
+      "key": "accordion-tui-polish/1.1",
+      "members": 46,
+      "tokens": 851
+    },
+    {
+      "key": "accordion-tui-polish/1.2",
+      "members": 41,
+      "tokens": 1335
+    },
+    {
+      "key": "accordion-tui-polish/1.3",
+      "members": 96,
+      "tokens": 1655
+    }
+  ]
+}

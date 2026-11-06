@@ -1,0 +1,44 @@
+{
+  "arm": "A-cut107",
+  "answers": {
+    "p1": "The TaskFold visibility unit: above-editor widget plus tool renderers (tasks, unfold, recall), installable and usable.",
+    "p2": "UX/UI polish of the raw, cluttered terminal interface: chrome, improvements, a TaskFold above-editor widget, and enhanced /compact.",
+    "p3": "Wireframes and proposed changes for approval.",
+    "p4": "Staged edits saved explicitly with ctrl+s, with conflict detection.",
+    "p5": "/home/furbyhaxx/.pig/agent/skills/extending-pig/references/ui-ux.md",
+    "p6": "36, 57, 80 and 140 columns (plus a short terminal of about 16 rows).",
+    "p7": "<project>/.pig/tasks/<slug>.json",
+    "p8": "<home>/.accordion/config.json (respecting ACCORDION_HOME)",
+    "p9": "extension/tui/panel.ts",
+    "p10": "24317",
+    "p11": "high 0.8, low 0.6",
+    "p12": "Overview"
+  },
+  "grades": {
+    "p1": "correct",
+    "p2": "correct",
+    "p3": "correct",
+    "p4": "correct",
+    "p5": "correct",
+    "p6": "correct",
+    "p7": "correct",
+    "p8": "correct",
+    "p9": "correct",
+    "p10": "correct",
+    "p11": "correct",
+    "p12": "correct"
+  },
+  "overall": 100,
+  "wrong": 0,
+  "byKind": {
+    "goal": 100,
+    "constraint": 100,
+    "path": 100,
+    "value": 100,
+    "decision": 100
+  },
+  "fullTokens": 83734,
+  "liveTokens": 83734,
+  "cacheBreakAt": null,
+  "groups": []
+}
