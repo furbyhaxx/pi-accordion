@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 8
+  revision: 9
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T18:22:18+01:00"
+  updated_at: "2026-11-06T19:16:47+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "describe the composed pressure-floor implementation"
-      changes: ["§9.2 preview keel-lite pressure ops and commit them with taskfold"]
+    - revision: 9
+      reason: "keep task pins through compaction"
+      changes: ["§8 retain verbatim task-scoped pins during condensation and aging"]
 ---
 
 # Taskfold tree
@@ -378,7 +378,9 @@ Cache rule (one cache break per epoch):
 4. No epoch runs only for aging. Aging rides on epochs triggered by `high`.
 
 Never aged: the newest finished root (unless waived, §9.1), kept user messages, list pins. All
-previously emitted child and group tags remain visible and recoverable through later aging.
+previously emitted child and group tags remain visible and recoverable through later aging. Task-scoped
+pins are retained verbatim with their task and source, including when child records condense or the
+parent ages. If those pins prevent a record from fitting its cap, leave it raw rather than drop them.
 
 ## 9. Epoch
 

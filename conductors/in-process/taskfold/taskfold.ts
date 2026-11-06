@@ -255,8 +255,25 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	return out;
 }
 
-/** Condense direct child records while retaining every previously visible handle. */
-export function condenseChildren(summary: string): string | null {
+type RetainedPin = { task: string; kind: string; text: string; source: string };
+
+function retainTaskPins(summary: string, pins: readonly RetainedPin[]): string {
+	const marker = /\n\[retained-task-pins (\d+)\]\n/g;
+	for (const match of summary.matchAll(marker)) {
+		const start = match.index + match[0].length;
+		if (start + Number(match[1]) === summary.length) { summary = summary.slice(0, match.index); break; }
+	}
+	if (!pins.length) return summary;
+	const payload = pins.map((p) => `${p.task} · ${p.kind} (${p.source}):\n${p.text}`).join("\n");
+	return `${summary}\n[retained-task-pins ${payload.length}]\n${payload}`;
+}
+
+function pinsIn(spans: readonly TaskSpan[]): RetainedPin[] {
+	return spans.flatMap((span) => (span.pins ?? []).map((pin) => ({ task: span.key, ...pin })));
+}
+
+/** Condense direct child records while retaining every previously visible handle and supplied pin. */
+export function condenseChildren(summary: string, pins: readonly RetainedPin[] = []): string | null {
 	const lines = summary.split("\n");
 	const sections = lines.flatMap((line, i) => { const m = /^( *)children:$/.exec(line); return m ? [{ i, indent: m[1] }] : []; }).sort((a, b) => b.indent.length - a.indent.length);
 	for (const section of sections) {
@@ -278,7 +295,7 @@ export function condenseChildren(summary: string): string | null {
 		if (!rows.length) continue;
 		const body = [...lines.slice(0, section.i + 1), ...rows, ...lines.slice(sectionEnd)].join("\n");
 		const missing = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((tag) => !body.includes(tag));
-		return missing.length ? `${body}\nhandles: ${missing.join(" ")}` : body;
+		return retainTaskPins(missing.length ? `${body}\nhandles: ${missing.join(" ")}` : body, pins);
 	}
 	return null;
 }
@@ -287,16 +304,16 @@ export function condenseChildren(summary: string): string | null {
  * One step down the aging ladder for a record summary: level 1 keeps the head line and the outcome
  * on one line, level 2 keeps only the archive stub. Null when the summary is not a task record.
  */
-export function ageRecord(summary: string, level: 1 | 2): string | null {
+export function ageRecord(summary: string, level: 1 | 2, pins: readonly RetainedPin[] = []): string | null {
 	const m = /^(\{#[0-9a-z]{6} FOLDED\}) \[task-(record|archived)\] (\S+) "(.*)"\s+status: (\w+)/.exec(summary);
 	if (!m) return null;
 	const [, tag, kind, key, title, status] = m;
 	if (level === 1 && !/^outcome: /m.test(summary)) return summary;
 	const tags = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((t) => t !== tag);
 	const suffix = tags.length ? ` · handles: ${tags.join(" ")}` : "";
-	if (level === 2 || kind === "archived") return `${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall ${tag} instead of re-reading.${suffix}`;
+	if (level === 2 || kind === "archived") return retainTaskPins(`${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall ${tag} instead of re-reading.${suffix}`, pins);
 	const outcome = /^outcome: (.*)$/m.exec(summary)?.[1];
-	return `${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""} · recall ${tag} instead of re-reading${suffix}`;
+	return retainTaskPins(`${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""} · recall ${tag} instead of re-reading${suffix}`, pins);
 }
 
 /** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */
@@ -745,16 +762,18 @@ export class TaskfoldConductor implements Conductor {
 			const age = roots.filter((s) => s.end > root.end).length;
 			return age >= this.k.aging[2] ? 3 : age >= this.k.aging[1] ? 2 : age >= this.k.aging[0] ? 1 : 0;
 		};
-		const advance = (from: string, level: number): string => {
+		const spans = this.spans(blocks);
+		const advance = (from: string, level: number, key: string): string => {
+			const pins = pinsIn(spans.filter((s) => s.key === key || s.key.startsWith(`${key}.`)));
 			let next = from;
-			if (level >= 1) for (;;) { const child = condenseChildren(next); if (!child || host.countTokens(child) >= host.countTokens(next)) break; next = child; }
-			if (level >= 2) next = ageRecord(next, 1) ?? next;
-			if (level >= 3) next = ageRecord(next, 2) ?? next;
+			if (level >= 1) for (;;) { const child = condenseChildren(next, pins); if (!child || host.countTokens(child) >= host.countTokens(next)) break; next = child; }
+			if (level >= 2) next = ageRecord(next, 1, pins) ?? next;
+			if (level >= 3) next = ageRecord(next, 2, pins) ?? next;
 			return next;
 		};
 		const apply = (g: typeof ours[number], level: number) => {
 			const from = aged.get(g.id) ?? g.summary!;
-			const next = advance(from, level);
+			const next = advance(from, level, keys.get(g.id)!);
 			const delta = host.countTokens(from) - host.countTokens(next);
 			if (delta > 0) { aged.set(g.id, next); freed += delta; }
 		};
@@ -863,8 +882,9 @@ export class TaskfoldConductor implements Conductor {
 		const missingAliases = aliases.filter((tag) => !body.includes(tag));
 		let record = `${body}${missingAliases.length ? `\nearlier handles: ${missingAliases.join(" ")}` : ""}`;
 		const recordTag = foldTag(`g:${viable[viable.length - 1][0].id}`);
+		const pins = pinsIn([span, ...children]);
 		while (host.countTokens(`${recordTag} ${record}`) > this.k.recordTokens) {
-			const next = condenseChildren(record);
+			const next = condenseChildren(record, pins);
 			if (!next || host.countTokens(next) >= host.countTokens(record)) break;
 			record = next;
 		}

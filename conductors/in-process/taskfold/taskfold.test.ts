@@ -788,15 +788,17 @@ describe("taskfold", () => {
 		const parent = s.start("1", "Parent").call;
 		s.start("1.1", "Child");
 		s.work(2, "child");
-		s.finish("1.1", { outcome: "done", decisions: ["Details ".repeat(60)] });
+		const finish = s.finish("1.1", { outcome: "done", decisions: ["Details ".repeat(60)] });
+		s.blocks.find((b) => b.id === finish.result)!.details = { task: { pins: [{ kind: "rule", text: "Keep this\nexactly", source: "user" }] } };
 		s.finish("1", { outcome: "parent done" });
 		s.work(3, "tail");
 		const host = setup(s);
-		new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 100 }).attach(host);
+		new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 120 }).attach(host);
 		await host.commitTurn();
 		const summary = groupOf(host, parent)?.summary ?? "";
 		expect(summary).toContain(`- ${foldTag("t:work/1.1")} work/1.1 "Child" done · done`);
 		expect(summary).not.toContain("Details Details");
+		expect(summary).toContain("Keep this\nexactly");
 		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
 	});
 
@@ -830,6 +832,22 @@ describe("taskfold", () => {
 		expect(abandoned).toContain('work/1.1 "Unstarted" abandoned · Parent failed');
 	});
 
+	it("keeps verbatim task pins through child condensation and record aging", () => {
+		const root = foldTag("g:parent");
+		const child = foldTag("t:work/1.1");
+		const full = `${root} [task-record] work/1 "Parent"  status: done\noutcome: Finished parent\npins:\n  - rule: Parent constraint (user)\nchildren:\n  ${child} [task-record] work/1.1 "Child"  status: done\n  outcome: Finished child\n  pins:\n    - constraint: Child constraint (spec.md:1)`;
+		const pins = [{ task: "work/1", kind: "rule", text: "Parent constraint", source: "user" }, { task: "work/1.1", kind: "constraint", text: "Child constraint", source: "spec.md:1" }];
+		const condensed = condenseChildren(full, pins)!;
+		expect(condensed).toContain("Parent constraint");
+		expect(condensed).toContain("Child constraint");
+		const aged = ageRecord(condensed, 1, pins)!;
+		expect(aged).toContain("Parent constraint");
+		expect(aged).toContain("Child constraint");
+		const archived = ageRecord(aged, 2, pins)!;
+		expect(archived).toContain("Parent constraint");
+		expect(archived).toContain("Child constraint");
+	});
+
 	it("ages records oldest first, keeping fold codes and the newest record whole", () => {
 		const full = `${foldTag("g:x")} [task-record] work/1 "First"  status: done\noutcome: It works.\ndecisions:\n  - a — b`;
 		const one = ageRecord(full, 1)!;
@@ -849,13 +867,15 @@ describe("taskfold", () => {
 		for (const id of ["1", "2", "3", "4"]) {
 			starts.push(s.start(id, `Task ${id}`).call);
 			s.work(id === "1" ? 8 : 1, `w${id}`);
-			ends.push(s.finish(id, { outcome: `${id} done` }).result);
+			const end = s.finish(id, { outcome: `${id} done` }).result;
+			ends.push(end);
+			if (id === "2") s.blocks.find((b) => b.id === end)!.details = { task: { pins: [{ kind: "rule", text: "Keep this rule", source: "user" }] } };
 		}
 		s.work(2, "tail");
 		const host = setup(s, 2);
 		const index = s.blocks.findIndex((b) => b.id === starts[1]);
 		const gid = `g:${s.blocks[index - 1].id}`;
-		const full = `${foldTag(gid)} [task-record] work/2 "Task 2"  status: done\noutcome: 2 done\ndecisions:\n  - ${"detail ".repeat(60)}`;
+		const full = `${foldTag(gid)} [task-record] work/2 "Task 2"  status: done\noutcome: 2 done\ndecisions:\n  - ${"detail ".repeat(60)}\npins:\n  - rule: Keep this rule (user)`;
 		expect(host.truth.apply([{ kind: "group", ids: [starts[1], ends[1]], summary: full }], "auto").results[0].applied).toBe(true);
 		new TaskfoldConductor({ keepRecentTasks: 1, aging: [1, 2, 3], untracked: { enabled: false, minSteps: 8 } }).attach(host);
 		await host.commitTurn();
@@ -864,6 +884,7 @@ describe("taskfold", () => {
 		await host.commitTurn();
 		expect(groupOf(host, starts[0])?.summary).toContain("[task-record] work/1");
 		expect(groupOf(host, starts[1])?.summary).not.toContain("decisions:");
+		expect(groupOf(host, starts[1])?.summary).toContain("Keep this rule");
 		expect(groupOf(host, starts[3])).toBeUndefined();
 	});
 
