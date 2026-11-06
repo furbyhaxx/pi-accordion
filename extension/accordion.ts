@@ -58,7 +58,8 @@ import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens,
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { PIN_LIMITS, workingSet } from "./taskPins";
-import { VERDICT_ENTRY, taskfoldVerdicts, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
+import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
+import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource } from "./tui/taskTranscript";
 import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
@@ -735,6 +736,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// this session's state. It makes NO folding decisions of its own on the hook path.
 	const liveHost = new LiveConductorHost({
 		truth: () => truth,
+		createInProcess: (entry) => entry.id === "taskfold" ? new TaskfoldConductor(settings.taskfold, taskfoldVerdicts) : undefined,
 		broadcast,
 		sendToConductor: (m) => {
 			if (conductorWs && conductorWs.readyState === 1) send(conductorWs, m);
@@ -3015,8 +3017,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// Taskfold's verdicts from earlier runs of this session, so a resume neither loses nor re-bills them.
 		const sessionAtStart = sessionId;
 		try {
-			taskfoldVerdicts.reset(verdictsOf(typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : []), (id, v) => {
+			const entries = typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
+			taskfoldVerdicts.reset(verdictsOf(entries), (id, v) => {
 				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
+			}, unfoldStatesOf(entries), (key, state) => {
+				if (sessionId === sessionAtStart) pi.appendEntry(UNFOLD_ENTRY, { key, ...state });
 			});
 		} catch {
 			taskfoldVerdicts.reset(new Map(), null);

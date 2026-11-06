@@ -23,6 +23,21 @@ export interface Verdict {
 
 /** The session entry type a persisted verdict is stored under. */
 export const VERDICT_ENTRY = "accordion.taskfold.verdict";
+/** Session entry recording an agent's task unfold state. */
+export const UNFOLD_ENTRY = "accordion.taskfold.unfold";
+
+export interface TaskUnfoldState { count: number; open: boolean }
+
+/** The latest unfold state for each task on the current session branch. */
+export function unfoldStatesOf(entries: readonly unknown[]): Map<string, TaskUnfoldState> {
+	const out = new Map<string, TaskUnfoldState>();
+	for (const raw of entries) {
+		const entry = raw as { type?: unknown; customType?: unknown; data?: { key?: unknown; count?: unknown; open?: unknown } };
+		const data = entry?.data;
+		if (entry?.type === "custom" && entry.customType === UNFOLD_ENTRY && typeof data?.key === "string" && Number.isSafeInteger(data.count) && (data.count as number) > 0 && typeof data.open === "boolean") out.set(data.key, { count: data.count as number, open: data.open });
+	}
+	return out;
+}
 
 const SOURCES: readonly VerdictSource[] = ["classifier", "harness", "opening", "error"];
 
@@ -55,13 +70,24 @@ export function verdictsOf(entries: readonly unknown[]): Map<string, Verdict> {
 export class VerdictLedger {
 	private verdicts = new Map<string, Verdict>();
 	private persist: ((id: string, verdict: Verdict) => void) | null = null;
+	private unfolds = new Map<string, TaskUnfoldState>();
+	private persistUnfold: ((key: string, state: TaskUnfoldState) => void) | null = null;
 	/** The attached conductor's `maxLoss`: a message folds when its loss is below this. */
 	threshold: number | null = null;
 
 	/** Start a session: seed its recorded verdicts and how to record new ones. */
-	reset(seed: ReadonlyMap<string, Verdict>, persist: ((id: string, verdict: Verdict) => void) | null): void {
+	reset(seed: ReadonlyMap<string, Verdict>, persist: ((id: string, verdict: Verdict) => void) | null, unfolds: ReadonlyMap<string, TaskUnfoldState> = new Map(), persistUnfold: ((key: string, state: TaskUnfoldState) => void) | null = null): void {
 		this.verdicts = new Map(seed);
 		this.persist = persist;
+		this.unfolds = new Map(unfolds);
+		this.persistUnfold = persistUnfold;
+	}
+
+	unfoldStates(): ReadonlyMap<string, TaskUnfoldState> { return this.unfolds; }
+
+	setUnfold(key: string, state: TaskUnfoldState): boolean {
+		this.unfolds.set(key, state);
+		try { this.persistUnfold?.(key, state); return true; } catch { return false; }
 	}
 
 	get(id: string): Verdict | undefined {

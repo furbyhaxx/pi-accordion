@@ -20,6 +20,7 @@ import { catalogMeta, entryById } from "./registry";
 import type { ConductorHost } from "./contract";
 import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
 import { NaiveCompactionConductor } from "../../conductors/in-process/compaction-naive/compaction-naive";
+import { TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
 
 const META = { format: "pi" as const, title: "t", cwd: "", model: "" };
 
@@ -113,6 +114,21 @@ async function until(pred: () => boolean, ms = 2000): Promise<void> {
 		await new Promise((r) => setTimeout(r, 5));
 	}
 }
+
+describe("configured in-process conductors", () => {
+	it("uses the host's taskfold settings when attaching", async () => {
+		const truth = bulk(textSeq(12));
+		truth.setProtect(0);
+		truth.setBudget(1000);
+		const create = vi.fn(() => new TaskfoldConductor({ untracked: { enabled: false, minSteps: 8 } }));
+		const host = new LiveConductorHost(makeDeps(truth, { createInProcess: create }).deps);
+		host.select("taskfold");
+		await flush();
+		expect(create).toHaveBeenCalledOnce();
+		expect(truth.groups).toHaveLength(0);
+		host.shutdown();
+	});
+});
 
 describe("signed thinking host views", () => {
 	it.each([

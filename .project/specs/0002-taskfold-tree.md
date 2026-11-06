@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 6
+  revision: 7
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T17:16:17+01:00"
+  updated_at: "2026-11-06T18:13:16+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 6
-      reason: "user approved handles across groups and retained user messages"
-      changes: ["§7.3 validate cross-group handles and revalidate on recall"]
+    - revision: 7
+      reason: "record implemented interval planner and safe aging behavior"
+      changes: ["§6 refuse records that cannot fit without truncation", "§7 clarify ownership and persistent unfold state", "§8 retain old handle tags"]
 ---
 
 # Taskfold tree
@@ -297,7 +297,8 @@ children:
 - Children are composed **verbatim**, indented two spaces per level, each with its own fold code
   (§7.3). A record never re-summarizes a child.
 - Size cap per root record: `taskfold.recordTokens` (default 1,500). Over the cap, children are
-  condensed bottom-up (§8 L2c) until it fits. Never truncated mid-field.
+  condensed bottom-up (§8 L2c) until it fits. Never truncated mid-field; if its own fields and
+  recoverable handles still exceed the cap, keep the task raw and report saturation.
 - Part markers: `{#code FOLDED} [task-part] <key> "<title>" part i/n; the record follows the kept message(s) below.`
 - Untracked records: `{#code FOLDED} [untracked-work] <first assistant line ≤120>` plus `changed`
   and `verified`.
@@ -308,23 +309,17 @@ children:
 
 ### 7.1 Pipeline
 
-`conductors/in-process/taskfold/` gains pure modules:
-
-| Module | Input → output |
-|---|---|
-| `tree.ts` | blocks → `TaskNode` tree (key, status, intervals, report, criteria, pins, children; open nodes included) |
-| `policy.ts` | tree + stats + current groups → target level per finished node |
-| `compile.ts` | tree + levels + blocks → desired groups `{ids, summary, handles}` |
-| `diff.ts` | desired vs `host.groups()` → ops |
-
-`TaskfoldConductor` keeps events, classifier and commit. **There is no `ownGroups` cache.** Ours
-are the groups whose summary `taskKeyOfSummary` recognizes. Every epoch recomputes the desired
+`scanTaskSpans` derives the task intervals, reports and metadata. `TaskfoldConductor.plan` selects
+finished roots and aging targets, `unit` compiles them into runs and handles, and `commit` reconciles
+the proposed operations and rolls back partially rejected units. **There is no `ownGroups` cache.**
+Ours are the automatic groups whose summary `taskKeyOfSummary` recognizes. Every epoch recomputes the desired
 state, so a group pruned by protected-tail growth or by a human is proposed again once it is
 eligible. Exception: a node the human unfolded (`by:"you"`) is left alone for the session.
 
 ### 7.2 Compile
 
-- Each block's **owner** is its innermost folded ancestor node, or none.
+- A folded parent absorbs its finished descendants; the selected outermost finished node owns its
+  eligible blocks. While a parent stays open, finished children are independent fold candidates.
 - Each maximal run of consecutive blocks with the same owner, excluding kept user messages,
   becomes one group.
 - The owner's record rides on its last run. Earlier runs get `[task-part]`.
@@ -355,7 +350,8 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
   `by:"agent"`. Taskfold marks that node agent-open and recompiles: the parent is parted around a
   raw child.
 - An agent-open node refolds only under pressure and only once its task age is ≥2. After a second
-  agent unfold it stays open for the session.
+  agent unfold it stays open for the session. Counts and open state persist in branch-local
+  `accordion.taskfold.unfold` entries and survive reattachment and session resume.
 - Truth snapshot, replica and protocol versions are bumped. `agentView` matches handle codes that
   are embedded inside a summary, not only leading tags.
 
@@ -381,7 +377,8 @@ Cache rule (one cache break per epoch):
    short.
 4. No epoch runs only for aging. Aging rides on epochs triggered by `high`.
 
-Never aged: the newest finished root (unless waived, §9.1), kept user messages, list pins.
+Never aged: the newest finished root (unless waived, §9.1), kept user messages, list pins. All
+previously emitted child and group tags remain visible and recoverable through later aging.
 
 ## 9. Epoch
 

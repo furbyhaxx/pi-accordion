@@ -81,6 +81,23 @@ limits in `~/.accordion/config.json`:
 
 `render` defaults to `inline`; `reference` sends only the locator and note.
 
+Taskfold's pressure and aging policy can also be set in the same file (read when the conductor
+attaches):
+
+```json
+{
+  "taskfold": {
+    "high": 0.8, "low": 0.6,
+    "keepRecentTasks": 1, "recordTokens": 1500,
+    "aging": [3, 6, 11],
+    "untracked": { "enabled": true, "minSteps": 8 }
+  }
+}
+```
+
+The newest completed work stays open when older work suffices; under pressure it can fold too.
+Aging advances older records during a folding epoch, preserving their recall handles.
+
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
 output against the actual serialized prompt, including restored content. Stored usage and costs
 remain unchanged. Model switches reset provider-specific token calibration, and resumed sessions

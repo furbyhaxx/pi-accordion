@@ -62,6 +62,8 @@ export interface LiveHostDeps {
 	mintToken(): string;
 	/** Recheck a spawn conductor's required startup capabilities immediately before selection. */
 	readiness(entry: RegistryEntry): ConductorReadiness;
+	/** Create an in-process conductor with host configuration; omit to use the registry factory. */
+	createInProcess?(entry: RegistryEntry): Conductor | undefined;
 	/** Launch a spawn conductor's runner. Returns null if the runner is unavailable on this install. */
 	spawnRunner(entryFile: string, env: Record<string, string>): SpawnedRunner | null;
 	/** Run an out-of-band model completion off the hot path for `conductorId`'s model routing. Rejects
@@ -374,7 +376,7 @@ export class LiveConductorHost implements ConductorHost {
 		if (entry.kind === "in-process") {
 			let c: Conductor;
 			try {
-				c = entry.create!();
+				c = this.deps.createInProcess?.(entry) ?? entry.create!();
 			} catch {
 				this.setAndBroadcastStatus(`${entry.label} failed to start.`, { level: "error" });
 				this.deps.broadcast({ type: "conductorState", active: null });

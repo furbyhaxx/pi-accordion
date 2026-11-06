@@ -10,6 +10,7 @@ import * as crypto from "node:crypto";
 import { DOOR_PORT } from "../core/protocol";
 import { REGISTRY_DIR } from "../app/src/lib/live/registry";
 import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
+import { TASKFOLD_DEFAULTS } from "../conductors/in-process/taskfold/taskfold";
 
 export type CompactMode = "accordion" | "suppress" | "native";
 
@@ -43,6 +44,15 @@ export interface TaskSettings {
 	pins: { listTokens: number; taskTokens: number };
 }
 
+export interface TaskfoldSettings {
+	high: number;
+	low: number;
+	keepRecentTasks: number;
+	recordTokens: number;
+	aging: [number, number, number];
+	untracked: { enabled: boolean; minSteps: number };
+}
+
 export interface AccordionSettings {
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
@@ -62,6 +72,7 @@ export interface AccordionSettings {
 	privacyConsent: Record<string, string>;
 	taskWidget: TaskWidgetSettings;
 	tasks: TaskSettings;
+	taskfold: TaskfoldSettings;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
 }
@@ -77,6 +88,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60 }, pins: { listTokens: 2000, taskTokens: 1500 } },
+	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, aging: [...TASKFOLD_DEFAULTS.aging], untracked: { ...TASKFOLD_DEFAULTS.untracked } },
 	modelDefaults: {},
 };
 
@@ -199,6 +211,19 @@ export function sanitizeTaskSettings(value: unknown): TaskSettings {
 	};
 }
 
+export function sanitizeTaskfoldSettings(value: unknown): TaskfoldSettings {
+	const defaults = DEFAULT_SETTINGS.taskfold;
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const range = (v: unknown, fallback: number, min: number, max: number) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
+	let high = typeof raw.high === "number" && Number.isFinite(raw.high) && raw.high > 0 && raw.high <= 1 ? raw.high : defaults.high;
+	let low = typeof raw.low === "number" && Number.isFinite(raw.low) && raw.low > 0 && raw.low < 1 ? raw.low : defaults.low;
+	if (low >= high) { high = defaults.high; low = defaults.low; }
+	const age = raw.aging;
+	const aging: [number, number, number] = Array.isArray(age) && age.length === 3 && age.every((n) => Number.isSafeInteger(n) && n > 0) && age[0] < age[1] && age[1] < age[2] ? [age[0], age[1], age[2]] : [...defaults.aging];
+	const untracked = raw.untracked && typeof raw.untracked === "object" && !Array.isArray(raw.untracked) ? raw.untracked as Record<string, unknown> : {};
+	return { high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), aging, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) } };
+}
+
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
@@ -299,6 +324,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		privacyConsent: sanitizePrivacyConsent(fileData.privacyConsent),
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 		tasks: sanitizeTaskSettings(fileData.tasks),
+		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
 }
@@ -315,6 +341,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
 		taskWidget: sanitizeTaskWidget(settings.taskWidget),
 		tasks: sanitizeTaskSettings(settings.tasks),
+		taskfold: sanitizeTaskfoldSettings(settings.taskfold),
 		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
 	};
 	try {

@@ -3,9 +3,9 @@
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
 import { describe, it, expect } from "vitest";
-import { TaskfoldConductor, ageRecord, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
+import { TaskfoldConductor, ageRecord, condenseChildren, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
-import { VERDICT_ENTRY, VerdictLedger, verdictsOf, type Verdict } from "./verdicts";
+import { UNFOLD_ENTRY, VERDICT_ENTRY, VerdictLedger, unfoldStatesOf, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
@@ -110,7 +110,8 @@ describe("taskfold", () => {
 		expect(groupOf(host, start)).toBeUndefined();
 		host.setProtect(200);
 		await host.commitTurn();
-		expect(groupOf(host, start)?.summary).toContain("[task-record] work/1");
+		expect(taskKeyOfSummary(groupOf(host, start)?.summary)).toBe("work/1");
+		expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
 	});
 
 	it("folds long untracked runs without swallowing user messages or work in an open task", async () => {
@@ -159,6 +160,18 @@ describe("taskfold", () => {
 		expect(host.groups().some((g) => g.summary?.includes("[untracked-work]"))).toBe(true);
 		expect(groupOf(host, doc.call)).toBeUndefined();
 		expect(groupOf(host, doc.result)).toBeUndefined();
+	});
+
+	it("reports the largest open task when no safe folding can relieve pressure", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Long task");
+		s.work(12, "open");
+		const host = setup(s, 0.3);
+		await attach(host);
+		const last = host.statusLog.at(-1);
+		expect(last?.text).toContain("open task work/1");
+		expect(last?.metrics?.level).toBe("error");
 	});
 
 	it("does nothing below HIGH", async () => {
@@ -278,8 +291,9 @@ describe("taskfold", () => {
 		more.work(1, "late");
 		const parentEnd = more.finish("1", { outcome: "Auth refactored." }).result;
 		more.work(3, "tail2");
+		host.setBudget(host.stats().liveTokens * 10);
 		host.appendBlocks(more.blocks);
-		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		host.setBudget(Math.ceil(host.stats().liveTokens * 1.2));
 		await host.commitTurn();
 		const parent = groupOf(host, parentStart)!;
 		expect(parent.memberIds).toEqual(expect.arrayContaining([childStart, childEnd, parentEnd]));
@@ -313,8 +327,9 @@ describe("taskfold", () => {
 		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
 		more.finish("1", { outcome: "parent done" });
 		more.work(3, "tail2");
+		host.setBudget(host.stats().liveTokens * 10);
 		host.appendBlocks(more.blocks);
-		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		host.setBudget(Math.ceil(host.stats().liveTokens * 1.2));
 		await host.commitTurn();
 		const summary = groupOf(host, parent)?.summary ?? "";
 		expect(summary).toContain(aged);
@@ -341,8 +356,9 @@ describe("taskfold", () => {
 		more.call("edit", { path: "parent.ts" }, "edited");
 		const parentEnd = more.finish("1", { outcome: "Auth ready" }).result;
 		more.work(3, "tail2");
+		host.setBudget(host.stats().liveTokens * 10);
 		host.appendBlocks(more.blocks);
-		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		host.setBudget(Math.ceil(host.stats().liveTokens * 1.2));
 		await host.commitTurn();
 		const record = groupOf(host, parentEnd)!;
 		expect(groupOf(host, parentStart)?.summary).toContain("[task-part] work/1");
@@ -442,6 +458,48 @@ describe("taskfold", () => {
 		expect(groupOf(host, second)?.summary).toContain('[task-record] work/1.2 ');
 	});
 
+	it("may refold a once-opened child after two newer roots, but not after a second unfold", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		const child = s.start("1.1", "Child").call;
+		s.work(2, "child");
+		s.finish("1.1", { outcome: "child done" });
+		s.finish("1", { outcome: "parent done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		const entries: unknown[] = [];
+		const ledger = new VerdictLedger();
+		ledger.reset(new Map(), null, new Map(), (key, state) => entries.push({ type: "custom", customType: UNFOLD_ENTRY, data: { key, ...state } }));
+		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 8 } }, ledger);
+		conductor.attach(host);
+		await host.commitTurn();
+		host.setBudget(host.stats().liveTokens * 10);
+		expect(resolveUnfold(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		for (const id of ["2", "3"]) { more.start(id, `Task ${id}`); more.work(2, id); more.finish(id, { outcome: `${id} done` }); }
+		more.work(3, "tail2");
+		host.appendBlocks(more.blocks);
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+		await host.commitTurn();
+		expect(taskKeyOfSummary(groupOf(host, parent)?.summary)).toBe("work/1");
+		host.setBudget(host.stats().liveTokens * 10);
+		expect(resolveUnfold(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+		await host.commitTurn();
+		expect(groupOf(host, child)).toBeUndefined();
+		expect(unfoldStatesOf(entries).get("work/1.1")).toEqual({ count: 2, open: true });
+		conductor.detach();
+		const resumed = new VerdictLedger();
+		resumed.reset(new Map(), null, unfoldStatesOf(entries));
+		new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 8 } }, resumed).attach(host);
+		await host.commitTurn();
+		expect(groupOf(host, child)).toBeUndefined();
+	});
+
 	it("does not reconstruct facts from a human-dropped group inside a task", async () => {
 		const { s, end } = oneTask();
 		const call = s.blocks.find((b) => b.toolName === "edit" && b.kind === "tool_call")!;
@@ -486,7 +544,7 @@ describe("taskfold", () => {
 		host.appendBlocks(more.blocks);
 		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
 		await host.commitTurn();
-		expect(groupOf(host, parent)?.summary).toContain("[task-record] work/1 ");
+		expect(taskKeyOfSummary(groupOf(host, parent)?.summary)).toBe("work/1");
 		host.setBudget(host.stats().liveTokens * 10);
 		expect(resolveUnfold(host.truth, [oldCode]).missing).toEqual([]);
 		await new Promise((resolve) => setTimeout(resolve, 0));
@@ -629,19 +687,32 @@ describe("taskfold", () => {
 		const s = new Session();
 		s.user("Two things.");
 		const a = s.start("1", "First").call;
-		s.work(3, "a");
+		s.work(8, "a");
 		s.finish("1", { outcome: "first done" });
 		const b = s.start("2", "Second").call;
 		s.work(3, "b");
 		s.finish("2", { outcome: "second done" });
 		s.work(2, "tail");
-		const host = setup(s, 0.5);
+		const host = setup(s, 1.05);
 		const c = new TaskfoldConductor();
 		c.attach(host);
 		await host.commitTurn();
 		expect(groupOf(host, a)?.summary).toContain("[task-record] work/1 ");
 		expect(groupOf(host, b)).toBeUndefined();
 		c.detach();
+	});
+
+	it("waives keep-recent when older work cannot reach the target", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const start = s.start("1", "Only task").call;
+		s.work(3, "a");
+		s.finish("1", { outcome: "done" });
+		s.work(2, "tail");
+		const host = setup(s, 0.5);
+		new TaskfoldConductor().attach(host);
+		await host.commitTurn();
+		expect(groupOf(host, start)?.summary).toContain("[task-record] work/1");
 	});
 
 	it("folds both tasks when `complete A` and `start B` share one assistant message", async () => {
@@ -687,15 +758,89 @@ describe("taskfold", () => {
 		expect(host.blocks().filter((b) => first.memberIds.includes(b.id)).some((b) => b.protected)).toBe(false);
 	});
 
+	it("condenses oversized child records without losing their recall handles", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const parent = s.start("1", "Parent").call;
+		s.start("1.1", "Child");
+		s.work(2, "child");
+		s.finish("1.1", { outcome: "done", decisions: ["Details ".repeat(60)] });
+		s.finish("1", { outcome: "parent done" });
+		s.work(3, "tail");
+		const host = setup(s);
+		new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 100 }).attach(host);
+		await host.commitTurn();
+		const summary = groupOf(host, parent)?.summary ?? "";
+		expect(summary).toContain(`- ${foldTag("t:work/1.1")} work/1.1 "Child" done · done`);
+		expect(summary).not.toContain("Details Details");
+		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+	});
+
+	it("keeps an oversized record raw rather than truncating its own report", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const start = s.start("1", "Task").call;
+		s.work(2, "task");
+		s.finish("1", { outcome: "done", decisions: ["Keep ".repeat(100)] });
+		s.work(3, "tail");
+		const host = setup(s);
+		new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 100, untracked: { enabled: false, minSteps: 8 } }).attach(host);
+		await host.commitTurn();
+		expect(groupOf(host, start)).toBeUndefined();
+		expect(host.statusLog.at(-1)?.metrics?.level).toBe("error");
+	});
+
+	it("condenses nested children bottom-up without losing any handle", () => {
+		const parent = foldTag("g:parent");
+		const child = foldTag("t:work/1.1");
+		const leaf = foldTag("t:work/1.1.1");
+		const full = `${parent} [task-record] work/1 "Parent"  status: done\noutcome: P\nchildren:\n  ${child} [task-record] work/1.1 "Child"  status: done\n  outcome: C\n  children:\n    ${leaf} [task-record] work/1.1.1 "Leaf"  status: done\n    outcome: L\n    decisions:\n      - detail`;
+		const first = condenseChildren(full)!;
+		expect(first).toContain(`    - ${leaf} work/1.1.1 "Leaf" done · L`);
+		expect(first).toContain(`  ${child} [task-record]`);
+		const second = condenseChildren(first)!;
+		expect(second).toContain(`  - ${child} work/1.1 "Child" done · C`);
+		expect(second).toContain(leaf);
+		expect(condenseChildren(second)).toBeNull();
+		const abandoned = condenseChildren(`${parent} [task-record] work/1 "Parent"  status: failed\nchildren:\n  [task-record] work/1.1 "Unstarted"  status: abandoned\n  outcome: Parent failed`);
+		expect(abandoned).toContain('work/1.1 "Unstarted" abandoned · Parent failed');
+	});
+
 	it("ages records oldest first, keeping fold codes and the newest record whole", () => {
 		const full = `${foldTag("g:x")} [task-record] work/1 "First"  status: done\noutcome: It works.\ndecisions:\n  - a — b`;
 		const one = ageRecord(full, 1)!;
-		expect(one).toBe(`${foldTag("g:x")} [task-record] work/1 "First"  status: done · It works.`);
+		expect(one).toBe(`${foldTag("g:x")} [task-record] work/1 "First"  status: done · It works. · recall ${foldTag("g:x")} instead of re-reading`);
 		expect(ageRecord(one, 1)).toBe(one);
 		const stub = ageRecord(one, 2)!;
-		expect(stub).toBe(`${foldTag("g:x")} [task-archived] work/1 "First" done; recall the code for its record and transcript.`);
+		expect(stub).toBe(`${foldTag("g:x")} [task-archived] work/1 "First" done; recall ${foldTag("g:x")} instead of re-reading.`);
 		expect(taskKeyOfSummary(stub)).toBe("work/1");
 		expect(ageRecord("plain", 1)).toBeNull();
+	});
+
+	it("ages older records behind an existing cache break even after the target is met", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const starts: string[] = [];
+		const ends: string[] = [];
+		for (const id of ["1", "2", "3", "4"]) {
+			starts.push(s.start(id, `Task ${id}`).call);
+			s.work(id === "1" ? 8 : 1, `w${id}`);
+			ends.push(s.finish(id, { outcome: `${id} done` }).result);
+		}
+		s.work(2, "tail");
+		const host = setup(s, 2);
+		const index = s.blocks.findIndex((b) => b.id === starts[1]);
+		const gid = `g:${s.blocks[index - 1].id}`;
+		const full = `${foldTag(gid)} [task-record] work/2 "Task 2"  status: done\noutcome: 2 done\ndecisions:\n  - ${"detail ".repeat(60)}`;
+		expect(host.truth.apply([{ kind: "group", ids: [starts[1], ends[1]], summary: full }], "auto").results[0].applied).toBe(true);
+		new TaskfoldConductor({ keepRecentTasks: 1, aging: [1, 2, 3], untracked: { enabled: false, minSteps: 8 } }).attach(host);
+		await host.commitTurn();
+		expect(groupOf(host, starts[1])?.summary).toBe(full);
+		host.setBudget(Math.ceil(host.stats().liveTokens * 1.2));
+		await host.commitTurn();
+		expect(groupOf(host, starts[0])?.summary).toContain("[task-record] work/1");
+		expect(groupOf(host, starts[1])?.summary).not.toContain("decisions:");
+		expect(groupOf(host, starts[3])).toBeUndefined();
 	});
 
 	it("shortens older records when folding every finished span is not enough", async () => {
@@ -717,7 +862,8 @@ describe("taskfold", () => {
 		const summaries = starts.map((id) => groupOf(host, id)?.summary ?? "");
 		expect(summaries[0]).not.toContain("\n");
 		expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
-		expect(summaries[3]).toContain("\noutcome: 4 done");
+		expect(taskKeyOfSummary(summaries[3])).toBe("work/4");
+		expect(resolveRecall(host.truth, [foldCode("t:work/4")]).missing).toEqual([]);
 		expect(summaries.every((x, i) => taskKeyOfSummary(x) === `work/${i + 1}`)).toBe(true);
 		c.detach();
 	});

@@ -12,6 +12,7 @@ import {
 	isLoopbackUrl,
 	resolveModelSpec,
 	sanitizeModelSettings,
+	sanitizeTaskfoldSettings,
 } from "./settings";
 
 describe("accordion settings & memorable tokens", () => {
@@ -41,6 +42,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.bindHost).toBe("127.0.0.1");
 
 			saveSettings(tmp, {
+				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, aging: [2, 4, 8], untracked: { enabled: false, minSteps: 10 } },
 				tasks: { attachments: { render: "reference", maxLines: 40 }, pins: { listTokens: 1000, taskTokens: 500 } },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -56,6 +58,7 @@ describe("accordion settings & memorable tokens", () => {
 
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
+				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, aging: [2, 4, 8], untracked: { enabled: false, minSteps: 10 } },
 				tasks: { attachments: { render: "reference", maxLines: 40 }, pins: { listTokens: 1000, taskTokens: 500 } },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -82,6 +85,11 @@ describe("accordion settings & memorable tokens", () => {
 		} finally {
 			fs.rmSync(tmp, { recursive: true, force: true });
 		}
+	});
+
+	test("validates taskfold budget, age and untracked settings", () => {
+		expect(sanitizeTaskfoldSettings({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, aging: [2, 4, 8], untracked: { enabled: false, minSteps: 5 } })).toEqual({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, aging: [2, 4, 8], untracked: { enabled: false, minSteps: 5 } });
+		expect(sanitizeTaskfoldSettings({ high: 0.5, low: 0.7, aging: [3, 2, 1], untracked: { minSteps: 0 } })).toMatchObject({ high: 0.8, low: 0.6, aging: [3, 6, 11], untracked: { enabled: true, minSteps: 8 } });
 	});
 
 	test("validates custom tokens and loopback hosts", () => {

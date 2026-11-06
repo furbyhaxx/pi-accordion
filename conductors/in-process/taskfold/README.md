@@ -52,7 +52,9 @@ rejects reports that are missing or over budget, with a message saying how to fi
 commands, excluding child spans. Task pins and acceptance criteria appear when available. A task's
 handle recalls its raw intervals, including any user messages kept between its groups. `unfold`
 opens the relevant groups; while taskfold remains attached it re-folds eligible siblings around the
-requested child.
+requested child. When the record exceeds its token target, child records condense bottom-up while
+keeping their handles. Under later pressure, older records can shrink to one line or an archive
+stub; changing a record only for age rides an existing folding epoch rather than triggering one.
 
 ## User messages
 
