@@ -186,7 +186,11 @@ Task lists have no fixed nesting-depth limit. Invalid files stay visible as warn
 `/accordion tasks dump-transcript` writes the projection the agent actually holds to a file — the tree
 by default, or YAML, XML, Markdown or the flat wire order by extension or `--format`, with `--formats
 all` writing every one. Folded tasks appear as the record that replaced them and name how many messages
-they took off the wire.
+they took off the wire. Split, composed and untracked records appear once per actual wire carrier;
+`flat` preserves carrier order even when tasks pause and resume. Dumps include list/task metadata
+(goal, criteria, scoped pins, attachments and recovery handles), explicitly marked as inspection
+metadata, plus the transient working-set suffix and whether this snapshot would append it. Token
+totals include that suffix only when appended; provider/tool-schema overhead is not exported.
 When you resume a session that used a list, Accordion offers it back (or tells you which session
 holds it now) and tells the agent on your next prompt if its list changed or was replaced. Defaults live under `taskWidget` in `~/.accordion/config.json`:
 `{ "mode": "auto" | "off", "expanded": false, "maxRows": 12, "toggleKey": "alt+t" }`.

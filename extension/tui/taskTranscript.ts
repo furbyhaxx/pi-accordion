@@ -7,6 +7,7 @@ import type { Truth } from "../../core/truth";
 import type { BlockKind, ContextProjection, GroupHandle } from "../../core/types";
 import { scanTaskSpans, taskKeyOfSummary, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
+import type { TaskList } from "../tasks";
 
 /** A block as the transcript needs it; tokens are calibrated, `live` is what is sent now. */
 export interface TBlock {
@@ -41,7 +42,18 @@ export interface TGroup {
 	live: number;
 }
 
+/** The cached task suffix, separate from persisted blocks and request overhead. */
+export interface TranscriptWorkingSet {
+	text: string;
+	tokens: number;
+	applied: boolean;
+	targetRole: "user" | "toolResult" | null;
+}
+
 export interface TranscriptSource {
+	lists?: readonly TaskList[];
+	listIssues?: readonly string[];
+	workingSet?: TranscriptWorkingSet | null;
 	blocks: readonly TBlock[];
 	groups: readonly TGroup[];
 	/** Authoritative carrier order and per-block charges, including drops and stragglers. */
@@ -65,11 +77,20 @@ export type TNode =
 	| { type: "step"; block: TBlock; result: TBlock | null; tokens: Tokens; folded: boolean }
 	| { type: "edge"; edge: "start" | "finish"; span: TaskSpan; block: TBlock };
 
-/** Adapt a Truth to the transcript's input. */
-export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict | undefined, threshold: number | null): TranscriptSource {
-	const projection = truth.projectContext();
+/** Optional session metadata and whether folding is armed on the outgoing request. */
+export interface TranscriptOptions extends Pick<TranscriptSource, "lists" | "listIssues" | "workingSet"> {
+	folding?: boolean;
+}
+
+/** Adapt a Truth and its session-local metadata to the transcript's input. */
+export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict | undefined, threshold: number | null, options: TranscriptOptions = {}): TranscriptSource {
+	const folding = options.folding ?? true;
+	const projection = truth.projectContext(folding);
 	const charges = new Map(projection.flatMap((p) => p.members.map((b) => [b.id, b] as const)));
 	return {
+		lists: options.lists,
+		listIssues: options.listIssues,
+		workingSet: options.workingSet,
 		projection,
 		blocks: truth.blocks.map((b) => ({
 			id: b.id,
@@ -82,7 +103,7 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 			...(b.callId ? { callId: b.callId } : {}),
 			...(b.isError ? { isError: true } : {}),
 			...(b.details !== undefined ? { details: b.details } : {}),
-			...(truth.isFolded(b) && !truth.groupOf(b)?.folded ? { folded: true, digest: truth.digestOf(b) } : {}),
+			...(folding && truth.isFolded(b) && !truth.groupOf(b)?.folded ? { folded: true, digest: truth.digestOf(b) } : {}),
 			...(b.override === "pinned" ? { pinned: true } : {}),
 			...(truth.isProtected(b) ? { protected: true } : {}),
 		})),
@@ -90,7 +111,7 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 			id: g.id,
 			memberIds: g.memberIds,
 			...(g.handles ? { handles: g.handles } : {}),
-			folded: g.folded,
+			folded: folding && g.folded,
 			summary: g.digest,
 			full: truth.calibratedGroupFullTokens(g),
 			live: truth.calibratedGroupLiveTokens(g),

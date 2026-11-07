@@ -40,7 +40,11 @@ widget, ≡ means folded, · means finished but raw, and ! flags a finished pare
 children; progress counts are broken down by leaf status. Press `?` in the task list view for the
 legend. Task lists have no fixed nesting-depth limit; invalid files are named in warnings and rejected migrations leave the original file unchanged. Use `/accordion tasks tree`
 to see this session's transcript by task, `/accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]`
-to write that projection to a file, `/accordion budget 200k` / `/accordion tail 20k` to set the
+to write that projection to a file. Every actual carrier appears once, including split/composed
+and untracked groups; substituted results never print their original bodies. Inspection metadata
+includes goals, criteria, scoped pins, attachments and recovery handles. The transient working set
+is labeled as appended or only cached, and only appended tokens enter the projection totals.
+Use `/accordion budget 200k` / `/accordion tail 20k` to set the
 budget and protected tail (remembered per model; `--default` or `ctrl+s` in the panel saves them under
 `modelDefaults`), or `/accordion sessions` to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible

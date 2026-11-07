@@ -5,6 +5,7 @@
  * parseable when the content fights it (`]]>` in XML, a fence in Markdown).
  */
 import { describe, expect, it } from "bun:test";
+import type { TaskList } from "../tasks";
 import type { ContextProjection } from "../../core/types";
 import { foldTag } from "../../core/digest";
 import type { TBlock, TGroup, TranscriptSource } from "./taskTranscript";
@@ -16,6 +17,7 @@ import {
 	parseFormatSpec,
 	renderDump,
 	withExtension,
+	type DumpDoc,
 	type DumpFormat,
 } from "./transcriptDump";
 
@@ -213,6 +215,44 @@ describe("transcript dump", () => {
 			expect(out.split("line 40").length - 1).toBe(1);
 			expect(out).toContain("line 1");
 			expect(out).toContain("line 40");
+		}
+	});
+
+	it("exports scoped metadata and distinguishes an appended working set from an available cache", () => {
+		const { log, span } = oneTask();
+		const pin = { id: "p1", kind: "rule" as const, text: "Keep the scoped fact", source: "user", at: "2026-11-07T08:00:00+01:00" };
+		const attachment = { id: "a1", path: "spec.md", lines: "1-2", note: "Evidence", at: pin.at, hash: "current-hash" };
+		const lists: TaskList[] = [{ slug: "l", title: "List", goal: "Deliver reliable exports", createdAt: pin.at, updatedAt: pin.at, claim: null,
+			pins: [pin], attachments: [attachment], tasks: [{ id: "1", title: "Parent", status: "doing", updatedAt: pin.at,
+				acceptanceCriteria: ["Every carrier exactly once"], pins: [{ ...pin, id: "p2" }], attachments: [{ ...attachment, id: "a2" }] }] }];
+		const group = folded(log, span, `${foldTag("g:span")} [task-record] l/1 "Parent"  status: done`);
+		group.handles = [{ id: "t:l/1", memberIds: span }];
+		log.blocks.find((b) => b.id === span.at(-1))!.details = { task: lists[0].tasks[0] };
+		const src = source(log, [group]); src.lists = lists;
+		for (const applied of [true, false]) {
+			src.workingSet = { text: "working-set-suffix\n  active criteria", tokens: 20, applied, targetRole: applied ? "toolResult" : null };
+			const snapshot = doc(src);
+			const base = src.blocks.reduce((n, b) => n + b.live, 1000);
+			expect(snapshot.totals.live).toBe(base + (applied ? 20 : 0));
+			for (const format of DUMP_FORMATS) {
+				const out = renderDump(snapshot, format);
+				for (const text of ["Deliver reliable exports", "Every carrier exactly once", "Keep the scoped fact", "spec.md", "working-set-suffix", "handles", "block_details"])
+					expect(out).toContain(text);
+			}
+			const parsed = Bun.YAML.parse(renderDump(snapshot, "yaml")) as { transcript: { metadata: DumpDoc["metadata"]; working_set: { text: string; tokens: number; applied: boolean } } };
+			expect(parsed.transcript.metadata.task_lists).toEqual(lists);
+			expect(parsed.transcript.metadata.groups[0].handles).toEqual(group.handles);
+			expect(parsed.transcript.working_set.text).toBe(src.workingSet.text);
+			expect(parsed.transcript.working_set.applied).toBe(applied);
+			expect(parsed.transcript.working_set.tokens).toBe(applied ? 20 : 0);
+		}
+	});
+
+	it("YAML round-trips indented, blank and trailing-newline text exactly", () => {
+		for (const text of ["    first\nsecond", " leading\n  next\n", "a\n\n", "\n", "\n\n", "", "a\n\n  b", "trailing spaces  "]) {
+			const log = new Log(); log.user(text);
+			const parsed = Bun.YAML.parse(renderDump(doc(source(log)), "yaml")) as { transcript: { orientation: { wire: string }[] } };
+			expect(parsed.transcript.orientation[0].wire).toBe(text);
 		}
 	});
 

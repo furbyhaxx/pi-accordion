@@ -1847,12 +1847,12 @@ export class Truth {
 
 	// ── wire serialization ────────────────────────────────────────────────────
 	/** Ordered carriers using the same collapse, drop and role-floor decisions as wire serialization. */
-	projectContext(): ContextProjection[] {
+	projectContext(folding = true): ContextProjection[] {
 		const charges = new Map<string, { id: string; full: number; live: number }>();
 		let fullCovered = 0, fullRaw = 0, liveCovered = 0, liveRaw = 0, previousFull = 0, previousLive = 0;
 		for (const b of this.blockLog) {
-			if (this.isCalibrated(b)) { fullCovered += b.tokens; liveCovered += this.effTokens(b); }
-			else { fullRaw += b.tokens; liveRaw += this.effTokens(b); }
+			if (this.isCalibrated(b)) { fullCovered += b.tokens; liveCovered += folding ? this.effTokens(b) : b.tokens; }
+			else { fullRaw += b.tokens; liveRaw += folding ? this.effTokens(b) : b.tokens; }
 			const full = Math.round(fullCovered * this.calibrationMul + fullRaw);
 			const live = Math.round(liveCovered * this.calibrationMul + liveRaw);
 			charges.set(b.id, { id: b.id, full: full - previousFull, live: live - previousLive });
@@ -1862,7 +1862,7 @@ export class Truth {
 		const runs = new Map<string, ContextProjection>();
 		const collapsed = new Set<string>();
 		for (const g of this.groupList) {
-			if (!g.folded) continue;
+			if (!folding || !g.folded) continue;
 			for (const run of this.classifyGroup(g).collapsedRuns) {
 				const text = this.isDropGroup(g)
 					? this.degradedRunKeys().has(messageKey(run[0].id)) ? roleFloorRecap(g.id, messageCountOfRun(run)) : null
@@ -1871,7 +1871,7 @@ export class Truth {
 				for (const b of run) collapsed.add(b.id);
 			}
 		}
-		const folds = new Map(this.computeFoldOps().map((op) => [op.id, op.digestText]));
+		const folds = new Map((folding ? this.computeFoldOps() : []).map((op) => [op.id, op.digestText]));
 		const out: ContextProjection[] = [];
 		for (const b of this.blockLog) {
 			const run = runs.get(b.id);

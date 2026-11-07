@@ -467,6 +467,9 @@ describe("Truth — serializeWire", () => {
 			expect(members.reduce((n, b) => n + b.full, 0)).toBe(t.stats().fullTokens);
 			expect(members.reduce((n, b) => n + b.live, 0)).toBe(t.stats().liveTokens);
 			expect(projection.find((p) => p.text === "keep straggler")?.groupId).toBeUndefined();
+			const disarmed = t.projectContext(false);
+			expect(disarmed.map((p) => p.text)).toEqual(linearize(messages).map((b) => b.text));
+			expect(disarmed.flatMap((p) => p.members).reduce((n, b) => n + b.live, 0)).toBe(t.stats().fullTokens);
 		}
 	});
 	it("folds a block on the wire from the current state", () => {

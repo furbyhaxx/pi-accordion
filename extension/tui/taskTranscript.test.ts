@@ -68,7 +68,11 @@ describe("task transcript", () => {
 		expect(transcriptSpans(src)[0].acceptanceCriteria).toEqual(["Preserve the facts"]);
 		expect(transcriptSpans(src)[0].pins?.[0].text).toBe("Exact fact");
 		expect(src.blocks.reduce((n, b) => n + b.live, 0)).toBe(truth.stats().liveTokens);
-		expect(src.projection?.flatMap((p) => p.members).map((b) => b.id)).toEqual(src.blocks.map((b) => b.id));
+		expect(src.projection.flatMap((p) => p.members).map((b) => b.id)).toEqual(src.blocks.map((b) => b.id));
+		const disarmed = transcriptSource(truth, () => undefined, 0.3, { folding: false });
+		expect(disarmed.groups.every((g) => !g.folded)).toBe(true);
+		expect(disarmed.projection.map((p) => p.text)).toEqual(log.blocks.map((b) => b.text));
+		expect(disarmed.blocks.reduce((n, b) => n + b.live, 0)).toBe(truth.stats().fullTokens);
 	});
 	it("nests subtasks under auto-started parents and keeps work outside tasks as untracked runs", () => {
 		const log = new Log();

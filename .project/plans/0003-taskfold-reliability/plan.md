@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T08:18:01+01:00"
+  updated_at: "2026-11-07T08:45:29+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "close deep-list and persistence repairs"
-      changes: ["remove depth caps", "validate writes and expose invalid-list warnings"]
+    - revision: 3
+      reason: "close conductor and projection repairs"
+      changes: ["safe descendant fallback and named aging", "interval-aware transcript", "exact carrier export with metadata, suffix and valid YAML"]
 ---
 
 # Taskfold reliability repair
@@ -31,14 +31,14 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 
 - done: remove depth caps; 64-level authored and 32-level mutation/migration regressions pass.
 - done: validate writes before replacement; invalid-list browser/widget warnings, cached outside render.
-- now: safe descendant folding fallback; named child recovery through aging.
-- later: metadata/interval-aware transcript; exact-once wire export and valid YAML, including working-set context.
-- later: complete task inspection and composed-handle recovery, with cached I/O outside render.
+- done: safe descendant fallback and named child recovery through aging.
+- done: metadata/interval-aware transcript; exact-once carrier export, lossless YAML and explicit working set.
+- now: complete task inspection and composed-handle recovery, with cached I/O outside render.
 - later: full gates, read-only historical replay, real Pi-Bolt terminal evaluation and final review.
 
-## Current slice: deep lists and safe persistence
+## Current slice: complete task inspection
 
-`extension/taskSchema.ts` caps v2 at four levels, while its legacy reader accepts deeper ids. `extension/tasks.ts` applies the same cap to creation/moves and writes v2 without validating the result. Remove every cap in code, JSON schema, bundled skill and current specification. Add regressions for deep authored trees, legacy migration, create/add/move and read-after-write. Before replacing a file, validate the serialized candidate and refuse with actionable errors while preserving the original bytes. Surface invalid-list diagnostics in native task screens instead of treating them as absent.
+The core and shared model now retain precise metadata, intervals and recovery handles; dump formats consume authoritative carriers. Native task details still need goal/criteria/pins/attachments, composed-child steering must resolve core handles, and the list/transcript cache must refresh off render paths. Extend behavioral tests and then evaluate the complete flow in an isolated terminal.
 
 ## Remaining slices
 

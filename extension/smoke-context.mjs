@@ -49,6 +49,7 @@ function runtime(messages = [], options = {}) {
 	return {
 		handlers, ctx, tools, entries,
 		open: async () => { await command("", ctx); return host; },
+		command: args => command(args, ctx),
 		request: async input => {
 			const folded = await handlers.context({ messages: input }, ctx);
 			const wire = [{ role: "system", content: "System instructions", timestamp: 0 }, ...(folded?.messages ?? input)];
@@ -93,6 +94,20 @@ check("task working set refreshes outside the request hook and stays session-loc
 		r.handlers.turn_end({}, r.ctx);
 		assert.match(request(), /│ after/);
 		assert.match(request(), /changed since attached/);
+		await r.request(messages);
+		await r.command("tasks dump-transcript --formats all snapshot");
+		const flat = fs.readFileSync(path.join(dir, "snapshot.log"), "utf8");
+		assert.match(flat, /working set · transient, not persisted · appended to user/);
+		assert.match(flat, /│ after/);
+		const metadata = JSON.parse(flat.split("metadata (not on wire)\n")[1].split("\n").map(line => line.slice(4)).join("\n"));
+		assert.equal(metadata.task_lists[0].goal, "Finish work");
+		assert.equal(metadata.task_lists[0].tasks[0].attachments[0].path, "spec.md");
+		assert.match(fs.readFileSync(path.join(dir, "snapshot.yaml"), "utf8"), /working_set:\n    applied: true/);
+		messages.push({ role: "assistant", responseId: "done", timestamp: 3, content: [{ type: "text", text: "Done." }] });
+		await r.request(messages);
+		await r.command("tasks dump-transcript cached.log");
+		assert.match(fs.readFileSync(path.join(dir, "cached.log"), "utf8"), /cached, not appended to this snapshot/);
+		messages.pop();
 		const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 2 };
 		const resultWire = r.handlers.context_with_system({ messages: [toolResult] }, r.ctx).messages[0];
 		assert.match(resultWire.content.at(-1).text, /\[tasks\]/);

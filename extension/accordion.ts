@@ -61,7 +61,7 @@ import { PIN_LIMITS, workingSet } from "./taskPins";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
-import { transcriptSource } from "./tui/taskTranscript";
+import { transcriptSource, transcriptSpans } from "./tui/taskTranscript";
 import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
@@ -3099,6 +3099,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	let cachedWorkingSet: { session: string; cwd: string; text: string } | null = null;
+	function currentWorkingSet(ctx: ExtensionContext): string | null {
+		const cache = cachedWorkingSet;
+		return tasksToolActive() && cache?.session === ctx.sessionManager.getSessionId() && cache.cwd === ctx.cwd ? cache.text : null;
+	}
 	function refreshWorkingSet(ctx: ExtensionContext): void {
 		cachedWorkingSet = null;
 		if (!tasksToolActive()) return;
@@ -3253,8 +3257,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// ── model swap: keep the context window in lockstep ─────────────────────────
 	pi.on("context_with_system", (event, ctx: ExtensionContext) => {
-		const cache = cachedWorkingSet;
-		const suffix = tasksToolActive() && cache?.session === ctx.sessionManager.getSessionId() && cache.cwd === ctx.cwd ? cache.text : null;
+		const suffix = currentWorkingSet(ctx);
 		if (!foldingEnabled && !suffix) return;
 		const messages = event.messages.map((message) => {
 			if (!foldingEnabled || message.role !== "assistant" || !message.usage) return message;
@@ -3640,12 +3643,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				? path.join(cwd, dumpFileName(sessionId, format, at))
 				: path.resolve(cwd, formats.length > 1 ? withExtension(target, format) : target),
 		);
-		const stats = truth.stats();
+		const source = transcriptSource(truth, () => undefined, null, { folding: foldingEnabled });
+		const scan = taskStoreFor(ctx).scan();
+		const relevant = new Set(transcriptSpans(source).map((span) => span.list));
+		source.lists = scan.lists.filter((list) => relevant.has(list.slug) || list.claim?.session === ctx.sessionManager.getSessionId());
+		source.listIssues = scan.invalid;
+		const suffix = currentWorkingSet(ctx);
+		if (suffix) {
+			const role = (foldingEnabled ? truth.serializeWire(lastMessages) : lastMessages).at(-1)?.role;
+			const targetRole = role === "user" || role === "toolResult" ? role : null;
+			source.workingSet = { text: suffix, tokens: estTokens(suffix), applied: targetRole !== null, targetRole };
+		}
+		const system = source.blocks.find((b) => b.kind === "system");
 		const doc = dumpDocument({
-			source: transcriptSource(truth, () => undefined, null),
+			source,
 			meta: { sessionId, model: meta.model || model || "unknown-model" },
-			system: truth.systemPrompt ? { tokens: truth.systemPrompt.tokens } : null,
-			totals: { full: stats.fullTokens, live: stats.liveTokens, budget: stats.budget },
+			system: system ? { tokens: system.full } : null,
+			totals: { full: source.blocks.reduce((n, b) => n + b.full, 0), live: source.blocks.reduce((n, b) => n + b.live, 0), budget: truth.budget },
 			generatedAt: at,
 		});
 		const written: string[] = [];
@@ -3654,7 +3668,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const file = files[i];
 			try {
 				fs.mkdirSync(path.dirname(file), { recursive: true });
-				fs.writeFileSync(file, `${renderDump(doc, format)}\n`);
+				const rendered = renderDump(doc, format);
+				fs.writeFileSync(file, rendered.endsWith("\n") ? rendered : `${rendered}\n`);
 				written.push(path.relative(cwd, file) || file);
 			} catch (error) {
 				failures.push(`${file}: ${error instanceof Error ? error.message : String(error)}`);
