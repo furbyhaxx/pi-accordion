@@ -15,9 +15,9 @@
  * all), so the dump and the views can never disagree about what is folded.
  */
 import type { TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
-import { scanTaskSpans } from "../../conductors/in-process/taskfold/taskfold";
+import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
 import { messageKey } from "../../core/groupShape";
-import type { TBlock, TGroup, Tokens, TranscriptSource } from "./taskTranscript";
+import { spanBlocks, spanContains, taskForest, type TaskBranch, type TBlock, type TGroup, type Tokens, type TranscriptSource } from "./taskTranscript";
 
 export type DumpFormat = "tree" | "yaml" | "xml" | "md" | "flat";
 
@@ -85,47 +85,55 @@ export function parseFormatSpec(spec: string): { formats: DumpFormat[] } | { err
 	return { formats };
 }
 
-/** One block on the wire: its own text, or the digest it rides as when folded alone. */
+/** One block on the wire, optionally paired with its immediately following result. */
 export interface DumpBlock {
 	kind: "block";
 	block: TBlock;
-	/** The result paired with this `tool_call`, when both are in the same place on the wire. */
 	result: TBlock | null;
+	resultWire: string | null;
 	folded: boolean;
 	code: string | null;
-	/** The exact text the model receives for this node. */
 	wire: string;
 	tokens: Tokens;
 }
 
-/** One task span: a record when folded, its members when not. */
+/** One actual collapsed run, independent of task ownership. */
+export interface DumpGroup {
+	kind: "group";
+	group: TGroup;
+	memberIds: readonly string[];
+	wire: string;
+	dropped: boolean;
+	code: string | null;
+	elidedMessages: number;
+	tokens: Tokens;
+}
+
+/** A task-centred view over disjoint wire carriers. */
 export interface DumpTask {
 	kind: "task";
 	span: TaskSpan;
 	folded: boolean;
 	code: string | null;
-	/** The group summary — the whole span's wire text — when folded, else "". */
 	wire: string;
-	/** Whole messages the fold took off the wire (0 when unfolded). */
 	elidedMessages: number;
 	tokens: Tokens;
 	children: DumpNode[];
 }
 
-export type DumpNode = DumpTask | DumpBlock;
+export type DumpLeaf = DumpBlock | DumpGroup;
+export type DumpNode = DumpTask | DumpLeaf;
 
 export interface DumpDoc {
 	meta: { sessionId: string; model: string };
-	/** The harness prompt: always first on the wire, never foldable. */
 	system: { tokens: number } | null;
 	totals: { full: number; live: number; budget: number };
 	generatedAt: string;
-	/** Everything before the first task started. */
 	orientation: DumpNode[];
-	/** From the first task to the last: the tasks in order, with the work between them left in. */
 	body: DumpNode[];
-	/** Everything after the last task ended: the working tail. */
 	tail: DumpNode[];
+	/** Actual carrier order, before task-centred rearrangement. */
+	wire: DumpLeaf[];
 }
 
 export interface DumpInput {
@@ -137,175 +145,78 @@ export interface DumpInput {
 }
 
 const codeOf = (text: string): string | null => /^\{#([0-9a-z]{6}) FOLDED\}/.exec(text)?.[1] ?? null;
-
-/** A folded span's group and the block positions it takes off the wire. */
-interface Fold {
-	group: TGroup;
-	members: number[];
-}
 const sumLive = (nodes: readonly DumpNode[]): number => nodes.reduce((n, x) => n + x.tokens.live, 0);
+const sumTokens = (nodes: readonly { tokens: Tokens }[]): Tokens => nodes.reduce((n, x) => ({ full: n.full + x.tokens.full, live: n.live + x.tokens.live }), { full: 0, live: 0 });
 
-interface ForestEntry {
-	span: TaskSpan;
-	children: ForestEntry[];
-}
-
-/** Spans nested by containment; siblings in transcript order. */
-function forest(spans: readonly TaskSpan[]): ForestEntry[] {
-	const sorted = [...spans].sort((a, b) => a.start - b.start || b.end - a.end);
-	const roots: ForestEntry[] = [];
-	const stack: ForestEntry[] = [];
-	for (const span of sorted) {
-		while (stack.length && !(stack[stack.length - 1].span.start <= span.start && span.end <= stack[stack.length - 1].span.end)) stack.pop();
-		const entry: ForestEntry = { span, children: [] };
-		(stack.length ? stack[stack.length - 1].children : roots).push(entry);
-		stack.push(entry);
-	}
-	return roots;
-}
-
-interface Index {
-	source: TranscriptSource;
-	groupOf: Map<string, TGroup>;
-	resultOf: Map<string, number>;
-	/** Block id → its position in the wire order. */
-	at: Map<string, number>;
-	/** Blocks a folded span takes off the wire, so no region prints them again. */
-	covered: Set<number>;
-}
-
-function blocksOf(src: TranscriptSource, span: TaskSpan): readonly TBlock[] {
-	return src.blocks.slice(span.start, span.end + 1);
-}
-
-/** The folded group covering the whole span, or null when the span rides raw. */
-function spanGroup(ix: Index, span: TaskSpan): TGroup | null {
-	const first = ix.groupOf.get(ix.source.blocks[span.start].id);
-	if (!first?.folded) return null;
-	return blocksOf(ix.source, span).every((b) => ix.groupOf.get(b.id)?.id === first.id) ? first : null;
-}
-
-/** Positions of a group's members: the span's own blocks, plus any earlier in its boundary message. */
-function memberIndices(ix: Index, group: TGroup): number[] {
-	const out: number[] = [];
-	for (const id of group.memberIds) {
-		const at = ix.at.get(id);
-		if (at !== undefined) out.push(at);
-	}
-	return out;
-}
-
-function blockNode(ix: Index, block: TBlock, limit: number): DumpBlock {
-	const folded = !!block.folded;
-	const wire = folded ? (block.digest ?? block.text) : block.text;
-	const ri = block.kind === "tool_call" && block.callId ? ix.resultOf.get(block.callId) : undefined;
-	const result = ri !== undefined && ri <= limit ? ix.source.blocks[ri] : null;
-	return {
-		kind: "block",
-		block,
-		result,
-		folded,
-		code: folded ? codeOf(wire) : null,
-		wire,
-		tokens: { full: block.full + (result?.full ?? 0), live: block.live + (result?.live ?? 0) },
-	};
-}
-
-function taskNode(ix: Index, entry: ForestEntry, folds: ReadonlyMap<TaskSpan, Fold | null>): DumpTask {
-	const { span } = entry;
-	const fold = folds.get(span) ?? null;
-	const full = blocksOf(ix.source, span).reduce((n, b) => n + b.full, 0);
-	if (fold) {
-		const wire = fold.group.summary ?? "";
-		// The group is what leaves the wire, so it — not the span's block range — decides both
-		// numbers: Taskfold snaps a span outward to whole messages, so a member can sit just before
-		// the `tasks start` call that opens the span.
-		const messages = new Set(fold.group.memberIds.map((id) => messageKey(id))).size;
-		const wireFull = fold.members.reduce((n, at) => n + ix.source.blocks[at].full, 0);
-		return { kind: "task", span, folded: true, code: codeOf(wire), wire, elidedMessages: messages, tokens: { full: wireFull || full, live: fold.group.live }, children: [] };
-	}
-	const children: DumpNode[] = [];
-	const consumed = new Set<number>();
-	let k = 0;
-	for (let i = span.start; i <= span.end; i++) {
-		const child = entry.children[k];
-		if (child && i === child.span.start) {
-			children.push(taskNode(ix, child, folds));
-			i = child.span.end;
-			k++;
-			continue;
-		}
-		if (consumed.has(i) || ix.covered.has(i)) continue;
-		const block = ix.source.blocks[i];
-		if (ix.groupOf.get(block.id)?.folded) continue;
-		const node = blockNode(ix, block, span.end);
-		if (node.result) consumed.add(ix.at.get(node.result.id) ?? -1);
-		children.push(node);
-	}
-	return { kind: "task", span, folded: false, code: null, wire: "", elidedMessages: 0, tokens: { full, live: sumLive(children) }, children };
-}
-
-/**
- * Blocks `lo..hi` in wire order, with the top-level spans among them expanded into task nodes.
- * `consumed` is shared across the three regions, so every block lands exactly once: in a region,
- * inside a task, or elided into a record — never twice and never silently missing.
- */
-function walkRegion(ix: Index, roots: readonly ForestEntry[], folds: ReadonlyMap<TaskSpan, Fold | null>, lo: number, hi: number, consumed: Set<number>): DumpNode[] {
-	const out: DumpNode[] = [];
-	const byStart = new Map<number, ForestEntry>();
-	for (const root of roots) byStart.set(root.span.start, root);
-	for (let i = lo; i <= hi; i++) {
-		const root = byStart.get(i);
-		if (root) {
-			out.push(taskNode(ix, root, folds));
-			i = root.span.end;
-			continue;
-		}
-		if (consumed.has(i) || ix.covered.has(i)) continue;
-		const block = ix.source.blocks[i];
-		if (block.kind === "system" || ix.groupOf.get(block.id)?.folded) continue;
-		const node = blockNode(ix, block, hi);
-		if (node.result) consumed.add(ix.at.get(node.result.id) ?? -1);
-		out.push(node);
-	}
-	return out;
-}
-
-/** Build the document: the session's spans as a task tree, with the regions around them. */
+/** Build the task view and flat wire from the same authoritative, disjoint carrier stream. */
 export function dumpDocument(input: DumpInput): DumpDoc {
 	const { source } = input;
-	const groupOf = new Map<string, TGroup>();
-	for (const g of source.groups) for (const id of g.memberIds) groupOf.set(id, g);
-	const resultOf = new Map<string, number>();
-	const at = new Map<string, number>();
-	source.blocks.forEach((b, i) => {
-		at.set(b.id, i);
-		if (b.kind === "tool_result" && b.callId) resultOf.set(b.callId, i);
-	});
-	const ix: Index = { source, groupOf, resultOf, at, covered: new Set() };
+	const at = new Map(source.blocks.map((b, i) => [b.id, i]));
+	const blocks = new Map(source.blocks.map((b) => [b.id, b]));
 	const spans = scanTaskSpans(source.blocks, (b) => b.text);
-	// Fold first: a covered member must be known before ANY region walks past it.
-	const folds = new Map<TaskSpan, Fold | null>();
-	for (const span of spans) {
-		const group = spanGroup(ix, span);
-		const fold = group ? { group, members: memberIndices(ix, group) } : null;
-		folds.set(span, fold);
-		if (fold) for (const member of fold.members) ix.covered.add(member);
-	}
-	const roots = forest(spans);
+	const tasks = new Map<string, DumpTask>(spans.map((span) => [span.key, {
+		kind: "task", span, folded: false, code: null, wire: "", elidedMessages: 0, tokens: { full: 0, live: 0 }, children: [],
+	}]));
 	const first = spans.length ? Math.min(...spans.map((s) => s.start)) : source.blocks.length;
 	const last = spans.length ? Math.max(...spans.map((s) => s.end)) : -1;
-	const consumed = new Set<number>();
-	const walk = (lo: number, hi: number) => (lo <= hi ? walkRegion(ix, roots, folds, lo, hi, consumed) : []);
-	return {
-		meta: input.meta,
-		system: input.system,
-		totals: input.totals,
-		generatedAt: dumpStamp(input.generatedAt),
-		orientation: walk(0, Math.min(first, source.blocks.length) - 1),
-		body: walk(first, last),
-		tail: walk(last + 1, source.blocks.length - 1),
+	const position = new Map<DumpNode, number>();
+	const raw: { node: DumpLeaf; owner: string | null; region: "orientation" | "body" | "tail" }[] = [];
+	for (const carrier of source.projection) {
+		const block = blocks.get(carrier.members[0].id)!;
+		if (block.kind === "system") continue;
+		const pos = at.get(block.id)!;
+		let owner = spans.filter((s) => spanContains(s, pos)).sort((a, b) => b.key.length - a.key.length)[0]?.key ?? null;
+		let node: DumpLeaf;
+		const tokens = carrier.members.reduce((n, b) => ({ full: n.full + b.full, live: n.live + b.live }), { full: 0, live: 0 });
+		if (carrier.groupId) {
+			const group = source.groups.find((g) => g.id === carrier.groupId);
+			if (!group) throw new Error(`Projection refers to missing group "${carrier.groupId}".`);
+			const key = taskKeyOfSummary(group.summary);
+			if (key && tasks.has(key)) owner = key;
+			node = { kind: "group", group, memberIds: carrier.members.map((b) => b.id), wire: carrier.text ?? "", dropped: carrier.text === null,
+				code: codeOf(carrier.text ?? ""), elidedMessages: new Set(carrier.members.map((b) => messageKey(b.id))).size, tokens };
+		} else {
+			node = { kind: "block", block, result: null, resultWire: null, folded: !!block.folded, code: block.folded ? codeOf(carrier.text ?? "") : null, wire: carrier.text ?? "", tokens };
+		}
+		position.set(node, pos);
+		raw.push({ node, owner, region: pos < first ? "orientation" : spans.length && pos > last ? "tail" : spans.length ? "body" : "orientation" });
+	}
+	const entries: typeof raw = [];
+	for (let i = 0; i < raw.length; i++) {
+		const entry = raw[i], next = raw[i + 1];
+		if (entry.node.kind === "block" && entry.node.block.kind === "tool_call" && next?.node.kind === "block"
+			&& next.node.block.kind === "tool_result" && next.node.block.callId === entry.node.block.callId
+			&& next.owner === entry.owner && next.region === entry.region) {
+			entry.node.result = next.node.block;
+			entry.node.resultWire = next.node.wire;
+			entry.node.tokens = sumTokens([entry.node, next.node]);
+			i++;
+		}
+		entries.push(entry);
+	}
+	const orientation: DumpNode[] = [], body: DumpNode[] = [], tail: DumpNode[] = [];
+	for (const { node, owner, region } of entries) {
+		if (owner) tasks.get(owner)!.children.push(node);
+		else ({ orientation, body, tail })[region].push(node);
+	}
+	const build = (branch: TaskBranch): DumpTask | null => {
+		const task = tasks.get(branch.span.key)!;
+		for (const child of branch.children) { const node = build(child); if (node) task.children.push(node); }
+		task.children.sort((a, b) => (position.get(a) ?? 0) - (position.get(b) ?? 0));
+		if (!task.children.length) return null;
+		position.set(task, Math.min(...task.children.map((n) => position.get(n)!)));
+		task.tokens = sumTokens(task.children);
+		const only = task.children.length === 1 ? task.children[0] : undefined;
+		if (only?.kind === "group" && !only.dropped && taskKeyOfSummary(only.group.summary) === task.span.key
+			&& spanBlocks(source, task.span).every((b) => only.memberIds.includes(b.id))) {
+			task.folded = true; task.code = only.code; task.wire = only.wire; task.elidedMessages = only.elidedMessages; task.children = [];
+		}
+		return task;
 	};
+	for (const branch of taskForest(spans)) { const node = build(branch); if (node) body.push(node); }
+	body.sort((a, b) => (position.get(a) ?? 0) - (position.get(b) ?? 0));
+	return { meta: input.meta, system: input.system, totals: input.totals, generatedAt: dumpStamp(input.generatedAt),
+		orientation, body, tail, wire: entries.map((e) => e.node) };
 }
 
 /* ── shared helpers ─────────────────────────────────────────────────────────── */
@@ -338,10 +249,16 @@ export function renderTree(doc: DumpDoc): string {
 			} else n.children.forEach((c, i) => node(c, pad, i === n.children.length - 1));
 			return;
 		}
+		if (n.kind === "group") {
+			out.push(`${arm}≡ GROUP ${n.group.id} · ${n.tokens.full} → ${n.tokens.live} tok${n.dropped ? " · DROPPED (not sent)" : ""}`);
+			graft(out, n.wire, `${pad}┆ `);
+			out.push(`${pad}└─ ${n.elidedMessages} messages elided (not on the wire)`);
+			return;
+		}
 		const marks = [n.folded ? foldMark(n) : "", n.block.protected ? "protected" : ""].filter(Boolean).join(" · ");
 		out.push(`${arm}${n.block.kind === "user" ? "●" : "·"} ${label(n)}  ·  ${n.tokens.live} tok${marks ? `  ·  ${marks}` : ""}`);
 		graft(out, n.wire, `${pad}┆ `);
-		if (n.result) graft(out, n.result.text, `${pad}┆ → `);
+		if (n.result) graft(out, n.resultWire ?? "", `${pad}┆ → `);
 	};
 	const section = (title: string, nodes: readonly DumpNode[], pre: string, last: boolean): void => {
 		out.push(`${pre}${last ? "└─ " : "├─ "}${title}`);
@@ -370,21 +287,16 @@ export function renderFlat(doc: DumpDoc): string {
 		graft(out, text, "    ");
 	};
 	const marksOf = (n: DumpBlock) => [n.folded ? foldMark(n) : "", n.block.protected ? "protected" : ""].filter(Boolean).join("  ");
-	const region = (nodes: readonly DumpNode[]): void => {
-		for (const n of nodes) {
-			if (n.kind === "task") {
-				if (n.folded) row("GROUP (task record)", n.tokens.live, n.wire, `${n.elidedMessages} messages elided`);
-				else region(n.children);
-				continue;
-			}
-			const turn = `${n.block.turn ?? 0}:`;
-			row(`${turn}${label(n)}`, n.block.live, n.wire, marksOf(n));
-			if (n.result) row(`${turn}tool_result${n.result.toolName ? ` ${n.result.toolName}` : ""}`, n.result.live, n.result.text, "");
+	for (const n of doc.wire) {
+		if (n.kind === "group") {
+			const key = taskKeyOfSummary(n.group.summary);
+			row(key && key !== "untracked" ? "GROUP (task record)" : "GROUP", n.tokens.live, n.wire, n.dropped ? "DROPPED (not sent)" : `${n.elidedMessages} messages elided`);
+			continue;
 		}
-	};
-	region(doc.orientation);
-	region(doc.body);
-	region(doc.tail);
+		const turn = `${n.block.turn ?? 0}:`;
+		row(`${turn}${label(n)}`, n.block.live, n.wire, marksOf(n));
+		if (n.result) row(`${turn}tool_result${n.result.toolName ? ` ${n.result.toolName}` : ""}`, n.result.live, n.resultWire ?? "", n.result.folded ? "FOLDED" : "");
+	}
 	return out.join("\n");
 }
 
@@ -421,6 +333,16 @@ export function renderYaml(doc: DumpDoc): string {
 			}
 			return;
 		}
+		if (n.kind === "group") {
+			out.push(`${pad}- group: ${quote(n.group.id)}`);
+			out.push(`${pad}  tokens: { live: ${n.tokens.live}, full: ${n.tokens.full} }`);
+			out.push(`${pad}  dropped: ${n.dropped}`);
+			out.push(`${pad}  member_ids: ${JSON.stringify(n.memberIds)}`);
+			if (n.code) out.push(`${pad}  code: ${n.code}`);
+			block("wire", n.wire, ind + 2);
+			out.push(`${pad}  elided_messages: ${n.elidedMessages}`);
+			return;
+		}
 		const b = n.block;
 		out.push(`${pad}- block: ${label(n)}`);
 		out.push(`${pad}  id: ${quote(b.id)}`);
@@ -429,7 +351,7 @@ export function renderYaml(doc: DumpDoc): string {
 		if (n.folded && n.code) out.push(`${pad}  code: ${n.code}`);
 		if (b.protected) out.push(`${pad}  protected: true`);
 		block("wire", n.wire, ind + 2);
-		if (n.result) block("result", n.result.text, ind + 2);
+		if (n.result) block("result", n.resultWire ?? "", ind + 2);
 	};
 	out.push("transcript:");
 	out.push(`  session: ${quote(doc.meta.sessionId)}`);
@@ -482,6 +404,13 @@ export function renderXml(doc: DumpDoc): string {
 			out.push(`${ind(d)}</task>`);
 			return;
 		}
+		if (n.kind === "group") {
+			out.push(`${ind(d)}<group id="${attr(n.group.id)}" live="${n.tokens.live}" full="${n.tokens.full}" dropped="${n.dropped}" elided="${n.elidedMessages}">`);
+			out.push(`${ind(d + 1)}<wire>${cdata(n.wire)}</wire>`);
+			out.push(`${ind(d + 1)}<members>${cdata(JSON.stringify(n.memberIds))}</members>`);
+			out.push(`${ind(d)}</group>`);
+			return;
+		}
 		const b = n.block;
 		const attrs = [`kind="${b.kind}"`, `id="${attr(b.id)}"`, `turn="${b.turn ?? 0}"`, `tokens="${n.tokens.live}"`];
 		if (n.block.toolName) attrs.push(`tool="${attr(n.block.toolName)}"`);
@@ -491,7 +420,7 @@ export function renderXml(doc: DumpDoc): string {
 		}
 		if (b.protected) attrs.push(`protected="true"`);
 		out.push(`${ind(d)}<block ${attrs.join(" ")}>${cdata(n.wire)}</block>`);
-		if (n.result) out.push(`${ind(d)}<block kind="tool_result" id="${attr(n.result.id)}" paired="${attr(b.callId ?? "")}">${cdata(n.result.text)}</block>`);
+		if (n.result) out.push(`${ind(d)}<block kind="tool_result" id="${attr(n.result.id)}" paired="${attr(b.callId ?? "")}">${cdata(n.resultWire ?? "")}</block>`);
 	};
 	out.push(`<?xml version="1.0" encoding="utf-8"?>`);
 	out.push(`<transcript session="${attr(doc.meta.sessionId)}" model="${attr(doc.meta.model)}" generated="${attr(doc.generatedAt)}" live="${doc.totals.live}" full="${doc.totals.full}" budget="${doc.totals.budget}">`);
@@ -535,6 +464,12 @@ export function renderMarkdown(doc: DumpDoc): string {
 			for (const c of n.children) heading(c, depth + 1);
 			return;
 		}
+		if (n.kind === "group") {
+			out.push(`${"#".repeat(Math.min(6, depth))} GROUP ${n.group.id} · ${n.tokens.live} tok${n.dropped ? " · DROPPED (not sent)" : ""}`);
+			block(n.wire);
+			out.push(`*${n.elidedMessages} messages elided.*`);
+			return;
+		}
 		const h = "#".repeat(Math.min(6, depth));
 		const marks = [`${n.tokens.live} tok`];
 		if (n.folded) marks.push(`**${foldMark(n)}**`);
@@ -543,7 +478,7 @@ export function renderMarkdown(doc: DumpDoc): string {
 		block(n.wire);
 		if (n.result) {
 			out.push(`*result of \`${n.block.callId ?? ""}\`:*`);
-			block(n.result.text);
+			block(n.resultWire ?? "");
 		}
 	};
 	out.push(`# transcript · ${doc.meta.sessionId}`);

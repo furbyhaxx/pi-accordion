@@ -36,7 +36,13 @@ function source(log: Log, groups: TGroup[] = [], verdicts: Record<string, Verdic
 		const g = groups.find((g) => g.folded && g.memberIds.includes(b.id));
 		return g ? { ...b, live: g.memberIds[0] === b.id ? g.live : 0 } : b;
 	});
-	return { blocks, groups, verdict: (id) => verdicts[id], threshold: 0.3 };
+	const projection = blocks.flatMap((b) => {
+		const g = groups.find((g) => g.folded && g.memberIds.includes(b.id));
+		if (g && g.memberIds[0] !== b.id) return [];
+		return [{ ...(g ? { groupId: g.id } : {}), text: g ? g.summary ?? null : b.digest ?? b.text,
+			members: (g ? blocks.filter((b) => g.memberIds.includes(b.id)) : [b]).map(({ id, full, live }) => ({ id, full, live })) }];
+	});
+	return { blocks, groups, projection, verdict: (id) => verdicts[id], threshold: 0.3 };
 }
 
 const types = (nodes: readonly TNode[]) => nodes.map((n) => (n.type === "task" ? `task:${n.span.id}` : n.type === "edge" ? `edge:${n.edge}` : n.type === "step" ? `step:${n.block.toolName}` : n.type));

@@ -45,7 +45,7 @@ export interface TranscriptSource {
 	blocks: readonly TBlock[];
 	groups: readonly TGroup[];
 	/** Authoritative carrier order and per-block charges, including drops and stragglers. */
-	projection?: readonly ContextProjection[];
+	projection: readonly ContextProjection[];
 	verdict(id: string): Verdict | undefined;
 	/** The fold threshold the verdicts were judged against, when a Taskfold conductor set one. */
 	threshold: number | null;

@@ -40,6 +40,10 @@ function blocks(): TBlock[] {
 	return out;
 }
 
+function source(b = blocks()): TranscriptSource {
+	return { blocks: b, groups: [], projection: b.map((b) => ({ text: b.text, members: [{ id: b.id, full: b.full, live: b.live }] })), verdict: () => undefined, threshold: 0.3 };
+}
+
 function data(src: TranscriptSource | null): ViewData {
 	return { src, spans: src ? transcriptSpans(src) : [], theme, now: Date.parse(at(40)) };
 }
@@ -55,7 +59,7 @@ describe("task views", () => {
 	});
 
 	it("lists plan time, wait, run, report and the recorded facts in the details", () => {
-		const src: TranscriptSource = { blocks: blocks(), groups: [], verdict: () => undefined, threshold: 0.3 };
+		const src = source();
 		const lines = detailLines(list, "1", data(src), []).join("\n");
 		expect(lines).toContain("1/2 subtasks done");
 		expect(lines).toContain("waited 10m 0s before starting");
@@ -86,7 +90,7 @@ describe("task views", () => {
 		};
 		b.splice(5, 0, ...event("start"));
 		b.splice(b.length - 2, 0, ...event("complete"));
-		const src: TranscriptSource = { blocks: b, groups: [], verdict: () => undefined, threshold: 0.3 };
+		const src = source(b);
 		const parent = detailLines(list, "1", data(src), []).join("\n");
 		const child = detailLines(list, "1.1", data(src), []).join("\n");
 		expect(parent).not.toContain("src/a.ts");
@@ -96,7 +100,7 @@ describe("task views", () => {
 	});
 
 	it("flags untracked work and marks failed steps in the session tree", () => {
-		const src: TranscriptSource = { blocks: blocks(), groups: [], verdict: () => undefined, threshold: 0.3 };
+		const src = source();
 		const nodes = transcriptNodes(sessionTranscript(src), data(src));
 		expect(nodes.map((x) => x.data?.type)).toEqual(["user", "untracked", "task"]);
 		expect(nodes[1].label).toContain("untracked · 1 call");

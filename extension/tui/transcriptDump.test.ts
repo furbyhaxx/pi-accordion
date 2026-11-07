@@ -5,6 +5,7 @@
  * parseable when the content fights it (`]]>` in XML, a fence in Markdown).
  */
 import { describe, expect, it } from "bun:test";
+import type { ContextProjection } from "../../core/types";
 import { foldTag } from "../../core/digest";
 import type { TBlock, TGroup, TranscriptSource } from "./taskTranscript";
 import {
@@ -70,19 +71,72 @@ function folded(log: Log, span: string[], summary: string): TGroup {
 	return { id: "g:span", memberIds: span, folded: true, summary, full: 400, live: 24 };
 }
 
-const source = (log: Log, groups: TGroup[] = []): TranscriptSource => ({ blocks: log.blocks, groups, verdict: () => undefined, threshold: null });
+function source(log: Log, groups: TGroup[] = []): TranscriptSource {
+	const projection: ContextProjection[] = [];
+	const seen = new Set<string>();
+	for (const b of log.blocks) {
+		const g = groups.find((g) => g.folded && g.memberIds.includes(b.id));
+		if (g) {
+			if (seen.has(g.id)) continue;
+			seen.add(g.id);
+			projection.push({ groupId: g.id, text: g.summary ?? null, members: g.memberIds.map((id, i) => ({ id, full: log.blocks.find((b) => b.id === id)!.full, live: i ? 0 : g.live })) });
+		} else projection.push({ text: b.folded ? b.digest ?? b.text : b.text, members: [{ id: b.id, full: b.full, live: b.live }] });
+	}
+	const charges = new Map(projection.flatMap((p) => p.members.map((b) => [b.id, b] as const)));
+	return { blocks: log.blocks.map((b) => ({ ...b, full: charges.get(b.id)!.full, live: charges.get(b.id)!.live })), groups, projection, verdict: () => undefined, threshold: null };
+}
 
 function doc(src: TranscriptSource, model = "test/model") {
 	return dumpDocument({
 		source: src,
 		meta: { sessionId: "s-1", model },
 		system: { tokens: 1000 },
-		totals: { full: 1500, live: 900, budget: 800 },
+		totals: { full: 1000 + src.blocks.reduce((n, b) => n + b.full, 0), live: 1000 + src.blocks.reduce((n, b) => n + b.live, 0), budget: 800 },
 		generatedAt: new Date(2025, 10, 6, 9, 56, 12),
 	});
 }
 
 describe("transcript dump", () => {
+	it("prints split/composed records and untracked carriers once, not once per covered child", () => {
+		const log = new Log();
+		log.user("Go.");
+		const outside = log.call("bash", { command: "outside" }, "untracked original");
+		const start = log.start("1", "Parent");
+		const keep = log.user("Keep this correction.");
+		const child = log.start("1.1", "First");
+		log.finish("1.1", "First done");
+		log.start("1.2", "Second");
+		log.finish("1.2", "Second done");
+		const finish = log.finish("1", "Done");
+		const groups: TGroup[] = [
+			{ ...folded(log, log.ids(log.before(outside.call), outside.result), `${foldTag("g:outside")} [untracked-work] untracked-export-marker`), id: "g:outside" },
+			{ ...folded(log, log.ids(log.before(start.call), log.before(keep)), `${foldTag("g:part")} [task-part] l/1 part-export-marker`), id: "g:part" },
+			{ ...folded(log, log.ids(log.before(child.call), finish.result), `${foldTag("g:composed")} [task-record] l/1 "Parent"  status: done\noutcome: shared-export-marker`), id: "g:composed" },
+		];
+		const snapshot = doc(source(log, groups));
+		const leaves = snapshot.wire;
+		expect(leaves.reduce((n, x) => n + x.tokens.live, snapshot.system!.tokens)).toBe(snapshot.totals.live);
+		expect([...snapshot.orientation, ...snapshot.body, ...snapshot.tail].reduce((n, x) => n + x.tokens.live, snapshot.system!.tokens)).toBe(snapshot.totals.live);
+		for (const format of DUMP_FORMATS) {
+			const out = renderDump(snapshot, format);
+			for (const marker of ["untracked-export-marker", "part-export-marker", "shared-export-marker"])
+				expect(out.split(marker).length - 1).toBe(1);
+			expect(out).toContain("Keep this correction.");
+			expect(out).not.toContain("untracked original");
+		}
+	});
+
+	it("never prints the original body of a substituted paired result", () => {
+		const log = new Log();
+		const call = log.call("read", { path: "large.txt" }, "private obsolete original");
+		const result = log.blocks.find((b) => b.id === call.result)!;
+		result.folded = true; result.digest = "actual substituted result"; result.live = 8;
+		for (const format of DUMP_FORMATS) {
+			const out = renderDump(doc(source(log)), format);
+			expect(out).toContain("actual substituted result");
+			expect(out).not.toContain("private obsolete original");
+		}
+	});
 	it("stands a folded span in as its record and counts the whole messages it removed", () => {
 		const { log, span } = oneTask();
 		const record = `${foldTag("g:span")} [task-record] l/1 "Parent"  status: done\noutcome: listed the files`;
@@ -156,6 +210,7 @@ describe("transcript dump", () => {
 		for (const format of DUMP_FORMATS) {
 			const out = renderDump(doc(src), format);
 			expect(out).not.toContain("…");
+			expect(out.split("line 40").length - 1).toBe(1);
 			expect(out).toContain("line 1");
 			expect(out).toContain("line 40");
 		}
