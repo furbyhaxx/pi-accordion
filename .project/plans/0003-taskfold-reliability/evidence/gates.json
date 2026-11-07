@@ -38,7 +38,12 @@
   },
   "package": {
     "command": "npm pack --dry-run --ignore-scripts; node extension/smoke-package.mjs",
-    "passed": true
+    "passed": true,
+    "files": 440,
+    "bytes": 36055584,
+    "unpackedBytes": 43233188,
+    "browserIndex": true,
+    "privateFiles": 0
   },
   "historical": {
     "revision": "a91ebee",

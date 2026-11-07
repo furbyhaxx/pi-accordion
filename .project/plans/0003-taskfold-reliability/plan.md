@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 13
+  revision: 14
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T11:39:01+01:00"
+  updated_at: "2026-11-07T11:46:43+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 13
-      reason: "close final source-review defects"
-      changes: ["sticky selective human recovery", "reversible whole-task toggles", "lossless YAML terminal controls", "74 focused tests pass"]
+    - revision: 14
+      reason: "record verified local delivery"
+      changes: ["final source passes all configured code gates", "historical and authenticated live replays refreshed", "artifact baseline and deployment limits documented"]
 ---
 
 # Taskfold reliability repair
@@ -42,7 +42,8 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: full terminal feature matrix and goal/session tests (`evidence/terminal.json`).
 - done: trailing-notice working-set repair and genuine native recovery (`evidence/live-result.json`).
 - done: final source review; human selective recovery now holds its blocks, full-task toggles remain reversible, and YAML escapes terminal controls losslessly.
-- now: final gate refresh and review of delivery evidence.
+- done: final source `a91ebee` passes all configured code gates, historical replay and two new native authenticated requests; refreshed evidence committed in `7bff1ac`.
+- done: final delivery review; changes remain local to the dedicated branch, not merged, published or installed.
 
 ## Current slice: full verification and live evaluation
 
@@ -136,12 +137,41 @@ open; the existing agent-refold policy still passes. YAML uses escaped JSON-comp
 terminal controls and Unicode line separators. All 74 focused tests pass, including exact byte
 round trips and whole-task open/close behavior.
 
-Remaining work:
-1. Refresh final gates/builds after all source repairs and record limits.
+## Delivery and remaining limits
 
-The repository-wide artifact checker reports legacy frontmatter/changelog/dangling-reference
-errors outside this branch's changed artifacts. An extra Bun run of Vitest-only core timer tests
-fails because Bun lacks `vi.advanceTimersByTimeAsync`; those suites pass in their configured runner.
+Implementation and requested validation are complete on `fix/taskfold-reliability`. The main checkout,
+installed extension and original nukular-ai inputs were not changed. There is no policy limit on
+list depth; 64-level authoring and 32-level mutation/migration regressions protect this contract.
+The historical backup preserves all 80 task facts and identities across a six-level round trip;
+the six tasks previously deleted by the original session were not silently restored into its list.
+
+Final code gates on `a91ebee`: **233 native tests**, **1,055 Vitest tests** (no skips), app check with
+zero errors/warnings, all extension smokes, both builds, package content assertions, and a clean
+production install whose `prepare` generated working authenticated browser assets. The package dry
+run contains 440 files, a browser index and no private artifact/dependency files.
+
+Final historical replay again matches actual wire carrier text/order, includes every block once,
+and has exact additive YAML totals of 87,683 and 143,430 at the two budgets. Both YAML/XML exports
+parse. The original session/list/backup remain byte-identical. This is snapshot evaluation, not a
+reconstruction of historical provider receipts or a guarantee of unconditional token reduction.
+
+The final authenticated native rerun made two HTTP 200 requests, recovered one child without its
+sibling, and verified actual suffix/record equivalence against in-flight dumps. Their live leaf
+sums are 4,448 and 8,333. The auth file is unchanged. Aggregate usage was 12,472 tokens and
+SDK-estimated USD 0.001742322, not provider-reported billing. The terminal matrix remains recorded
+in `evidence/terminal.json`; later human-hold and YAML-control repairs additionally pass their
+focused regressions and all final suites.
+
+The repository-wide artifact checker still reports **258 pre-existing issues**, versus 259 on
+`e6e87a2`, with **zero new issues**. This comparison used a baseline archive and isolated Git index,
+not suppressed checks. An extra Bun run of Vitest-only core timer tests fails because Bun lacks
+`vi.advanceTimersByTimeAsync`; those suites pass under configured Vitest. Existing app dependency
+audit warnings were not upgraded in this scoped repair.
+
+Live classifier service and task-coaching closure were not evaluated; genuine requests used only
+synthetic fixtures. Context budgets remain estimates, especially after recall or human holds.
+There are no pending implementation tasks. Integration merge, publication and installation are
+separate operations and have not been performed.
 
 ## Verification
 
