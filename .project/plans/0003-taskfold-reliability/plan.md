@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 8
+  revision: 9
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T10:38:11+01:00"
+  updated_at: "2026-11-07T10:52:37+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "finish the actual context-panel widget repair"
-      changes: ["share session-safe widget suspension", "regress normal and failed panel opens", "verify real controls and widget restoration"]
+    - revision: 9
+      reason: "record the completed native terminal matrix"
+      changes: ["47 real captures and 15 semantic checks", "exact native export totals", "goal creation and session isolation"]
 ---
 
 # Taskfold reliability repair
@@ -67,7 +67,7 @@ Completed evidence:
 
 - Real Pi-Bolt inspection exposed widget/frame viewport collisions and a false visibility reason
   when another list was invalid. Widget suspension now restores safely across sessions; the shared
-  frame budget reserves Pi\'s spacer and footer, and diagnostic rows fit short screens. New
+  frame budget reserves Pi's spacer and footer, and diagnostic rows fit short screens. New
   regressions failed before the fixes. All 232 native tests, app check and extension smokes pass.
 
 - Installed Pi-Bolt is Pi 1.4.0 / Bolt 1.0.9, while local peer dependencies are Pi 1.5.0.
@@ -80,9 +80,22 @@ store contained. It is not acceptance evidence and does not establish a conducto
 actual repair was implemented after reproducing three failed viewport assertions; it changes
 only widget suspension around the existing panel, not a nonexistent panel dependency API.
 
+- The final tracked source was exercised in a private Pi-Bolt terminal at 36/57/80/140 columns
+  and 36×10. `evidence/terminal.json` records 47 captures and 15 semantic checks: nested criteria,
+  inherited/scoped facts and attachments, named child recovery, sibling recomposition, invalid
+  lists, paging, pause labels, new-session isolation and interactive goal creation. No credentials
+  or provider calls were available in this fixture.
+- All five native dump formats were generated. Both YAML exports parse and their live leaf sums
+  equal their headers: mixed projection 48,046; paused projection 91,881 (also the full count).
+  A working set had not been built before the first agent start; metadata was exported and the
+  authenticated request remains the check for the applied suffix.
+- Reproduce the terminal fixture/checks with `bun evidence/terminal-fixture.mjs <new-runtime-dir>`
+  and `bun evidence/terminal-check.mjs <runtime-dir>` from this plan directory. Launch isolated
+  Pi-Bolt with the repaired extension and dummy fixture provider; save captures after task lists,
+  context, record/original, child unfold, deep filter, pause/tree/export, `/new` and goal creation.
+
 Remaining work:
-1. Exercise isolated Pi-Bolt at 36/57/80/140 columns and short height: metadata, composed-child
-   recovery, diagnostics, pause state, session switching, export and a bounded live model call.
+1. Run the bounded authenticated live model call with the repaired projection and working set.
 2. Review the full diff, refresh final gates/builds after the serializer repair and record limits.
 
 The repository-wide artifact checker reports legacy frontmatter/changelog/dangling-reference
