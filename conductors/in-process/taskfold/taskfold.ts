@@ -272,7 +272,9 @@ function pinsIn(spans: readonly TaskSpan[]): RetainedPin[] {
 	return spans.flatMap((span) => (span.pins ?? []).map((pin) => ({ task: span.key, ...pin })));
 }
 
-/** Condense direct child records while retaining every previously visible handle and supplied pin. */
+const CHILD_RECOVERY = /^\s+- (?:\{#[0-9a-z]{6} FOLDED\} )?\S+\/\S+ ".*" (?:done|failed|abandoned)(?: · .*|)$/;
+
+/** Condense direct child records while retaining named descendant recovery and supplied pins. */
 export function condenseChildren(summary: string, pins: readonly RetainedPin[] = []): string | null {
 	const lines = summary.split("\n");
 	const sections = lines.flatMap((line, i) => { const m = /^( *)children:$/.exec(line); return m ? [{ i, indent: m[1] }] : []; }).sort((a, b) => b.indent.length - a.indent.length);
@@ -290,6 +292,7 @@ export function condenseChildren(summary: string, pins: readonly RetainedPin[] =
 			while (end < sectionEnd && !header(lines[end])) end++;
 			const outcome = lines.slice(i + 1, end).map((line) => line.startsWith(`${indent}outcome: `) ? line.slice(indent.length + 9) : undefined).find(Boolean) ?? /^\s*·\s*(.*?)(?:\s*·\s*(?:recall|handles:)|$)/.exec(m[5])?.[1];
 			rows.push(`${indent}- ${m[1] ? `${m[1]} ` : ""}${m[2]} "${m[3]}" ${m[4]}${outcome ? ` · ${oneLine(outcome, 160)}` : ""}`);
+			rows.push(...lines.slice(i + 1, end).filter((line) => CHILD_RECOVERY.test(line)));
 			i = end;
 		}
 		if (!rows.length) continue;
@@ -302,18 +305,26 @@ export function condenseChildren(summary: string, pins: readonly RetainedPin[] =
 
 /**
  * One step down the aging ladder for a record summary: level 1 keeps the head line and the outcome
- * on one line, level 2 keeps only the archive stub. Null when the summary is not a task record.
+ * on one line, level 2 keeps an archive stub. Both retain named child recovery and supplied pins.
  */
 export function ageRecord(summary: string, level: 1 | 2, pins: readonly RetainedPin[] = []): string | null {
-	const m = /^(\{#[0-9a-z]{6} FOLDED\}) \[task-(record|archived)\] (\S+) "(.*)"\s+status: (\w+)/.exec(summary);
+	const m = /^(\{#[0-9a-z]{6} FOLDED\}) \[task-(record|archived)\] (\S+) "(.*)"\s+(?:status: )?(\w+)/.exec(summary);
 	if (!m) return null;
 	const [, tag, kind, key, title, status] = m;
 	if (level === 1 && !/^outcome: /m.test(summary)) return summary;
-	const tags = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((t) => t !== tag);
+	let condensed = summary;
+	for (;;) {
+		const next = condenseChildren(condensed, pins);
+		if (!next || next === condensed) break;
+		condensed = next;
+	}
+	const children = condensed.split("\n").filter((line) => CHILD_RECOVERY.test(line)).map((line) => `  ${line.trim()}`);
+	const recovery = children.length ? `\nchildren:\n${children.join("\n")}` : "";
+	const tags = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((t) => t !== tag && !recovery.includes(t));
 	const suffix = tags.length ? ` · handles: ${tags.join(" ")}` : "";
-	if (level === 2 || kind === "archived") return retainTaskPins(`${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall ${tag} instead of re-reading.${suffix}`, pins);
+	if (level === 2 || kind === "archived") return retainTaskPins(`${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall ${tag} instead of re-reading.${suffix}${recovery}`, pins);
 	const outcome = /^outcome: (.*)$/m.exec(summary)?.[1];
-	return retainTaskPins(`${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""} · recall ${tag} instead of re-reading${suffix}`, pins);
+	return retainTaskPins(`${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""} · recall ${tag} instead of re-reading${suffix}${recovery}`, pins);
 }
 
 /** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */

@@ -845,7 +845,11 @@ describe("taskfold", () => {
 		expect(first).toContain(`  ${child} [task-record]`);
 		const second = condenseChildren(first)!;
 		expect(second).toContain(`  - ${child} work/1.1 "Child" done · C`);
-		expect(second).toContain(leaf);
+		expect(second).toContain(`${leaf} work/1.1.1 "Leaf" done · L`);
+		const archived = ageRecord(second, 2)!;
+		expect(archived).toContain(`${child} work/1.1 "Child" done · C`);
+		expect(archived).toContain(`${leaf} work/1.1.1 "Leaf" done · L`);
+		expect(ageRecord(archived, 2)).toBe(archived);
 		expect(condenseChildren(second)).toBeNull();
 		const abandoned = condenseChildren(`${parent} [task-record] work/1 "Parent"  status: failed\nchildren:\n  [task-record] work/1.1 "Unstarted"  status: abandoned\n  outcome: Parent failed`);
 		expect(abandoned).toContain('work/1.1 "Unstarted" abandoned · Parent failed');

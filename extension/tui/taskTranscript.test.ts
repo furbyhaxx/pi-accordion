@@ -90,6 +90,7 @@ describe("task transcript", () => {
 		expect(recordLevel(`${foldTag("g:x")} [task-record] l/1 "T"  status: done\noutcome: x`)).toBe(0);
 		expect(recordLevel(`${foldTag("g:x")} [task-record] l/1 "T"  status: done · x`)).toBe(1);
 		expect(recordLevel(`${foldTag("g:x")} [task-archived] l/1 "T" done; recall the code for its record and transcript.`)).toBe(2);
+		expect(recordLevel(`${foldTag("g:x")} [task-record] l/1 "T"  status: done · x · recall ${foldTag("g:x")} instead of re-reading\n[retained-task-pins 4]\nrule`)).toBe(1);
 		expect(recordLevel("plain")).toBeNull();
 	});
 });

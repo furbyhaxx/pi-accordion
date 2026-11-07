@@ -378,7 +378,9 @@ Cache rule (one cache break per epoch):
 4. No epoch runs only for aging. Aging rides on epochs triggered by `high`.
 
 Never aged: the newest finished root (unless waived, §9.1), kept user messages, list pins. All
-previously emitted child and group tags remain visible and recoverable through later aging. Task-scoped
+previously emitted child and group tags remain visible and recoverable through later aging. Child
+recovery entries retain their task key, title, status and short outcome beside the handle, rather
+than reducing completed work to an anonymous collection of tags. Task-scoped
 pins are retained verbatim with their task and source, including when child records condense or the
 parent ages. If those pins prevent a record from fitting its cap, leave it raw rather than drop them.
 
@@ -386,7 +388,7 @@ parent ages. If those pins prevent a record from fitting its cap, leave it raw r
 
 ```
 live ≥ high·budget →
-  1 records     compile finished roots, oldest first, until projection ≤ low·budget
+  1 records     compile finished roots, oldest first; try safe descendants if a root cannot compile; stop at ≤ low·budget
   2 aging       §8
   3 keep-recent waive the kept root if still above
   4 floor       §9.2, if enabled

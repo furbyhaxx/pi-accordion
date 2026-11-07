@@ -116,7 +116,7 @@ export function userReason(verdict: Verdict | undefined, folded: boolean, thresh
 export function recordLevel(summary: string | null | undefined): 0 | 1 | 2 | null {
 	if (!taskKeyOfSummary(summary)) return null;
 	if (/^\{#[0-9a-z]{6} FOLDED\} \[task-archived\]/.test(summary!)) return 2;
-	return /^\{#[0-9a-z]{6} FOLDED\} \[task-record\]/.test(summary!) && !summary!.includes("\n") ? 1 : 0;
+	return /^\{#[0-9a-z]{6} FOLDED\} \[task-record\]/.test(summary!) && (!summary!.includes("\n") || summary!.split("\n", 1)[0].includes(" · recall ")) ? 1 : 0;
 }
 
 function codeOf(summary: string | null | undefined): string | null {
