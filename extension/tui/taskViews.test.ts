@@ -3,7 +3,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import { Truth } from "../../core/truth";
 import type { TaskList } from "../tasks";
 import { sessionTranscript, spanTranscript, transcriptSpans, type TBlock, type TranscriptSource } from "./taskTranscript";
-import { TaskViews, detailLines, listNodes, transcriptNodes, type TaskViewsHost, type ViewData } from "./taskViews";
+import { TaskViews, detailLines, listDetailLines, listNodes, transcriptNodes, type TaskViewsHost, type ViewData } from "./taskViews";
 import { flattenTree, treeRowLine } from "./treeView";
 
 const theme = { fg: (_c: string, s: string) => s, bold: (s: string) => s, strikethrough: (s: string) => s };
@@ -56,6 +56,27 @@ describe("task views", () => {
 		const parent = treeRowLine(rows[0], false, 80, (s) => s, (s) => s);
 		expect(parent).toContain("1 Parent · 1/2 · 10m 0s");
 		expect(nodes[1].open).toBe(true);
+	});
+
+	it("shows goal, criteria and scoped facts without confusing inherited and task pins", () => {
+		const pin = { id: "p1", kind: "rule" as const, text: "Exact\nlist fact", source: "user", at: at(0) };
+		const attachment = { id: "a1", path: "spec.md", lines: "2-4", note: "Design evidence", at: at(0), hash: "recorded-hash" };
+		const enriched = { ...list, goal: "Explicit list goal", pins: [pin], attachments: [attachment], tasks: list.tasks.map((t) => ({ ...t,
+			...(t.id === "1" ? { pins: [{ ...pin, id: "p2", text: "Parent constraint" }] } : {}),
+			...(t.id === "1.1" ? { acceptanceCriteria: ["Observable result"], pins: [{ ...pin, id: "p3", text: "Own constraint" }], attachments: [{ ...attachment, id: "a2" }] } : {}) })) };
+		const lines = detailLines(enriched, "1.1", data(null), []).join("\n");
+		for (const text of ["Explicit list goal", "Observable result", "list · p1", "parent 1 · p2", "task 1.1 · p3", "Own constraint", "spec.md:2-4", "Design evidence", "recorded-hash"])
+			expect(lines).toContain(text);
+		expect(listDetailLines(enriched, theme).join("\n")).toContain("Explicit list goal");
+		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [{ ...enriched, tasks: [] }], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+		const v = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);
+		v.handleInput("g");
+		for (const width of [36, 57, 80, 140]) {
+			const shown = v.render(width);
+			expect(shown.join("\n")).toContain("Explicit list goal");
+			expect(shown.every((line) => visibleWidth(line) <= width)).toBe(true);
+		}
+		v.dispose();
 	});
 
 	it("lists plan time, wait, run, report and the recorded facts in the details", () => {

@@ -11,6 +11,7 @@ import type { Truth } from "../../core/truth";
 import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import { blockLabel, type Task, type TaskList } from "../tasks";
+import type { PinHolder } from "../taskPins";
 import { formatCompactTokens } from "./map";
 import { frame } from "./taskLists";
 import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
@@ -263,6 +264,29 @@ function stepNodes(blocks: readonly TBlock[], data: ViewData, keyBase: string): 
 }
 
 /** The details screen's lines for one task. */
+function detailField(theme: WidgetTheme, key: string, value: string): string[] {
+	return value.split("\n").map((line, i) => ` ${theme.fg("muted", (i ? "" : key).padEnd(10))} ${clean(line)}`);
+}
+
+function holderLines(holder: PinHolder, scope: string, theme: WidgetTheme): string[] {
+	return [
+		...(holder.pins ?? []).flatMap((pin) => detailField(theme, "Pins", `${scope} · ${pin.id} · ${pin.kind} · ${pin.source}\n${pin.text}`)),
+		...(holder.attachments ?? []).flatMap((a) => detailField(theme, "Files", `${scope} · ${a.id} · ${a.path}${a.lines ? `:${a.lines}` : ""}${a.note ? ` · ${a.note}` : ""}\nhash ${a.hash ?? "not recorded"} · attached ${formatClock(a.at)}`)),
+	];
+}
+
+/** A list's goal and scoped facts, available even before any task exists. */
+export function listDetailLines(list: TaskList, theme: WidgetTheme): string[] {
+	return [
+		` ${theme.bold(clean(list.title))}`,
+		...detailField(theme, "List", list.slug),
+		...detailField(theme, "Goal", list.goal ?? "not set"),
+		...detailField(theme, "Claim", list.claim ? `${list.claim.session}${list.claim.name ? ` · ${list.claim.name}` : ""}` : "unclaimed"),
+		...holderLines(list, "list", theme),
+	];
+}
+
+/** A task's lifecycle, scoped context, report and actual work in this session. */
 export function detailLines(list: TaskList, id: string, data: ViewData, groups: readonly { id: string; summary: string | null | undefined; full: number; live: number; members: number }[]): string[] {
 	const t = data.theme;
 	const task = list.tasks.find((x) => x.id === id);
@@ -274,7 +298,10 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 	const label = (k: string) => t.fg("muted", k.padEnd(10));
 	const wrap = (k: string, v: string) => [` ${label(k)} ${v}`];
 	const items = (k: string, xs: readonly string[] | undefined) => (xs?.length ? xs.map((x, i) => ` ${label(i ? "" : k)} · ${clean(x)}`) : [` ${label(k)} ${t.fg("dim", "–")}`]);
-	const lines = [` ${taskLabel(task, glyphState(node), t)}`];
+	const lines = [` ${taskLabel(task, glyphState(node), t)}`, ...detailField(t, "Goal", list.goal ?? "not set")];
+	lines.push(...items("Criteria", task.acceptanceCriteria), ...holderLines(list, "list", t));
+	for (const parent of list.tasks.filter((p) => task.id.startsWith(`${p.id}.`))) lines.push(...holderLines(parent, `parent ${parent.id}`, t));
+	lines.push(...holderLines(task, `task ${task.id}`, t));
 	const done = node.children.filter((c) => c.task.status === "done").length;
 	lines.push(
 		...wrap(
@@ -333,7 +360,7 @@ interface Keys {
 }
 
 type TreeScreen = { kind: "list"; slug: string; tree: TreeState<ViewRef> } | { kind: "span"; key: string; tree: TreeState<ViewRef> } | { kind: "session"; tree: TreeState<ViewRef>; show: "all" | "tasks" | "untracked" };
-type Screen = TreeScreen | { kind: "details"; slug: string; id: string; scroll: number } | { kind: "text"; title: string; main: string[]; alt: string[] | null; altLabel: string; showAlt: boolean; scroll: number };
+type Screen = TreeScreen | { kind: "details"; slug: string; id: string; scroll: number } | { kind: "list-details"; slug: string; scroll: number } | { kind: "text"; title: string; main: string[]; alt: string[] | null; altLabel: string; showAlt: boolean; scroll: number };
 
 /** Where the screens open. */
 export type TaskViewsStart = { kind: "list"; slug: string } | { kind: "session" };
@@ -420,14 +447,14 @@ export class TaskViews {
 		const data = this.data();
 		const height = Math.max(4, Math.min(30, this.rows() - 8));
 		const s = this.top;
-		const crumbs = this.stack.map((x) => (x.kind === "list" ? x.slug : x.kind === "span" ? `${x.key.split("/").pop()} span` : x.kind === "session" ? "Tasks tree" : x.kind === "details" ? x.id : x.title));
+		const crumbs = this.stack.map((x) => (x.kind === "list" ? x.slug : x.kind === "span" ? `${x.key.split("/").pop()} span` : x.kind === "session" ? "Tasks tree" : x.kind === "details" ? x.id : x.kind === "list-details" ? "list context" : x.title));
 		const title = `Accordion › ${this.stack[0].kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
-		if (s.kind === "details") {
+		if (s.kind === "details" || s.kind === "list-details") {
 			const list = this.list(s.slug);
-			const lines = list ? detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`)).flatMap((l) => hang(l, width)) : [t.fg("dim", ` "${s.slug}" no longer exists.`)];
+			const lines = list ? (s.kind === "list-details" ? listDetailLines(list, t) : detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`))).flatMap((l) => hang(l, width)) : [t.fg("dim", ` "${s.slug}" no longer exists.`)];
 			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - height));
-			const span = data.src ? spanOf(data, `${s.slug}/${s.id}`) : undefined;
-			const hints = [span ? "enter span" : "", "esc back", this.groupsOf(`${s.slug}/${s.id}`).length ? "v record · u unfold" : "", "↑↓ scroll"].filter(Boolean).join(" · ");
+			const span = s.kind === "details" && data.src ? spanOf(data, `${s.slug}/${s.id}`) : undefined;
+			const hints = [span ? "enter span" : "", "esc back", s.kind === "details" && this.groupsOf(`${s.slug}/${s.id}`).length ? "v record · u unfold" : "", s.kind === "details" ? "g list context" : "", "↑↓ scroll"].filter(Boolean).join(" · ");
 			return frame(title, lines.slice(s.scroll, s.scroll + height), this.message, hints, width, t);
 		}
 		if (s.kind === "text") {
@@ -444,17 +471,18 @@ export class TaskViews {
 		const filter = s.tree.filtering || s.tree.query ? ` ⌕ ${s.tree.query}${s.tree.filtering ? "█" : ""}` : "";
 		const show = s.kind === "session" && s.show !== "all" ? ` · showing ${s.show}` : "";
 		const status = this.message || `${s.tree.position()}${show}${filter}`;
-		return frame(title, body, status, this.hints(s), width, t);
+		return frame(title, body, status, this.hints(s, width), width, t);
 	}
 
-	private hints(s: TreeScreen): string {
+	private hints(s: TreeScreen, width: number): string {
+		if (s.kind === "list" && width < 60 && !s.tree.filtering) return "enter details · g context · ? · esc";
 		if (s.tree.filtering) return "type to filter · enter keep · esc clear";
 		const ref = s.tree.current?.node.data;
 		const act = ref?.type === "fold" ? "u unfold/fold" : ref?.type === "step" || ref?.type === "user" ? "f fold · p pin" : ref?.type === "task" ? "u unfold/fold" : "";
 		const enter = ref?.type === "task" ? (s.kind === "list" ? "enter details · i span" : "enter span") : ref?.type === "untracked" ? "→ expand" : ref ? "enter open" : "";
 		const esc = this.stack.length > 1 || s.kind === "list" ? "esc back" : "esc close";
 		// Most needed first: narrow widths cut from the end.
-		return [enter, esc, act, "→← expand", "/ filter", s.kind === "list" ? "? legend" : "", s.kind === "session" ? "t show" : ""].filter(Boolean).join(" · ");
+		return [enter, esc, act, "→← expand", "/ filter", s.kind === "list" ? "g list context · ? legend" : "", s.kind === "session" ? "t show" : ""].filter(Boolean).join(" · ");
 	}
 
 	handleInput(input: string): void {
@@ -486,9 +514,9 @@ export class TaskViews {
 		}
 		const page = Math.max(1, Math.min(30, this.rows() - 8) - 1);
 		const scroll = (d: number) => {
-			if (s.kind === "details" || s.kind === "text") s.scroll = Math.max(0, s.scroll + d);
+			if (s.kind === "details" || s.kind === "list-details" || s.kind === "text") s.scroll = Math.max(0, s.scroll + d);
 		};
-		if (s.kind === "details" || s.kind === "text") {
+		if (s.kind === "details" || s.kind === "list-details" || s.kind === "text") {
 			if (up) scroll(-1);
 			else if (down) scroll(1);
 			else if (matchesKey(input, "pageUp")) scroll(-page);
@@ -509,7 +537,8 @@ export class TaskViews {
 		else if (matchesKey(input, "right")) tree.right();
 		else if (matchesKey(input, "left")) tree.left();
 		else if (key === "/") tree.filtering = true;
-		else if (key === "?" && s.kind === "list") this.stack.push({ kind: "text", title: "task legend", main: ["▣ done    ☒ failed    ⊘ abandoned", "◐ partly done    ▶ doing    ⧗ blocked    ☐ todo", "≡ folded    · finished but raw    ! unfinished descendants"], alt: null, altLabel: "", showAlt: false, scroll: 0 });
+		else if (key === "g" && s.kind === "list") this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
+		else if (key === "?" && s.kind === "list") this.stack.push({ kind: "text", title: "task legend", main: ["▣ done    ☒ failed    ⊘ abandoned", "◐ partly done    ▶ doing    ⧗ blocked    ☐ todo", "≡ folded    · finished but raw    ! unfinished descendants", "g list context: goal, scoped pins and attachments", "p pins transcript blocks; scoped facts use tasks pin/unpin"], alt: null, altLabel: "", showAlt: false, scroll: 0 });
 		else if (key === "t" && s.kind === "session") s.show = s.show === "all" ? "tasks" : s.show === "tasks" ? "untracked" : "all";
 		else {
 			const ref = tree.current?.node.data;
@@ -533,7 +562,8 @@ export class TaskViews {
 			const groups = this.groupsOf(taskKey);
 			if (!groups.length) this.message = "This task is not folded.";
 			else this.pushRecord(groups.map((g) => g.id));
-		} else if (key === "u" || key === "f") this.toggleTask(taskKey);
+		} else if (key === "g") this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
+		else if (key === "u" || key === "f") this.toggleTask(taskKey);
 	}
 
 	private nodeKey(s: TreeScreen, ref: ViewRef, key: string, confirm: boolean): void {
