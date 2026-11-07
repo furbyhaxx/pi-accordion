@@ -323,7 +323,7 @@ extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.
   work belongs to no task record. If it is part of a planned task, call tasks start {…} before
   continuing (next to do: <id> "<title>"); if it is new work, add a task for it first.` Finishing a
   task whose span saw no other tool result (counted in memory since its `start` in this process,
-  ancestors included) and assistant texts over 40 characters is refused (SPEC-0002 §3.3); a task
+  ancestors included) and assistant texts over 40 characters is refused (SPEC-0002 §3.5); a task
   started before this process is never refused.
 
 ### 4.11 Taskfold folding (delivered)

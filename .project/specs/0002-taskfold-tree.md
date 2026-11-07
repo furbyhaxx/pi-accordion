@@ -2,21 +2,21 @@
 document:
   type: "specification"
   id: "SPEC-0002"
-  title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
-  description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
+  title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, aging and floor"
+  description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 14
+  revision: 15
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-07T18:19:23+01:00"
+  updated_at: "2026-11-07T23:31:29+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 14
-      reason: "keep the working set from breaking provider prompt caches"
-      changes: ["an unchanged working set stays on the message that already carries it"]
+    - revision: 15
+      reason: "replace the injected working set with structured, delivered-once tool results"
+      changes: ["JSON results for every action", "start delivers task context once; delivery ledger derived from Truth", "section/symbol/quote anchors instead of line ranges", "out-of-band changes as appended notices", "working set and request injection removed"]
 ---
 
-# Taskfold tree
+# Taskfold
 
 Implementation plan: `.project/plans/0002-taskfold-tree/plan.md`.
 
@@ -41,9 +41,11 @@ commit `f04f39d`.
 | Tree planner, flat compiler, composed records, `Group.handles` | Orientation typed fold, agent orientation task, doorman, keel-note note |
 | Aging by task age, keep-recent by finish order | |
 | Folding floor and untracked records | |
-| Working set (goal, pins, attachments) | |
+| Structured JSON tool results; context delivered once by `start`, derived liveness | |
+| Content anchors for attachments (section, symbol, quote) | |
 | Task widget title and legibility | |
 | Protocol fixes: empty-span refusal, review gate, resume note | |
+| Out-of-band list changes as appended notices | |
 | Skill `accordion-task-lists` | |
 
 ## 2. Task list file v2
@@ -64,12 +66,12 @@ referenced by `$schema`.
   "createdAt": "…", "updatedAt": "…",
   "claim": null,
   "pins": [ { "id": "p1", "kind": "constraint", "text": "Never modify vendor/", "source": "user", "at": "…" } ],
-  "attachments": [ { "id": "a1", "path": "docs/plans/auth.md", "lines": "40-88", "note": "plan §3", "hash": "…", "at": "…" } ],
+  "attachments": [ { "id": "a1", "path": "docs/plans/auth.md", "anchor": { "section": "Rollout > Phase 3" }, "note": "plan §3", "hash": "…", "at": "…" } ],
   "tasks": [
     { "id": "1", "title": "Survey token callers", "acceptanceCriteria": ["every caller of the token map is listed"], "status": "todo" },
     { "id": "2", "title": "Extract TokenStore", "status": "todo", "subtasks": [
       { "id": "2.1", "title": "Add the interface", "status": "todo",
-        "attachments": [ { "id": "a2", "path": "docs/spec.md", "lines": "120-140" } ] }
+        "attachments": [ { "id": "a2", "path": "src/auth/store.ts", "anchor": { "symbol": "TokenStore" } } ] }
     ] }
   ]
 }
@@ -83,7 +85,7 @@ referenced by `$schema`.
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
 | `acceptanceCriteria` | Optional now, 1–3 strings of ≤120 chars, checkable end-state statements |
 | `status` | Optional when authoring (`todo`). Other `Task` fields (`report`, timestamps, `blocks`, `supersededBy`, `autoClosed`) keep their v1 meaning |
-| `pins`, `attachments` | On the list and on any task (§4) |
+| `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files with `lines` are converted to a quote anchor on load |
 
 `id` stays a dotted path. Everything that keys on `<list>/<id>` (span keys, records, widget,
 verdicts, bindings) is unchanged.
@@ -99,7 +101,7 @@ verdicts, bindings) is unchanged.
   `tasks update {list, goal}` sets one. The native lists browser asks for title and goal when creating a list. `list`, `status`, `claim` and the finishing actions still
   work, so a running task can always be ended.
 - **Hand edits** made while a list is claimed are accepted if they validate. Changing the id or
-  position of a started task is a validation error: started ids are frozen (§3.2).
+  position of a started task is a validation error: started ids are frozen (§3.5).
 - `tasks list` names files that fail to load (`<slug> — invalid file; "status" shows what to fix`)
   instead of skipping them silently.
 - Validator: `extension/taskSchema.ts`, pure and import-free, used by the store
@@ -107,7 +109,7 @@ verdicts, bindings) is unchanged.
   not call the JSON-Schema file at runtime. The schema is the authoring contract, and
   `extension/taskSchema.test.ts` keeps the two in sync.
 
-## 3. `tasks` tool actions
+## 3. `tasks` tool
 
 While `tasks` is active, its system-prompt guidance asks the agent to split broad features into
 independently verifiable child tasks before work, or add children if a leaf grows unexpectedly.
@@ -115,127 +117,399 @@ Finished children can then fold while their parent remains open. Do not impose a
 or split trivial steps merely for bookkeeping. Verify that the installed Pi prompt builder includes
 this guidance for the active tool; a replacement system prompt may omit it.
 
-### 3.1 Summary
+### 3.1 Principles
 
-| Action | Arguments | Change |
+The tool result is the only channel through which task context reaches the model. Nothing is
+injected into the request afterwards (§4.5).
+
+1. **Deliver once, where it is needed.** `start` returns the task's context (goal, criteria, pins,
+   attachment contents) exactly once. It rides in the start result, which is the first block of the
+   task's span, so it folds together with the span.
+2. **Never echo what the agent already has.** The agent wrote its titles, criteria, reports, pins
+   and attachment references; results refer to them by id. Content that a still-unfolded result
+   already delivered is not sent again (§4.3).
+3. **Return what the tool decided.** Assigned ids, renumbering, cascades, auto-started or blocked
+   ancestors, a parent that became ready, the next task. Nothing else.
+4. **Append, never rewrite.** No result, notice or hook edits an earlier message. Every request
+   extends the previous one, so provider prompt caches stay warm.
+5. **Guidance lives in the tool description**, not in results. Results carry no instructions.
+
+### 3.2 Result envelope
+
+Results are compact single-line JSON (`JSON.stringify` without indentation). Absent and empty
+fields are omitted; the examples below are pretty-printed for reading only.
+
+```ts
+type Ok = { ok: true } & ActionResult;
+type Err = { ok: false; error: ErrorCode; message: string; fix?: string };
+```
+
+| `error` | When | `fix` |
 |---|---|---|
-| `create` | `{list, title, goal, tasks}` | `goal` required. Tasks accept `acceptanceCriteria`, `pins`, `attachments` |
-| `update` | `{list, id?, title?, goal?, acceptanceCriteria?}` | New. Without `id` it edits the list. Titles and criteria of finished tasks are frozen |
-| `add` | `{list, parent?, before?, after?, tasks}` | `before`/`after` take a sibling id, under the same parent. At most one of them |
-| `move` | `{list, id, parent?, before?, after?}` | New. Moves a `todo` subtree (§3.2) |
-| `pin` / `unpin` | `{list, id?, items}` / `{list, pins}` | New (§4) |
-| `attach` / `detach` | `{list, id?, items}` / `{list, attachments}` | New (§4) |
-| `block` | unchanged | `detail` accepts up to 1,024 characters |
-| `complete` / `fail` | unchanged | Refused on an empty span (§3.3) |
-| others | unchanged | |
+| `invalid_args` | missing/unknown field, wrong type | the call that works |
+| `not_found` | list, task, pin, attachment or anchor does not exist | closest match |
+| `invalid_file` | list file fails validation (§2.2) | each problem and its fix |
+| `no_goal` | `start`/`add`/`move` on a list without a goal | `update {list, goal}` |
+| `claimed_by_other` | list claimed by another session | `claim {force: true}` after asking the user |
+| `frozen` | edit of a started id, finished title/criteria | the call that works, e.g. `add … after` |
+| `invalid_transition` | e.g. complete a todo task, start a finished one | |
+| `open_subtasks` | complete a parent with unstarted/blocked subtasks | ids to fail or abandon |
+| `empty_span` | §3.5 | block or abandon call |
+| `cap_exceeded` | pin/attachment caps (§4.1, §4.2) | |
+| `quote_mismatch` | pin text not found in its source | |
 
-Every result keeps a `details: TasksDetails` snapshot. It gains `renumbered: {from, to}[]` when ids
-move.
+`details` (renderer/scan data, never sent to the model) stays a separate structured object (§5.1).
 
-### 3.2 Insert and move
+### 3.3 Shared shapes
 
-- **Only `todo` subtrees move or renumber.** A subtree whose root or any descendant has been
-  started cannot move. Inserting before a started sibling is refused. Started ids are frozen
-  because spans, records, folds and verdicts refer to them.
-- Moving under a finished parent is refused. Moving a task into its own subtree is refused.
-- Renumbering only shifts `todo` siblings that come after the insertion or removal point.
-  `blocks[].on`, `supersededBy` and `supersedes` references are rewritten in the same write.
-- Refusals name the exact call that works: `2.3 has started and cannot move. Do this: tasks add
-  {list:"auth", parent:"2", after:"2.3", tasks:[…]} for the new work.`
-
-### 3.3 Empty span
-
-`complete` and `fail` are refused when no tool call **and** no assistant text block of more than
-40 characters lies between the task's last `start` result and the finishing call. The work is
-counted by the extension's tool/message hooks, ancestors included, as `TaskCoach` counts today.
-`abandon` stays allowed.
-
-Refusal text:
-
-```
-Nothing ran inside 5 since tasks start. Start a task before its first tool call and end it after its last.
-If you are about to present results or ask the user, block 5 {reason:"user-decision", detail:"…"} instead, then reply.
-If the work ran in the task before it, abandon 5 {supersededBy:"4"}.
+```ts
+type Pin = { id: string; kind: PinKind; text: string; source: string };
+type Attachment = {
+  id: string; ref: string;           // canonical anchor, e.g. "docs/auth.md#Token store > Interface"
+  note?: string;
+  content: string;                   // resolved text; omitted when settings render = "reference"
+  state?: "moved" | "fuzzy" | "changed" | "lost";   // §4.2; omitted when exact
+};
+type TaskContext = {                 // a task entering doing
+  id: string; title: string;
+  criteria?: string[]; pins?: Pin[]; attachments?: Attachment[];
+};
+type ListContext = { goal: string; pins?: Pin[]; attachments?: Attachment[] };
+type Ref = { id: string; title: string };
 ```
 
-Tasks started before this process have no count and are never refused. The refusal applies only
-while the `tasks` tool is active (its conductor attached), because only then does the coach count.
-A tool call batched with its `start` counts, and a resumed task keeps its count (port of
-`f04f39d`). The after-the-fact "no tool work" note is removed.
+`TaskContext.title` is included because the agent may have written it long ago (folded) and the
+start result becomes the task's anchor in the transcript. Titles are the only echo.
 
-### 3.4 Review gate and resume
+### 3.4 Actions and results
 
-- **Tool text** (description and guidelines, `extension/accordion.ts`). Add:
-  - "Your reply to the user is not a task. When a task's result needs the user's approval or
-    choice, `block` it with `user-decision` before you reply; resume it with `start` when they
-    answer."
-  - "Stop only when every open task is blocked on user-decision, user-input or third-party, or the
-    list is finished."
+Parameters are listed in full; `null` means optional and absent.
 
-  This replaces the sentence "stopping while a task is in progress … counts as stopping too early".
-- **Resume note** (`extension/taskBinding.ts` text, delivered through the existing
-  `before_agent_start` note path in `extension/taskSession.ts`). On a user prompt while this
-  session's list has a task blocked on `user-decision` or `user-input`:
-  `Tasks waiting for the user in "…": 7 "…". If this message answers one, start it before continuing or completing its work; otherwise leave it blocked.`
+#### create
 
-## 4. Pins, attachments, working set
+```js
+tasks({ action: "create", list: "auth", title: "Token store", goal: "All token access goes through TokenStore.",
+  tasks: [{ title: "Design", acceptanceCriteria: ["Interface reviewed"], pins: null, attachments: null, supersedes: null,
+            subtasks: [{ title: "Draft interface" }, { title: "Review interface" }] },
+          { title: "Implement" }] })
+```
+```json
+{"ok": true, "list": "auth", "ids": ["1", "1.1", "1.2", "2"]}
+```
+`ids` in authored order. The list is claimed by this session. Pins and attachments given here are
+validated and stored, not echoed; they are delivered by `start` (§4.3).
+
+#### list
+
+```js
+tasks({ action: "list" })
+```
+```json
+{"ok": true, "lists": [
+  {"list": "auth", "title": "Token store", "done": 7, "total": 15, "claim": "this"},
+  {"list": "docs", "title": "Docs pass", "done": 0, "total": 4, "claim": "other"},
+  {"list": "old", "invalid": true}]}
+```
+`claim`: `this` | `other` | omitted (unclaimed). Invalid files are listed, not skipped.
+
+#### status
+
+```js
+tasks({ action: "status", list: "auth" })
+```
+```json
+{"ok": true, "done": 7, "total": 15,
+ "doing": ["3", "3.1", "3.1.1", "3.1.1.2"],
+ "blocked": [{"id": "1.2", "reason": "user-decision", "detail": "User must approve the interface."}],
+ "next": {"id": "3.1.1.3", "title": "delete()"}}
+```
+State only: no tree, no finished tasks, no pins or content. `next` is the first `todo` leaf in
+document order that is not blocked and whose dependencies are finished. `done`/`total` count
+finished tasks (done, failed, abandoned) over all tasks.
+
+#### claim
+
+```js
+tasks({ action: "claim", list: "auth", force: null })
+```
+```json
+{"ok": true, "done": 7, "total": 15,
+ "list": {"goal": "All token access goes through TokenStore.", "pins": [ … ]},
+ "active": [{"id": "3", "title": "Implement"}, {"id": "3.1.1.2", "title": "set()", "criteria": [ … ], "attachments": [ … ]}],
+ "blocked": [ … ], "next": { … }}
+```
+`claim` is how a session (re)acquires a list it may have no context for. It returns the status
+fields plus the missing context of the list and of every `doing` task (`active`, `TaskContext[]`),
+minus what is already live in this context (§4.3). Claiming a list the session already holds with
+all context live returns the status fields only.
+
+#### release
+
+```js
+tasks({ action: "release", list: "auth" })
+```
+```json
+{"ok": true}
+```
+
+#### add
+
+```js
+tasks({ action: "add", list: "auth", parent: "2", before: null, after: null,
+  tasks: [{ title: "get/set", acceptanceCriteria: ["get/set round-trip"], pins: null, attachments: null, subtasks: null, supersedes: null }] })
+```
+```json
+{"ok": true, "ids": ["2.1"]}
+{"ok": true, "ids": ["3"], "renumbered": {"3": "4"}}
+{"ok": true, "ids": ["2.3"], "abandoned": ["2.1"]}
+```
+`renumbered` maps old → new for shifted `todo` tasks. `abandoned` lists tasks closed by
+`supersedes`. If the new task is a child of a `doing` task, nothing about it is delivered yet; its
+context arrives with its own `start`.
+
+#### move
+
+```js
+tasks({ action: "move", list: "auth", id: "4", parent: null, before: "3", after: null })
+```
+```json
+{"ok": true, "renumbered": {"4": "3", "3": "4"}}
+```
+
+#### update
+
+```js
+tasks({ action: "update", list: "auth", id: null, title: null, goal: "Every token read/write goes through TokenStore.", acceptanceCriteria: null })
+tasks({ action: "update", list: "auth", id: "1.1", title: "Draft TokenStore interface", goal: null, acceptanceCriteria: ["get/set/delete signatures exist"] })
+```
+```json
+{"ok": true}
+```
+
+#### pin / unpin
+
+```js
+tasks({ action: "pin", list: "auth", id: null, items: [{ kind: "constraint", text: "Never touch vendor/.", source: "user" }] })
+tasks({ action: "unpin", list: "auth", id: null, pins: ["p1"] })
+```
+```json
+{"ok": true, "pins": ["p1"]}
+{"ok": true}
+```
+`pins`: assigned ids in item order. The agent wrote the text; it is not echoed. The pin is recorded
+as delivered by this result (§4.3).
+
+#### attach / detach
+
+```js
+tasks({ action: "attach", list: "auth", id: "3.1.1", items: [{ path: "docs/auth.md", section: "Token store > Interface", symbol: null, quote: null, lines: null, note: "interface contract" }] })
+tasks({ action: "detach", list: "auth", id: "3.1.1", attachments: ["a2"] })
+```
+```json
+{"ok": true, "attachments": [{"id": "a2", "ref": "docs/auth.md#Token store > Interface"}]}
+{"ok": true}
+```
+`ref` is returned because the tool canonicalized the anchor (§4.2), which the agent did not write in
+that form. Content is not returned: attaching to a task that is already `doing` means the agent is
+looking at the material. The attachment is recorded as delivered by reference only; its content is
+not considered live (§4.3), so a later `claim` or resume delivers it if needed.
+
+#### start
+
+```js
+tasks({ action: "start", list: "auth", id: "3.1.1.1" })
+```
+First start in the list, ancestors auto-started:
+```json
+{"ok": true,
+ "list": {"goal": "All token access goes through TokenStore.",
+          "pins": [{"id": "p1", "kind": "constraint", "text": "Never touch vendor/.", "source": "user"}]},
+ "started": [
+   {"id": "3", "title": "Implement"},
+   {"id": "3.1", "title": "Store core", "pins": [{"id": "p4", "kind": "fact", "text": "Use the platform keychain.", "source": "docs/auth.md:12"}]},
+   {"id": "3.1.1", "title": "Read path", "criteria": ["get() never touches disk directly"]},
+   {"id": "3.1.1.1", "title": "get()", "criteria": ["get/set round-trip passes"],
+    "attachments": [{"id": "a2", "ref": "docs/auth.md#Token store > Interface", "note": "interface contract",
+                     "content": "## Interface\n\n```ts\ninterface TokenStore { … }\n```"}]}]}
+```
+Next sibling, ancestors' context live:
+```json
+{"ok": true, "started": [{"id": "3.1.1.2", "title": "set()", "criteria": ["set overwrites atomically"]}]}
+```
+Resume of a blocked task whose earlier delivery is still live:
+```json
+{"ok": true, "resumed": ["1.2"]}
+```
+Resume after its delivery folded, with a changed attachment:
+```json
+{"ok": true, "resumed": [{"id": "1.2", "title": "Review interface", "attachments": [{"id": "a3", "ref": "docs/auth.md#Interface", "state": "changed", "content": "…"}]}]}
+```
+`started` / `resumed` hold `TaskContext` (or the bare id when nothing is missing), outermost first,
+for every task that enters `doing` with this call. `list` appears when list context is missing.
+Each item is included only if it is not live (§4.3). An attachment whose content changed since it
+was attached carries `state` (§4.2).
+
+#### block
+
+```js
+tasks({ action: "block", list: "auth", id: "2.1", reason: "dependency", detail: "Needs the approved interface.", blockedBy: "1.2" })
+```
+```json
+{"ok": true}
+{"ok": true, "alsoBlocked": ["2"]}
+```
+`alsoBlocked`: ancestors that became blocked. The follow-up rules (tell the user, work on the
+dependency) live in the tool description. A `detail` is stored verbatim; the tool never appends
+punctuation.
+
+#### complete / fail / abandon
+
+```js
+tasks({ action: "complete", list: "auth", id: "3.1.1.1", report: { outcome: "get() reads through the keychain.", decisions: ["keychain over file — OS-managed secrets"], open: null } })
+tasks({ action: "fail", list: "auth", id: "4", report: { outcome: "Migration failed: exit 1 'no such table tokens'.", decisions: null, open: null } })
+tasks({ action: "abandon", list: "auth", id: "5", report: { outcome: "Docs moved to the handbook." }, supersededBy: "2.2" })
+```
+```json
+{"ok": true}
+{"ok": true, "next": {"id": "3.1.1.2", "title": "set()"}}
+{"ok": true, "parentReady": "3.1.1"}
+{"ok": true, "closed": ["3.1.1", "3.1"], "next": {"id": "3.2", "title": "Write path"}}
+{"ok": true, "cascaded": ["3.2", "3.3"]}
+```
+- `next`: the next task under the nearest open ancestor, when one exists.
+- `parentReady`: every subtask of that parent is finished; the agent should complete it.
+- `closed`: ancestors closed automatically (when that policy applies).
+- `cascaded`: subtasks abandoned with a failed/abandoned parent.
+The report is not echoed.
+
+### 3.5 Lifecycle rules (unchanged)
+
+Insert and move, empty-span refusal, the review gate and the resume note keep their behavior:
+- **Only `todo` subtrees move or renumber.** Started ids are frozen because spans, records, folds
+  and verdicts refer to them. Moving under a finished parent or into its own subtree is refused.
+  Renumbering rewrites `blocks[].on`, `supersededBy` and `supersedes` in the same write.
+- **Empty span:** `complete`/`fail` are refused (`empty_span`) when no tool call and no assistant
+  text over 40 characters lies inside the task since its last `start`. Counted by `TaskCoach`,
+  ancestors included, only while the tool is active; tasks started before this process are exempt.
+  `abandon` stays allowed.
+- **Review gate:** the tool description says a reply to the user is not a task; a result that needs
+  the user's choice is `block`ed with `user-decision` before replying.
+- **Resume note:** on a user prompt while a task is blocked on `user-decision`/`user-input`, one
+  note (§4.4) names it.
+
+## 4. Context delivery
 
 ### 4.1 Pins
-
-Ported from `exp/orientation-modes` `extension/pins.ts` (validation, caps, file re-read). Storage
-moves from session entries into the list file.
 
 | Field | Rule |
 |---|---|
 | `kind` | `rule`, `convention`, `constraint`, `standard`, `fact` |
-| `text` | Verbatim quote, ≤300 chars. Checked against `source`: the text must occur in the named file or in a user message of this session (whitespace-normalized). A whole user message can be pinned |
-| `source` | `user`, `path`, `path:line` or `path:start-end` |
-| scope | List (no `id`) or task (`id`): a task pin applies to the task and its subtree |
-| caps | List pins ≤2,000 tokens, pins per task ≤1,500 tokens (char estimate) |
+| `text` | Verbatim quote, ≤300 chars, checked against `source` (a file or a user message of this session, whitespace-normalized) |
+| `source` | `user`, `path`, `path:line`, `path:start-end`, or an anchor ref (§4.2) |
+| scope | List (no `id`) or task (`id`): applies to the task and its subtree |
+| caps | List pins ≤2,000 tokens, per task ≤1,500 tokens |
 
-### 4.2 Attachments
+A pin is a quote; once pinned its text is fixed. The source is provenance only and is not
+re-checked when the file changes.
 
-| Field | Rule |
-|---|---|
-| `path` | Repo-relative. Must exist when attached |
-| `lines` | `N` or `N-M`, ≤60 lines. Absent means the whole file, which is allowed only for files ≤60 lines |
-| `note` | ≤120 chars, why it is attached |
-| `hash` | sha256 of the attached lines at attach time |
+### 4.2 Attachments and anchors
 
-Attachments are cached and refreshed outside the context hook, preserving the engine's no-disk-I/O
-invariant. An external edit between refresh and request can briefly be stale. A hash mismatch marks
-them `changed since attached`; the store never updates the hash silently.
+An attachment names a **part** of a file by what it is, not by line numbers. Anchors, strongest
+first:
 
-### 4.3 Working set
+| Anchor | Input | Stored `ref` | Resolves to |
+|---|---|---|---|
+| section | `section: "Token store > Interface"` | `path#Token store > Interface` | the Markdown heading path (ATX/Setext, case-sensitive text, `>` separated, matched as a suffix of the full path) and its body up to the next heading of the same or higher level |
+| symbol | `symbol: "TokenStore.get"` | `path::TokenStore.get` | the declaration found by tree-sitter (`web-tree-sitter`, already a dependency), dotted for nesting, with its doc comment |
+| quote | `quote: "interface TokenStore {"` or `lines: "40-60"` | `path@q:<id>` | a W3C TextQuoteSelector (`exact` + 32-char `prefix`/`suffix`) plus a TextPositionSelector hint |
+| file | path only | `path` | the whole file |
 
-One text part appended to an input message (user or tool result) of the outgoing wire in the
-`context_with_system` hook, after Truth ingestion and wire serialization. It is never persisted and
-never enters Truth. Shown only while a list is attached.
+- `lines` is input sugar only: at attach time the range becomes a quote anchor over those lines
+  (`exact` = their text). Line numbers are never stored and never compared.
+- Exactly one of `section`, `symbol`, `quote`, `lines` may be given. Content resolved from any
+  anchor is capped at `tasks.attachments.maxTokens` (default 1,500); larger targets are refused
+  with `cap_exceeded` and a suggestion to anchor a subsection.
+- The store keeps `hash` = sha256 of the resolved content at the time it was last **delivered**,
+  and for quote anchors the `exact`/`prefix`/`suffix`/position.
 
-Placement keeps provider prompt caches warm: the working set goes to the current input when its
-text changes, then stays on that same message while it is unchanged, so each request extends the
-previous one as a byte-identical prefix. Moving it every request would invalidate the cache from
-the previous carrier onward on every step. It moves again only when its text changes or its carrier
-leaves the request (folded away, new session).
+Resolution and `state`:
 
+| Anchor | Content changed, anchor found | Anchor moved | Anchor gone |
+|---|---|---|---|
+| section / symbol | delivered as is; `state: "changed"` only versus the last delivery | irrelevant (structural) | `state: "lost"`, no content, `fix` names candidates |
+| quote | — (exact match is identical) | `state: "moved"` (exact found elsewhere, nearest to the hint, disambiguated by prefix/suffix) | fuzzy match (prefix/suffix + position, similarity ≥0.8) → `state: "fuzzy"` with the found text; else `"lost"` |
+| file | `state: "changed"` versus the last delivery | — | `"lost"` |
+
+When changes are reported:
+- **Never during a task that is `doing`** for edits the agent makes; the agent caused them. Files
+  are re-resolved only when content is about to be delivered (`start`, resume, `claim`, §4.4).
+- At that point the result carries the current content and `state` if it differs from what was
+  last delivered (`changed`) or the anchor degraded (`moved`/`fuzzy`/`lost`). After delivery the
+  stored hash is updated; the agent has seen the new version.
+
+Resolution reads files in the `tasks` tool handler, never in the `context` hook, preserving the
+no-disk-I/O invariant there.
+
+### 4.3 Delivery ledger and liveness
+
+The tool must know what the model can still see. That is derived, not tracked:
+
+- Every `tasks` result that delivers context records a **manifest** in its `details`:
+  `delivered: { list?: { goal: hash, pins: id[], attachments: {id, hash}[] }, tasks: {id, criteria: hash, pins: id[], attachments: {id, hash}[]}[] }`.
+  `pin` records its pin ids; `attach` records attachment ids with `hash: null` (reference only).
+- Ingest already copies tool-result `details` onto the Truth block (§5.1).
+- **Live set** = the union of manifests on `tasks` tool-result blocks that are present in the
+  authoritative Truth and not folded (`!isFolded(b)`, and not a member of a folded group). An item
+  is live when a live manifest contains it with the current hash (`criteria`/goal hashed text,
+  pins by id since pins are immutable, attachments by content hash; `null` never matches).
+- A `start`/resume/`claim` delivers exactly `required − live`, where `required` is the list context
+  plus the context of every task entering (or, for claim, in) `doing`.
+
+Why this is correct without extra state:
+- **Folding:** a folded delivery block drops out of the live set immediately, so the next delivery
+  re-sends what it carried.
+- **Compaction, `/tree` navigation, fork, reload:** Truth is rebuilt from the active branch; blocks
+  not on the branch do not exist, so their manifests do not count.
+- **Edits:** a changed goal, criteria or attachment content changes its hash, so the old delivery no
+  longer matches.
+- **Other sessions:** a manifest only counts in the session whose Truth contains it.
+
+Protection: a delivery block belongs to the span of the task it started, so it folds when that span
+folds. Until then strategies must not fold it alone: the floor (§9.2), untracked records (§9.3)
+and aging skip `tasks` result blocks whose manifest names a `doing` task. Only a human fold can hide
+it early; §4.4 covers that.
+
+### 4.4 Out-of-band changes
+
+Changes the agent did not make reach it as **one appended custom message**, persisted in the
+session, sent through `pi.sendMessage({customType: "accordion.tasks.notice", content, display: true}, {deliverAs: "steer"})`
+while a turn runs, or with the next prompt through `before_agent_start` when idle. Never an edit of
+an earlier message.
+
+```json
+{"tasks": "auth", "changed": {"goal": "…", "pins": {"added": [{"id": "p7", …}], "removed": ["p2"]}, "attachments": {"added": [{…, "content": "…"}], "removed": ["a3"]}, "tasks": {"renumbered": {"4": "5"}}}}
+{"tasks": "auth", "restored": {"list": {…}, "tasks": [{"id": "3.1", …}]}}
+{"tasks": "auth", "waiting": [{"id": "1.2", "reason": "user-decision", "detail": "…"}]}
 ```
-[tasks] auth — Token store
-goal: All token access goes through TokenStore; …
-pins: constraint: Never modify vendor/ (user)
-doing 2.1 "Add the interface"
-  acceptance criteria: TokenStore get/set/delete exist
-  attached docs/spec.md:120-140 — interface contract
-    <lines when render = inline>
-```
 
-Contents: the goal, list pins, and the pins, attachments and criteria of the doing task and its
-ancestors.
+| Kind | Trigger | Content |
+|---|---|---|
+| `changed` | the user edits the list (UI, hand edit, another session) and the edit touches the goal or a `doing` branch | only the delta; detected by comparing list fingerprints before each agent start and after each tool batch |
+| `restored` | the live set misses items required by `doing` tasks (human fold of a delivery, compaction) | only the missing items, computed with §4.3 |
+| `waiting` | user prompt while a task is blocked on `user-decision`/`user-input` | the resume note |
 
-`tasks.attachments.render` is `"inline"` (default) or `"reference"`. With `reference` only the
-`path:start-end — note` locator appears. Both are measured (§9).
+A notice carries its own manifest in `details`, so it counts as delivery. File changes on disk are
+never notices; they are reported at the next delivery (§4.2).
 
-When a task finishes, its pins are copied verbatim into its record (§6) and leave the working set.
-List pins stay until they are unpinned.
+### 4.5 Removed
+
+- The working set and the `context_with_system` suffix injection (`workingSet`, `placeWorkingSet`,
+  `cachedWorkingSet`, `refreshWorkingSet`). `context_with_system` only clears request-local usage
+  anchors while folding is armed.
+- Prose tool results. Line-range attachments and the `changed since attached` hash check at every
+  request.
+- `tasks.attachments.render = "inline" | "reference"` keeps its meaning for `start` results:
+  `reference` omits `content`.
 
 ## 5. Spans
 
@@ -250,6 +524,7 @@ The scan reads `TasksDetails` from the `tasks` tool result instead of parsing re
   regexes for blocks without it.
 
 `TasksDetails` gains:
+- `delivered`: the delivery manifest (§4.3)
 - `started: string[]`: the task and its auto-started or resumed ancestors
 - `closed: {id, status}[]`: auto-closed parents
 - `cascaded: {id, status}[]`: subtasks abandoned with their parent
@@ -477,7 +752,7 @@ then dropped); glyph and counts are never cut.
 ### 10.3 Inspection and export
 
 - `g` opens list context, including an empty list's goal, scoped pins and attachment references.
-- Task details expose acceptance criteria, list/ancestor/task pins, attachment lines/notes/hashes,
+- Task details expose acceptance criteria, list/ancestor/task pins, attachment anchors/notes/states,
   interval-correct facts and composed recovery handles. Block pins (`p`) remain separate from scoped facts.
 - Composed child inspection resolves its record and scoped originals. Handle-based unfold goes through
   the controller lease and recomposes siblings. Fold markers reflect actual coverage, not ID ancestry.
@@ -487,7 +762,7 @@ then dropped); glyph and counts are never cut.
 - All dump formats consume Truth's authoritative carriers once, with calibrated additive charges.
   Split/composed/untracked groups, dropped carriers, stragglers and substitutions retain their actual
   outgoing form. Structured details, handles and task metadata remain available as non-wire metadata.
-  The transient working set is exported explicitly, distinguishing applied versus cached suffixes.
+  Delivery manifests and notices are exported with their blocks; there is no transient suffix.
   YAML preserves arbitrary indentation, final newlines and carriage returns; terminal control
   characters and Unicode line separators use escaped scalars rather than invalid literal blocks.
 
@@ -525,7 +800,7 @@ Evidence lives in the plan's `evidence/`.
 ```jsonc
 {
   "tasks": {
-    "attachments": { "render": "inline", "maxLines": 60 },
+    "attachments": { "render": "inline", "maxTokens": 1500 },
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
   },
   "taskfold": {
@@ -547,6 +822,10 @@ applies. `low < high`, aging thresholds strictly increasing.
 | What | How |
 |---|---|
 | Store, validator, migration, move/insert, empty span | `bun test extension/tasks.test.ts extension/taskSchema.test.ts` |
+| Results | one test per action asserting the exact JSON result; no prose |
+| Anchors | section/symbol/quote resolution, moved/fuzzy/lost, `lines` → quote conversion, cap |
+| Liveness | delivery folded → re-sent; compaction and `/tree` drop manifests; changed hash re-sent; live items never re-sent |
+| Cache | consecutive requests are byte-identical prefixes across start, pin, attach, notices (`extension/smoke-context.mjs`) |
 | Tree, compile, diff, records, aging, intervals | `bun test conductors/in-process/taskfold/*.test.ts` with real `Truth` (`TestHost`) |
 | Handles | `core/truth.test.ts`, `core/agentView` recall/unfold tests |
 | Regression scripts (synthetic, no private sessions) | Each must stay ≤ `low·budget` or end saturated with only unfoldable blocks, and every fold and handle code must round-trip through `recall`: blocked task with sibling work (S2 1.3.4); giant open leaf; prelude before the list; three-level tree folded in two epochs; tail-pruned group re-proposed |
