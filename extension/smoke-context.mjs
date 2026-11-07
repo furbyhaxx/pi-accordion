@@ -170,6 +170,11 @@ check("task working set refreshes outside the request hook and stays session-loc
 		r.handlers.turn_end({}, r.ctx);
 		assert.match(request(), /│ after/);
 		assert.match(request(), /changed since attached/);
+		const notice = { role: "custom", customType: "accordion.tasks.notice", content: "Resumed work.", display: false, timestamp: 2 };
+		messages.push(notice);
+		const noticeWire = r.handlers.context_with_system({ messages: [...messages] }, r.ctx).messages;
+		assert.match(noticeWire[0].content, /\[tasks\]/);
+		assert.equal(noticeWire[1], notice);
 		await r.request(messages);
 		await r.command("tasks dump-transcript --formats all snapshot");
 		const flat = fs.readFileSync(path.join(dir, "snapshot.log"), "utf8");
@@ -185,7 +190,9 @@ check("task working set refreshes outside the request hook and stays session-loc
 		assert.match(fs.readFileSync(path.join(dir, "cached.log"), "utf8"), /cached, not appended to this snapshot/);
 		messages.pop();
 		const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 2 };
-		const resultWire = r.handlers.context_with_system({ messages: [toolResult] }, r.ctx).messages[0];
+		const resultMessages = r.handlers.context_with_system({ messages: [toolResult, notice] }, r.ctx).messages;
+		const resultWire = resultMessages[0];
+		assert.equal(resultMessages[1], notice);
 		assert.match(resultWire.content.at(-1).text, /\[tasks\]/);
 		assert.equal(toolResult.content.length, 1);
 		await run({ action: "unpin", list: "w", pins: ["p1"] });

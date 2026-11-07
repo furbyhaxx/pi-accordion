@@ -208,6 +208,13 @@ export interface WorkingSetList extends PinHolder {
 	tasks: readonly (PinHolder & { id: string; title: string; status: string; acceptanceCriteria?: string[] })[];
 }
 
+/** Find the request input before opaque trailing messages, never crossing an assistant reply. */
+export function workingSetTarget(messages: readonly { role: string }[]): { index: number; role: "user" | "toolResult" } | null {
+	const index = messages.findLastIndex((message) => message.role === "user" || message.role === "toolResult" || message.role === "assistant");
+	const role = messages[index]?.role;
+	return role === "user" || role === "toolResult" ? { index, role } : null;
+}
+
 /** The working-set text for the attached list: goal, list pins, and the doing branch's pins, attachments and criteria. */
 export function workingSet(list: WorkingSetList, projectDir: string, render: AttachmentRender, maxLines = PIN_LIMITS.maxLines): string {
 	const out = [`[tasks] ${list.slug} — ${list.title}`, list.goal ? `goal: ${list.goal}` : `goal: none yet — set it with tasks update {list: "${list.slug}", goal}`];

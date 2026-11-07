@@ -44,6 +44,7 @@ to write that projection to a file. Every actual carrier appears once, including
 and untracked groups; substituted results never print their original bodies. Inspection metadata
 includes goals, criteria, scoped pins, attachments and recovery handles. The transient working set
 is labeled as appended or only cached, and only appended tokens enter the projection totals.
+Trailing task notices do not hide the working set: it attaches to the current user/tool input without changing the notice.
 Use `/accordion budget 200k` / `/accordion tail 20k` to set the
 budget and protected tail (remembered per model; `--default` or `ctrl+s` in the panel saves them under
 `modelDefaults`), or `/accordion sessions` to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable

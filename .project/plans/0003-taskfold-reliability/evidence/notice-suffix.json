@@ -1,0 +1,82 @@
+{
+  "runtime": "Pi-Bolt 1.0.9 / Pi 1.4.0",
+  "scope": "Real native RPC request, synthetic fixture, no credentials or upstream call.",
+  "failure": "A trailing opaque resume notice prevented working-set attachment and made the dump report cached-only.",
+  "before": {
+    "roles": [
+      "tool",
+      "assistant",
+      "user",
+      "user"
+    ],
+    "workingSetAnywhere": false,
+    "workingSet": {
+      "applied": false,
+      "target": null,
+      "tokens": 0
+    },
+    "tokens": {
+      "live": 4155,
+      "full": 9614,
+      "budget": 7000
+    },
+    "groups": 1,
+    "originalClaimMatchesFixture": true,
+    "currentSessionMatchesFixture": true,
+    "tools": [
+      "recall"
+    ]
+  },
+  "after": {
+    "roles": [
+      "tool",
+      "assistant",
+      "user",
+      "user"
+    ],
+    "workingSetAnywhere": true,
+    "workingSet": {
+      "applied": true,
+      "target": "user",
+      "tokens": 292
+    },
+    "tokens": {
+      "live": 4447,
+      "full": 9906,
+      "budget": 7000
+    },
+    "groups": 1,
+    "originalClaimMatchesFixture": true,
+    "currentSessionMatchesFixture": true,
+    "tools": [
+      "recall"
+    ]
+  },
+  "request": {
+    "index": 1,
+    "bytes": 23095,
+    "catalogUpperUsd": 0.00452145,
+    "lastRole": "user",
+    "suffixMessageIndex": 36,
+    "messageCount": 38,
+    "tools": [
+      "recall"
+    ],
+    "upstreamStatus": null,
+    "snapshot": {
+      "live": 4447,
+      "full": 9906,
+      "leafSum": 4447,
+      "workingSet": {
+        "applied": true,
+        "targetRole": "user",
+        "tokens": 292
+      }
+    }
+  },
+  "regression": {
+    "command": "node extension/smoke-context.mjs",
+    "before": "FAIL: Always use decimal. did not contain [tasks] behind a task notice.",
+    "after": "PASS: user/tool-result suffixes, unchanged notice/input and cached-only assistant snapshots."
+  }
+}

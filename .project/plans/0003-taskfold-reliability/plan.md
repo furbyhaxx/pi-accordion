@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 9
+  revision: 10
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T10:52:37+01:00"
+  updated_at: "2026-11-07T11:23:02+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 9
-      reason: "record the completed native terminal matrix"
-      changes: ["47 real captures and 15 semantic checks", "exact native export totals", "goal creation and session isolation"]
+    - revision: 10
+      reason: "repair the native request working-set omission"
+      changes: ["one wire/dump input-target rule", "opaque task notices preserved", "failing regression and native RPC before/after evidence"]
 ---
 
 # Taskfold reliability repair
@@ -93,6 +93,14 @@ only widget suspension around the existing panel, not a nonexistent panel depend
   and `bun evidence/terminal-check.mjs <runtime-dir>` from this plan directory. Launch isolated
   Pi-Bolt with the repaired extension and dummy fixture provider; save captures after task lists,
   context, record/original, child unfold, deep filter, pause/tree/export, `/new` and goal creation.
+
+- The credential-free native RPC preflight exposed a real omission after resume: a trailing
+  opaque task notice made the wire skip its working set and the dump label it cached-only.
+  Wire and dump now share an input-target rule that skips opaque notices without crossing an
+  assistant reply. User/tool-result input is copied; the notice remains unchanged. The regression
+  failed before the repair and passes afterward. Native before/after evidence is in
+  `evidence/notice-suffix.json`: the actual suffix appears on message 36/38, has 292 tokens, and
+  the additive live header rises from 4,155 to 4,447. No provider or credential was involved.
 
 Remaining work:
 1. Run the bounded authenticated live model call with the repaired projection and working set.
