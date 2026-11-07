@@ -1,0 +1,127 @@
+{
+  "dryRun": false,
+  "runtime": "Pi-Bolt 1.0.9 / Pi 1.4.0",
+  "model": "deepseek-flash",
+  "catalog": {
+    "source": "https://models.dev/api.json",
+    "checked": "2026-11-07",
+    "rates": {
+      "input": 0.15,
+      "output": 0.6
+    }
+  },
+  "bounds": {
+    "requests": 2,
+    "outputTokens": 512,
+    "catalogUsd": 0.05,
+    "timeoutMs": 90000
+  },
+  "requests": [
+    {
+      "index": 1,
+      "bytes": 23096,
+      "catalogUpperUsd": 0.0045216,
+      "lastRole": "user",
+      "suffixMessageIndex": 36,
+      "messageCount": 38,
+      "tools": [
+        "recall"
+      ],
+      "upstreamStatus": 200,
+      "snapshot": {
+        "live": 4447,
+        "full": 9906,
+        "leafSum": 4447,
+        "workingSet": {
+          "applied": true,
+          "targetRole": "user",
+          "tokens": 292
+        }
+      }
+    },
+    {
+      "index": 2,
+      "bytes": 32992,
+      "catalogUpperUsd": 0.010527599999999998,
+      "lastRole": "tool",
+      "suffixMessageIndex": 29,
+      "messageCount": 30,
+      "tools": [
+        "recall"
+      ],
+      "upstreamStatus": 200,
+      "snapshot": {
+        "live": 8334,
+        "full": 15844,
+        "leafSum": 8334,
+        "workingSet": {
+          "applied": true,
+          "targetRole": "toolResult",
+          "tokens": 292
+        }
+      }
+    }
+  ],
+  "recalls": [
+    {
+      "codes": [
+        "3lbz7h"
+      ],
+      "successful": true
+    }
+  ],
+  "receipts": [
+    {
+      "input": 5501,
+      "output": 38,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 5539,
+      "cost": {
+        "input": 0.00082515,
+        "output": 0.0000228,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "total": 0.00084795,
+        "totalFromProvider": false
+      },
+      "stopReason": "toolUse"
+    },
+    {
+      "input": 6412,
+      "output": 11,
+      "cacheRead": 512,
+      "cacheWrite": 0,
+      "reasoning": 0,
+      "totalTokens": 6935,
+      "cost": {
+        "input": 0.0009618,
+        "output": 0.0000065999999999999995,
+        "cacheRead": 0.000001536,
+        "cacheWrite": 0,
+        "total": 0.000969936,
+        "totalFromProvider": false
+      },
+      "stopReason": "stop"
+    }
+  ],
+  "finalSentinelVerified": true,
+  "nonJsonPackets": 0,
+  "stderrBytes": 0,
+  "authFileUnchanged": true,
+  "limitations": [
+    "Synthetic fixtures only; no private session content was sent.",
+    "Classifier service is not configured in the isolated fixture.",
+    "Catalog-cost guard uses UTF-8 bytes plus overhead as a conservative input bound; actual provider receipts are separate.",
+    "Fixture tasks remain deliberately open; this is recovery/projection verification, not a task-coaching evaluation."
+  ],
+  "receiptTotals": {
+    "input": 11913,
+    "cacheRead": 512,
+    "output": 49,
+    "tokens": 12474,
+    "estimatedUsd": 0.001817886,
+    "costFromProvider": false
+  }
+}

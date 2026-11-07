@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 11
+  revision: 12
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T11:25:40+01:00"
+  updated_at: "2026-11-07T11:27:42+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 11
-      reason: "validate the bounded live-request transport"
-      changes: ["native RPC and credential-free proxy preflight", "in-flight five-format exports", "request/output/catalog-cost guards"]
+    - revision: 12
+      reason: "record authenticated native recovery verification"
+      changes: ["two real successful provider requests", "selective child recall and sentinel", "actual working-set/record equivalence and additive export totals"]
 ---
 
 # Taskfold reliability repair
@@ -34,12 +34,14 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: safe descendant fallback and named child recovery through aging.
 - done: metadata/interval-aware transcript; exact-once carrier export, lossless YAML and explicit working set.
 - done: complete task inspection and composed-handle recovery, with cached I/O outside render.
-- done: full gates and clean production install/authenticated assets (`evidence/gates.json`).
+- done: initial full gates and clean production install/authenticated assets (`evidence/gates.json`).
 - done: historical replay and a further shared-serializer defect (`evidence/historical-replay.json`).
 - done: real-terminal viewport defects repaired; controls fit 36x24 and 80x10 (`evidence/viewport.json`).
 - done: modal task focus routes paging to the inspector on installed Pi-Bolt (`evidence/paging.json`).
 - done: main context panel uses the same widget suspension and restores preferences after normal/failed opens (`evidence/context-panel.json`).
-- now: remaining terminal feature matrix, live request and final review/gate refresh.
+- done: full terminal feature matrix and goal/session tests (`evidence/terminal.json`).
+- done: trailing-notice working-set repair and genuine native recovery (`evidence/live-result.json`).
+- now: final review/gate refresh.
 
 ## Current slice: full verification and live evaluation
 
@@ -115,9 +117,18 @@ only widget suspension around the existing panel, not a nonexistent panel depend
   `bun evidence/live-eval.mjs <runtime-dir> --dry-run` or replace `--dry-run` with an existing
   auth-file path. Set isolated HOME, PI_CODING_AGENT_DIR and ACCORDION_HOME before either script.
 
+- Authenticated evaluation passed on the actual native runtime: two HTTP 200 responses, one
+  real child `recall`, exact recovered sentinel and no sibling raw content. Both in-flight
+  dumps match actual working-set text/records and have exact live sums (4,447 and 8,334).
+  The transient suffix has 292 tokens and targets user input, then the recall tool result.
+  `evidence/live-result.json` contains provider usage: 12,474 total tokens and SDK-estimated
+  USD 0.001817886 (not provider-reported billing). The original auth file stayed byte-identical.
+- The 7k dial is a best-effort estimate, not a hard ceiling: after selective recall the snapshot
+  estimated 8,334 tokens; that request's real provider receipt was 6,935 including output.
+  Classifier service and task-coaching closure were deliberately outside this isolated live run.
+
 Remaining work:
-1. Run the bounded authenticated live model call with the repaired projection and working set.
-2. Review the full diff, refresh final gates/builds after the serializer repair and record limits.
+1. Review the full diff, refresh final gates/builds after the serializer repair and record limits.
 
 The repository-wide artifact checker reports legacy frontmatter/changelog/dangling-reference
 errors outside this branch's changed artifacts. An extra Bun run of Vitest-only core timer tests
