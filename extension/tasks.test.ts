@@ -352,13 +352,23 @@ describe("tasks", () => {
 		expect(() => runTasks(s, { action: "move", list: "m", id: "2", before: "3" })).toThrow(/already there/);
 	});
 
-	test("nothing moves under a finished parent or deeper than four levels", () => {
+	test("deep create, add, move and migration preserve identities; finished parents still reject new work", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "d", title: "D", goal: "G", tasks: [{ title: "A", subtasks: [{ title: "A1", subtasks: [{ title: "A11", subtasks: [{ title: "A111" }] }] }] }, { title: "B", subtasks: [{ title: "B1" }] }, { title: "C" }] });
-		expect(() => runTasks(s, { action: "move", list: "d", id: "2", parent: "1.1.1.1" })).toThrow(/deeper than 4 levels/);
-		expect(() => runTasks(s, { action: "add", list: "d", parent: "1.1.1.1", tasks: [{ title: "X" }] })).toThrow(/deeper than 4 levels/);
-		runTasks(s, { action: "start", list: "d", id: "3" });
-		runTasks(s, { action: "complete", list: "d", id: "3", report });
-		expect(() => runTasks(s, { action: "move", list: "d", id: "2.1", parent: "3" })).toThrow(/Task 3 is done/);
+		runTasks(s, { action: "move", list: "d", id: "2", parent: "1.1.1.1" });
+		runTasks(s, { action: "add", list: "d", parent: "1.1.1.1.1.1", tasks: [{ title: "X", subtasks: [{ title: "Y" }] }] });
+		expect(s.read("d").tasks.at(-2)?.id).toBe("1.1.1.1.1.1.1.1");
+		runTasks(s, { action: "start", list: "d", id: "2" });
+		runTasks(s, { action: "complete", list: "d", id: "2", report });
+		expect(() => runTasks(s, { action: "move", list: "d", id: "1.1.1.1.1.1", parent: "2" })).toThrow(/Task 2 is done/);
+		const deep = store();
+		let task: { title: string; subtasks?: unknown[] } = { title: "Leaf" };
+		for (let i = 1; i < 32; i++) task = { title: `Level ${i}`, subtasks: [task] };
+		runTasks(deep.s, { action: "create", list: "deep", title: "Deep", goal: "G", tasks: [task] });
+		const before = deep.s.read("deep");
+		const file = path.join(deep.dir, ".pig/tasks/deep.json");
+		fs.writeFileSync(file, JSON.stringify({ ...before, tasks: before.tasks }));
+		runTasks(deep.s, { action: "update", list: "deep", goal: "Migrated" });
+		expect(deep.s.read("deep").tasks).toEqual(before.tasks);
 	});
 });

@@ -16,8 +16,6 @@ export type BlockReason = (typeof BLOCK_REASONS)[number];
 
 export const LIST_VERSION = 2;
 export const SCHEMA_URL = "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json";
-/** Deepest task id: `1.2.3.4`. */
-export const MAX_DEPTH = 4;
 export const TITLE_MAX = 200;
 export const GOAL_MAX = 600;
 export const CRITERIA_MAX = 3;
@@ -155,7 +153,6 @@ function walk(nodes: unknown[], prefix: string, at: string, out: FlatTask[], err
 		out.push(task);
 		if (node.subtasks === undefined) return;
 		if (!Array.isArray(node.subtasks)) errors.push(`${where}.subtasks: must be an array`);
-		else if (node.subtasks.length && id.split(".").length >= MAX_DEPTH) errors.push(`${where}: subtasks would be deeper than ${MAX_DEPTH} levels; flatten the plan`);
 		else walk(node.subtasks, id, `${where}.subtasks`, out, errors);
 	});
 }

@@ -91,9 +91,22 @@ describe("task list v2 schema", () => {
 		expect(errors.join("\n")).toContain("duplicate attachment id a1");
 	});
 
-	test("depth beyond four levels and impossible status trees are rejected", () => {
-		const deep = { title: "1", subtasks: [{ title: "2", subtasks: [{ title: "3", subtasks: [{ title: "4", subtasks: [{ title: "5" }] }] }] }] };
-		expect(errorsOf(v2([deep])).join("\n")).toMatch(/deeper than 4 levels/);
+	test("deep authored and legacy trees round-trip without losing task identities", () => {
+		let node: { title: string; subtasks?: unknown[] } = { title: "Leaf" };
+		for (let i = 1; i < 64; i++) node = { title: `Level ${i}`, subtasks: [node] };
+		const parsed = parseListFile(v2([node]), "auth");
+		expect(parsed.ok).toBe(true);
+		if (!parsed.ok) return;
+		expect(parsed.list.tasks).toHaveLength(64);
+		expect(new RegExp(schema.$defs.task.properties.id.pattern).test(parsed.list.tasks.at(-1)!.id)).toBe(true);
+		const legacy = parseListFile({ ...parsed.list, tasks: parsed.list.tasks }, "auth");
+		expect(legacy.ok && legacy.migrated).toBe(true);
+		if (!legacy.ok) return;
+		const again = parseListFile(JSON.parse(JSON.stringify(toListFile(legacy.list))), "auth");
+		expect(again.ok && again.list.tasks).toEqual(parsed.list.tasks);
+	});
+
+	test("impossible status trees are rejected", () => {
 		expect(errorsOf(v2([{ title: "P", subtasks: [{ title: "C", status: "doing" }] }])).join("\n")).toMatch(/task 1.1 is doing but its parent 1 is todo/);
 	});
 

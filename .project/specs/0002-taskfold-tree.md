@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 10
+  revision: 11
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-06T20:05:27+01:00"
+  updated_at: "2026-11-07T08:20:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 10
-      reason: "record isolated floor and attachment measurements"
-      changes: ["§9.2 keep the floor opt-in", "§13 reference the measured comparison"]
+    - revision: 11
+      reason: "remove the rejected nesting-depth restriction"
+      changes: ["§2 task lists have no fixed maximum depth", "§11 update authoring guidance"]
 ---
 
 # Taskfold tree
@@ -79,7 +79,7 @@ referenced by `$schema`.
 |---|---|
 | `version` | `2`. Absent means v1 |
 | `goal` | Required for authoring and for `create`, 1–600 chars. One goal per list: the end state the whole list delivers. The store loads a list without one (v1, or created from the UI) and gates new work on it (§2.2) |
-| `tasks[].subtasks` | Nested tree, up to 4 levels (`1.2.3.4`) |
+| `tasks[].subtasks` | Nested tree with no fixed maximum depth |
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
 | `acceptanceCriteria` | Optional now, 1–3 strings of ≤120 chars, checkable end-state statements |
 | `status` | Optional when authoring (`todo`). Other `Task` fields (`report`, timestamps, `blocks`, `supersededBy`, `autoClosed`) keep their v1 meaning |
@@ -485,7 +485,7 @@ editing a list outside the tasks tool."
 
 The skill also encodes how to size, split and nest tasks (`references/decomposition.md`): why open
 tasks keep raw work in the request, orientation first, split by verifiable outcome, two to three
-levels as a minimum for broad work (four allowed), no count quotas; `references/examples.md` translates
+levels as a minimum for broad work (no maximum), no count quotas; `references/examples.md` translates
 a feature, a bug, a migration, a phased plan and a research task into lists, and a test keeps every
 shipped example valid.
 

@@ -10,7 +10,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BLOCK_REASONS, checkCriteria, compareIds, GOAL_MAX, MAX_DEPTH, parentId, parseListFile, toListFile, type BlockReason, type FlatList, type TaskStatus } from "./taskSchema";
+import { BLOCK_REASONS, checkCriteria, compareIds, GOAL_MAX, parentId, parseListFile, toListFile, type BlockReason, type FlatList, type TaskStatus } from "./taskSchema";
 import { checkPinCap, makeAttachment, makePin, nextId, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
 
 export { BLOCK_REASONS, type BlockReason, type TaskStatus };
@@ -179,12 +179,11 @@ function treeOf(tasks: readonly Task[]): Node[] {
 }
 
 /** Build new task nodes from `create` / `add` input; `links` collects `[new task, superseded id]`. */
-function nodesOf(inputs: unknown, depth: number, at: string, links: [Task, string][]): Node[] {
+function nodesOf(inputs: unknown, at: string, links: [Task, string][]): Node[] {
 	if (!Array.isArray(inputs)) throw new TaskError("tasks must be an array of { title, acceptanceCriteria?, subtasks? }.");
 	return inputs.map((raw) => {
 		const input = raw as TaskInput;
 		const title = cleanTitle(input?.title);
-		if (depth > MAX_DEPTH) throw new TaskError(`"${title}" would be nested deeper than ${MAX_DEPTH} levels; flatten the plan.`);
 		const task: Task = { id: "", title, status: "todo", createdAt: at, updatedAt: at };
 		if (input.acceptanceCriteria !== undefined) task.acceptanceCriteria = cleanCriteria(input.acceptanceCriteria, title);
 		const sup = input.supersedes;
@@ -192,7 +191,7 @@ function nodesOf(inputs: unknown, depth: number, at: string, links: [Task, strin
 			if (typeof sup !== "string" || !sup.trim()) throw new TaskError(`"supersedes" of "${title}" must be a task id, e.g. "3.2".`);
 			links.push([task, sup.trim()]);
 		}
-		return { task, input, kids: input.subtasks === undefined ? [] : nodesOf(input.subtasks, depth + 1, at, links) };
+		return { task, input, kids: input.subtasks === undefined ? [] : nodesOf(input.subtasks, at, links) };
 	});
 }
 
@@ -213,7 +212,6 @@ function renumber(list: TaskList, roots: Node[]): { from: string; to: string }[]
 	for (const [t, id] of ids) {
 		if (t.id && t.id !== id && t.status !== "todo")
 			throw new TaskError(`This would renumber ${t.id} "${t.title}" (${t.status}) to ${id}. Ids of started tasks never change; place the new work after it instead.`);
-		if (id.split(".").length > MAX_DEPTH) throw new TaskError(`This would nest ${t.title} deeper than ${MAX_DEPTH} levels (${id}).`);
 	}
 	const renamed = new Map<string, string>();
 	for (const [t, id] of ids) if (t.id && t.id !== id) renamed.set(t.id, id);
@@ -332,7 +330,7 @@ export class TaskStore {
 		const at = now();
 		const list: TaskList = { slug, title: cleanTitle(title), goal: cleanGoal(goal), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
 		const links: [Task, string][] = [];
-		const roots = nodesOf(tasks ?? [], 1, at, links);
+		const roots = nodesOf(tasks ?? [], at, links);
 		if (links.length) throw new TaskError('"supersedes" points at a task in the same list, so it only works with "add".');
 		renumber(list, roots);
 		this.prepareReferences(list, roots, userTexts, limits);
@@ -491,7 +489,7 @@ export class TaskStore {
 		if (spot.parent !== null && FINISHED.has(this.task(list, spot.parent).status))
 			throw new TaskError(`Task ${spot.parent} is ${this.task(list, spot.parent).status}; add the new work at the top level or under an open task.`);
 		const links: [Task, string][] = [];
-		const nodes = nodesOf(tasks, (spot.parent?.split(".").length ?? 0) + 1, at, links);
+		const nodes = nodesOf(tasks, at, links);
 		const superseded: Task[] = [];
 		const pairs: [Task, Task][] = [];
 		for (const [by, old] of links) {

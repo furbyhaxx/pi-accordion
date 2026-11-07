@@ -27,8 +27,8 @@ Work done outside any task is never folded as a unit, so put real work inside a 
    layer, not on activity ("read", "think", "edit").
 3. **Nest by scale, with a minimum depth for broad work.** Give any task that would take more than
    a few tool calls and several substantial pieces its own children. Broad features and plans need
-   **at least two to three levels**: area, then feature, then step. The tree allows four. The
-   volume of work decides the depth within that range; only a genuinely small change gets a flat
+   **at least two to three levels**: area, then feature, then step. There is no fixed maximum depth. The
+   volume of work decides the useful depth; only a genuinely small change gets a flat
    list. Never split a step that has no result of its own just to add a level.
 4. **Order by dependency and finish in order.** Complete each child before the next one starts so
    each can fold. Put verification of the whole parent in its own last child.
