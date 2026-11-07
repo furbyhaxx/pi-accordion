@@ -149,24 +149,18 @@ function index(src: TranscriptSource): Index {
 	return { src, groupOf, resultOf };
 }
 
-/** Tokens of blocks `lo..hi`, a folded group counted once at its own size. */
-function rangeTokens(ix: Index, lo: number, hi: number): Tokens {
-	const out = { full: 0, live: 0 };
-	const seen = new Set<string>();
-	for (let i = lo; i <= hi; i++) {
-		const b = ix.src.blocks[i];
-		const g = ix.groupOf.get(b.id);
-		if (g?.folded) {
-			if (seen.has(g.id)) continue;
-			seen.add(g.id);
-			out.full += g.full;
-			out.live += g.live;
-		} else {
-			out.full += b.full;
-			out.live += b.live;
-		}
-	}
-	return out;
+function blockTokens(blocks: readonly TBlock[]): Tokens {
+	return blocks.reduce((out, b) => ({ full: out.full + b.full, live: out.live + b.live }), { full: 0, live: 0 });
+}
+
+/** Whether a position belongs to the task's actual working intervals. */
+export function spanContains(span: TaskSpan, at: number): boolean {
+	return span.intervals.some((r) => r.start <= at && at <= r.end);
+}
+
+/** A task's blocks, optionally excluding the actual intervals of its descendants. */
+export function spanBlocks(src: TranscriptSource, span: TaskSpan, exclude: readonly TaskSpan[] = []): TBlock[] {
+	return src.blocks.filter((_b, i) => spanContains(span, i) && !exclude.some((child) => spanContains(child, i)));
 }
 
 function userNode(ix: Index, b: TBlock, inTask = true): TNode {
@@ -175,35 +169,38 @@ function userNode(ix: Index, b: TBlock, inTask = true): TNode {
 	return { type: "user", block: b, verdict, folded, why: userReason(verdict, folded, ix.src.threshold, inTask) };
 }
 
-/** Spans nested by containment; siblings in transcript order. */
-function forest(spans: readonly TaskSpan[]): { span: TaskSpan; children: ReturnType<typeof forest> }[] {
+/** A logical task and its nearest present descendants. */
+export interface TaskBranch {
+	span: TaskSpan;
+	children: TaskBranch[];
+}
+
+/** Logical ancestry by task key; siblings remain in transcript order even across pauses. */
+export function taskForest(spans: readonly TaskSpan[]): TaskBranch[] {
 	const sorted = [...spans].sort((a, b) => a.start - b.start || b.end - a.end);
-	const roots: { span: TaskSpan; children: ReturnType<typeof forest> }[] = [];
-	const stack: { span: TaskSpan; children: ReturnType<typeof forest> }[] = [];
+	const nodes = new Map(sorted.map((span) => [span.key, { span, children: [] as TaskBranch[] }]));
+	const roots: TaskBranch[] = [];
 	for (const span of sorted) {
-		while (stack.length && !(stack[stack.length - 1].span.start <= span.start && span.end <= stack[stack.length - 1].span.end)) stack.pop();
-		const node = { span, children: [] as ReturnType<typeof forest> };
-		(stack.length ? stack[stack.length - 1].children : roots).push(node);
-		stack.push(node);
+		let key = span.key;
+		let parent: TaskBranch | undefined;
+		while (key.includes(".") && !parent) { key = key.slice(0, key.lastIndexOf(".")); parent = nodes.get(key); }
+		(parent ? parent.children : roots).push(nodes.get(span.key)!);
 	}
 	return roots;
 }
 
-function taskNode(ix: Index, f: { span: TaskSpan; children: ReturnType<typeof forest> }): TNode {
+function branchSpans(branches: readonly TaskBranch[]): TaskSpan[] {
+	return branches.flatMap((b) => [b.span, ...branchSpans(b.children)]);
+}
+
+function taskNode(ix: Index, f: TaskBranch): TNode {
 	const { span } = f;
-	const children: TNode[] = [];
 	const kids = f.children;
-	let k = 0;
+	const children: { at: number; node: TNode }[] = kids.map((child) => ({ at: child.span.start, node: taskNode(ix, child) }));
+	const exclude = branchSpans(kids);
 	for (let i = span.start; i <= span.end; i++) {
-		const child = kids[k];
-		if (child && i === child.span.start) {
-			children.push(taskNode(ix, child));
-			i = child.span.end;
-			k++;
-			continue;
-		}
 		const b = ix.src.blocks[i];
-		if (b.kind === "user") children.push(userNode(ix, b));
+		if (b.kind === "user" && spanContains(span, i) && !exclude.some((child) => spanContains(child, i))) children.push({ at: i, node: userNode(ix, b) });
 	}
 	const folds = ix.src.groups.filter((g) => {
 		if (!g.folded) return false;
@@ -211,11 +208,9 @@ function taskNode(ix: Index, f: { span: TaskSpan; children: ReturnType<typeof fo
 		return key === span.key || !!key?.startsWith(`${span.key}.`);
 	}).length;
 	return {
-		type: "task",
-		span,
-		children,
-		tokens: rangeTokens(ix, span.start, span.end),
-		folds,
+		type: "task", span,
+		children: children.sort((a, b) => a.at - b.at).map((c) => c.node),
+		tokens: spanTokens(ix.src, span), folds,
 		subtasks: { done: kids.filter((c) => c.span.status === "done").length, total: kids.length },
 	};
 }
@@ -226,12 +221,14 @@ function taskNode(ix: Index, f: { span: TaskSpan; children: ReturnType<typeof fo
  */
 export function sessionTranscript(src: TranscriptSource): TNode[] {
 	const ix = index(src);
-	const roots = forest(transcriptSpans(src));
+	const spans = transcriptSpans(src);
+	const roots = taskForest(spans);
+	const covered = new Set(spans.flatMap((s) => s.intervals.flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i))));
 	const out: TNode[] = [];
 	let run: TBlock[] = [];
 	let runStart = -1;
 	const flush = (end: number) => {
-		if (run.length) out.push({ type: "untracked", blocks: run, calls: run.filter((b) => b.kind === "tool_call").length, tokens: rangeTokens(ix, runStart, end) });
+		if (run.length) out.push({ type: "untracked", blocks: run, calls: run.filter((b) => b.kind === "tool_call").length, tokens: blockTokens(src.blocks.slice(runStart, end + 1)) });
 		run = [];
 	};
 	let r = 0;
@@ -240,10 +237,9 @@ export function sessionTranscript(src: TranscriptSource): TNode[] {
 		if (root && i === root.span.start) {
 			flush(i - 1);
 			out.push(taskNode(ix, root));
-			i = root.span.end;
 			r++;
-			continue;
 		}
+		if (covered.has(i)) { flush(i - 1); continue; }
 		const b = src.blocks[i];
 		if (b.kind === "system") continue;
 		if (b.kind === "user") {
@@ -258,9 +254,9 @@ export function sessionTranscript(src: TranscriptSource): TNode[] {
 	return out;
 }
 
-/** Tokens of a span, a folded group counted once at its own size. */
+/** Additive outgoing charges of the task's real intervals, excluding paused-period work. */
 export function spanTokens(src: TranscriptSource, span: TaskSpan): Tokens {
-	return rangeTokens(index(src), span.start, span.end);
+	return blockTokens(spanBlocks(src, span));
 }
 
 /** The classifier's view of a user message, rebuilt the way Taskfold builds it; null for the opening message. */
@@ -281,9 +277,9 @@ export function classifierInput(src: TranscriptSource, id: string): Record<strin
 }
 
 /** A tool call with its result, or a single block. */
-function stepNode(ix: Index, b: TBlock, consumed: Set<number>, lo: number, hi: number): TNode {
+function stepNode(ix: Index, b: TBlock, consumed: Set<number>, allowed: ReadonlySet<number>): TNode {
 	const ri = b.kind === "tool_call" && b.callId ? ix.resultOf.get(b.callId) : undefined;
-	const result = ri !== undefined && ri >= lo && ri <= hi ? ix.src.blocks[ri] : null;
+	const result = ri !== undefined && allowed.has(ri) ? ix.src.blocks[ri] : null;
 	if (ri !== undefined && result) consumed.add(ri);
 	const tokens = { full: b.full + (result?.full ?? 0), live: b.live + (result?.live ?? 0) };
 	return { type: "step", block: b, result, tokens, folded: !!ix.groupOf.get(b.id)?.folded };
@@ -304,7 +300,10 @@ function callIndex(src: TranscriptSource, resultAt: number, lo: number): number 
 export function spanTranscript(src: TranscriptSource, span: TaskSpan): TNode[] {
 	const ix = index(src);
 	const all = transcriptSpans(src);
-	const children = forest(all.filter((s) => s !== span && s.key !== span.key && span.start <= s.start && s.end <= span.end));
+	const descendants = all.filter((s) => s.key.startsWith(`${span.key}.`));
+	const children = taskForest(descendants);
+	const allowed = new Set(span.intervals.flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i)));
+	const hidden = new Set<number>();
 	const consumed = new Set<number>();
 	const startResult = src.blocks[span.start]?.callId ? ix.resultOf.get(src.blocks[span.start].callId!) : undefined;
 	const ownStart = !children.some((c) => c.span.start === span.start);
@@ -322,20 +321,23 @@ export function spanTranscript(src: TranscriptSource, span: TaskSpan): TNode[] {
 	const out: TNode[] = [{ type: "edge", edge: "start", span, block: src.blocks[span.start] }];
 	const folds = new Map<string, TNode & { type: "fold" }>();
 	let k = 0;
-	for (let i = span.start; i <= span.end; i++) {
+	const lo = Math.min(span.start, ...descendants.map((s) => s.start));
+	const hi = Math.max(span.end, ...descendants.map((s) => s.end));
+	for (let i = lo; i <= hi; i++) {
 		const b = src.blocks[i];
 		const g = ix.groupOf.get(b.id);
 		const gKey = g?.folded ? taskKeyOfSummary(g.summary) : null;
 		const child = children[k];
 		if (child && i === child.span.start && !(g?.folded && !(gKey && gKey.startsWith(child.span.key)))) {
 			out.push(taskNode(ix, child));
-			i = child.span.end;
+			for (const s of descendants.filter((s) => s.key === child.span.key || s.key.startsWith(`${child.span.key}.`)))
+				for (const r of s.intervals) for (let j = r.start; j <= r.end; j++) hidden.add(j);
 			k++;
 			continue;
 		}
 		while (children[k] && children[k].span.end < i) k++;
-		if (consumed.has(i)) continue;
-		const node = b.kind === "user" ? userNode(ix, b) : stepNode(ix, b, consumed, span.start, span.end);
+		if (!allowed.has(i) || hidden.has(i) || consumed.has(i)) continue;
+		const node = b.kind === "user" ? userNode(ix, b) : stepNode(ix, b, consumed, allowed);
 		if (g?.folded) {
 			let fold = folds.get(g.id);
 			if (!fold) {

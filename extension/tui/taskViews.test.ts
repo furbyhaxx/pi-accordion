@@ -73,6 +73,28 @@ describe("task views", () => {
 		expect(neverLines).toContain("Superseded by 2");
 	});
 
+	it("derives parent facts from its own intervals instead of its children's work", () => {
+		const b = blocks();
+		const event = (action: "start" | "complete"): TBlock[] => {
+			const c = `child-${action}`;
+			return [
+				{ id: `a:${c}:p0`, kind: "tool_call", toolName: "tasks", callId: c, full: 10, live: 10,
+					text: `tasks ${JSON.stringify({ action, list: "l", id: "1.1", ...(action === "complete" ? { report: { outcome: "Child done" } } : {}) })}` },
+				{ id: `r:${c}`, kind: "tool_result", toolName: "tasks", callId: c, full: 10, live: 10,
+					text: action === "start" ? 'Started l/1.1 "Sub one".' : "l/1.1 is done." },
+			];
+		};
+		b.splice(5, 0, ...event("start"));
+		b.splice(b.length - 2, 0, ...event("complete"));
+		const src: TranscriptSource = { blocks: b, groups: [], verdict: () => undefined, threshold: 0.3 };
+		const parent = detailLines(list, "1", data(src), []).join("\n");
+		const child = detailLines(list, "1.1", data(src), []).join("\n");
+		expect(parent).not.toContain("src/a.ts");
+		expect(parent).not.toContain("`bun test`");
+		expect(child).toContain("src/a.ts");
+		expect(child).toContain("`bun test` → failed");
+	});
+
 	it("flags untracked work and marks failed steps in the session tree", () => {
 		const src: TranscriptSource = { blocks: blocks(), groups: [], verdict: () => undefined, threshold: 0.3 };
 		const nodes = transcriptNodes(sessionTranscript(src), data(src));

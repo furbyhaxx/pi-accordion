@@ -13,7 +13,7 @@ import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import { blockLabel, type Task, type TaskList } from "../tasks";
 import { formatCompactTokens } from "./map";
 import { frame } from "./taskLists";
-import { classifierInput, recordLevel, sessionTranscript, spanTokens, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
+import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
 import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type WidgetTheme } from "./taskWidget";
 import { TreeState, type TreeNode } from "./treeView";
@@ -305,9 +305,10 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 	lines.push(...items("Decisions", task.report?.decisions), ...items("Open", task.report?.open));
 	const span = data.src ? spanOf(data, `${list.slug}/${id}`) : undefined;
 	if (span && data.src) {
-		const facts = recordFacts(data.src.blocks.slice(span.start, span.end + 1), (b) => b.text);
+		const descendants = data.spans.filter((s) => s.key.startsWith(`${span.key}.`));
+		const facts = recordFacts(spanBlocks(data.src, span, descendants), (b) => b.text);
 		lines.push(...wrap("Changed", facts.changed.length ? facts.changed.join(", ") : t.fg("dim", "–")), ...items("Checks", facts.verified));
-		lines.push(...wrap("Span", `${span.end - span.start + 1} blocks · ${tok(spanTokens(data.src, span))}`));
+		lines.push(...wrap("Span", `${spanBlocks(data.src, span).length} blocks · ${tok(spanTokens(data.src, span))}`));
 	} else lines.push(...wrap("Span", t.fg("dim", neverRan(task) ? "none · never started" : "not run in this session")));
 	for (const g of groups) {
 		const code = /^\{#([0-9a-z]{6}) FOLDED\}/.exec(g.summary ?? "")?.[1];

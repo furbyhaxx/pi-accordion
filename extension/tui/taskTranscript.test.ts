@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Truth } from "../../core/truth";
 import { foldTag } from "../../core/digest";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
-import { recordLevel, sessionTranscript, spanTranscript, transcriptSource, transcriptSpans, userReason, type TBlock, type TGroup, type TNode, type TranscriptSource } from "./taskTranscript";
+import { recordLevel, sessionTranscript, spanTranscript, spanTokens, transcriptSource, transcriptSpans, userReason, type TBlock, type TGroup, type TNode, type TranscriptSource } from "./taskTranscript";
 
 class Log {
 	blocks: TBlock[] = [];
@@ -32,7 +32,11 @@ class Log {
 }
 
 function source(log: Log, groups: TGroup[] = [], verdicts: Record<string, Verdict> = {}): TranscriptSource {
-	return { blocks: log.blocks, groups, verdict: (id) => verdicts[id], threshold: 0.3 };
+	const blocks = log.blocks.map((b) => {
+		const g = groups.find((g) => g.folded && g.memberIds.includes(b.id));
+		return g ? { ...b, live: g.memberIds[0] === b.id ? g.live : 0 } : b;
+	});
+	return { blocks, groups, verdict: (id) => verdicts[id], threshold: 0.3 };
 }
 
 const types = (nodes: readonly TNode[]) => nodes.map((n) => (n.type === "task" ? `task:${n.span.id}` : n.type === "edge" ? `edge:${n.edge}` : n.type === "step" ? `step:${n.block.toolName}` : n.type));
@@ -79,6 +83,31 @@ describe("task transcript", () => {
 		expect(ack.why).toBe("loss 0.1 < 0.30 · folds with its task");
 	});
 
+	it("keeps paused siblings and untracked gaps outside the resumed task", () => {
+		const log = new Log();
+		log.user("Go.");
+		log.start("1", "Paused");
+		log.work("own-first");
+		log.call("tasks", { action: "block", list: "l", id: "1" }, "Paused.");
+		log.start("2", "Sibling");
+		log.work("sibling-only");
+		log.finish("2", "Sibling done");
+		log.work("untracked-gap");
+		log.start("1", "Paused");
+		log.work("own-last");
+		log.finish("1", "Done");
+		const src = source(log);
+		const tree = sessionTranscript(src);
+		expect(types(tree)).toEqual(["user", "task:1", "task:2", "untracked"]);
+		const span = transcriptSpans(src).find((s) => s.id === "1")!;
+		expect(spanTokens(src, span)).toEqual({ full: 480, live: 480 });
+		const shown = JSON.stringify(spanTranscript(src, span));
+		expect(shown).toContain("own-first");
+		expect(shown).toContain("own-last");
+		expect(shown).not.toContain("sibling-only");
+		expect(shown).not.toContain("untracked-gap");
+	});
+
 	it("shows a span as start, folds with their members, kept user messages and finish", () => {
 		const log = new Log();
 		log.user("Go.");
@@ -87,7 +116,7 @@ describe("task transcript", () => {
 		const steer = log.user("don't touch x");
 		const w2 = log.work("b");
 		const f = log.finish("1", "done");
-		const before: TGroup = { id: "g:1", memberIds: [s.call, s.result, w1.call, w1.result], folded: true, summary: `${foldTag("g:1")} [task-part] l/1 "Task" part 1/2; …`, full: 240, live: 20 };
+		const before: TGroup = { id: "g:1", memberIds: [s.call, s.result, w1.call, w1.result], folded: true, summary: `${foldTag("g:1")} [task-part] l/1 "Task" part 1/2; …`, full: 220, live: 20 };
 		const after: TGroup = { id: "g:2", memberIds: [w2.call, w2.result, f.call, f.result], folded: true, summary: `${foldTag("g:2")} [task-record] l/1 "Task"  status: done\noutcome: done`, full: 220, live: 30 };
 		const src = source(log, [before, after], { [steer]: { loss: 2, source: "classifier" } });
 		const span = transcriptSpans(src).find((x) => x.id === "1")!;
@@ -98,7 +127,7 @@ describe("task transcript", () => {
 		expect((nodes[2] as TNode & { type: "user" }).why).toBe("loss 2.0 ≥ 0.30");
 		expect((nodes[3] as TNode & { type: "fold" }).level).toBe(0);
 		const root = sessionTranscript(src)[1] as TNode & { type: "task" };
-		expect(root.tokens).toEqual({ full: 470, live: 60 });
+		expect(root.tokens).toEqual({ full: 450, live: 60 });
 		expect(root.folds).toBe(2);
 	});
 
