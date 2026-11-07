@@ -444,6 +444,28 @@ describe("Truth — rev, sent, baseRev", () => {
 });
 
 describe("Truth — serializeWire", () => {
+	it("does not duplicate recaps around empty protocol messages or swallow their prompt metadata", () => {
+		const patch = { role: "system", content: "", timestamp: 3, sections: { tools: "Updated declarations" } };
+		const empty = { role: "custom", content: [], timestamp: 4, customType: "notice" };
+		const interrupted = { role: "assistant", content: [], responseId: "interrupted" };
+		const messages: PiMessage[] = [
+			{ role: "user", content: "begin", timestamp: 1 },
+			{ role: "assistant", responseId: "one", content: [{ type: "text", text: "old work" }] },
+			patch, empty, interrupted,
+			{ role: "assistant", responseId: "two", content: [{ type: "text", text: "more work" }] },
+			{ role: "user", content: "continue", timestamp: 7 },
+		];
+		for (const summary of ["one task recap", null]) {
+			const t = bulk(linearize(messages).map(wireToBlock));
+			t.wireAttached = true; t.setProtect(0);
+			expect(t.apply([{ kind: "group", ids: ["a:one:p0", "a:two:p0"], summary }], "you").results[0].applied).toBe(true);
+			const wire = t.serializeWire(messages);
+			expect(linearize(wire).map((b) => b.text)).toEqual(t.projectContext().filter((p) => p.text !== null).map((p) => p.text));
+			for (const metadata of [patch, empty, interrupted]) expect(wire).toContain(metadata);
+			expect(patch.sections.tools).toBe("Updated declarations");
+		}
+	});
+
 	it("projects real carriers, drops and stragglers with exact additive calibrated charges", () => {
 		const messages: PiMessage[] = [
 			{ role: "user", content: "begin", timestamp: 1 },

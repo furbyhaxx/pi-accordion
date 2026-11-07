@@ -685,12 +685,25 @@ export function applyPlan(messages: PiMessage[], ops: FoldOp[], groups: GroupOp[
 	// `Truth`'s accounting can call the identical decision (see `computeDegradedDropRuns`'s doc
 	// comment). Building `WireMsgShape[]` costs a `messageInfo` call per message, so it stays
 	// gated behind `safeGroups.length` exactly like the inline computation it replaces.
-	const { owner, degradeStart } = safeGroups.length
-		? computeDegradedDropRuns(
-				messages.map((m, i): WireMsgShape => ({ ...messageInfo(m, i), role: m.role })),
-				safeGroups,
-			)
-		: { owner: new Array<GroupOp | null>(messages.length).fill(null), degradeStart: new Set<number>() };
+	const owner = new Array<GroupOp | null>(messages.length).fill(null);
+	const degradeStart = new Set<number>();
+	const transparent = new Set<number>();
+	if (safeGroups.length) {
+		const shapes: WireMsgShape[] = [];
+		const indices: number[] = [];
+		messages.forEach((m, i) => {
+			const info = messageInfo(m, i);
+			const empty = !m.content || (Array.isArray(m.content) && m.content.every((p) =>
+				(p?.type === "text" && p.text === "") || (p?.type === "thinking" && (p as PiThinkingPart).thinking === "" && !thinkingIsSigned(p as PiThinkingPart))));
+			if (!info.ids.length && empty) transparent.add(i);
+			else { shapes.push({ ...info, role: m.role }); indices.push(i); }
+		});
+		const decision = computeDegradedDropRuns(shapes, safeGroups);
+		indices.forEach((original, i) => {
+			owner[original] = decision.owner[i];
+			if (decision.degradeStart.has(i)) degradeStart.add(original);
+		});
+	}
 
 	// ── Phase B: build the output — collapse runs, fold survivors in place ────────
 	let changed = false;
@@ -701,10 +714,12 @@ export function applyPlan(messages: PiMessage[], ops: FoldOp[], groups: GroupOp[
 	for (let i = 0; i < messages.length; ) {
 		const g = owner[i];
 		if (g) {
-			// Consume the maximal consecutive run owned by the SAME group. A group split by
-			// an interior straggler yields one entry per run (same group object, same decision).
-			let j = i + 1;
-			while (j < messages.length && owner[j] === g) j++;
+			// Empty protocol entries do not split a logical run; real stragglers still do.
+			let j = i + 1, runLength = 1;
+			while (j < messages.length && (owner[j] === g || transparent.has(j))) {
+				if (owner[j] === g) runLength++;
+				j++;
+			}
 			if (g.summaryText === null && !degradeStart.has(i)) {
 				// DROP: consume the run and push nothing — the agent never sees these messages.
 				changed = true;
@@ -713,10 +728,12 @@ export function applyPlan(messages: PiMessage[], ops: FoldOp[], groups: GroupOp[
 				// insert ONE synthetic message so the wire never starts non-"user" or welds two
 				// same-role survivors together.
 				const role = messages[i].role === "assistant" ? "assistant" : "user";
-				const text = g.summaryText !== null ? g.summaryText : roleFloorRecap(g.id, j - i);
+				const text = g.summaryText !== null ? g.summaryText : roleFloorRecap(g.id, runLength);
 				out.push({ role, content: [{ type: "text", text }] } as PiMessage);
 				changed = true;
 			}
+			// Prompt patches and empty notices carry metadata even though they emit no blocks.
+			for (let k = i + 1; k < j; k++) if (transparent.has(k)) out.push(messages[k]);
 			i = j;
 			continue;
 		}
