@@ -101,6 +101,25 @@ describe("taskfold", () => {
 		expect(g!.summary!.startsWith(foldTag(g!.id))).toBe(true);
 	});
 
+	it("falls back to finished descendants when historical parent intervals cannot cover them", async () => {
+		const s = new Session();
+		s.user("Continue an old list without rewriting its history.");
+		s.start("1", "Already ended parent");
+		s.work(1, "parent");
+		s.finish("1", { outcome: "Parent ended before later work was added." });
+		const child = s.start("1.1", "Later child").call;
+		s.work(4, "safe-child");
+		s.finish("1.1", { outcome: "Later work is complete." });
+		s.work(3, "tail");
+		const host = setup(s, 0.6);
+		const conductor = await attach(host);
+		expect(taskKeyOfSummary(groupOf(host, child)?.summary)).toBe("work/1.1");
+		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
+		expect(recalled.missing).toEqual([]);
+		expect(JSON.stringify(recalled)).toContain("safe-child");
+		conductor.detach();
+	});
+
 	it("re-proposes a task after protected-tail growth prunes its group", async () => {
 		const { s, start } = oneTask();
 		const host = setup(s);

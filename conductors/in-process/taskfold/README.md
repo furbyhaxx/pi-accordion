@@ -25,6 +25,8 @@ breaks once per epoch, at the oldest folded span. It does not break once per fin
 Finished children can fold while their parent is open. When the parent finishes, its children are
 absorbed into the parent's record with their full reports and independent recall handles. A blocked
 task's separate working intervals do not include unrelated work performed while it was paused.
+If a parent cannot safely fold, eligible finished descendants are tried independently, including
+historical lists whose child work occurred after the parent ended.
 
 Set `taskfold.floor` to `true` in `~/.accordion/config.json` to also apply recoverable per-block
 folding to older work in open tasks and untracked spans. The floor is off by default. It is a

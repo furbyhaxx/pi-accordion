@@ -618,19 +618,24 @@ export class TaskfoldConductor implements Conductor {
 		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(this.groupKeys(host).values());
 		const recent = new Set([...roots].sort((a, b) => b.end - a.end).slice(0, this.k.keepRecentTasks).map((s) => s.key));
-		const candidates = (recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.filter((s) => !recent.has(s.key))).filter((s) => !foldedKeys.has(s.key));
+		const candidates = recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.filter((s) => !recent.has(s.key));
 		const units: Unit[] = [];
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
 		const planned = new Set<string>();
-		for (const span of candidates) {
-			if (!recompose && projected <= target) break;
-			const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)), planned);
-			if (!unit) continue;
+		const fold = (span: Span): void => {
+			if (!recompose && projected <= target) return;
+			const descendants = spans.filter((s) => contains(span, s));
+			const unit = foldedKeys.has(span.key) ? null : this.unit(host, blocks, span, descendants, planned);
+			if (!unit) {
+				for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) fold(child);
+				return;
+			}
 			units.push(unit);
 			for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
 			projected -= unit.saved;
-		}
+		};
+		for (const span of candidates) fold(span);
 		if (!recompose) {
 			const touched = new Set(units.flatMap((u) => u.ops.flatMap((op) => (op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : []))));
 			const positions = new Map(blocks.map((b, i) => [b.id, i]));
@@ -638,14 +643,7 @@ export class TaskfoldConductor implements Conductor {
 			const aged = this.ladder(host, blocks, Math.max(0, projected - target), touched, roots, boundary);
 			units.push(...aged);
 			projected -= aged.reduce((sum, unit) => sum + unit.saved, 0);
-			for (const span of roots.filter((s) => recent.has(s.key) && !foldedKeys.has(s.key))) {
-				if (projected <= target) break;
-				const unit = this.unit(host, blocks, span, spans.filter((s) => contains(span, s)), planned);
-				if (!unit) continue;
-				units.push(unit);
-				for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
-				projected -= unit.saved;
-			}
+			for (const span of roots.filter((s) => recent.has(s.key))) fold(span);
 			if (projected > target) {
 				const already = new Set(units.flatMap((u) => u.ops.flatMap((op) => op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : [])));
 				const agedRecent = this.ladder(host, blocks, projected - target, already, roots, boundary, true);
