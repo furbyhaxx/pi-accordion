@@ -1,0 +1,55 @@
+{
+  "dryRun": true,
+  "runtime": "Pi-Bolt 1.0.9 / Pi 1.4.0",
+  "model": "deepseek-flash",
+  "catalog": {
+    "source": "https://models.dev/api.json",
+    "checked": "2026-11-07",
+    "rates": {
+      "input": 0.15,
+      "output": 0.6
+    }
+  },
+  "bounds": {
+    "requests": 2,
+    "outputTokens": 512,
+    "catalogUsd": 0.05,
+    "timeoutMs": 90000
+  },
+  "requests": [
+    {
+      "index": 1,
+      "bytes": 23095,
+      "catalogUpperUsd": 0.00452145,
+      "lastRole": "user",
+      "suffixMessageIndex": 36,
+      "messageCount": 38,
+      "tools": [
+        "recall"
+      ],
+      "upstreamStatus": null,
+      "snapshot": {
+        "live": 4447,
+        "full": 9906,
+        "leafSum": 4447,
+        "workingSet": {
+          "applied": true,
+          "targetRole": "user",
+          "tokens": 292
+        }
+      }
+    }
+  ],
+  "recalls": [],
+  "receipts": [],
+  "finalSentinelVerified": false,
+  "nonJsonPackets": 0,
+  "stderrBytes": 0,
+  "authFileUnchanged": null,
+  "limitations": [
+    "Synthetic fixtures only; no private session content was sent.",
+    "Classifier service is not configured in the isolated fixture.",
+    "Catalog-cost guard uses UTF-8 bytes plus overhead as a conservative input bound; actual provider receipts are separate.",
+    "Fixture tasks remain deliberately open; this is recovery/projection verification, not a task-coaching evaluation."
+  ]
+}

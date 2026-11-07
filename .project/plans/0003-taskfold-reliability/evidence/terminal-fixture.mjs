@@ -7,6 +7,8 @@ import { tasksDetails } from "../../../../extension/tui/toolRows.ts";
 import { verdictsOf } from "../../../../conductors/in-process/taskfold/verdicts.ts";
 
 const root = resolve(process.argv[2]);
+const repetitions = Number(process.argv[3] ?? 5000);
+assert.ok(Number.isSafeInteger(repetitions) && repetitions > 0);
 mkdirSync(root, { recursive: true });
 assert.ok(readdirSync(root).every((name) => name === "home"), "Use a new fixture directory; Bun may already have initialized its isolated home cache");
 for (const dir of ["agent", "accordion", "accordion/.accordion", "project", "sessions"]) mkdirSync(resolve(root, dir));
@@ -55,7 +57,7 @@ tasks({ action: "attach", items: [{ path: "notes.txt", lines: "1-2", note: "Two-
 for (const id of ["1.1", "1.2"]) {
 	tasks({ action: "start", id });
 	if (id === "1.1") tasks({ action: "pin", id, items: [{ kind: "fact", text: "A scoped fact is not a block pin.", source: "notes.txt:2" }] });
-	const text = `RECOVERABLE_SENTINEL_${id.replaceAll(".", "_")}\n` + "Synthetic recoverable tool output.\n".repeat(5000);
+	const text = `RECOVERABLE_SENTINEL_${id.replaceAll(".", "_")}\n` + "Synthetic recoverable tool output.\n".repeat(repetitions);
 	const file = `carrier-${id}.txt`;
 	writeFileSync(resolve(project, file), text);
 	tool("read", { path: file }, text);

@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 10
+  revision: 11
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T11:23:02+01:00"
+  updated_at: "2026-11-07T11:25:40+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 10
-      reason: "repair the native request working-set omission"
-      changes: ["one wire/dump input-target rule", "opaque task notices preserved", "failing regression and native RPC before/after evidence"]
+    - revision: 11
+      reason: "validate the bounded live-request transport"
+      changes: ["native RPC and credential-free proxy preflight", "in-flight five-format exports", "request/output/catalog-cost guards"]
 ---
 
 # Taskfold reliability repair
@@ -101,6 +101,19 @@ only widget suspension around the existing panel, not a nonexistent panel depend
   failed before the repair and passes afterward. Native before/after evidence is in
   `evidence/notice-suffix.json`: the actual suffix appears on message 36/38, has 292 tokens, and
   the additive live header rises from 4,155 to 4,447. No provider or credential was involved.
+
+- `evidence/live-eval.mjs` was dry-run on actual Pi-Bolt. The local proxy captures provider-ready
+  payloads and triggers the real dump command while the request is in flight. The snapshot has
+  the exact suffix and records, and sums to 4,447 tokens. `evidence/live-dry-run.json` records
+  no upstream call, credentials, stderr or non-JSON protocol output.
+- Live transport bounds are two requests, 512 output tokens each, 90 seconds and a conservative
+  $0.05 catalog-cost preflight. Rates/model identity were checked with models.dev and the official
+  DeepSeek API docs on 07.11.2026. Existing credentials are resolved read-only in parent memory;
+  only a random loopback-proxy token enters the isolated child environment. Error responses are
+  sanitized before forwarding. No credential value is written into evidence or child config.
+- For the live fixture, pass `300` as the third fixture-generator argument, then run
+  `bun evidence/live-eval.mjs <runtime-dir> --dry-run` or replace `--dry-run` with an existing
+  auth-file path. Set isolated HOME, PI_CODING_AGENT_DIR and ACCORDION_HOME before either script.
 
 Remaining work:
 1. Run the bounded authenticated live model call with the repaired projection and working set.
