@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import type { Truth } from "../../core/truth";
+import { Truth } from "../../core/truth";
 import type { TaskList } from "../tasks";
 import { sessionTranscript, spanTranscript, transcriptSpans, type TBlock, type TranscriptSource } from "./taskTranscript";
 import { TaskViews, detailLines, listNodes, transcriptNodes, type TaskViewsHost, type ViewData } from "./taskViews";
@@ -99,18 +99,11 @@ describe("task views", () => {
 	it("refuses actions without control and stays inside the width", async () => {
 		const applied: unknown[] = [];
 		const b = blocks();
-		const truth = {
-			rev: 1,
-			blocks: b.map((x) => ({ ...x, tokens: x.full })),
-			groups: [],
-			isFolded: () => false,
-			groupOf: () => undefined,
-			isProtected: () => false,
-			calBlockTokens: (_b: unknown, t: number) => t,
-			effTokens: (x: { tokens: number }) => x.tokens,
-			calibratedGroupFullTokens: () => 0,
-			calibratedGroupLiveTokens: () => 0,
-		} as unknown as Truth;
+		const truth = new Truth({
+			meta: { format: "pi", title: "Views", cwd: "", model: "" }, lineCount: 0, skipped: 0,
+			blocks: b.map((x, order) => ({ ...x, tokens: x.full, turn: 0, order, override: null, autoFolded: false, by: null })),
+		});
+		truth.setProtect(0);
 		const host: TaskViewsHost = {
 			truth: () => truth,
 			verdict: () => undefined,

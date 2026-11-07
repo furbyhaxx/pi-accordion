@@ -444,6 +444,31 @@ describe("Truth — rev, sent, baseRev", () => {
 });
 
 describe("Truth — serializeWire", () => {
+	it("projects real carriers, drops and stragglers with exact additive calibrated charges", () => {
+		const messages: PiMessage[] = [
+			{ role: "user", content: "begin", timestamp: 1 },
+			{ role: "assistant", responseId: "one", content: [{ type: "text", text: "old work" }] },
+			{ role: "user", content: "acknowledged", timestamp: 3 },
+			{ role: "assistant", responseId: "two", content: [{ type: "text", text: "keep straggler" }, { type: "toolCall", id: "c1", name: "read", arguments: {} }] },
+			{ role: "toolResult", toolCallId: "c1", toolName: "read", content: [{ type: "text", text: "large original result" }] },
+			{ role: "assistant", responseId: "three", content: [{ type: "text", text: "tail" }] },
+		];
+		for (const summary of ["precise replacement", null]) {
+			const t = bulk(linearize(messages).map(wireToBlock));
+			t.wireAttached = true;
+			t.setProtect(0);
+			expect(t.apply([{ kind: "group", ids: ["a:one:p0", "a:two:p0"], summary }], "you").results[0].applied).toBe(true);
+			t.apply([{ kind: "fold", ids: ["r:c1"] }], "you");
+			t.setCalibration(1.375, 3);
+			const projection = t.projectContext();
+			expect(projection.filter((p) => p.text !== null).map((p) => p.text)).toEqual(linearize(t.serializeWire(messages)).map((b) => b.text));
+			const members = projection.flatMap((p) => p.members);
+			expect(members.map((b) => b.id)).toEqual(t.blocks.map((b) => b.id));
+			expect(members.reduce((n, b) => n + b.full, 0)).toBe(t.stats().fullTokens);
+			expect(members.reduce((n, b) => n + b.live, 0)).toBe(t.stats().liveTokens);
+			expect(projection.find((p) => p.text === "keep straggler")?.groupId).toBeUndefined();
+		}
+	});
 	it("folds a block on the wire from the current state", () => {
 		const messages: PiMessage[] = [
 			{ role: "user", content: "hi", timestamp: 1 },

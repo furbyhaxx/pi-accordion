@@ -165,6 +165,13 @@ export interface Group {
 	digest?: string | null;
 }
 
+/** One outgoing carrier or explicit drop, with exact additive calibrated charges for its original blocks. */
+export interface ContextProjection {
+	groupId?: string;
+	text: string | null;
+	members: { id: string; full: number; live: number }[];
+}
+
 export interface SessionMeta {
 	format: "pi" | "claude" | "unknown";
 	title: string;

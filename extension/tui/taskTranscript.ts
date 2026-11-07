@@ -4,7 +4,7 @@
  * `transcriptSource` adapts a Truth to its plain input.
  */
 import type { Truth } from "../../core/truth";
-import type { BlockKind } from "../../core/types";
+import type { BlockKind, ContextProjection, GroupHandle } from "../../core/types";
 import { scanTaskSpans, taskKeyOfSummary, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 
@@ -19,6 +19,8 @@ export interface TBlock {
 	toolName?: string;
 	callId?: string;
 	isError?: boolean;
+	/** Persisted tool-result facts used by the conductor span scan. */
+	details?: unknown;
 	/** Folded on its own (not through a group). */
 	folded?: boolean;
 	/** What such a block rides as: its digest, the only text the agent holds for it. */
@@ -34,6 +36,7 @@ export interface TGroup {
 	memberIds: readonly string[];
 	folded: boolean;
 	summary: string | null | undefined;
+	handles?: readonly GroupHandle[];
 	full: number;
 	live: number;
 }
@@ -41,6 +44,8 @@ export interface TGroup {
 export interface TranscriptSource {
 	blocks: readonly TBlock[];
 	groups: readonly TGroup[];
+	/** Authoritative carrier order and per-block charges, including drops and stragglers. */
+	projection?: readonly ContextProjection[];
 	verdict(id: string): Verdict | undefined;
 	/** The fold threshold the verdicts were judged against, when a Taskfold conductor set one. */
 	threshold: number | null;
@@ -62,17 +67,21 @@ export type TNode =
 
 /** Adapt a Truth to the transcript's input. */
 export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict | undefined, threshold: number | null): TranscriptSource {
+	const projection = truth.projectContext();
+	const charges = new Map(projection.flatMap((p) => p.members.map((b) => [b.id, b] as const)));
 	return {
+		projection,
 		blocks: truth.blocks.map((b) => ({
 			id: b.id,
 			kind: b.kind,
 			text: b.text,
 			turn: b.turn,
-			full: truth.calBlockTokens(b, b.tokens),
-			live: truth.calBlockTokens(b, truth.effTokens(b)),
+			full: charges.get(b.id)!.full,
+			live: charges.get(b.id)!.live,
 			...(b.toolName ? { toolName: b.toolName } : {}),
 			...(b.callId ? { callId: b.callId } : {}),
 			...(b.isError ? { isError: true } : {}),
+			...(b.details !== undefined ? { details: b.details } : {}),
 			...(truth.isFolded(b) && !truth.groupOf(b)?.folded ? { folded: true, digest: truth.digestOf(b) } : {}),
 			...(b.override === "pinned" ? { pinned: true } : {}),
 			...(truth.isProtected(b) ? { protected: true } : {}),
@@ -80,6 +89,7 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 		groups: truth.groups.map((g) => ({
 			id: g.id,
 			memberIds: g.memberIds,
+			...(g.handles ? { handles: g.handles } : {}),
 			folded: g.folded,
 			summary: g.digest,
 			full: truth.calibratedGroupFullTokens(g),

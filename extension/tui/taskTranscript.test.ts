@@ -1,7 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import { Truth } from "../../core/truth";
 import { foldTag } from "../../core/digest";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
-import { recordLevel, sessionTranscript, spanTranscript, transcriptSpans, userReason, type TBlock, type TGroup, type TNode, type TranscriptSource } from "./taskTranscript";
+import { recordLevel, sessionTranscript, spanTranscript, transcriptSource, transcriptSpans, userReason, type TBlock, type TGroup, type TNode, type TranscriptSource } from "./taskTranscript";
 
 class Log {
 	blocks: TBlock[] = [];
@@ -37,6 +38,28 @@ function source(log: Log, groups: TGroup[] = [], verdicts: Record<string, Verdic
 const types = (nodes: readonly TNode[]) => nodes.map((n) => (n.type === "task" ? `task:${n.span.id}` : n.type === "edge" ? `edge:${n.edge}` : n.type === "step" ? `step:${n.block.toolName}` : n.type));
 
 describe("task transcript", () => {
+	it("preserves structured criteria, pins, handles and projection charges through the Truth adapter", () => {
+		const log = new Log();
+		log.user("Go.");
+		const start = log.start("1", "Task");
+		const details = { task: { acceptanceCriteria: ["Preserve the facts"], pins: [{ kind: "rule", text: "Exact fact", source: "user" }] } };
+		log.blocks.find((b) => b.id === start.result)!.details = details;
+		log.work("changes");
+		const finish = log.finish("1", "Done");
+		const truth = new Truth({ meta: { format: "pi", title: "Adapter", cwd: "", model: "" }, lineCount: 0, skipped: 0,
+			blocks: log.blocks.map((b, order) => ({ ...b, tokens: b.full, turn: 0, order, override: null, autoFolded: false, by: null })) });
+		truth.setProtect(0);
+		const handles = [{ id: "t:l/1", memberIds: log.blocks.slice(1).map((b) => b.id) }];
+		expect(truth.apply([{ kind: "group", ids: [start.call, finish.result], summary: `${foldTag("t:l/1")} record`, handles }], "auto").results[0].applied).toBe(true);
+		truth.setCalibration(1.375);
+		const src = transcriptSource(truth, () => undefined, 0.3);
+		expect(src.blocks.find((b) => b.id === start.result)?.details).toEqual(details);
+		expect(src.groups[0].handles).toEqual(handles);
+		expect(transcriptSpans(src)[0].acceptanceCriteria).toEqual(["Preserve the facts"]);
+		expect(transcriptSpans(src)[0].pins?.[0].text).toBe("Exact fact");
+		expect(src.blocks.reduce((n, b) => n + b.live, 0)).toBe(truth.stats().liveTokens);
+		expect(src.projection?.flatMap((p) => p.members).map((b) => b.id)).toEqual(src.blocks.map((b) => b.id));
+	});
 	it("nests subtasks under auto-started parents and keeps work outside tasks as untracked runs", () => {
 		const log = new Log();
 		log.user("Build it.");

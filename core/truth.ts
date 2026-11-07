@@ -13,7 +13,7 @@
  *
  * No Svelte, no runes, no runtime dependencies — plain TypeScript.
  */
-import type { Block, Actor, SessionMeta, ParsedSession, Group, GroupHandle } from "./types";
+import type { Block, Actor, SessionMeta, ParsedSession, Group, GroupHandle, ContextProjection } from "./types";
 import { SYSTEM_BLOCK_ID, SYSTEM_BLOCK_ORDER } from "./types";
 import type { LockName } from "./locks";
 import { hasLock } from "./locks";
@@ -1846,10 +1846,42 @@ export class Truth {
 	}
 
 	// ── wire serialization ────────────────────────────────────────────────────
-	/**
-	 * Compute fold/group ops from the current state and run them through `applyPlan`. Correctness
-	 * over cleverness: it reuses the tested `applyPlan`. A per-message cache is a Phase-B option.
-	 */
+	/** Ordered carriers using the same collapse, drop and role-floor decisions as wire serialization. */
+	projectContext(): ContextProjection[] {
+		const charges = new Map<string, { id: string; full: number; live: number }>();
+		let fullCovered = 0, fullRaw = 0, liveCovered = 0, liveRaw = 0, previousFull = 0, previousLive = 0;
+		for (const b of this.blockLog) {
+			if (this.isCalibrated(b)) { fullCovered += b.tokens; liveCovered += this.effTokens(b); }
+			else { fullRaw += b.tokens; liveRaw += this.effTokens(b); }
+			const full = Math.round(fullCovered * this.calibrationMul + fullRaw);
+			const live = Math.round(liveCovered * this.calibrationMul + liveRaw);
+			charges.set(b.id, { id: b.id, full: full - previousFull, live: live - previousLive });
+			previousFull = full;
+			previousLive = live;
+		}
+		const runs = new Map<string, ContextProjection>();
+		const collapsed = new Set<string>();
+		for (const g of this.groupList) {
+			if (!g.folded) continue;
+			for (const run of this.classifyGroup(g).collapsedRuns) {
+				const text = this.isDropGroup(g)
+					? this.degradedRunKeys().has(messageKey(run[0].id)) ? roleFloorRecap(g.id, messageCountOfRun(run)) : null
+					: this.groupSummary(g);
+				runs.set(run[0].id, { groupId: g.id, text, members: run.map((b) => charges.get(b.id)!) });
+				for (const b of run) collapsed.add(b.id);
+			}
+		}
+		const folds = new Map(this.computeFoldOps().map((op) => [op.id, op.digestText]));
+		const out: ContextProjection[] = [];
+		for (const b of this.blockLog) {
+			const run = runs.get(b.id);
+			if (run) out.push(run);
+			else if (!collapsed.has(b.id)) out.push({ text: folds.get(b.id) ?? b.text, members: [charges.get(b.id)!] });
+		}
+		return out;
+	}
+
+	/** Apply the current fold/group state through the shared wire serializer. */
 	serializeWire(messages: PiMessage[]): PiMessage[] {
 		return applyPlan(messages, this.computeFoldOps(), this.computeGroupOps());
 	}
