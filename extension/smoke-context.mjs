@@ -187,7 +187,7 @@ check("task working set refreshes outside the request hook and stays session-loc
 		messages.push({ role: "assistant", responseId: "done", timestamp: 3, content: [{ type: "text", text: "Done." }] });
 		await r.request(messages);
 		await r.command("tasks dump-transcript cached.log");
-		assert.match(fs.readFileSync(path.join(dir, "cached.log"), "utf8"), /cached, not appended to this snapshot/);
+		assert.match(fs.readFileSync(path.join(dir, "cached.log"), "utf8"), /working set · transient, not persisted · appended to user/);
 		messages.pop();
 		const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 2 };
 		const resultMessages = r.handlers.context_with_system({ messages: [toolResult, notice] }, r.ctx).messages;
@@ -195,6 +195,12 @@ check("task working set refreshes outside the request hook and stays session-loc
 		assert.equal(resultMessages[1], notice);
 		assert.match(resultWire.content.at(-1).text, /\[tasks\]/);
 		assert.equal(toolResult.content.length, 1);
+		const stable = [{ role: "user", content: "Go.", timestamp: 10 }];
+		const firstWire = r.handlers.context_with_system({ messages: stable.map(m => ({ ...m })) }, r.ctx).messages;
+		const followUp = [...stable, { role: "assistant", responseId: "a", timestamp: 11, content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: {} }] },
+			{ role: "toolResult", toolCallId: "call-2", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 12 }];
+		const secondWire = r.handlers.context_with_system({ messages: followUp.map(m => ({ ...m })) }, r.ctx).messages;
+		assert.equal(JSON.stringify(secondWire.slice(0, firstWire.length)), JSON.stringify(firstWire), "an unchanged working set must keep the previous request a prefix");
 		await run({ action: "unpin", list: "w", pins: ["p1"] });
 		await run({ action: "detach", list: "w", id: "1", attachments: ["a1"] });
 		assert.doesNotMatch(request(), /spec\.md/);

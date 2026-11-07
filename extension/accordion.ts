@@ -57,7 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
-import { PIN_LIMITS, workingSet, workingSetTarget } from "./taskPins";
+import { PIN_LIMITS, placeWorkingSet, workingSet, type WorkingSetAnchor } from "./taskPins";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { TASK_SCREEN_OPTIONS } from "./tui/taskLists";
@@ -3108,6 +3108,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	let cachedWorkingSet: { session: string; cwd: string; text: string } | null = null;
+	let workingSetAnchor: (WorkingSetAnchor & { session: string }) | null = null;
+	function anchorFor(ctx: ExtensionContext): WorkingSetAnchor | null {
+		return workingSetAnchor?.session === ctx.sessionManager.getSessionId() ? workingSetAnchor : null;
+	}
 	function currentWorkingSet(ctx: ExtensionContext): string | null {
 		const cache = cachedWorkingSet;
 		return tasksToolActive() && cache?.session === ctx.sessionManager.getSessionId() && cache.cwd === ctx.cwd ? cache.text : null;
@@ -3272,13 +3276,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (!foldingEnabled || message.role !== "assistant" || !message.usage) return message;
 			return { ...message, usage: { ...message.usage, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
 		});
-		const target = suffix ? workingSetTarget(messages) : null;
-		if (suffix && target) {
-			const last = messages[target.index];
+		const placement = suffix ? placeWorkingSet(messages, suffix, anchorFor(ctx)) : null;
+		if (suffix && placement) {
+			workingSetAnchor = { ...placement.anchor, session: ctx.sessionManager.getSessionId() };
+			const last = messages[placement.index];
 			if (last?.role === "user") {
-				messages[target.index] = { ...last, content: typeof last.content === "string" ? `${last.content}\n\n${suffix}` : [...last.content, { type: "text", text: suffix }] };
+				messages[placement.index] = { ...last, content: typeof last.content === "string" ? `${last.content}\n\n${suffix}` : [...last.content, { type: "text", text: suffix }] };
 			} else if (last?.role === "toolResult") {
-				messages[target.index] = { ...last, content: [...last.content, { type: "text", text: suffix }] };
+				messages[placement.index] = { ...last, content: [...last.content, { type: "text", text: suffix }] };
 			}
 		}
 		return { messages };
@@ -3666,7 +3671,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		source.listIssues = scan.invalid;
 		const suffix = currentWorkingSet(ctx);
 		if (suffix) {
-			const target = workingSetTarget(foldingEnabled ? truth.serializeWire(lastMessages) : lastMessages);
+			const target = placeWorkingSet(foldingEnabled ? truth.serializeWire(lastMessages) : lastMessages, suffix, anchorFor(ctx));
 			source.workingSet = { text: suffix, tokens: estTokens(suffix), applied: target !== null, targetRole: target?.role ?? null };
 		}
 		const system = source.blocks.find((b) => b.kind === "system");

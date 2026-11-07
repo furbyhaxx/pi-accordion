@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 13
+  revision: 14
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-07T11:39:01+01:00"
+  updated_at: "2026-11-07T18:19:23+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 13
-      reason: "preserve human steering and YAML body bytes"
-      changes: ["sticky selective human recovery", "reversible whole-task controls", "escaped YAML control characters", "current goal-creation contract"]
+    - revision: 14
+      reason: "keep the working set from breaking provider prompt caches"
+      changes: ["an unchanged working set stays on the message that already carries it"]
 ---
 
 # Taskfold tree
@@ -208,9 +208,15 @@ them `changed since attached`; the store never updates the hash silently.
 
 ### 4.3 Working set
 
-One text part appended to the **last message of the outgoing wire** in the `context_with_system`
-hook, after Truth ingestion and wire serialization. It is never persisted and never enters Truth.
-Shown only while a list is attached:
+One text part appended to an input message (user or tool result) of the outgoing wire in the
+`context_with_system` hook, after Truth ingestion and wire serialization. It is never persisted and
+never enters Truth. Shown only while a list is attached.
+
+Placement keeps provider prompt caches warm: the working set goes to the current input when its
+text changes, then stays on that same message while it is unchanged, so each request extends the
+previous one as a byte-identical prefix. Moving it every request would invalidate the cache from
+the previous carrier onward on every step. It moves again only when its text changes or its carrier
+leaves the request (folded away, new session).
 
 ```
 [tasks] auth — Token store
