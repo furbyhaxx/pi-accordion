@@ -3,16 +3,17 @@
  * resume, recording which list is attached, and queueing the notes the agent must get when the
  * attachment changed outside its own tool calls.
  */
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, replyNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
 import { TaskError, slugFor, taskFingerprint, type TaskList, type TaskStore } from "./tasks";
-import { ResumeDialog, TaskListsBrowser, type ListDrillDown, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
+import { ResumeDialog, TASK_SCREEN_OPTIONS, TaskListsBrowser, type ListDrillDown, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
 
 /** The custom message type that carries task list notes to the agent. */
 export const NOTICE_MESSAGE = "accordion.tasks.notice";
 
 /** The subset of Pi's UI the task list dialogs need. */
 export interface TaskSessionUi {
-	custom<T>(factory: (tui: any, theme: any, keys: any, done: (value: T) => void) => any): Promise<T>;
+	custom<T>(factory: (tui: any, theme: any, keys: any, done: (value: T) => void) => any, options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T>;
 }
 
 export interface TaskSessionDeps {
@@ -103,6 +104,7 @@ export class TaskSession {
 		const outcome = await ui.custom<AttachOutcome | null>(
 			(tui, theme, keys, done) =>
 				new TaskListsBrowser(tui, theme, keys, host, mode, done, () => tui?.terminal?.rows ?? 30, mode === "manage" && openList ? (slug, close) => openList(tui, theme, keys, slug, close) : undefined),
+			TASK_SCREEN_OPTIONS,
 		);
 		this.deps.changed();
 		return outcome;

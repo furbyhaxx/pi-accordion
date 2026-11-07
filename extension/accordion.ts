@@ -60,6 +60,7 @@ import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoac
 import { PIN_LIMITS, workingSet } from "./taskPins";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
+import { TASK_SCREEN_OPTIONS } from "./tui/taskLists";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource, transcriptSpans } from "./tui/taskTranscript";
 import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
@@ -3792,7 +3793,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				}
 				if (verb === "tree") {
 					if (ctx.mode !== "tui" || !ctx.hasUI) ctx.ui.notify("The tasks tree opens in the Pi terminal UI.", "info");
-					else await withTaskViews(ctx, (viewsHost) => ctx.ui.custom<void>((tui, theme, keys, done) => new TaskViews(tui, theme, keys, viewsHost, { kind: "session" }, () => done(undefined), () => tui?.terminal?.rows ?? 30)));
+					else await withTaskViews(ctx, (viewsHost) => ctx.ui.custom<void>((tui, theme, keys, done) => new TaskViews(tui, theme, keys, viewsHost, { kind: "session" }, () => done(undefined), () => tui?.terminal?.rows ?? 30), TASK_SCREEN_OPTIONS));
 					return;
 				}
 				if (verb === "toggle") taskWidget.toggle();

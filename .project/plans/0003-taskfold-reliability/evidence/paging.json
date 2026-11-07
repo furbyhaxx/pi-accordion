@@ -1,0 +1,42 @@
+{
+  "runtime": "1.4.0 (Pi-Bolt 1.0.9, linux-x64, JIT off)",
+  "peerSdk": "1.5.0",
+  "scope": "Real private tmux terminal; synthetic session, no credentials or provider calls.",
+  "before": {
+    "pageDown": {
+      "from": "1-21/25",
+      "to": "1-21/25"
+    },
+    "defect": "Fullscreen viewport routing consumed PageDown before the focused inline inspector received it."
+  },
+  "repair": "Task browser and session tree use the documented modal overlay focus contract, with full width and space for Pi's footer. No raw global keyboard listeners or host upgrade.",
+  "after": {
+    "pageDown": {
+      "from": "1-21/25",
+      "to": "5-25/25"
+    },
+    "pageUp": {
+      "from": "5-25/25",
+      "to": "1-21/25"
+    }
+  },
+  "checks": {
+    "nativeTests": 232,
+    "appCheck": "0 errors, 0 warnings",
+    "contextSmoke": "passed"
+  },
+  "captures": [
+    {
+      "name": "before-page",
+      "screen": "\n────────────────────────────────────────────────────────────────────────────────\n Accordion › Task lists › terminal-eval › 1.1 › terminal-eval/1.1\n Task terminal-eval/1.1 · 3lbz7h\n\n As the agent sees it:\n\n {#p39o79 FOLDED} [task-record] terminal-eval/1 \"Completed recovery group\"\n status: done\n handle: {#9mzzes FOLDED}\n outcome: Both child carriers are complete and recoverable.\n children:\n   {#3lbz7h FOLDED} [task-record] terminal-eval/1.1 \"Prepare durable carrier\"\n status: done\n   acceptance criteria:\n     - Sentinel content can be recalled.\n   outcome: Durable carrier contains a recoverable sentinel.\n   decisions:\n     - Retain named handles — recovery needs an explicit association.\n   pins:\n     - fact: A scoped fact is not a block pin. (notes.txt:2)\n   {#2rd64k FOLDED} [task-record] terminal-eval/1.2 \"Verify linked recovery\"\n status: done\n   acceptance criteria:\n────────────────────────────────────────────────────────────────────────────────\n\n esc back · v original · ↑↓ pgup/pgdn scroll · 1-21/25\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    },
+    {
+      "name": "after-page",
+      "screen": "\n────────────────────────────────────────────────────────────────────────────────\n Accordion › Task lists › terminal-eval › 1.1 › terminal-eval/1.1\n {#p39o79 FOLDED} [task-record] terminal-eval/1 \"Completed recovery group\"\n status: done\n handle: {#9mzzes FOLDED}\n outcome: Both child carriers are complete and recoverable.\n children:\n   {#3lbz7h FOLDED} [task-record] terminal-eval/1.1 \"Prepare durable carrier\"\n status: done\n   acceptance criteria:\n     - Sentinel content can be recalled.\n   outcome: Durable carrier contains a recoverable sentinel.\n   decisions:\n     - Retain named handles — recovery needs an explicit association.\n   pins:\n     - fact: A scoped fact is not a block pin. (notes.txt:2)\n   {#2rd64k FOLDED} [task-record] terminal-eval/1.2 \"Verify linked recovery\"\n status: done\n   acceptance criteria:\n     - Child handles remain named.\n   outcome: Linked child recovery remains reversible.\n   decisions:\n     - Retain named handles — recovery needs an explicit association.\n────────────────────────────────────────────────────────────────────────────────\n\n esc back · v original · ↑↓ pgup/pgdn scroll · 5-25/25\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    },
+    {
+      "name": "restored-page",
+      "screen": "\n────────────────────────────────────────────────────────────────────────────────\n Accordion › Task lists › terminal-eval › 1.1 › terminal-eval/1.1\n Task terminal-eval/1.1 · 3lbz7h\n\n As the agent sees it:\n\n {#p39o79 FOLDED} [task-record] terminal-eval/1 \"Completed recovery group\"\n status: done\n handle: {#9mzzes FOLDED}\n outcome: Both child carriers are complete and recoverable.\n children:\n   {#3lbz7h FOLDED} [task-record] terminal-eval/1.1 \"Prepare durable carrier\"\n status: done\n   acceptance criteria:\n     - Sentinel content can be recalled.\n   outcome: Durable carrier contains a recoverable sentinel.\n   decisions:\n     - Retain named handles — recovery needs an explicit association.\n   pins:\n     - fact: A scoped fact is not a block pin. (notes.txt:2)\n   {#2rd64k FOLDED} [task-record] terminal-eval/1.2 \"Verify linked recovery\"\n status: done\n   acceptance criteria:\n────────────────────────────────────────────────────────────────────────────────\n\n esc back · v original · ↑↓ pgup/pgdn scroll · 1-21/25\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    }
+  ]
+}

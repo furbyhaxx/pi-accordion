@@ -3,6 +3,7 @@
  * (`/accordion tasks lists`) and the dialog that offers a resumed session its previous list back.
  * Rendering is pure; the components only hold selection and input state and call the host.
  */
+import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { decodeKittyPrintable, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { claimState, type ClaimState, type TaskList } from "../tasks";
 import { holderLabel, type AttachOutcome, type ResumeSituation } from "../taskBinding";
@@ -87,6 +88,9 @@ export function listRowLine(list: TaskList, session: string, selected: boolean, 
 	for (const tail of [claim + age + title, claim + age, claim, short]) if (visibleWidth(head + tail) <= width) return head + tail;
 	return truncateToWidth(head + short, width, ELLIPSIS);
 }
+
+/** Modal focus keeps fullscreen paging in the inspector while leaving Pi's footer visible. */
+export const TASK_SCREEN_OPTIONS = { overlay: true, overlayOptions: { anchor: "bottom-left", width: "100%", margin: { bottom: 3 } } } satisfies NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
 
 /** Rows left after the frame, Pi's spacer and its three footer rows. */
 export function frameBodyRows(rows: number, limit: number): number {

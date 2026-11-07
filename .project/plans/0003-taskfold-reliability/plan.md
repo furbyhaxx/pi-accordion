@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 6
+  revision: 7
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T10:06:55+01:00"
+  updated_at: "2026-11-07T10:22:44+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 6
-      reason: "repair viewport failures exposed by real terminal evaluation"
-      changes: ["temporary session-safe widget suspension", "short viewport and diagnostic budgets", "real captures and 232 native tests"]
+    - revision: 7
+      reason: "repair task paging on the installed Pi-Bolt runtime"
+      changes: ["modal task screen focus", "real before/after page navigation evidence", "retain footer space and cached rendering"]
 ---
 
 # Taskfold reliability repair
@@ -37,6 +37,7 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: full gates and clean production install/authenticated assets (`evidence/gates.json`).
 - done: historical replay and a further shared-serializer defect (`evidence/historical-replay.json`).
 - done: real-terminal viewport defects repaired; controls fit 36x24 and 80x10 (`evidence/viewport.json`).
+- done: modal task focus routes paging to the inspector on installed Pi-Bolt (`evidence/paging.json`).
 - now: remaining terminal feature matrix, live request and final review/gate refresh.
 
 ## Current slice: full verification and live evaluation
@@ -67,6 +68,11 @@ Completed evidence:
   when another list was invalid. Widget suspension now restores safely across sessions; the shared
   frame budget reserves Pi\'s spacer and footer, and diagnostic rows fit short screens. New
   regressions failed before the fixes. All 232 native tests, app check and extension smokes pass.
+
+- Installed Pi-Bolt is Pi 1.4.0 / Bolt 1.0.9, while local peer dependencies are Pi 1.5.0.
+  Fullscreen PageDown was consumed by the transcript before reaching inline task inspection.
+  Task screens now use the common modal overlay API, not newer-only component flags or raw
+  keyboard interception. Real PageDown moves 1–21/25 → 5–25/25 and PageUp restores 1–21/25.
 
 Remaining work:
 1. Exercise isolated Pi-Bolt at 36/57/80/140 columns and short height: metadata, composed-child
