@@ -290,10 +290,13 @@ export class TaskStore {
 
 	private write(list: TaskList): void {
 		const file = this.file(list.slug);
-		fs.mkdirSync(path.dirname(file), { recursive: true });
 		list.updatedAt = now();
+		const candidate = toListFile(list as unknown as FlatList);
+		const checked = parseListFile(candidate, list.slug, { requireGoal: false });
+		if (!checked.ok) throw new TaskError(`Cannot save task list "${list.slug}":\n${checked.errors.join("\n")}\nThe original file is unchanged.`);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
 		const tmp = `${file}.${process.pid}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(toListFile(list as unknown as FlatList), null, 2) + "\n");
+		fs.writeFileSync(tmp, JSON.stringify(candidate, null, 2) + "\n");
 		fs.renameSync(tmp, file);
 	}
 

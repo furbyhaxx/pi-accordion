@@ -309,6 +309,7 @@ export class TaskWidgetComponent {
 		private readonly model: () => TaskWidgetModel | null,
 		private readonly view: TaskWidgetView,
 		private readonly onExpanded: (expanded: boolean) => void = () => {},
+		private readonly problem: () => string | null = () => null,
 	) {
 		this.timer = setInterval(() => {
 			const m = this.model();
@@ -321,13 +322,15 @@ export class TaskWidgetComponent {
 
 	render(width: number): string[] {
 		const m = this.model();
+		const problem = this.problem();
+		const warning = problem ? [truncateToWidth(this.theme.fg("warning", `▲ Tasks: ${clean(problem)}`), width, ELLIPSIS)] : [];
 		if (!m) {
 			this.hits = [];
-			return [];
+			return warning;
 		}
 		const out = renderTaskWidget(m, this.view, width, this.theme, Date.now(), this.blinkOn);
-		this.hits = out.hits;
-		return out.lines;
+		this.hits = [...warning.map(() => null), ...out.hits];
+		return [...warning, ...out.lines];
 	}
 
 	handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
@@ -355,6 +358,8 @@ export class TaskWidgetComponent {
 export interface TaskWidgetDeps {
 	/** All task lists of the current project; IO, called only on reload. */
 	lists(): TaskList[];
+	/** Readable and invalid lists together; IO, called only on reload. */
+	scan?(): { lists: TaskList[]; invalid: string[] };
 	session(): string | null;
 	truth(): Truth | null;
 	/** Whether the attached conductor provides the `tasks` tool. */
@@ -377,6 +382,7 @@ const WIDGET_KEY = "accordion-tasks";
 export class TaskWidgetController {
 	private ui: WidgetUi | null = null;
 	private list: TaskList | null = null;
+	private problem: string | null = null;
 	private installed: TaskWidgetComponent | null = null;
 	private installing = false;
 	private hidden = false;
@@ -406,10 +412,14 @@ export class TaskWidgetController {
 	/** Re-read the task lists, then show, hide or redraw. */
 	reload(): void {
 		const session = this.ui ? this.deps.session() : null;
+		this.problem = null;
 		try {
-			this.list = session ? pickTaskList(this.deps.lists(), session) : null;
-		} catch {
+			const scan = session ? this.deps.scan?.() : undefined;
+			this.list = session ? pickTaskList(scan?.lists ?? this.deps.lists(), session) : null;
+			if (scan?.invalid.length) this.problem = `Invalid lists: ${scan.invalid.join(", ")}; use tasks status for errors.`;
+		} catch (err) {
 			this.list = null;
+			this.problem = err instanceof Error ? err.message : String(err);
 		}
 		this.cache = null;
 		this.sync();
@@ -417,7 +427,7 @@ export class TaskWidgetController {
 
 	/** Show, hide or redraw for the current state; cheap, safe to call on every change. */
 	sync(): void {
-		const want = !!this.ui && !this.hidden && !!this.list && this.deps.settings().mode === "auto" && this.deps.enabled();
+		const want = !!this.ui && !this.hidden && (!!this.list || !!this.problem) && this.deps.settings().mode === "auto" && this.deps.enabled();
 		if (want && !this.installed && !this.installing) {
 			if (this.view.showLegend) this.legendSeen = true;
 			this.installing = true;
@@ -426,7 +436,7 @@ export class TaskWidgetController {
 					WIDGET_KEY,
 					(tui, theme) => {
 						this.installed?.dispose();
-						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view, (expanded) => { this.updateLegend(expanded); this.deps.saveExpanded(expanded); });
+						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view, (expanded) => { this.updateLegend(expanded); this.deps.saveExpanded(expanded); }, () => this.problem);
 						return this.installed;
 					},
 					{ placement: "aboveEditor" },
@@ -475,6 +485,7 @@ export class TaskWidgetController {
 		if (!this.ui) return "the task widget needs the interactive terminal";
 		if (this.deps.settings().mode === "off") return 'the task widget is off ("taskWidget.mode" in ~/.accordion/config.json)';
 		if (!this.deps.enabled()) return "attach the Taskfold conductor to track tasks";
+		if (this.problem) return this.problem;
 		if (!this.list) return "this session holds no task list yet";
 		if (this.hidden) return "the task widget is hidden in this session";
 		return null;
@@ -484,6 +495,7 @@ export class TaskWidgetController {
 		this.remove();
 		this.ui = null;
 		this.list = null;
+		this.problem = null;
 		this.cache = null;
 	}
 

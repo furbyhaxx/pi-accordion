@@ -15,6 +15,8 @@ const ELLIPSIS = "…";
 /** What the list surfaces need from the extension. Every action returns a message for the status line. */
 export interface TaskListsHost {
 	lists(): TaskList[];
+	/** Invalid list slugs, read only when the browser reloads. */
+	invalid?(): readonly string[];
 	session(): string;
 	/** Attach `slug` to this session (claiming it, `force` takes over a live foreign claim). */
 	attach(slug: string, force: boolean): { ok: true; list: TaskList; message: string } | { ok: false; message: string };
@@ -128,6 +130,7 @@ export interface ListDrillDown {
  */
 export class TaskListsBrowser {
 	private lists: TaskList[] = [];
+	private invalid: readonly string[] = [];
 	private index = 0;
 	private screen: "list" | "detail" | "confirm" | "create" = "list";
 	private createTitle = "";
@@ -158,6 +161,7 @@ export class TaskListsBrowser {
 	private reload(): void {
 		const slug = this.lists[this.index]?.slug;
 		this.lists = this.host.lists();
+		this.invalid = this.host.invalid?.() ?? [];
 		const at = slug ? this.lists.findIndex((l) => l.slug === slug) : -1;
 		this.index = Math.max(0, Math.min(at >= 0 ? at : this.index, this.lists.length - 1));
 	}
@@ -196,7 +200,11 @@ export class TaskListsBrowser {
 		const slugWidth = Math.max(0, ...this.lists.map((l) => l.slug.length));
 		const body = this.lists.length
 			? this.lists.slice(start, start + bodyRows).map((l, i) => listRowLine(l, session, start + i === this.index, width, t, now, slugWidth))
-			: [t.fg("dim", "   No task lists in this project yet. Press n to start one.")];
+			: [t.fg("dim", this.invalid.length ? "   No readable task lists." : "   No task lists in this project yet. Press n to start one.")];
+		if (this.invalid.length) {
+			body.push(t.fg("warning", ` ▲ Invalid lists: ${this.invalid.map(clean).join(", ")}`));
+			body.push(t.fg("dim", " Use tasks status <slug> for the validation errors."));
+		}
 		const count = `${this.lists.length} list${this.lists.length === 1 ? "" : "s"}`;
 		const title = this.mode === "pick" ? "Accordion › Choose a task list" : "Accordion › Task lists";
 		const hints = sel ? `↑↓ select · enter ${this.mode === "pick" ? "attach" : "open"} · ${this.actionHints(sel)} · n new · esc ${this.mode === "pick" ? "back" : "close"}` : "n new · esc close";

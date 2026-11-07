@@ -7,7 +7,7 @@ document:
   status: "published"
   revision: 11
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-07T08:20:00+01:00"
+  updated_at: "2026-11-07T08:18:01+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
@@ -94,7 +94,7 @@ verdicts, bindings) is unchanged.
   `TaskError` naming each problem and its fix, for example `tasks[1].subtasks[0]: id "2.3" does not
   match its position 2.1; remove the id or move the task`. The file is not rewritten.
 - **v1 files** (flat `tasks[]`, no `version`) are converted in memory: the tree is rebuilt from the
-  dotted ids. The next write stores v2.
+  dotted ids. The next write stores v2. Every serialized candidate is validated before atomic replacement; a rejected conversion leaves the original file unchanged. Native task views name invalid lists instead of treating them as absent.
 - **Missing goal** (a migrated v1 list, or one created from the UI lists browser, which asks only
   for a title): `start`, `add` and `move` are refused until
   `tasks update {list, goal}` sets one. `list`, `status`, `claim` and the finishing actions still

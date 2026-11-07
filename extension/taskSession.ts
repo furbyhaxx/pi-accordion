@@ -112,6 +112,7 @@ export class TaskSession {
 	host(): TaskListsHost {
 		return {
 			lists: () => this.deps.store().lists(),
+			invalid: () => this.deps.store().scan().invalid,
 			session: () => this.deps.session(),
 			attach: (slug, force) => this.attach(slug, force),
 			release: (slug) => {

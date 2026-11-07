@@ -38,7 +38,7 @@ and attach the project's task lists (tasks show as ☐ todo, ▶/◐ in progress
 reason, ▣ done, ☒ failed, ⊘ abandoned) and drill into a task's details and folds. In the expanded
 widget, ≡ means folded, · means finished but raw, and ! flags a finished parent with unfinished
 children; progress counts are broken down by leaf status. Press `?` in the task list view for the
-legend. Use `/accordion tasks tree`
+legend. Task lists have no fixed nesting-depth limit; invalid files are named in warnings and rejected migrations leave the original file unchanged. Use `/accordion tasks tree`
 to see this session's transcript by task, `/accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]`
 to write that projection to a file, `/accordion budget 200k` / `/accordion tail 20k` to set the
 budget and protected tail (remembered per model; `--default` or `ctrl+s` in the panel saves them under

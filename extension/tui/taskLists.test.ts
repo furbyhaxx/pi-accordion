@@ -52,6 +52,21 @@ const type = (c: { handleInput(d: string): void }, ...input: string[]) => {
 };
 
 describe("task list browser", () => {
+	test("invalid files stay visible and scanning happens only on reload", () => {
+		const { host } = project();
+		let scans = 0;
+		host.invalid = () => { scans++; return ["broken"]; };
+		const b = new TaskListsBrowser(tui, theme, keys, host, "manage", () => {}, () => 30);
+		for (const width of [36, 57, 80, 140]) {
+			const lines = b.render(width);
+			expect(lines.join("\n")).toContain("Invalid lists: broken");
+			expect(lines.join("\n")).not.toContain("No task lists in this project yet");
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		}
+		expect(scans).toBe(1);
+		b.dispose();
+	});
+
 	test("rows keep slug, progress and claim at every width", () => {
 		const { mine, other } = project();
 		runTasks(other, { action: "create", list: "auth-refactor", title: "Auth refactor", goal: "G", tasks: [{ title: "A" }, { title: "B" }] });

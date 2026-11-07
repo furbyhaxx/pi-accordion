@@ -181,6 +181,7 @@ current one when it gets long:
 `alt+t` or `/accordion tasks` expands and collapses it; `/accordion tasks hide` hides it for the
 session. `/accordion tasks lists` browses the project's task lists to attach, release or start one, and
 opens any task's details, its span and its folds, including why each user message was kept or folded.
+Task lists have no fixed nesting-depth limit. Invalid files stay visible as warnings; rejected migrations leave the original file unchanged.
 `/accordion tasks tree` shows the whole session by task, with work done outside any task flagged.
 `/accordion tasks dump-transcript` writes the projection the agent actually holds to a file — the tree
 by default, or YAML, XML, Markdown or the flat wire order by extension or `--format`, with `--formats

@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T08:16:00+01:00"
+  updated_at: "2026-11-07T08:18:01+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "record approved resolution and evaluation scope"
-      changes: ["define repair slices and acceptance gates"]
+    - revision: 2
+      reason: "close deep-list and persistence repairs"
+      changes: ["remove depth caps", "validate writes and expose invalid-list warnings"]
 ---
 
 # Taskfold reliability repair
@@ -29,9 +29,9 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 
 ## Progress
 
-- now: remove depth caps and cover deep legacy/v2 mutation round trips.
-- next: validate writes before atomic replacement and expose unreadable-list diagnostics.
-- later: safe descendant folding fallback; named child recovery through aging.
+- done: remove depth caps; 64-level authored and 32-level mutation/migration regressions pass.
+- done: validate writes before replacement; invalid-list browser/widget warnings, cached outside render.
+- now: safe descendant folding fallback; named child recovery through aging.
 - later: metadata/interval-aware transcript; exact-once wire export and valid YAML, including working-set context.
 - later: complete task inspection and composed-handle recovery, with cached I/O outside render.
 - later: full gates, read-only historical replay, real Pi-Bolt terminal evaluation and final review.

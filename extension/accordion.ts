@@ -2923,6 +2923,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	const taskWidget = new TaskWidgetController({
 		lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
+		scan: () => (latestCtx ? taskStoreFor(latestCtx).scan() : { lists: [], invalid: [] }),
 		session: () => (typeof latestCtx?.sessionManager?.getSessionId === "function" ? latestCtx.sessionManager.getSessionId() : null),
 		truth: () => truth,
 		enabled: tasksToolActive,

@@ -310,6 +310,18 @@ describe("tasks", () => {
 		expect(() => runTasks(s, { action: "update", list: "u", id: "2", goal: "x" })).toThrow(/"goal" belongs to the list/);
 	});
 
+	test("refuses an invalid migration before replacing the legacy file", () => {
+		const { dir, s } = store();
+		const folder = path.join(dir, ".pig/tasks");
+		fs.mkdirSync(folder, { recursive: true });
+		const file = path.join(folder, "legacy.json");
+		const original = JSON.stringify({ slug: "legacy", title: "Legacy", claim: { session: "s1", at: new Date().toISOString() }, tasks: [{ id: "1", title: "Kept", status: "done", report }, { id: "3", title: "Started identity", status: "doing" }] });
+		fs.writeFileSync(file, original);
+		expect(() => runTasks(s, { action: "update", list: "legacy", goal: "Keep history" })).toThrow(/Cannot save.*legacy.*id "3"/s);
+		expect(fs.readFileSync(file, "utf8")).toBe(original);
+		expect(s.read("legacy").tasks.map((t) => t.id)).toEqual(["1", "3"]);
+	});
+
 	test("a hand-written file loads, and an invalid one is named with its problems", () => {
 		const { dir, s } = store();
 		const tasksPath = path.join(dir, ".pig", "tasks");

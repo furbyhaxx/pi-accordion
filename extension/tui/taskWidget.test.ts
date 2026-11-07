@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Task, TaskList } from "../tasks";
 import { buildTaskTree, layoutTaskTree, summarizeTasks, type TaskRow } from "./taskTree";
-import { TaskWidgetController, applyTaskWidgetHit, foldedTaskIds, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
+import { TaskWidgetController, TaskWidgetComponent, applyTaskWidgetHit, foldedTaskIds, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
 
 const T0 = Date.parse("2026-11-05T08:00:00Z");
 const at = (s: number) => new Date(T0 + s * 1000).toISOString();
@@ -185,6 +185,28 @@ describe("task widget", () => {
 	test("subtasks of a folded parent count as folded only when they ran", () => {
 		const l = list([task("1", "done", "P", 0, 60), task("1.1", "done", "ran", 0, 30), { ...task("1.2", "abandoned", "never ran"), report: { outcome: "x" } }, task("1.3", "abandoned", "ran, then dropped", 30, 40)]);
 		expect([...foldedTaskIds(l, new Map([["1", { full: 1, live: 1 }]]))].sort()).toEqual(["1", "1.1", "1.3"]);
+	});
+
+	test("an invalid list produces a visible cached warning even without a readable list", () => {
+		let scans = 0;
+		let component: TaskWidgetComponent | null = null;
+		const controller = new TaskWidgetController({
+			lists: () => [],
+			scan: () => { scans++; return { lists: [], invalid: ["broken"] }; },
+			session: () => "s1", truth: () => null, enabled: () => true,
+			settings: () => ({ mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" }),
+			saveExpanded() {},
+		});
+		controller.attach({ setWidget: (_key, factory) => { if (factory) component = factory({ requestRender() {} }, plain); } });
+		expect(controller.reason()).toContain("Invalid lists: broken");
+		if (!component) throw new Error("warning widget was not installed");
+		for (const width of [36, 57, 80, 140]) {
+			const lines = (component as TaskWidgetComponent).render(width);
+			expect(lines.join("\n")).toContain("Invalid lists: broken");
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		}
+		expect(scans).toBe(1);
+		controller.detach();
 	});
 
 	test("remembers the expanded state for later sessions", () => {
