@@ -50,6 +50,13 @@ function data(src: TranscriptSource | null): ViewData {
 	return { src, spans: src ? transcriptSpans(src) : [], theme, now: Date.parse(at(40)) };
 }
 
+function truthOf(bs = blocks()): Truth {
+	const truth = new Truth({ meta: { format: "pi", title: "Task views", cwd: "", model: "" }, lineCount: 0, skipped: 0,
+		blocks: bs.map((b, order) => ({ ...b, tokens: b.full, turn: 0, order, override: null, autoFolded: false, by: null })) });
+	truth.setProtect(0);
+	return truth;
+}
+
 describe("task views", () => {
 	it("shows subtask progress, time and folds in the list tree", () => {
 		const nodes = listNodes(list, null, data(null));
@@ -135,6 +142,65 @@ describe("task views", () => {
 		expect(steps.some((l) => l.startsWith("✓ edit  src/a.ts"))).toBe(true);
 	});
 
+	it("renders cached snapshots and refreshes metadata only outside rendering", () => {
+		const truth = truthOf();
+		const project = truth.projectContext.bind(truth);
+		let projections = 0, reads = 0;
+		truth.projectContext = (options) => { projections++; return project(options); };
+		let lists = [{ ...list, goal: "Initial goal" }];
+		let changed = () => {};
+		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => { reads++; return lists; }, canSteer: () => false, apply: async () => "",
+			subscribe: (listener) => { changed = listener; return () => {}; } };
+		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);
+		const initialProjections = projections;
+		for (let i = 0; i < 3; i++) for (const width of [36, 57, 80, 140]) view.render(width);
+		expect(reads).toBe(1);
+		expect(projections).toBe(initialProjections);
+		lists = [{ ...list, goal: "Updated goal" }]; changed(); view.handleInput("g");
+		const afterRefresh = { reads, projections };
+		for (const width of [36, 57, 80, 140]) expect(view.render(width).join("\n")).toContain("Updated goal");
+		expect({ reads, projections }).toEqual(afterRefresh);
+		view.dispose();
+	});
+
+	it("does not reuse a different session's transcript at the same revision", () => {
+		let truth: Truth | null = truthOf();
+		let changed = () => {};
+		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => truth ? [list] : [], canSteer: () => !!truth, apply: async () => "",
+			subscribe: (listener) => { changed = listener; return () => {}; } };
+		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "session" }, () => {}, () => 40);
+		expect(view.render(140).join("\n")).toContain("Build the thing");
+		const next = truthOf(blocks().map((b, i) => i === 0 ? { ...b, text: "Replacement branch" } : b));
+		expect(next.rev).toBe(truth.rev);
+		truth = next; changed();
+		expect(view.render(140).join("\n")).toContain("Replacement branch");
+		truth = null; changed();
+		expect(view.render(140).join("\n")).toContain("No session context yet");
+		view.dispose();
+	});
+
+	it("labels invalid lists rather than claiming they are empty or missing", () => {
+		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [], invalid: () => ["l"], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);
+		expect(view.render(140).join("\n")).toContain("Invalid task list");
+		view.handleInput("g");
+		expect(view.render(140).join("\n")).toContain('"l" is invalid');
+		view.dispose();
+	});
+
+	it("distinguishes stored records from outgoing text while folding is paused", () => {
+		const truth = truthOf(), bs = truth.blocks;
+		truth.apply([{ kind: "group", ids: [bs[3].id, bs.at(-1)!.id], summary: `${foldTag(`g:${bs[3].id}`)} [task-record] l/1 "Parent" status: done\noutcome: Built.` }], "auto");
+		const host: TaskViewsHost = { truth: () => truth, folding: () => false, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+		const view = new TaskViews({ requestRender() {} }, theme, { matches: (input, key) => input === "\r" && key === "tui.select.confirm" }, host, { kind: "list", slug: "l" }, () => {}, () => 40);
+		expect(view.render(140).join("\n")).toContain("folding paused");
+		view.handleInput("\r"); view.handleInput("v");
+		const shown = view.render(140).join("\n");
+		expect(shown).toContain("Stored fold (folding paused)");
+		expect(shown).not.toContain("As the agent sees it");
+		view.dispose();
+	});
+
 	it("opens the list legend with question mark", () => {
 		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => 0.3, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
 		const keys = { matches: (d: string, k: string) => k === "tui.select.cancel" && d === "\x1b" };
@@ -147,9 +213,7 @@ describe("task views", () => {
 
 	it("inspects composed child handles and steers them through the lease instead of rejecting the child", async () => {
 		const b = blocks();
-		const truth = new Truth({ meta: { format: "pi", title: "Handles", cwd: "", model: "" }, lineCount: 0, skipped: 0,
-			blocks: b.map((x, order) => ({ ...x, tokens: x.full, turn: 0, order, override: null, autoFolded: false, by: null })) });
-		truth.setProtect(0);
+		const truth = truthOf(b);
 		const childIds = b.slice(5, 9).map((b) => b.id);
 		const handleId = "t:l/1.1";
 		const summary = `${foldTag(`g:${b[3].id}`)} [task-record] l/1 "Parent"  status: done\nchild l/1.1 ${foldTag(handleId)}`;

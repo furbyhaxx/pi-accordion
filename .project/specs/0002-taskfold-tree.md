@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 11
+  revision: 12
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-07T08:18:01+01:00"
+  updated_at: "2026-11-07T09:08:44+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 11
-      reason: "remove the rejected nesting-depth restriction"
-      changes: ["§2 task lists have no fixed maximum depth", "§11 update authoring guidance"]
+    - revision: 12
+      reason: "complete recovery and inspection reliability contracts"
+      changes: ["human handle-based recovery", "named descendant aging", "cached metadata inspection and faithful export"]
 ---
 
 # Taskfold tree
@@ -347,10 +347,10 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
   recompiles.
 - `resolveRecall` resolves a handle code to its members' raw content.
 - `resolveUnfold` on a handle code unfolds the carrier and every referenced group and emits a `state-changed` with
-  `by:"agent"`. Taskfold marks that node agent-open and recompiles: the parent is parted around a
-  raw child.
-- An agent-open node refolds only under pressure and only once its task age is ≥2. After a second
-  agent unfold it stays open for the session. Counts and open state persist in branch-local
+  `by:"agent"`. The native tasks UI sends the same handle-bearing operation through the controller
+  lease with `by:"you"`. Taskfold handles both actors and recompiles the parent around the raw child.
+- A handle-opened node refolds only under pressure and only once its task age is ≥2. After a second
+  handle-based unfold it stays open for the session. Counts and open state persist in branch-local
   `accordion.taskfold.unfold` entries and survive reattachment and session resume.
 - Truth snapshot, replica and protocol versions are bumped. `agentView` matches handle codes that
   are embedded inside a summary, not only leading tags.
@@ -367,7 +367,8 @@ share their root's age.
 | L3 | one line: `{#code} [task-record] key "title" status · outcome≤200 · recall {#code} instead of re-reading` | 6–10 |
 | L4 | `{#code} [task-archived] key "title" status; recall {#code} instead of re-reading` | ≥11 |
 
-Configured as `taskfold.aging = [3, 6, 11]`.
+Configured as `taskfold.aging = [3, 6, 11]`. Every shortened record also retains named descendant
+recovery rows (key, title, status, outcome≤160 and handle) and exact pinned text.
 
 Cache rule (one cache break per epoch):
 1. The epoch's planned ops define the earliest changed position P.
@@ -465,6 +466,22 @@ then dropped); glyph and counts are never cut.
 - **Legend:** one dim line under the header the first time the widget expands in a process, and on
   `?` in the panel's Tasks view: `▣ done ☒ failed ⊘ abandoned ◐ partly done ▶ doing ⧗ blocked ☐ todo · ≡ folded · raw`.
 - Verified in a real terminal at 36, 57, 80 and 140 columns.
+
+### 10.3 Inspection and export
+
+- `g` opens list context, including an empty list's goal, scoped pins and attachment references.
+- Task details expose acceptance criteria, list/ancestor/task pins, attachment lines/notes/hashes,
+  interval-correct facts and composed recovery handles. Block pins (`p`) remain separate from scoped facts.
+- Composed child inspection resolves its record and scoped originals. Handle-based unfold goes through
+  the controller lease and recomposes siblings. Fold markers reflect actual coverage, not ID ancestry.
+- List snapshots reload on opening, task calls and session changes. Transcript snapshots refresh on
+  Truth identity/revision changes, outside render. A stale view never reads or steers a new session.
+- Paused folding is explicit; stored records are not described as the current outgoing text.
+- All dump formats consume Truth's authoritative carriers once, with calibrated additive charges.
+  Split/composed/untracked groups, dropped carriers, stragglers and substitutions retain their actual
+  outgoing form. Structured details, handles and task metadata remain available as non-wire metadata.
+  The transient working set is exported explicitly, distinguishing applied versus cached suffixes.
+  YAML preserves arbitrary indentation, final newlines and carriage returns.
 
 ## 11. Skill `accordion-task-lists`
 

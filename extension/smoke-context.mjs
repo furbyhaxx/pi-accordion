@@ -71,6 +71,52 @@ check("task sizing guidance reaches the default system prompt only while tasks i
 		assert.doesNotMatch(inactive, /split broad features into child tasks/);
 	} finally { r.close(); }
 });
+check("native task inspection caches disk reads, refreshes changes and refuses a replacement session", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-task-views-"));
+	const messages = [{ role: "user", content: "Inspect tasks", timestamp: 1 }];
+	const r = runtime(messages, { cwd: dir, sessionId: "views-old" });
+	const run = args => r.tools.tasks.execute("call", args, undefined, undefined, r.ctx);
+	const { TaskStore } = await jiti.import("./tasks.ts");
+	const scan = TaskStore.prototype.scan;
+	let scans = 0;
+	TaskStore.prototype.scan = function (...args) { scans++; return scan.apply(this, args); };
+	let view;
+	try {
+		await run({ action: "create", list: "ui", title: "UI", goal: "Initial goal", tasks: [{ title: "Inspect work" }] });
+		const result = await run({ action: "start", list: "ui", id: "1" });
+		messages.push({ role: "assistant", responseId: "start", timestamp: 2, content: [{ type: "toolCall", id: "begin", name: "tasks", arguments: { action: "start", list: "ui", id: "1" } }] },
+			{ role: "toolResult", toolCallId: "begin", toolName: "tasks", timestamp: 3, ...result, isError: false });
+		await r.request(messages);
+		r.ctx.ui.custom = async factory => {
+			view = factory({ requestRender() {}, terminal: { rows: 40 } }, { fg: (_c, s) => s, bold: s => s, strikethrough: s => s },
+				{ matches: (input, key) => input === ({ "tui.select.down": "\x1b[B", "tui.select.cancel": "\x1b" })[key] }, () => {});
+			view.render(140); view.handleInput("\x1b[B"); view.handleInput("d");
+			const before = scans;
+			for (const width of [36, 57, 80, 140]) assert.match(view.render(width).join("\n"), /Initial goal/);
+			assert.equal(scans, before, "render must not scan task files");
+			await run({ action: "update", list: "ui", goal: "Updated goal" });
+			assert.ok(scans > before, "task updates must reload the shared snapshot");
+			const after = scans;
+			for (const width of [36, 57, 80, 140]) assert.match(view.render(width).join("\n"), /Updated goal/);
+			assert.equal(scans, after);
+			r.ctx.sessionManager.getSessionId = () => "views-new";
+			messages.splice(0, messages.length, { role: "user", content: "Replacement session", timestamp: 4 });
+			r.entries.length = 0;
+			await r.handlers.session_start({ reason: "new" }, r.ctx);
+			await r.request(messages);
+			view.handleInput("\x1b");
+			assert.match(view.render(140).join("\n"), /No session context yet/);
+			view.handleInput("p");
+			assert.ok((await r.open()).truth().blocks.every(b => b.override === null));
+		};
+		await r.command("tasks tree");
+	} finally {
+		view?.dispose();
+		TaskStore.prototype.scan = scan;
+		r.close();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 check("task working set refreshes outside the request hook and stays session-local", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-working-set-"));
 	const configDir = path.join(home, ".accordion");

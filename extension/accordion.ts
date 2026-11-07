@@ -2921,9 +2921,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let taskSession: TaskSession | null = null;
 	let taskCoach = new TaskCoach();
 
+	let taskListSnapshot: { project: string; session: string; lists: TaskList[]; invalid: string[] } | null = null;
+	function scanTaskLists(): { lists: TaskList[]; invalid: string[] } {
+		if (!latestCtx) { taskListSnapshot = null; return { lists: [], invalid: [] }; }
+		taskListSnapshot = null;
+		const scan = taskStoreFor(latestCtx).scan();
+		taskListSnapshot = { project: path.resolve(latestCtx.cwd), session: latestCtx.sessionManager.getSessionId(), ...scan };
+		return scan;
+	}
 	const taskWidget = new TaskWidgetController({
-		lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
-		scan: () => (latestCtx ? taskStoreFor(latestCtx).scan() : { lists: [], invalid: [] }),
+		lists: () => taskListSnapshot?.lists ?? [],
+		scan: scanTaskLists,
 		session: () => (typeof latestCtx?.sessionManager?.getSessionId === "function" ? latestCtx.sessionManager.getSessionId() : null),
 		truth: () => truth,
 		enabled: tasksToolActive,
@@ -3053,7 +3061,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				session: () => ctx.sessionManager.getSessionId(),
 				enabled: tasksToolActive,
 				appendEntry: (type, data) => pi.appendEntry(type, data),
-				changed: () => taskWidget.reload(),
+				changed: () => { taskWidget.reload(); notifyNative(); },
 			});
 			taskSession.start(ctx.sessionManager.getBranch(), (event as { reason?: StartReason }).reason ?? "startup", ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
 		}
@@ -3563,18 +3571,24 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	/** The task inspection screens' host for this session, steering through `surfaceId`'s lease. */
 	function taskViewsHost(surfaceId: string, openedSessionId: string): TaskViewsHost {
+		scanTaskLists();
+		const openedProject = latestCtx ? path.resolve(latestCtx.cwd) : null;
+		const openedPiSession = latestCtx?.sessionManager.getSessionId();
+		const current = () => sessionId === openedSessionId && !!latestCtx && path.resolve(latestCtx.cwd) === openedProject && latestCtx.sessionManager.getSessionId() === openedPiSession;
 		return {
-			truth: () => (sessionId === openedSessionId ? truth : null),
+			truth: () => (current() ? truth : null),
+			folding: () => foldingEnabled,
 			verdict: (id) => taskfoldVerdicts.get(id),
 			threshold: () => taskfoldVerdicts.threshold,
-			lists: () => (latestCtx ? taskStoreFor(latestCtx).lists() : []),
+			lists: () => current() && taskListSnapshot?.project === openedProject && taskListSnapshot.session === openedPiSession ? taskListSnapshot.lists : [],
+			invalid: () => current() ? taskListSnapshot?.invalid ?? [] : [],
 			canSteer: () => {
 				refreshControllerNow();
-				return holdsControl(surfaceId, openedSessionId);
+				return current() && holdsControl(surfaceId, openedSessionId);
 			},
 			apply: async (ops) => {
 				refreshControllerNow();
-				if (!holdsControl(surfaceId, openedSessionId)) return "Read-only: another surface controls Accordion.";
+				if (!current() || !holdsControl(surfaceId, openedSessionId)) return "Read-only: another surface controls Accordion.";
 				const res = applyCommand({ kind: "ops", ops });
 				const refused = res.results.flatMap((r) => r.perId?.filter((e) => e.reason).map((e) => e.reason!) ?? (r.clamped ? [r.clamped] : []));
 				return refused.length ? refusalMessage(refused) : res.results.every((r) => r.applied) ? "Applied." : "Nothing changed.";
@@ -4042,6 +4056,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) {
 					taskWidget.reload();
 					refreshWorkingSet(ctx);
+					notifyNative();
 				}
 			}
 		},

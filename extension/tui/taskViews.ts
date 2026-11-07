@@ -16,7 +16,7 @@ import { formatCompactTokens } from "./map";
 import { frame } from "./taskLists";
 import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
-import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type WidgetTheme } from "./taskWidget";
+import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type FoldTokens, type WidgetTheme } from "./taskWidget";
 import { TreeState, type TreeNode } from "./treeView";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
@@ -68,6 +68,8 @@ export interface TaskViewsHost {
 	verdict(id: string): Verdict | undefined;
 	threshold(): number | null;
 	lists(): TaskList[];
+	invalid?(): readonly string[];
+	folding?(): boolean;
 	/** Whether this panel may change the context; actions are refused otherwise. */
 	canSteer(): boolean;
 	/** Apply ops through the controller; resolves to a status message. */
@@ -99,8 +101,7 @@ function taskLabel(t: Task, state: ReturnType<typeof glyphState>, theme: WidgetT
 }
 
 /** A list's tasks as a tree: progress, time, folds and span tokens when the span ran in this session. */
-export function listNodes(list: TaskList, truth: Truth | null, data: ViewData): TreeNode<ViewRef>[] {
-	const folds = truth ? foldedTaskTokens(list, truth) : new Map();
+export function listNodes(list: TaskList, truth: Truth | null, data: ViewData, folds: ReadonlyMap<string, FoldTokens> = truth ? foldedTaskTokens(list, truth) : new Map()): TreeNode<ViewRef>[] {
 	const t = data.theme;
 	const build = (n: TaskNode): TreeNode<ViewRef> => {
 		const task = n.task;
@@ -368,7 +369,12 @@ export type TaskViewsStart = { kind: "list"; slug: string } | { kind: "session" 
 export class TaskViews {
 	private stack: Screen[];
 	private message = "";
-	private cache: { rev: number; data: { src: TranscriptSource; spans: TaskSpan[] } } | null = null;
+	private cache: { truth: Truth; rev: number; folding: boolean; data: { src: TranscriptSource; spans: TaskSpan[] } } | null = null;
+	private listsSnapshot: TaskList[] = [];
+	private invalidLists: readonly string[] = [];
+	private byBlock = new Map<string, TBlock>();
+	private foldCache = new Map<string, ReadonlyMap<string, FoldTokens>>();
+	private recordCache = new Map<string, ReturnType<TaskViews["computeGroups"]>>();
 	private readonly unsubscribe: () => void;
 
 	constructor(
@@ -381,7 +387,8 @@ export class TaskViews {
 		private readonly rows: () => number,
 	) {
 		this.stack = [start.kind === "list" ? { kind: "list", slug: start.slug, tree: new TreeState() } : { kind: "session", tree: new TreeState(), show: "all" }];
-		this.unsubscribe = host.subscribe(() => tui.requestRender());
+		this.refresh();
+		this.unsubscribe = host.subscribe(() => this.requestRender());
 	}
 
 	/** True while only the first screen is open (the list browser handles its own keys then). */
@@ -398,30 +405,49 @@ export class TaskViews {
 		return "tree" in s && s.tree.filtering;
 	}
 
-	private data(): ViewData {
+	private refresh(): void {
+		const lists = this.host.lists(), previousLists = this.listsSnapshot;
+		this.listsSnapshot = lists;
+		this.invalidLists = this.host.invalid?.() ?? [];
 		const truth = this.host.truth();
-		let src: TranscriptSource | null = null;
-		let spans: TaskSpan[] = [];
-		if (truth) {
-			if (this.cache?.rev !== truth.rev) {
-				const s = transcriptSource(truth, (id) => this.host.verdict(id), this.host.threshold());
-				this.cache = { rev: truth.rev, data: { src: s, spans: transcriptSpans(s) } };
-			}
-			// Verdicts arrive without a Truth revision; read them live.
-			src = { ...this.cache.data.src, verdict: (id) => this.host.verdict(id), threshold: this.host.threshold() };
-			spans = this.cache.data.spans;
+		const folding = this.host.folding?.() ?? true;
+		const changed = !truth || this.cache?.truth !== truth || this.cache.rev !== truth.rev || this.cache.folding !== folding;
+		if (!truth) { this.cache = null; this.byBlock.clear(); }
+		else if (changed) {
+			const src = transcriptSource(truth, (id) => this.host.verdict(id), this.host.threshold(), { folding, lists, listIssues: this.invalidLists });
+			this.cache = { truth, rev: truth.rev, folding, data: { src, spans: transcriptSpans(src) } };
+			this.byBlock = new Map(src.blocks.map((b) => [b.id, b]));
 		}
-		return { src, spans, theme: this.theme, now: Date.now() };
+		if (changed || lists !== previousLists) {
+			this.foldCache.clear();
+			this.recordCache.clear();
+			const root = this.stack[0];
+			const list = root.kind === "list" ? this.list(root.slug) : undefined;
+			if (list && truth) this.foldCache.set(list.slug, foldedTaskTokens(list, truth));
+		}
+		const top = this.top;
+		if (top.kind === "details") {
+			const key = `${top.slug}/${top.id}`;
+			if (!this.recordCache.has(key)) this.recordCache.set(key, this.computeGroups(key));
+		}
+	}
+
+	private requestRender(): void { this.refresh(); this.tui.requestRender(); }
+
+	private data(): ViewData {
+		const src = this.cache ? { ...this.cache.data.src, lists: this.listsSnapshot, listIssues: this.invalidLists,
+			verdict: (id: string) => this.host.verdict(id), threshold: this.host.threshold() } : null;
+		return { src, spans: this.cache?.data.spans ?? [], theme: this.theme, now: Date.now() };
 	}
 
 	private list(slug: string): TaskList | undefined {
-		return this.host.lists().find((l) => l.slug === slug);
+		return this.listsSnapshot.find((l) => l.slug === slug);
 	}
 
 	private nodes(s: TreeScreen, data: ViewData): TreeNode<ViewRef>[] {
 		if (s.kind === "list") {
 			const list = this.list(s.slug);
-			return list ? listNodes(list, this.host.truth(), data) : [];
+			return list ? listNodes(list, this.cache?.truth ?? null, data, this.foldCache.get(list.slug) ?? new Map()) : [];
 		}
 		if (!data.src) return [];
 		if (s.kind === "span") {
@@ -433,15 +459,17 @@ export class TaskViews {
 		return kinds;
 	}
 
-	private groupsOf(key: string): { id: string; summary: string | null | undefined; full: number; live: number; members: number; handleId?: string }[] {
+	private computeGroups(key: string): { id: string; summary: string | null | undefined; full: number; live: number; members: number; handleId?: string }[] {
 		const truth = this.host.truth();
 		if (!truth) return [];
-		const blocks = new Map(this.data().src?.blocks.map((b) => [b.id, b]) ?? []);
+		const blocks = this.byBlock;
 		return taskFoldRefs(truth, key).filter((ref) => ref.group.folded).map((ref) => {
 			const tokens = ref.memberIds.reduce((n, id) => ({ full: n.full + (blocks.get(id)?.full ?? 0), live: n.live + (blocks.get(id)?.live ?? 0) }), { full: 0, live: 0 });
 			return { id: ref.group.id, summary: ref.group.digest, ...tokens, members: ref.memberIds.length, ...(ref.handleId ? { handleId: ref.handleId } : {}) };
 		});
 	}
+
+	private groupsOf(key: string): ReturnType<TaskViews["computeGroups"]> { return this.recordCache.get(key) ?? []; }
 
 	render(width: number): string[] {
 		const t = this.theme;
@@ -449,10 +477,10 @@ export class TaskViews {
 		const height = Math.max(4, Math.min(30, this.rows() - 8));
 		const s = this.top;
 		const crumbs = this.stack.map((x) => (x.kind === "list" ? x.slug : x.kind === "span" ? `${x.key.split("/").pop()} span` : x.kind === "session" ? "Tasks tree" : x.kind === "details" ? x.id : x.kind === "list-details" ? "list context" : x.title));
-		const title = `Accordion › ${this.stack[0].kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
+		const title = `Accordion${this.cache?.folding === false ? " (folding paused)" : ""} › ${this.stack[0].kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
 		if (s.kind === "details" || s.kind === "list-details") {
 			const list = this.list(s.slug);
-			const lines = list ? (s.kind === "list-details" ? listDetailLines(list, t) : detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`))).flatMap((l) => hang(l, width)) : [t.fg("dim", ` "${s.slug}" no longer exists.`)];
+			const lines = list ? (s.kind === "list-details" ? listDetailLines(list, t) : detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`))).flatMap((l) => hang(l, width)) : [t.fg("warning", this.invalidLists.includes(s.slug) ? ` "${s.slug}" is invalid; use tasks status for validation errors.` : ` "${s.slug}" no longer exists.`)];
 			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - height));
 			const span = s.kind === "details" && data.src ? spanOf(data, `${s.slug}/${s.id}`) : undefined;
 			const hints = [span ? "enter span" : "", "esc back", s.kind === "details" && this.groupsOf(`${s.slug}/${s.id}`).length ? "v record · u unfold" : "", s.kind === "details" ? "g list context" : "", "↑↓ scroll"].filter(Boolean).join(" · ");
@@ -468,7 +496,7 @@ export class TaskViews {
 		}
 		const nodes = this.nodes(s, data);
 		const body = s.tree.render(nodes, width, height, (x) => t.fg("accent", x), (x) => t.fg("dim", x));
-		if (!nodes.length) body.push(t.fg("dim", s.kind === "list" ? "   This list has no tasks." : data.src ? "   Nothing ran in this session yet." : "   No session context yet."));
+		if (!nodes.length) body.push(t.fg("dim", s.kind === "list" ? this.invalidLists.includes(s.slug) ? "   Invalid task list; use tasks status for validation errors." : this.list(s.slug) ? "   This list has no tasks." : "   This task list no longer exists." : data.src ? "   Nothing ran in this session yet." : "   No session context yet."));
 		const filter = s.tree.filtering || s.tree.query ? ` ⌕ ${s.tree.query}${s.tree.filtering ? "█" : ""}` : "";
 		const show = s.kind === "session" && s.show !== "all" ? ` · showing ${s.show}` : "";
 		const status = this.message || `${s.tree.position()}${show}${filter}`;
@@ -504,14 +532,14 @@ export class TaskViews {
 			else if (up) s.tree.move(-1);
 			else if (down) s.tree.move(1);
 			else if (key.length === 1 && key >= " " && key !== "\x7f") s.tree.query += key;
-			return this.tui.requestRender();
+			return this.requestRender();
 		}
 		this.message = "";
 		if (cancel) {
 			if ("tree" in s && s.tree.query) s.tree.query = "";
 			else if (this.stack.length > 1) this.stack.pop();
 			else return this.done();
-			return this.tui.requestRender();
+			return this.requestRender();
 		}
 		const page = Math.max(1, Math.min(30, this.rows() - 8) - 1);
 		const scroll = (d: number) => {
@@ -526,7 +554,7 @@ export class TaskViews {
 				s.showAlt = !s.showAlt;
 				s.scroll = 0;
 			} else if (s.kind === "details") this.detailsKey(s, key, confirm);
-			return this.tui.requestRender();
+			return this.requestRender();
 		}
 		const tree = s.tree;
 		// Rows change with every open/close; rebuild them so a key never acts on a stale layout.
@@ -545,7 +573,7 @@ export class TaskViews {
 			const ref = tree.current?.node.data;
 			if (ref) this.nodeKey(s, ref, key, confirm);
 		}
-		this.tui.requestRender();
+		this.requestRender();
 	}
 
 	private noSpan(slug: string, id: string): string {
@@ -620,7 +648,7 @@ export class TaskViews {
 			const b = byId.get(id);
 			return b ? [`── ${b.kind}${b.toolName ? ` ${b.toolName}` : ""} · ${b.id}`, ...b.text.split("\n")] : [];
 		});
-		this.stack.push({ kind: "text", title: taskKey ?? "fold", main: [...(taskKey ? [`Task ${taskKey} · ${foldCode(`t:${taskKey}`)}`, ""] : []), "As the agent sees it:", "", ...main], alt, altLabel: "original", showAlt: false, scroll: 0 });
+		this.stack.push({ kind: "text", title: taskKey ?? "fold", main: [...(taskKey ? [`Task ${taskKey} · ${foldCode(`t:${taskKey}`)}`, ""] : []), this.cache?.folding === false ? "Stored fold (folding paused):" : "As the agent sees it:", "", ...main], alt, altLabel: "original", showAlt: false, scroll: 0 });
 	}
 
 	private pushBlocks(ids: string[], data: ViewData): void {
@@ -656,11 +684,11 @@ export class TaskViews {
 		void this.host.apply(ops).then(
 			(m) => {
 				this.message = m;
-				this.tui.requestRender();
+				this.requestRender();
 			},
 			(e) => {
 				this.message = `Failed: ${e instanceof Error ? e.message : String(e)}`;
-				this.tui.requestRender();
+				this.requestRender();
 			},
 		);
 	}

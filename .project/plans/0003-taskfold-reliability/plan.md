@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T08:45:29+01:00"
+  updated_at: "2026-11-07T09:08:44+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "close conductor and projection repairs"
-      changes: ["safe descendant fallback and named aging", "interval-aware transcript", "exact carrier export with metadata, suffix and valid YAML"]
+    - revision: 4
+      reason: "close task inspection and native wiring repairs"
+      changes: ["goals and scoped metadata", "human and agent composed recovery", "off-render snapshots and session isolation smoke"]
 ---
 
 # Taskfold reliability repair
@@ -33,19 +33,22 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: validate writes before replacement; invalid-list browser/widget warnings, cached outside render.
 - done: safe descendant fallback and named child recovery through aging.
 - done: metadata/interval-aware transcript; exact-once carrier export, lossless YAML and explicit working set.
-- now: complete task inspection and composed-handle recovery, with cached I/O outside render.
-- later: full gates, read-only historical replay, real Pi-Bolt terminal evaluation and final review.
+- done: complete task inspection and composed-handle recovery, with cached I/O outside render.
+- now: full gates, read-only historical replay, real Pi-Bolt terminal evaluation and final review.
 
-## Current slice: complete task inspection
+## Current slice: full verification and live evaluation
 
-The core and shared model now retain precise metadata, intervals and recovery handles; dump formats consume authoritative carriers. Native task details still need goal/criteria/pins/attachments, composed-child steering must resolve core handles, and the list/transcript cache must refresh off render paths. Extend behavioral tests and then evaluate the complete flow in an isolated terminal.
+The approved implementation slices are complete. Focused tests cover unlimited nesting, safe writes,
+planner fallback, aging, exact carriers, metadata, YAML and native recovery. The native context smoke
+also verifies zero task-file scans during rendering, update refresh and stale-session refusal.
 
-## Remaining slices
-
-1. `conductors/in-process/taskfold/taskfold.ts`: if a parent cannot compile, attempt independently safe finished descendants. Preserve useful child identity/handle associations through aging, exact scoped pins and existing cache rules.
-2. `extension/tui/taskTranscript.ts`: retain structured details and handles; attribute blocks to actual task intervals, not their enclosing continuous envelope.
-3. `extension/tui/transcriptDump.ts`: construct one ordered representation of actual wire groups/substitutions, emit each carrier once, never print substituted raw tool results, and account additively. YAML must parse and preserve arbitrary indentation/newlines. Expose working-set content and task metadata explicitly.
-4. `extension/tui/taskViews.ts` and wiring: show list/task goal, criteria, pins and attachments; recover composed children through core handles and the controller lease; cache list/transcript data on reload/change, not render.
+Remaining work:
+1. Run all project gates and a clean production/package asset verification; address in-scope failures.
+2. Replay the private historical inputs without modifying them. Measure actual coverage, recovery,
+   carrier uniqueness, additive totals and runtime cost; retain only redacted aggregate evidence.
+3. Exercise the isolated Pi-Bolt UI at 36/57/80/140 columns and short height, including metadata,
+   composed-child recovery, diagnostics, pause state, session switching and export.
+4. Review and commit the complete change with precise remaining limitations, if any.
 
 ## Verification
 
