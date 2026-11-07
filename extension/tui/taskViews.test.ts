@@ -179,6 +179,22 @@ describe("task views", () => {
 		view.dispose();
 	});
 
+	it("keeps inspection controls inside a short terminal viewport", () => {
+		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [{ ...list, goal: "A long goal with enough context to wrap across several narrow terminal rows." }], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+		const keys = { matches: (input: string, key: string) => input === ({ "tui.select.confirm": "\r", "tui.select.cancel": "\x1b" } as Record<string, string>)[key] };
+		const view = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "list", slug: "l" }, () => {}, () => 10);
+		for (const input of ["g", "\x1b", "\r", "\x1b", "?"]) {
+			view.handleInput(input);
+			for (const width of [36, 57, 80, 140]) {
+				const lines = view.render(width);
+				expect(lines.length).toBeLessThanOrEqual(6);
+				expect(lines.at(-1)).toContain("esc");
+				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			}
+		}
+		view.dispose();
+	});
+
 	it("labels invalid lists rather than claiming they are empty or missing", () => {
 		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [], invalid: () => ["l"], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
 		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);

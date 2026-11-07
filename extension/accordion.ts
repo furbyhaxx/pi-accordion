@@ -3699,12 +3699,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Run `body` with a claimed surface; the surface is released from this extension afterwards. */
 	async function withTaskViews(ctx: ExtensionCommandContext, body: (host: TaskViewsHost) => Promise<void>): Promise<void> {
 		const openedSessionId = sessionId;
-		const control = await claimNativeControl(ctx, openedSessionId, "Changing folds from the task views");
-		if (!control) return;
+		const resumeWidget = taskWidget.suspend();
+		let surface: string | null = null;
 		try {
-			await body(taskViewsHost(control.surfaceId, openedSessionId));
+			const control = await claimNativeControl(ctx, openedSessionId, "Changing folds from the task views");
+			if (!control) return;
+			surface = control.surfaceId;
+			await body(taskViewsHost(surface, openedSessionId));
 		} finally {
-			if (nativeSurfaceId === control.surfaceId) nativeSurfaceId = null;
+			if (surface && nativeSurfaceId === surface) nativeSurfaceId = null;
+			resumeWidget();
 		}
 	}
 

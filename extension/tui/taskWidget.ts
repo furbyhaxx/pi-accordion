@@ -377,6 +377,7 @@ export class TaskWidgetController {
 	private installed: TaskWidgetComponent | null = null;
 	private installing = false;
 	private hidden = false;
+	private readonly suspensions = new Set<symbol>();
 	private legendSeen = false;
 	private view: TaskWidgetView;
 	private cache: { key: string; model: TaskWidgetModel } | null = null;
@@ -418,7 +419,7 @@ export class TaskWidgetController {
 
 	/** Show, hide or redraw for the current state; cheap, safe to call on every change. */
 	sync(): void {
-		const want = !!this.ui && !this.hidden && (!!this.list || !!this.problem) && this.deps.settings().mode === "auto" && this.deps.enabled();
+		const want = !!this.ui && !this.hidden && this.suspensions.size === 0 && (!!this.list || !!this.problem) && this.deps.settings().mode === "auto" && this.deps.enabled();
 		if (want && !this.installed && !this.installing) {
 			if (this.view.showLegend) this.legendSeen = true;
 			this.installing = true;
@@ -444,6 +445,14 @@ export class TaskWidgetController {
 	private updateLegend(expanded: boolean): void {
 		this.view.showLegend = expanded && !this.legendSeen;
 		if (this.view.showLegend) this.legendSeen = true;
+	}
+
+	/** Temporarily remove the widget, returning a session-safe, idempotent release. */
+	suspend(): () => void {
+		const token = Symbol();
+		this.suspensions.add(token);
+		this.sync();
+		return () => { if (this.suspensions.delete(token)) this.sync(); };
 	}
 
 	/** Expand or collapse; shows the widget again if it was hidden. */
@@ -476,15 +485,17 @@ export class TaskWidgetController {
 		if (!this.ui) return "the task widget needs the interactive terminal";
 		if (this.deps.settings().mode === "off") return 'the task widget is off ("taskWidget.mode" in ~/.accordion/config.json)';
 		if (!this.deps.enabled()) return "attach the Taskfold conductor to track tasks";
-		if (this.problem) return this.problem;
+		if (this.problem && !this.list) return this.problem;
 		if (!this.list) return "this session holds no task list yet";
 		if (this.hidden) return "the task widget is hidden in this session";
+		if (this.suspensions.size) return "the task widget is suspended while task inspection is open";
 		return null;
 	}
 
 	detach(): void {
 		this.remove();
 		this.ui = null;
+		this.suspensions.clear();
 		this.list = null;
 		this.problem = null;
 		this.cache = null;

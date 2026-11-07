@@ -210,6 +210,36 @@ describe("task widget", () => {
 		controller.detach();
 	});
 
+	test("suspends inspection widgets without changing preferences or letting stale releases affect a new session", () => {
+		let installed = false, saved = 0;
+		const selectedList = list(secrets());
+		const controller = new TaskWidgetController({ lists: () => [selectedList], scan: () => ({ lists: [selectedList], invalid: ["broken"] }), session: () => "s1", truth: () => null, enabled: () => true,
+			settings: () => ({ mode: "auto", expanded: true, maxRows: 12, toggleKey: "alt+t" }), saveExpanded() { saved++; } });
+		const ui: NonNullable<Parameters<TaskWidgetController["attach"]>[0]> = { setWidget: (_key, factory) => {
+			installed = !!factory;
+			if (factory) factory({ requestRender() {} }, plain);
+		} };
+		controller.attach(ui);
+		expect(installed).toBe(true);
+		expect(controller.reason()).toBeNull();
+		const release = controller.suspend(), nested = controller.suspend();
+		controller.reload(); release();
+		expect(installed).toBe(false);
+		nested(); nested();
+		expect(installed).toBe(true);
+		const stale = controller.suspend();
+		controller.attach(ui);
+		expect(installed).toBe(true);
+		const current = controller.suspend(); stale();
+		expect(installed).toBe(false);
+		current();
+		expect(installed).toBe(true);
+		controller.hide(); const hidden = controller.suspend(); hidden();
+		expect(installed).toBe(false);
+		expect(saved).toBe(0);
+		controller.detach();
+	});
+
 	test("remembers the expanded state for later sessions", () => {
 		const prefs = { mode: "auto" as const, expanded: false, maxRows: 12, toggleKey: "alt+t" };
 		const make = () =>

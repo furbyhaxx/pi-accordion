@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T09:38:12+01:00"
+  updated_at: "2026-11-07T10:06:55+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 5
-      reason: "record full gates and historical replay"
-      changes: ["clean production assets verified", "empty protocol messages no longer duplicate recaps", "comparative replay and export fidelity evidence"]
+    - revision: 6
+      reason: "repair viewport failures exposed by real terminal evaluation"
+      changes: ["temporary session-safe widget suspension", "short viewport and diagnostic budgets", "real captures and 232 native tests"]
 ---
 
 # Taskfold reliability repair
@@ -36,7 +36,8 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: complete task inspection and composed-handle recovery, with cached I/O outside render.
 - done: full gates and clean production install/authenticated assets (`evidence/gates.json`).
 - done: historical replay and a further shared-serializer defect (`evidence/historical-replay.json`).
-- now: real Pi-Bolt terminal evaluation and final review/gate refresh.
+- done: real-terminal viewport defects repaired; controls fit 36x24 and 80x10 (`evidence/viewport.json`).
+- now: remaining terminal feature matrix, live request and final review/gate refresh.
 
 ## Current slice: full verification and live evaluation
 
@@ -56,11 +57,16 @@ Completed evidence:
   more named outcomes and use 143,430 versus 126,821 tokens: not an unconditional size reduction.
 - All ten historical exports were generated; YAML/XML parse and YAML leaf sums equal each header.
   The original YAML still fails parsing at line 2525. Originals were not changed.
-- The 80-task, six-level backup round-trips every task fact. Its already-invalid v2 header lacked
-  a goal; replay supplies the current authored list goal in memory only. No original was repaired,
+- The 80-task, six-level backup round-trips every task fact. Its v2 header lacked the goal
+  required by strict authoring validation; replay supplies the current authored list goal in memory only. No original was repaired,
   flattened or renumbered. This is distinct from the synthetic deep-v1 migration regressions.
 - Replay is a canonical SDK snapshot with saved verdicts, a fixed tail, no provider calibration
   and the host prompt intentionally excluded; it is not a historical request/cost reconstruction.
+
+- Real Pi-Bolt inspection exposed widget/frame viewport collisions and a false visibility reason
+  when another list was invalid. Widget suspension now restores safely across sessions; the shared
+  frame budget reserves Pi\'s spacer and footer, and diagnostic rows fit short screens. New
+  regressions failed before the fixes. All 232 native tests, app check and extension smokes pass.
 
 Remaining work:
 1. Exercise isolated Pi-Bolt at 36/57/80/140 columns and short height: metadata, composed-child

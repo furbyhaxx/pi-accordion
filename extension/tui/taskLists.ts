@@ -88,6 +88,11 @@ export function listRowLine(list: TaskList, session: string, selected: boolean, 
 	return truncateToWidth(head + short, width, ELLIPSIS);
 }
 
+/** Rows left after the frame, Pi's spacer and its three footer rows. */
+export function frameBodyRows(rows: number, limit: number): number {
+	return Math.max(1, Math.min(limit, rows - 9));
+}
+
 /** Frame lines around a body: rule, title, body, rule, status, hints. */
 export function frame(title: string, body: string[], status: string, hints: string, width: number, theme: WidgetTheme): string[] {
 	const rule = theme.fg("dim", "─".repeat(Math.max(0, width)));
@@ -175,40 +180,40 @@ export class TaskListsBrowser {
 		const t = this.theme;
 		const now = Date.now();
 		const session = this.host.session();
-		const bodyRows = Math.max(4, Math.min(18, this.rows() - 8));
+		const bodyRows = frameBodyRows(this.rows(), 18);
 		const sel = this.selected;
 		if (this.screen === "create") {
 			const prompt = this.createTitle ? ` Goal: ${clean(this.input.text)}█` : ` Title: ${clean(this.input.text)}█`;
-			return frame("Accordion › Task lists › New list", [prompt, t.fg("dim", this.createTitle ? ` Title: ${clean(this.createTitle)}` : " The slug is derived from the title.")], this.message, this.createTitle ? "type goal · enter create · esc back" : "type title · enter next · esc back", width, t);
+			return frame("Accordion › Task lists › New list", [prompt, t.fg("dim", this.createTitle ? ` Title: ${clean(this.createTitle)}` : " The slug is derived from the title.")].slice(0, bodyRows), this.message, this.createTitle ? "type goal · enter create · esc back" : "type title · enter next · esc back", width, t);
 		}
 		if (this.screen === "confirm" && sel?.claim) {
 			const body = [
 				` ${t.fg("warning", "▲")} "${sel.slug}" is claimed by ${holderLabel(sel.claim)}, active ${formatAge(now - Date.parse(sel.claim.at))} ago.`,
 				" Taking it over makes that session lose the claim: its agent can no longer change the list.",
 			];
-			return frame("Accordion › Task lists › Take over", body, this.message, "enter take over · esc back", width, t);
+			return frame("Accordion › Task lists › Take over", body.slice(0, bodyRows), this.message, "enter take over · esc back", width, t);
 		}
 		if (this.screen === "detail" && sel) {
 			const tree = renderTaskWidget({ list: sel, folded: new Set(), tokens: null }, { expanded: true, maxRows: 500, toggles: new Map(), revealed: new Set() }, width, t, now, true).lines.slice(1);
-			const head = [` ${clean(sel.title)}`, ` ${progressText(sel, t, true)} · ${claimText(sel, claimState(sel, session, now), t, now)}`];
+			const head = [` ${clean(sel.title)}`, ` ${progressText(sel, t, true)} · ${claimText(sel, claimState(sel, session, now), t, now)}`].slice(0, bodyRows - 1);
 			const room = Math.max(1, bodyRows - head.length);
 			this.scroll = Math.max(0, Math.min(this.scroll, tree.length - room));
 			const body = [...head, ...tree.slice(this.scroll, this.scroll + room)];
 			return frame(`Accordion › Task lists › ${sel.slug}`, body, this.message, `↑↓ scroll · ${this.actionHints(sel)} · esc back`, width, t);
 		}
-		const start = Math.max(0, Math.min(this.index - Math.floor(bodyRows / 2), this.lists.length - bodyRows));
+		const warning = this.invalid.length ? `▲ Invalid lists: ${this.invalid.map(clean).join(", ")}` : "";
+		const listRows = Math.max(1, bodyRows - (warning ? 1 : 0));
+		const start = Math.max(0, Math.min(this.index - Math.floor(listRows / 2), this.lists.length - listRows));
 		const slugWidth = Math.max(0, ...this.lists.map((l) => l.slug.length));
 		const body = this.lists.length
-			? this.lists.slice(start, start + bodyRows).map((l, i) => listRowLine(l, session, start + i === this.index, width, t, now, slugWidth))
+			? this.lists.slice(start, start + listRows).map((l, i) => listRowLine(l, session, start + i === this.index, width, t, now, slugWidth))
 			: [t.fg("dim", this.invalid.length ? "   No readable task lists." : "   No task lists in this project yet. Press n to start one.")];
-		if (this.invalid.length) {
-			body.push(t.fg("warning", ` ▲ Invalid lists: ${this.invalid.map(clean).join(", ")}`));
-			body.push(t.fg("dim", " Use tasks status <slug> for the validation errors."));
-		}
+		if (warning && bodyRows > 1) body.push(t.fg("warning", ` ${warning}`));
 		const count = `${this.lists.length} list${this.lists.length === 1 ? "" : "s"}`;
 		const title = this.mode === "pick" ? "Accordion › Choose a task list" : "Accordion › Task lists";
-		const hints = sel ? `↑↓ select · enter ${this.mode === "pick" ? "attach" : "open"} · ${this.actionHints(sel)} · n new · esc ${this.mode === "pick" ? "back" : "close"}` : "n new · esc close";
-		return frame(`${title} · ${count}`, body, this.message, hints, width, t);
+		const hints = sel ? `enter ${this.mode === "pick" ? "attach" : "open"} · esc ${this.mode === "pick" ? "back" : "close"} · ↑↓ select · ${this.actionHints(sel)} · n new` : "n new · esc close";
+		const status = this.message || (warning ? bodyRows > 1 ? "tasks status <slug>: validation errors" : warning : "");
+		return frame(`${title} · ${count}`, body, status, hints, width, t);
 	}
 
 	private actionHints(list: TaskList): string {

@@ -13,7 +13,7 @@ import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import { blockLabel, type Task, type TaskList } from "../tasks";
 import type { PinHolder } from "../taskPins";
 import { formatCompactTokens } from "./map";
-import { frame } from "./taskLists";
+import { frame, frameBodyRows } from "./taskLists";
 import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
 import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type FoldTokens, type WidgetTheme } from "./taskWidget";
@@ -471,10 +471,14 @@ export class TaskViews {
 
 	private groupsOf(key: string): ReturnType<TaskViews["computeGroups"]> { return this.recordCache.get(key) ?? []; }
 
+	private bodyRows(): number {
+		return frameBodyRows(this.rows(), 30);
+	}
+
 	render(width: number): string[] {
 		const t = this.theme;
 		const data = this.data();
-		const height = Math.max(4, Math.min(30, this.rows() - 8));
+		const height = this.bodyRows();
 		const s = this.top;
 		const crumbs = this.stack.map((x) => (x.kind === "list" ? x.slug : x.kind === "span" ? `${x.key.split("/").pop()} span` : x.kind === "session" ? "Tasks tree" : x.kind === "details" ? x.id : x.kind === "list-details" ? "list context" : x.title));
 		const title = `Accordion${this.cache?.folding === false ? " (folding paused)" : ""} › ${this.stack[0].kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
@@ -541,7 +545,7 @@ export class TaskViews {
 			else return this.done();
 			return this.requestRender();
 		}
-		const page = Math.max(1, Math.min(30, this.rows() - 8) - 1);
+		const page = Math.max(1, this.bodyRows() - 1);
 		const scroll = (d: number) => {
 			if (s.kind === "details" || s.kind === "list-details" || s.kind === "text") s.scroll = Math.max(0, s.scroll + d);
 		};

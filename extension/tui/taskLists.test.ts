@@ -67,6 +67,21 @@ describe("task list browser", () => {
 		b.dispose();
 	});
 
+	test("keeps selection, diagnostics and close controls visible at short height", () => {
+		const { mine, host } = project();
+		for (let i = 0; i < 5; i++) mine.create(`list-${i}`, `List ${i}`, "Short terminal goal", []);
+		host.invalid = () => ["broken"];
+		const browser = new TaskListsBrowser(tui, theme, keys, host, "manage", () => {}, () => 10);
+		for (const width of [36, 57, 80, 140]) {
+			const lines = browser.render(width);
+			expect(lines.length).toBeLessThanOrEqual(6);
+			expect(lines.join("\n")).toContain("Invalid lists: broken");
+			expect(lines.at(-1)).toContain("esc close");
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+		}
+		browser.dispose();
+	});
+
 	test("rows keep slug, progress and claim at every width", () => {
 		const { mine, other } = project();
 		runTasks(other, { action: "create", list: "auth-refactor", title: "Auth refactor", goal: "G", tasks: [{ title: "A" }, { title: "B" }] });

@@ -1,0 +1,45 @@
+{
+  "evaluation": "Real Pi-Bolt process in a private tmux server; synthetic six-level task history, no credentials, unreachable loopback dummy model.",
+  "observedDefects": [
+    "Task widget reduced inspection space and clipped content and controls.",
+    "The frame budget omitted Pi's spacer; short screens lost their last control line.",
+    "An unrelated invalid list misleadingly reported a visible valid list as not shown."
+  ],
+  "repair": [
+    "Session-safe temporary widget suspension, leaving preferences unchanged.",
+    "One frame budget accounts for spacer and footers; diagnostic rows fit the budget.",
+    "Visible valid lists retain warnings without a false visibility failure."
+  ],
+  "verification": {
+    "regressionBefore": "Three viewport/lifecycle tests failed; the additional false-reason assertion separately failed.",
+    "native": {
+      "passed": 232,
+      "failed": 0
+    },
+    "appCheck": {
+      "errors": 0,
+      "warnings": 0
+    },
+    "extensionSmoke": "passed"
+  },
+  "captures": [
+    {
+      "name": "goal-narrow",
+      "width": 36,
+      "height": 24,
+      "screen": " provider requests have been made.\n────────────────────────────────────\n Accordion › Task lists › terminal-…\n Taskfold reliability terminal\n            evaluation\n List       terminal-eval\n Goal       Inspect all task context\n            and recover a composed\n            child without losing\n            metadata.\n Claim\n            01a1b541-5f24-70c7-aaab-\n            e48e252d7bfe\n Pins       list · p1 · rule ·\n            notes.txt:1\n            Recovery remains\n            reversible.\n Files      list · a1 ·\n────────────────────────────────────\n\n esc back · ↑↓ scroll\n<fixture project>\n181.8%/50k (auto)         offline-ui\naccordion · Taskfold · Epoch 1: a...\n"
+    },
+    {
+      "name": "goal-short",
+      "width": 80,
+      "height": 10,
+      "screen": " Synthetic fixture ready. No provider requests have been made.\n────────────────────────────────────────────────────────────────────────────────\n Accordion › Task lists › terminal-eval › list context\n Taskfold reliability terminal evaluation\n────────────────────────────────────────────────────────────────────────────────\n\n esc back · ↑↓ scroll\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    },
+    {
+      "name": "browser-short",
+      "width": 80,
+      "height": 10,
+      "screen": " Synthetic fixture ready. No provider requests have been made.\n────────────────────────────────────────────────────────────────────────────────\n Accordion › Task lists · 1 list\n› ● terminal-eval ▣ 3/13  this session · 24s\n────────────────────────────────────────────────────────────────────────────────\n ▲ Invalid lists: broken\n enter open · esc close · ↑↓ select · r release · n new\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    }
+  ]
+}
