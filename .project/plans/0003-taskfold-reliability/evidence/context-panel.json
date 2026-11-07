@@ -1,0 +1,42 @@
+{
+  "runtime": "Pi-Bolt 1.0.9 / Pi 1.4.0",
+  "geometry": "80x30",
+  "scope": "Real private tmux terminal; synthetic session, no credentials or provider calls.",
+  "regression": {
+    "before": [
+      false,
+      false,
+      false
+    ],
+    "after": [
+      true,
+      true,
+      true
+    ],
+    "meaning": "Widget absent during normal, synchronous-failure and rejected panel opens; restored afterwards."
+  },
+  "settings": {
+    "mode": "auto",
+    "expanded": true,
+    "maxRows": 12,
+    "toggleKey": "alt+t"
+  },
+  "checks": {
+    "contextSmoke": "passed",
+    "appCheck": "0 errors, 0 warnings"
+  },
+  "captures": [
+    {
+      "name": "context-panel-on",
+      "screen": "\n ✓ tasks start 2.1.1.1.1.1 Inspect six-level task\n\n\n read active.txt\n\n\n Synthetic fixture ready. No provider requests have been made.\n\n── Accordion › Context · folding on · current session · conductor Taskfold ─ ...\nTokens 4172/91881 · budget 12000 · tail 1000 · window 50000 · Epoch 1: applie...\n  ▕█████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░▏ 4.2k/12.0k (35%) · −87.7k (95%)\n  ■ System 754 · ■ User 19 · ■ Assistant 20 · ▣ Tool Call 907 · ▣ Tool Result...\n❯ ⛨ system live bolted · 754 tok · sys:0 · You are an expert coding assistant...\nS system · U user · A answer · H thinking · C call · R result · ! bolted · * ...\n[S3!]  U1.   C2.   R2.   C1.   R1.   C1.   R1.   c1G   r1G   c1G   r1G   c1G\n r6G   c1G   r1G   c1G   r1G   c1G   r6G   c1G   r1G   c1G   r1G   C1.   R1.\n C1.   R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.\n R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.   R2.   C1.   R4.   A1P\n\n\n\n\n\n\n\nm list · e edit · D auto · ? help · ↑↓ select · enter inspect · f fold · p pi...\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    },
+    {
+      "name": "context-panel-off",
+      "screen": "\n ✓ tasks start 2.1.1.1.1.1 Inspect six-level task\n\n\n read active.txt\n\n\n Synthetic fixture ready. No provider requests have been made.\n\n── Accordion › Context · folding off · current session · conductor Taskfold ─...\nTokens 4172/91881 · budget 12000 · tail 1000 · window 50000 · Epoch 1: applie...\n  ▕█████████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░▏ 4.2k/12.0k (35%) · −87.7k (95%)\n  ■ System 754 · ■ User 19 · ■ Assistant 20 · ▣ Tool Call 907 · ▣ Tool Result...\n❯ ⛨ system live bolted · 754 tok · sys:0 · You are an expert coding assistant...\nS system · U user · A answer · H thinking · C call · R result · ! bolted · * ...\n[S3!]  U1.   C2.   R2.   C1.   R1.   C1.   R1.   c1G   r1G   c1G   r1G   c1G\n r6G   c1G   r1G   c1G   r1G   c1G   r6G   c1G   r1G   c1G   r1G   C1.   R1.\n C1.   R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.\n R1.   C1.   R1.   C1.   R1.   C1.   R1.   C1.   R2.   C1.   R4.   A1P\n\n\n\n\n\n\nCommand sent\nm list · e edit · D auto · ? help · ↑↓ select · enter inspect · f fold · p pi...\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion off\n"
+    },
+    {
+      "name": "context-widget-restored",
+      "screen": " ✓ tasks attach terminal-eval\n\n ✓ tasks start 2.1.1.1.1.1 Inspect six-level task\n\n\n read active.txt\n\n\n Synthetic fixture ready. No provider requests have been made.\n\n▲ Tasks: Invalid lists: broken; use tasks status for errors.\n▼ Tasks Taskfold reliability terminal evalua… 3/13 (≡3) · 27s · 90.4k → 2.7k tok\n  ≡ folded · raw ! inconsistent · ▣ done ☒ failed ⊘ abandoned ◐ partly done ▶ d…\n  ├─▣≡ 1 Completed recovery group · 0s (2✓ · 87.9k → 211)\n  ├─▶  2 Inspect native task surfaces · 27s (1☐)\n  │ └─▶  2.1 Nested verification branch · 27s (1☐)\n  │   └─▶  2.1.1 Nested verification branch · 27s (1☐)\n  │     └─▶  2.1.1.1 Nested verification branch · 27s (1☐)\n  │       └─▶  2.1.1.1.1 Nested verification branch · 27s (1☐)\n  │         └─▶  2.1.1.1.1.1 Inspect six-level task · 27s\n  ├─⧗  3 Waiting for reviewer · needs user decision · 0s\n  ├─☒· 4 Intentional failed fixture · 0s\n  ├─⊘· 5 Superseded fixture · 0s\n  └─☐  6 Later work\n────────────────────────────────────────────────────────────────────────────────\n\n────────────────────────────────────────────────────────────────────────────────\n<fixture project>\n181.8%/50k (auto)                                                     offline-ui\naccordion · Taskfold · Epoch 1: applied 1 fold operation(s), ~87713 tok…\n"
+    }
+  ]
+}

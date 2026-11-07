@@ -3893,6 +3893,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				},
 			};
 			let remote: Awaited<ReturnType<typeof connectRemoteSession>> | undefined;
+			const resumeWidget = taskWidget.suspend();
 			try {
 				if (target) {
 					const fresh = (await discoverNativeSessions()).find((entry) => entry.sessionId === target?.sessionId);
@@ -3931,6 +3932,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			} catch (error) {
 				ctx.ui.notify(`Accordion session unavailable: ${error instanceof Error ? error.message : String(error)}`, "error");
 			} finally {
+				resumeWidget();
 				if (remote) { nativeRemotes.delete(remote); remote.close(); }
 				if (nativeSurfaceId === surfaceId) nativeSurfaceId = null;
 			}

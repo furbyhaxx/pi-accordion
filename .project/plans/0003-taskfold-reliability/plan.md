@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 7
+  revision: 8
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T10:22:44+01:00"
+  updated_at: "2026-11-07T10:38:11+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 7
-      reason: "repair task paging on the installed Pi-Bolt runtime"
-      changes: ["modal task screen focus", "real before/after page navigation evidence", "retain footer space and cached rendering"]
+    - revision: 8
+      reason: "finish the actual context-panel widget repair"
+      changes: ["share session-safe widget suspension", "regress normal and failed panel opens", "verify real controls and widget restoration"]
 ---
 
 # Taskfold reliability repair
@@ -38,6 +38,7 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: historical replay and a further shared-serializer defect (`evidence/historical-replay.json`).
 - done: real-terminal viewport defects repaired; controls fit 36x24 and 80x10 (`evidence/viewport.json`).
 - done: modal task focus routes paging to the inspector on installed Pi-Bolt (`evidence/paging.json`).
+- done: main context panel uses the same widget suspension and restores preferences after normal/failed opens (`evidence/context-panel.json`).
 - now: remaining terminal feature matrix, live request and final review/gate refresh.
 
 ## Current slice: full verification and live evaluation
@@ -73,6 +74,11 @@ Completed evidence:
   Fullscreen PageDown was consumed by the transcript before reaching inline task inspection.
   Task screens now use the common modal overlay API, not newer-only component flags or raw
   keyboard interception. Real PageDown moves 1–21/25 → 5–25/25 and PageUp restores 1–21/25.
+
+A completion-style compacted message claimed a main-panel commit that neither git nor the task
+store contained. It is not acceptance evidence and does not establish a conductor defect. The
+actual repair was implemented after reproducing three failed viewport assertions; it changes
+only widget suspension around the existing panel, not a nonexistent panel dependency API.
 
 Remaining work:
 1. Exercise isolated Pi-Bolt at 36/57/80/140 columns and short height: metadata, composed-child

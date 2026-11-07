@@ -27,7 +27,7 @@ function runtime(messages = [], options = {}) {
 		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
-	accordion(pi, { openPanel: async (_ctx, h) => { host = h; } });
+	accordion(pi, { openPanel: (_ctx, h) => { host = h; return options.openPanel?.(_ctx, h); } });
 	const model = {
 		id: "test/model", name: "Test", provider: "openrouter", api: "openai-completions",
 		baseUrl: "http://localhost.invalid/v1", reasoning: false, input: ["text"],
@@ -69,6 +69,36 @@ check("task sizing guidance reaches the default system prompt only while tasks i
 		assert.match(active, /completed work can fold while its parent stays open/);
 		assert.match(active, /avoid splitting trivial steps/);
 		assert.doesNotMatch(inactive, /split broad features into child tasks/);
+	} finally { r.close(); }
+});
+check("the context panel suspends its task widget and restores it after every exit", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-panel-widget-"));
+	const theme = { fg: (_c, s) => s, bold: s => s, strikethrough: s => s };
+	let widget, inspect = false, failure = "";
+	const notices = [], during = [];
+	const r = runtime([], { cwd: dir, openPanel: () => {
+		if (!inspect) return;
+		during.push(widget === undefined);
+		if (failure === "sync") throw new Error("intentional synchronous open failure");
+		if (failure === "async") return Promise.reject(new Error("intentional rejected open"));
+	} });
+	r.ctx.ui.setWidget = (_key, factory) => { widget = factory?.({ requestRender() {} }, theme); };
+	r.ctx.ui.notify = text => notices.push(text);
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+		await r.tools.tasks.execute("create", { action: "create", list: "panel", title: "Panel work", goal: "Keep controls visible", tasks: [{ title: "Inspect" }] }, undefined, undefined, r.ctx);
+		assert.match(widget.render(80).join("\n"), /Panel work/);
+		const settings = JSON.stringify(host.settings().taskWidget);
+		inspect = true;
+		for (failure of ["", "sync", "async"]) {
+			await r.open();
+			assert.match(widget.render(80).join("\n"), /Panel work/);
+			assert.equal(JSON.stringify(host.settings().taskWidget), settings);
+		}
+		assert.deepEqual(during, [true, true, true], "the widget must not consume the panel viewport");
+		assert.equal(notices.filter(text => /intentional/.test(text)).length, 2);
 	} finally { r.close(); }
 });
 check("native task inspection caches disk reads, refreshes changes and refuses a replacement session", async () => {
