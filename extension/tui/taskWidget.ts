@@ -6,10 +6,11 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { Truth } from "../../core/truth";
-import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
+import { scanTaskSpans } from "../../conductors/in-process/taskfold/taskfold";
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
 import { formatCompactTokens } from "./map";
+import { spanContains, taskFoldRefs } from "./taskTranscript";
 import { buildTaskTree, isFinished, layoutTaskTree, summarizeTasks, taskDuration, type TaskGlyphState, type TaskNode, type TaskRow } from "./taskTree";
 
 /** The theme subset the widget draws with. */
@@ -42,6 +43,8 @@ export interface TaskWidgetView {
 export interface FoldTokens {
 	full: number;
 	live: number;
+	/** False when only part of this task remains folded. */
+	complete?: boolean;
 }
 
 /** What a click on a rendered line does. */
@@ -231,16 +234,13 @@ export function applyTaskWidgetHit(view: TaskWidgetView, hit: TaskWidgetHit): bo
 	return true;
 }
 
-/**
- * Ids of `list`'s tasks inside a folded group: the group owners in `folds` and their subtasks that
- * ran. A subtask never started has no work in the fold, so it is not counted as folded.
- */
+/** Tasks with actual complete fold coverage; ancestry alone never proves a child is folded. */
 export function foldedTaskIds(list: TaskList, folds: ReadonlyMap<string, FoldTokens>): Set<string> {
-	const roots = [...folds.keys()];
+	const covered = new Set([...folds.entries()].filter(([, f]) => f.complete !== false).map(([id]) => id));
 	const out = new Set<string>();
 	for (const t of list.tasks) {
 		const ran = t.status !== "todo" && !(t.status === "abandoned" && !t.startedAt && !t.blocks?.length);
-		if (roots.some((r) => t.id === r || (ran && t.id.startsWith(`${r}.`)))) out.add(t.id);
+		if (ran && covered.has(t.id)) out.add(t.id);
 	}
 	return out;
 }
@@ -248,41 +248,32 @@ export function foldedTaskIds(list: TaskList, folds: ReadonlyMap<string, FoldTok
 /** Tokens of each of `list`'s tasks that owns folded Taskfold groups, summed over its parts. */
 export function foldedTaskTokens(list: TaskList, truth: Truth): Map<string, FoldTokens> {
 	const out = new Map<string, FoldTokens>();
-	for (const g of truth.groups) {
-		if (!g.folded) continue;
-		const key = taskKeyOfSummary(g.digest);
-		if (!key?.startsWith(`${list.slug}/`)) continue;
-		const id = key.slice(list.slug.length + 1);
-		const f = out.get(id) ?? { full: 0, live: 0 };
-		f.full += truth.calibratedGroupFullTokens(g);
-		f.live += truth.calibratedGroupLiveTokens(g);
-		out.set(id, f);
+	const charges = new Map(truth.projectContext().flatMap((p) => p.members.map((b) => [b.id, b] as const)));
+	const spans = scanTaskSpans(truth.blocks, (b) => b.text);
+	for (const task of list.tasks) {
+		const key = `${list.slug}/${task.id}`;
+		const refs = taskFoldRefs(truth, key);
+		const folded = refs.filter((r) => r.group.folded);
+		if (!folded.length) continue;
+		const ids = new Set(folded.flatMap((r) => r.memberIds));
+		const tokens = [...ids].reduce((n, id) => ({ full: n.full + charges.get(id)!.full, live: n.live + charges.get(id)!.live }), { full: 0, live: 0 });
+		const span = [...spans].reverse().find((s) => s.key === key);
+		const scope = span ? truth.blocks.filter((_b, i) => spanContains(span, i)) : refs.flatMap((r) => r.memberIds.map((id) => truth.get(id)!));
+		const complete = scope.filter((b) => b.kind !== "user").every((b) => truth.isFolded(b));
+		out.set(task.id, { ...tokens, complete });
 	}
 	return out;
 }
 
-/** Tokens of this session's spans for `list`: at full size, and as sent now (folded groups at their summary). */
+/** Exact additive charges of this list's intervals and the carriers snapped around them. */
 export function taskSpanTokens(list: TaskList, truth: Truth): { full: number; live: number } | null {
-	const blocks = truth.blocks;
-	const spans = scanTaskSpans(blocks, (b) => b.text).filter((s) => s.list === list.slug);
+	const spans = scanTaskSpans(truth.blocks, (b) => b.text).filter((s) => s.list === list.slug);
 	if (!spans.length) return null;
-	const covered = new Set<number>();
-	for (const s of spans) for (const range of s.intervals) for (let i = range.start; i <= range.end; i++) covered.add(i);
-	let full = 0;
-	let live = 0;
-	const seenGroups = new Set<string>();
-	for (const i of covered) {
-		const b = blocks[i];
-		const g = truth.groupOf(b);
-		if (g?.folded) {
-			if (seenGroups.has(g.id)) continue;
-			seenGroups.add(g.id);
-			full += truth.calibratedGroupFullTokens(g);
-			live += truth.calibratedGroupLiveTokens(g);
-		} else {
-			full += truth.calBlockTokens(b, b.tokens);
-			live += truth.calBlockTokens(b, truth.effTokens(b));
-		}
+	const covered = new Set(truth.blocks.filter((_b, i) => spans.some((s) => spanContains(s, i))).map((b) => b.id));
+	let full = 0, live = 0;
+	for (const carrier of truth.projectContext()) {
+		if (!carrier.members.some((b) => covered.has(b.id))) continue;
+		for (const b of carrier.members) { full += b.full; live += b.live; }
 	}
 	return { full, live };
 }

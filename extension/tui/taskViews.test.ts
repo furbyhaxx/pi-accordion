@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
+import { foldCode, foldTag } from "../../core/digest";
+import { foldedTaskIds, foldedTaskTokens } from "./taskWidget";
 import { Truth } from "../../core/truth";
 import type { TaskList } from "../tasks";
 import { sessionTranscript, spanTranscript, transcriptSpans, type TBlock, type TranscriptSource } from "./taskTranscript";
@@ -141,6 +143,37 @@ describe("task views", () => {
 		expect(v.render(80).join("\n")).toContain("finished but raw");
 		v.handleInput("\x1b");
 		expect(v.render(80).join("\n")).toContain("Parent");
+	});
+
+	it("inspects composed child handles and steers them through the lease instead of rejecting the child", async () => {
+		const b = blocks();
+		const truth = new Truth({ meta: { format: "pi", title: "Handles", cwd: "", model: "" }, lineCount: 0, skipped: 0,
+			blocks: b.map((x, order) => ({ ...x, tokens: x.full, turn: 0, order, override: null, autoFolded: false, by: null })) });
+		truth.setProtect(0);
+		const childIds = b.slice(5, 9).map((b) => b.id);
+		const handleId = "t:l/1.1";
+		const summary = `${foldTag(`g:${b[3].id}`)} [task-record] l/1 "Parent"  status: done\nchild l/1.1 ${foldTag(handleId)}`;
+		expect(truth.apply([{ kind: "group", ids: [b[3].id, b.at(-1)!.id], summary, handles: [{ id: handleId, memberIds: childIds }] }], "auto").results[0].applied).toBe(true);
+		expect([...foldedTaskIds(list, foldedTaskTokens(list, truth))]).toEqual(["1", "1.1"]);
+		let allowed = false;
+		const applied: unknown[] = [];
+		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => allowed,
+			apply: async (ops) => { applied.push(...ops); truth.apply(ops, "you"); return "Applied."; }, subscribe: () => () => {} };
+		const keys = { matches: (input: string, key: string) => input === ({ "tui.select.down": "\x1b[B", "tui.select.confirm": "\r", "tui.select.cancel": "\x1b" } as Record<string, string>)[key] };
+		const view = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "list", slug: "l" }, () => {}, () => 40);
+		view.render(140); view.handleInput("\x1b[C"); view.handleInput("\x1b[B"); view.handleInput("\r");
+		expect(view.render(140).join("\n")).toContain(foldCode(handleId));
+		view.handleInput("v");
+		expect(view.render(140).join("\n")).toContain("child l/1.1");
+		view.handleInput("v");
+		expect(view.render(140).join("\n")).toContain("src/a.ts");
+		view.handleInput("\x1b"); view.handleInput("u");
+		expect(applied).toEqual([]);
+		expect(view.render(140).join("\n")).toContain("Read-only");
+		allowed = true; view.handleInput("u"); await Promise.resolve();
+		expect(applied).toEqual([{ kind: "unfoldGroup", groupId: truth.groups[0].id, handleId }]);
+		expect(truth.groups[0].folded).toBe(false);
+		view.dispose();
 	});
 
 	it("refuses actions without control and stays inside the width", async () => {

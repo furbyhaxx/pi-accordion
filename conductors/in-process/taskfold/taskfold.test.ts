@@ -3,6 +3,7 @@
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
 import { describe, it, expect } from "vitest";
+import { foldedTaskIds, foldedTaskTokens } from "../../../extension/tui/taskWidget";
 import { TaskfoldConductor, ageRecord, condenseChildren, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, VerdictLedger, unfoldStatesOf, verdictsOf, type Verdict } from "./verdicts";
@@ -478,7 +479,7 @@ describe("taskfold", () => {
 		expect(groupOf(host, child)?.summary).toBe(old.summary);
 	});
 
-	it("unfolds one child while refolding its siblings, even below the pressure threshold", async () => {
+	for (const actor of ["agent", "you"] as const) it(`${actor} unfolds one child while its siblings refold below the pressure threshold`, async () => {
 		const s = new Session();
 		s.user("Go.");
 		const parent = s.start("1", "Parent").call;
@@ -494,11 +495,18 @@ describe("taskfold", () => {
 		await attach(host);
 		expect(groupOf(host, parent)?.summary).toContain('[task-record] work/1 ');
 		host.setBudget(host.stats().liveTokens * 10);
-		expect(resolveUnfold(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+		if (actor === "agent") expect(resolveUnfold(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+		else {
+			const group = host.truth.groups.find((g) => g.folded && g.handles?.some((h) => h.id === "t:work/1.1"))!;
+			expect(host.truth.apply([{ kind: "unfoldGroup", groupId: group.id, handleId: "t:work/1.1" }], actor).results[0].applied).toBe(true);
+		}
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(groupOf(host, parent)).toBeUndefined();
 		expect(groupOf(host, first)).toBeUndefined();
 		expect(groupOf(host, second)?.summary).toContain('[task-record] work/1.2 ');
+		const list = { slug: "work", title: "Work", createdAt: "", updatedAt: "", claim: null,
+			tasks: ["1", "1.1", "1.2"].map((id) => ({ id, title: id, status: "done" as const, updatedAt: "" })) };
+		expect([...foldedTaskIds(list, foldedTaskTokens(list, host.truth))]).toEqual(["1.2"]);
 	});
 
 	it("may refold a once-opened child after two newer roots, but not after a second unfold", async () => {

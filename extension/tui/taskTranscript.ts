@@ -4,7 +4,7 @@
  * `transcriptSource` adapts a Truth to its plain input.
  */
 import type { Truth } from "../../core/truth";
-import type { BlockKind, ContextProjection, GroupHandle } from "../../core/types";
+import type { BlockKind, ContextProjection, Group, GroupHandle } from "../../core/types";
 import { scanTaskSpans, taskKeyOfSummary, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import type { TaskList } from "../tasks";
@@ -119,6 +119,33 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 		verdict,
 		threshold,
 	};
+}
+
+/** One stored record participating in a task's recovery, possibly through a composed handle. */
+export interface TaskFoldRef {
+	group: Group;
+	handleId?: string;
+	memberIds: string[];
+}
+
+/** Resolve task records and every source group referenced by a composed task handle. */
+export function taskFoldRefs(truth: Truth, key: string): TaskFoldRef[] {
+	const refs = new Map<string, TaskFoldRef>();
+	for (const g of truth.groups) {
+		const handle = g.handles?.find((h) => h.id === `t:${key}`);
+		if (!handle && taskKeyOfSummary(g.digest) !== key) continue;
+		const ids = handle?.memberIds ?? g.memberIds;
+		const owners = new Map<string, Group>([[g.id, g]]);
+		for (const id of ids) { const block = truth.get(id); const owner = block ? truth.groupOf(block) : undefined; if (owner) owners.set(owner.id, owner); }
+		for (const owner of owners.values()) {
+			const members = ids.filter((id) => owner.memberIds.includes(id));
+			if (!members.length) continue;
+			const previous = refs.get(owner.id);
+			refs.set(owner.id, { group: owner, ...(handle ? { handleId: handle.id } : {}),
+				memberIds: [...new Set([...(previous?.memberIds ?? []), ...members])] });
+		}
+	}
+	return [...refs.values()];
 }
 
 /** Every task span of the session, finished and open. */
@@ -277,7 +304,10 @@ export function sessionTranscript(src: TranscriptSource): TNode[] {
 
 /** Additive outgoing charges of the task's real intervals, excluding paused-period work. */
 export function spanTokens(src: TranscriptSource, span: TaskSpan): Tokens {
-	return blockTokens(spanBlocks(src, span));
+	const ids = new Set(spanBlocks(src, span).map((b) => b.id));
+	for (const p of src.projection) if (p.groupId && taskKeyOfSummary(src.groups.find((g) => g.id === p.groupId)?.summary) === span.key)
+		for (const b of p.members) ids.add(b.id);
+	return blockTokens(src.blocks.filter((b) => ids.has(b.id)));
 }
 
 /** The classifier's view of a user message, rebuilt the way Taskfold builds it; null for the opening message. */

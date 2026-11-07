@@ -21,7 +21,7 @@
  * prompt cache breaks once per epoch at the oldest folded span, never once per completed task.
  *
  * Folding proposes `group`, plus `ungroup` of absorbed child groups. Child handles remain recoverable
- * across group boundaries; an agent unfold reopens the selected task and recompiles its siblings.
+ * across group boundaries; a handle-based unfold reopens the task and recompiles its siblings.
  */
 import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
@@ -453,8 +453,8 @@ export class TaskfoldConductor implements Conductor {
 			case "turn-committed":
 				return this.evaluate();
 			case "state-changed": {
-				const unfolded = e.changes.filter((c) => c.by === "agent" && c.what === "ungroup" && c.id && c.groupId);
-				if (unfolded.length) return this.reconcileAgentUnfold(unfolded.map((c) => ({ id: c.id!, groupId: c.groupId! })));
+				const unfolded = e.changes.filter((c) => c.by !== "auto" && c.what === "ungroup" && c.id && c.groupId);
+				if (unfolded.length) return this.reconcileTaskUnfold(unfolded.map((c) => ({ id: c.id!, groupId: c.groupId! })));
 				if (this.busy || e.changes.every((c) => c.by === "auto")) return;
 				return this.evaluate();
 			}
@@ -463,7 +463,7 @@ export class TaskfoldConductor implements Conductor {
 		}
 	}
 
-	private async reconcileAgentUnfold(changes: { id: string; groupId: string }[]): Promise<void> {
+	private async reconcileTaskUnfold(changes: { id: string; groupId: string }[]): Promise<void> {
 		const host = this.host;
 		if (!host) return;
 		const groups = host.groups();
@@ -485,7 +485,7 @@ export class TaskfoldConductor implements Conductor {
 		}
 		for (const key of opened) {
 			const count = (this.verdicts.unfoldStates().get(key)?.count ?? 0) + 1;
-			if (!this.verdicts.setUnfold(key, { count, open: true })) host.setStatus("Taskfold could not persist the agent's unfolded-task state.", { level: "warning" });
+			if (!this.verdicts.setUnfold(key, { count, open: true })) host.setStatus("Taskfold could not persist the unfolded-task state.", { level: "warning" });
 		}
 		const ops: Op[] = groups.filter((g) => g.by === "auto" && owners.has(taskKeyOfSummary(g.summary) ?? "")).map((g) => ({ kind: "ungroup", groupId: g.id }));
 		if (!ops.length) return;
@@ -620,7 +620,7 @@ export class TaskfoldConductor implements Conductor {
 			const allRoots = allSpans.filter((s) => !allSpans.some((o) => contains(o, s)));
 			for (const [key, state] of this.verdicts.unfoldStates()) {
 				const root = allRoots.find((s) => key === s.key || key.startsWith(`${s.key}.`));
-				if (state.open && root && state.count === 1 && allRoots.filter((s) => s.end > root.end).length >= 2 && !this.verdicts.setUnfold(key, { ...state, open: false })) host.setStatus("Taskfold could not persist the agent's unfolded-task state.", { level: "warning" });
+				if (state.open && root && state.count === 1 && allRoots.filter((s) => s.end > root.end).length >= 2 && !this.verdicts.setUnfold(key, { ...state, open: false })) host.setStatus("Taskfold could not persist the unfolded-task state.", { level: "warning" });
 			}
 		}
 		const open = [...this.verdicts.unfoldStates()].filter(([, state]) => state.open).map(([key]) => key);

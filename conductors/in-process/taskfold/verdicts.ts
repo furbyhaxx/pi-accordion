@@ -23,7 +23,7 @@ export interface Verdict {
 
 /** The session entry type a persisted verdict is stored under. */
 export const VERDICT_ENTRY = "accordion.taskfold.verdict";
-/** Session entry recording an agent's task unfold state. */
+/** Session entry recording a task's handle-based unfold state. */
 export const UNFOLD_ENTRY = "accordion.taskfold.unfold";
 
 export interface TaskUnfoldState { count: number; open: boolean }

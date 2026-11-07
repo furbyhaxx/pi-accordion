@@ -5,7 +5,7 @@
  * the host, which enforces the controller lease.
  */
 import { decodeKittyPrintable, matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { wireFoldable } from "../../core/digest";
+import { foldCode, wireFoldable } from "../../core/digest";
 import type { ClampReason, Op } from "../../core/ops";
 import type { Truth } from "../../core/truth";
 import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
@@ -14,7 +14,7 @@ import { blockLabel, type Task, type TaskList } from "../tasks";
 import type { PinHolder } from "../taskPins";
 import { formatCompactTokens } from "./map";
 import { frame } from "./taskLists";
-import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
+import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
 import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type WidgetTheme } from "./taskWidget";
 import { TreeState, type TreeNode } from "./treeView";
@@ -109,13 +109,13 @@ export function listNodes(list: TaskList, truth: Truth | null, data: ViewData): 
 		const done = n.children.filter((c) => c.task.status === "done").length;
 		const ms = taskDuration(task, data.now);
 		const own = folds.get(task.id);
-		const inner = [...folds.entries()].filter(([id]) => id.startsWith(`${task.id}.`));
+		const inner = [...folds.entries()].filter(([id, f]) => id.startsWith(`${task.id}.`) && f.complete !== false);
 		const note = taskNote(task);
 		const meta = [
 			note ? t.fg(task.status === "blocked" ? "warning" : "dim", note) : "",
 			n.children.length ? `${done}/${n.children.length}` : "",
 			ms !== null ? formatDuration(ms) : "",
-			own ? t.fg("muted", "≡") : inner.length ? t.fg("muted", `≡${inner.length}`) : "",
+			own && own.complete !== false ? t.fg("muted", "≡") : inner.length ? t.fg("muted", `≡${inner.length}`) : "",
 			task.autoClosed ? t.fg("dim", "closed automatically") : "",
 		].filter(Boolean);
 		return {
@@ -263,7 +263,6 @@ function stepNodes(blocks: readonly TBlock[], data: ViewData, keyBase: string): 
 	return out;
 }
 
-/** The details screen's lines for one task. */
 function detailField(theme: WidgetTheme, key: string, value: string): string[] {
 	return value.split("\n").map((line, i) => ` ${theme.fg("muted", (i ? "" : key).padEnd(10))} ${clean(line)}`);
 }
@@ -287,7 +286,7 @@ export function listDetailLines(list: TaskList, theme: WidgetTheme): string[] {
 }
 
 /** A task's lifecycle, scoped context, report and actual work in this session. */
-export function detailLines(list: TaskList, id: string, data: ViewData, groups: readonly { id: string; summary: string | null | undefined; full: number; live: number; members: number }[]): string[] {
+export function detailLines(list: TaskList, id: string, data: ViewData, groups: readonly { id: string; summary: string | null | undefined; full: number; live: number; members: number; handleId?: string }[]): string[] {
 	const t = data.theme;
 	const task = list.tasks.find((x) => x.id === id);
 	if (!task) return [t.fg("dim", ` Task ${id} no longer exists in "${list.slug}".`)];
@@ -338,10 +337,10 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 		lines.push(...wrap("Span", `${spanBlocks(data.src, span).length} blocks · ${tok(spanTokens(data.src, span))}`));
 	} else lines.push(...wrap("Span", t.fg("dim", neverRan(task) ? "none · never started" : "not run in this session")));
 	for (const g of groups) {
-		const code = /^\{#([0-9a-z]{6}) FOLDED\}/.exec(g.summary ?? "")?.[1];
+		const code = g.handleId ? foldCode(g.handleId) : /^\{#([0-9a-z]{6}) FOLDED\}/.exec(g.summary ?? "")?.[1];
 		const level = recordLevel(g.summary);
 		const pct = g.full > 0 ? ` (−${Math.round(((g.full - g.live) / g.full) * 100)}%)` : "";
-		lines.push(...wrap("Fold", `${code ? `{#${code}}` : g.id} · ${level === null ? "fold" : LEVEL[level]} · ${g.members} blocks · ${formatCompactTokens(g.full)} → ${formatCompactTokens(g.live)}${pct}`));
+		lines.push(...wrap("Fold", `${code ? `{#${code}}` : g.id} · ${level === null ? "fold" : LEVEL[level]} · ${g.members} blocks${g.handleId ? " · shared record" : ""} · ${formatCompactTokens(g.full)} → ${formatCompactTokens(g.live)}${pct}`));
 	}
 	return lines;
 }
@@ -434,12 +433,14 @@ export class TaskViews {
 		return kinds;
 	}
 
-	private groupsOf(key: string): { id: string; summary: string | null | undefined; full: number; live: number; members: number }[] {
+	private groupsOf(key: string): { id: string; summary: string | null | undefined; full: number; live: number; members: number; handleId?: string }[] {
 		const truth = this.host.truth();
 		if (!truth) return [];
-		return truth.groups
-			.filter((g) => g.folded && typeof g.digest === "string" && new RegExp(`^\\{#[0-9a-z]{6} FOLDED\\} \\[task-(?:record|part|archived)\\] ${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} `).test(g.digest))
-			.map((g) => ({ id: g.id, summary: g.digest, full: truth.calibratedGroupFullTokens(g), live: truth.calibratedGroupLiveTokens(g), members: g.memberIds.length }));
+		const blocks = new Map(this.data().src?.blocks.map((b) => [b.id, b]) ?? []);
+		return taskFoldRefs(truth, key).filter((ref) => ref.group.folded).map((ref) => {
+			const tokens = ref.memberIds.reduce((n, id) => ({ full: n.full + (blocks.get(id)?.full ?? 0), live: n.live + (blocks.get(id)?.live ?? 0) }), { full: 0, live: 0 });
+			return { id: ref.group.id, summary: ref.group.digest, ...tokens, members: ref.memberIds.length, ...(ref.handleId ? { handleId: ref.handleId } : {}) };
+		});
 	}
 
 	render(width: number): string[] {
@@ -561,7 +562,7 @@ export class TaskViews {
 		} else if (key === "v") {
 			const groups = this.groupsOf(taskKey);
 			if (!groups.length) this.message = "This task is not folded.";
-			else this.pushRecord(groups.map((g) => g.id));
+			else this.pushTaskRecord(taskKey);
 		} else if (key === "g") this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
 		else if (key === "u" || key === "f") this.toggleTask(taskKey);
 	}
@@ -601,17 +602,25 @@ export class TaskViews {
 		} else if (key === "f" || key === "p") this.toggleBlocks(ids, key);
 	}
 
-	private pushRecord(groupIds: string[]): void {
+	private pushTaskRecord(key: string): void {
+		const truth = this.host.truth();
+		if (!truth) return;
+		const refs = taskFoldRefs(truth, key).filter((r) => r.group.folded);
+		this.pushRecord(refs.map((r) => r.group.id), refs.flatMap((r) => r.memberIds), key);
+	}
+
+	private pushRecord(groupIds: string[], memberIds?: readonly string[], taskKey?: string): void {
 		const truth = this.host.truth();
 		if (!truth) return;
 		const groups = truth.groups.filter((g) => groupIds.includes(g.id));
 		const main = groups.flatMap((g, i) => [...(i ? [""] : []), ...String(g.digest ?? "(default recap)").split("\n")]);
 		const byId = new Map(truth.blocks.map((b) => [b.id, b]));
-		const alt = groups.flatMap((g) => g.memberIds.flatMap((id) => {
+		const allowed = new Set(memberIds ?? groups.flatMap((g) => g.memberIds));
+		const alt = truth.blocks.filter((b) => allowed.has(b.id)).flatMap(({ id }) => {
 			const b = byId.get(id);
 			return b ? [`── ${b.kind}${b.toolName ? ` ${b.toolName}` : ""} · ${b.id}`, ...b.text.split("\n")] : [];
-		}));
-		this.stack.push({ kind: "text", title: "fold", main: ["As the agent sees it:", "", ...main], alt, altLabel: "original", showAlt: false, scroll: 0 });
+		});
+		this.stack.push({ kind: "text", title: taskKey ?? "fold", main: [...(taskKey ? [`Task ${taskKey} · ${foldCode(`t:${taskKey}`)}`, ""] : []), "As the agent sees it:", "", ...main], alt, altLabel: "original", showAlt: false, scroll: 0 });
 	}
 
 	private pushBlocks(ids: string[], data: ViewData): void {
@@ -665,14 +674,15 @@ export class TaskViews {
 
 	private toggleTask(key: string): void {
 		const truth = this.host.truth();
-		const esc = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const re = new RegExp(`^\\{#[0-9a-z]{6} FOLDED\\} \\[task-(?:record|part|archived)\\] ${esc}[ .]`);
-		const groups = truth?.groups.filter((g) => typeof g.digest === "string" && re.test(g.digest)) ?? [];
-		if (!groups.length) {
+		const refs = truth ? taskFoldRefs(truth, key) : [];
+		if (!refs.length) {
 			this.message = "This task has no fold yet; Taskfold folds it when the budget needs room.";
 			return;
 		}
-		this.toggleGroups(groups.map((g) => g.id));
+		const unfold = refs.some((r) => r.group.folded);
+		this.apply(refs.filter((r) => r.group.folded === unfold).map((r): Op => unfold
+			? { kind: "unfoldGroup", groupId: r.group.id, ...(r.handleId ? { handleId: r.handleId } : {}) }
+			: { kind: "foldGroup", groupId: r.group.id }));
 	}
 
 	private toggleBlocks(ids: string[], key: "f" | "p"): void {

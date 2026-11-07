@@ -182,9 +182,10 @@ describe("task widget", () => {
 		expect(collapsed[1]).toBe("  ⎿ ⧗ 3 Deploy · needs user decision");
 	});
 
-	test("subtasks of a folded parent count as folded only when they ran", () => {
+	test("counts actual coverage, never inferring a late child is folded from its parent", () => {
 		const l = list([task("1", "done", "P", 0, 60), task("1.1", "done", "ran", 0, 30), { ...task("1.2", "abandoned", "never ran"), report: { outcome: "x" } }, task("1.3", "abandoned", "ran, then dropped", 30, 40)]);
-		expect([...foldedTaskIds(l, new Map([["1", { full: 1, live: 1 }]]))].sort()).toEqual(["1", "1.1", "1.3"]);
+		expect([...foldedTaskIds(l, new Map([["1", { full: 1, live: 1 }]]))]).toEqual(["1"]);
+		expect([...foldedTaskIds(l, new Map(["1", "1.1", "1.3"].map((id) => [id, { full: 1, live: 1 }])))].sort()).toEqual(["1", "1.1", "1.3"]);
 	});
 
 	test("an invalid list produces a visible cached warning even without a readable list", () => {
