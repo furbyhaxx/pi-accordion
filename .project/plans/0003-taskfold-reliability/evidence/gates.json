@@ -1,0 +1,42 @@
+{
+  "revision": "ef5d23e",
+  "native": {
+    "command": "bun test extension/*.test.ts extension/tui/*.test.ts conductors/in-process/taskfold/*.test.ts",
+    "passed": 229,
+    "failed": 0
+  },
+  "application": {
+    "command": "npm --prefix app test",
+    "passed": 1054,
+    "skipped": 0,
+    "failed": 0,
+    "notes": "Installed locked Triptych test dependencies to exercise 21 previously skipped tests."
+  },
+  "typecheck": {
+    "command": "npm --prefix app run check",
+    "errors": 0,
+    "warnings": 0
+  },
+  "smoke": {
+    "command": "npm --prefix extension run smoke",
+    "passed": true,
+    "authenticatedAssets": true
+  },
+  "production": {
+    "source": "git archive HEAD into isolated worktree-local directory",
+    "command": "npm ci --omit=dev --legacy-peer-deps",
+    "passed": true,
+    "hostPeers": "provided by the existing Pi host installation",
+    "browserBuild": "generated from clean source by prepare",
+    "http": "node extension/smoke.mjs in production directory: authenticated index/assets and unauthorized rejection passed"
+  },
+  "package": {
+    "command": "npm pack --dry-run --ignore-scripts; node extension/smoke-package.mjs",
+    "passed": true
+  },
+  "limitations": [
+    "Extra broad Bun run of Vitest-only core timer suites fails because Bun lacks vi.advanceTimersByTimeAsync; all of those suites pass with the configured Vitest runner.",
+    "Repository-wide artifact checker has pre-existing errors in unrelated artifacts and docs/BACKLOG.md; no errors reference this branch's changed artifact files.",
+    "Dependency audit warnings from existing app dependencies were not upgraded in this repair."
+  ]
+}
