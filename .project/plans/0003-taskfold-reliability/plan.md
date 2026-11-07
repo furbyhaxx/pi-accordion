@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T09:08:44+01:00"
+  updated_at: "2026-11-07T09:38:12+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "close task inspection and native wiring repairs"
-      changes: ["goals and scoped metadata", "human and agent composed recovery", "off-render snapshots and session isolation smoke"]
+    - revision: 5
+      reason: "record full gates and historical replay"
+      changes: ["clean production assets verified", "empty protocol messages no longer duplicate recaps", "comparative replay and export fidelity evidence"]
 ---
 
 # Taskfold reliability repair
@@ -34,7 +34,9 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: safe descendant fallback and named child recovery through aging.
 - done: metadata/interval-aware transcript; exact-once carrier export, lossless YAML and explicit working set.
 - done: complete task inspection and composed-handle recovery, with cached I/O outside render.
-- now: full gates, read-only historical replay, real Pi-Bolt terminal evaluation and final review.
+- done: full gates and clean production install/authenticated assets (`evidence/gates.json`).
+- done: historical replay and a further shared-serializer defect (`evidence/historical-replay.json`).
+- now: real Pi-Bolt terminal evaluation and final review/gate refresh.
 
 ## Current slice: full verification and live evaluation
 
@@ -42,13 +44,32 @@ The approved implementation slices are complete. Focused tests cover unlimited n
 planner fallback, aging, exact carriers, metadata, YAML and native recovery. The native context smoke
 also verifies zero task-file scans during rendering, update refresh and stale-session refusal.
 
+Completed evidence:
+- 229 native Bun tests and 1,054 Vitest tests initially passed, with no skips; clean production
+  `prepare` generated assets and authenticated HTTP asset assertions passed. After the replay-found
+  serializer repair, 1,055 Vitest tests, app check and focused/context gates passed again.
+- Empty custom/protocol messages and system patches now survive unchanged without splitting one
+  logical recap. A synthetic regression failed before the serializer repair; replayed wire text
+  and order now equal the authoritative carriers.
+- At a 100k snapshot budget, baseline live tokens were 123,203 versus 87,683 repaired; the stranded
+  child drops from 37,352 to 62 tokens and remains recallable. At 272k, repaired records retain
+  more named outcomes and use 143,430 versus 126,821 tokens: not an unconditional size reduction.
+- All ten historical exports were generated; YAML/XML parse and YAML leaf sums equal each header.
+  The original YAML still fails parsing at line 2525. Originals were not changed.
+- The 80-task, six-level backup round-trips every task fact. Its already-invalid v2 header lacked
+  a goal; replay supplies the current authored list goal in memory only. No original was repaired,
+  flattened or renumbered. This is distinct from the synthetic deep-v1 migration regressions.
+- Replay is a canonical SDK snapshot with saved verdicts, a fixed tail, no provider calibration
+  and the host prompt intentionally excluded; it is not a historical request/cost reconstruction.
+
 Remaining work:
-1. Run all project gates and a clean production/package asset verification; address in-scope failures.
-2. Replay the private historical inputs without modifying them. Measure actual coverage, recovery,
-   carrier uniqueness, additive totals and runtime cost; retain only redacted aggregate evidence.
-3. Exercise the isolated Pi-Bolt UI at 36/57/80/140 columns and short height, including metadata,
-   composed-child recovery, diagnostics, pause state, session switching and export.
-4. Review and commit the complete change with precise remaining limitations, if any.
+1. Exercise isolated Pi-Bolt at 36/57/80/140 columns and short height: metadata, composed-child
+   recovery, diagnostics, pause state, session switching, export and a bounded live model call.
+2. Review the full diff, refresh final gates/builds after the serializer repair and record limits.
+
+The repository-wide artifact checker reports legacy frontmatter/changelog/dangling-reference
+errors outside this branch's changed artifacts. An extra Bun run of Vitest-only core timer tests
+fails because Bun lacks `vi.advanceTimersByTimeAsync`; those suites pass in their configured runner.
 
 ## Verification
 

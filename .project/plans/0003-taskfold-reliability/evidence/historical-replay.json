@@ -1,0 +1,112 @@
+{
+  "baselineRevision": "e6e87a2",
+  "repairedRevision": "3df0b46",
+  "method": "Canonical SDK snapshot projection, fixed 10k protected tail, saved classifier verdicts; no live provider calibration, host prompt intentionally excluded.",
+  "originalInputsUnchanged": true,
+  "externalModelCalls": 0,
+  "historicalTreeRoundTrip": {
+    "tasks": 80,
+    "depth": 6,
+    "identitiesPreserved": true,
+    "goalTakenFromCurrentList": true
+  },
+  "originalYaml": {
+    "parseable": false,
+    "errorLine": 2525
+  },
+  "runs": [
+    {
+      "budget": 272000,
+      "before": {
+        "full": 1083525,
+        "live": 126821,
+        "groups": 12,
+        "target": {
+          "full": 37352,
+          "live": 37352
+        },
+        "targetRecallable": false
+      },
+      "after": {
+        "full": 1083525,
+        "live": 143430,
+        "groups": 22,
+        "target": {
+          "full": 37352,
+          "live": 495
+        },
+        "targetRecallable": true,
+        "carrierCount": 344,
+        "exportedLive": 143430,
+        "checks": [
+          "actual-wire-text-and-order",
+          "each-block-once",
+          "each-leaf-once",
+          "full-and-live-additive",
+          "metadata-present",
+          "cached-working-set-explicit"
+        ]
+      }
+    },
+    {
+      "budget": 100000,
+      "before": {
+        "full": 1083525,
+        "live": 123203,
+        "groups": 13,
+        "target": {
+          "full": 37352,
+          "live": 37352
+        },
+        "targetRecallable": false
+      },
+      "after": {
+        "full": 1083525,
+        "live": 87683,
+        "groups": 14,
+        "target": {
+          "full": 37352,
+          "live": 62
+        },
+        "targetRecallable": true,
+        "carrierCount": 180,
+        "exportedLive": 87683,
+        "checks": [
+          "actual-wire-text-and-order",
+          "each-block-once",
+          "each-leaf-once",
+          "full-and-live-additive",
+          "metadata-present",
+          "cached-working-set-explicit"
+        ]
+      }
+    }
+  ],
+  "exports": [
+    {
+      "budget": 272000,
+      "formatsGenerated": 5,
+      "yamlParsed": true,
+      "xmlParsed": true,
+      "visibleCarriers": 344,
+      "declaredLive": 143430,
+      "summedLive": 143430,
+      "workingSetApplied": false,
+      "structuredResults": 133,
+      "tasksWithCriteria": 1
+    },
+    {
+      "budget": 100000,
+      "formatsGenerated": 5,
+      "yamlParsed": true,
+      "xmlParsed": true,
+      "visibleCarriers": 180,
+      "declaredLive": 87683,
+      "summedLive": 87683,
+      "workingSetApplied": false,
+      "structuredResults": 133,
+      "tasksWithCriteria": 1
+    }
+  ],
+  "tradeoff": "At the larger budget, repaired aging retains named child outcomes and more useful records, using more live tokens than baseline; this is not an unconditional token reduction."
+}
