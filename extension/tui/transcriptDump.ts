@@ -325,9 +325,10 @@ export function renderFlat(doc: DumpDoc): string {
 
 export function renderYaml(doc: DumpDoc): string {
 	const out: string[] = [];
+	const json = (value: unknown): string => JSON.stringify(value).replace(/[\u007f-\u009f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`);
 	const block = (key: string, text: string, ind: number): void => {
-		if (!text.trim().length) {
-			out.push(`${" ".repeat(ind)}${key}: ${JSON.stringify(text)}`);
+		if (!text.trim().length || /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/.test(text)) {
+			out.push(`${" ".repeat(ind)}${key}: ${json(text)}`);
 			return;
 		}
 		const chomp = text.endsWith("\n\n") ? "+" : text.endsWith("\n") ? "" : "-";
@@ -335,7 +336,7 @@ export function renderYaml(doc: DumpDoc): string {
 		const body = text.endsWith("\n") ? text.slice(0, -1) : text;
 		for (const line of lines(body)) out.push(line.length ? `${" ".repeat(ind + 2)}${line}` : "");
 	};
-	const quote = (s: string) => JSON.stringify(s);
+	const quote = (s: string) => json(s);
 	const node = (n: DumpNode, ind: number): void => {
 		const pad = " ".repeat(ind);
 		if (n.kind === "task") {
@@ -360,7 +361,7 @@ export function renderYaml(doc: DumpDoc): string {
 			out.push(`${pad}- group: ${quote(n.group.id)}`);
 			out.push(`${pad}  tokens: { live: ${n.tokens.live}, full: ${n.tokens.full} }`);
 			out.push(`${pad}  dropped: ${n.dropped}`);
-			out.push(`${pad}  member_ids: ${JSON.stringify(n.memberIds)}`);
+			out.push(`${pad}  member_ids: ${json(n.memberIds)}`);
 			if (n.code) out.push(`${pad}  code: ${n.code}`);
 			block("wire", n.wire, ind + 2);
 			out.push(`${pad}  elided_messages: ${n.elidedMessages}`);
@@ -395,12 +396,12 @@ export function renderYaml(doc: DumpDoc): string {
 		const ws = doc.workingSet;
 		out.push("  working_set:");
 		out.push(`    applied: ${ws.applied}`);
-		out.push(`    target_role: ${JSON.stringify(ws.targetRole)}`);
+		out.push(`    target_role: ${json(ws.targetRole)}`);
 		out.push(`    tokens: ${ws.applied ? ws.tokens : 0}`);
 		out.push(`    available_tokens: ${ws.tokens}`);
 		block("text", ws.text, 4);
 	}
-	if (hasMetadata(doc)) out.push(`  metadata: ${JSON.stringify(doc.metadata)}`);
+	if (hasMetadata(doc)) out.push(`  metadata: ${json(doc.metadata)}`);
 	return `${out.join("\n")}\n`;
 }
 

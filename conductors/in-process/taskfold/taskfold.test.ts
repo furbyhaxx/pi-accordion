@@ -498,7 +498,8 @@ describe("taskfold", () => {
 		if (actor === "agent") expect(resolveUnfold(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
 		else {
 			const group = host.truth.groups.find((g) => g.folded && g.handles?.some((h) => h.id === "t:work/1.1"))!;
-			expect(host.truth.apply([{ kind: "unfoldGroup", groupId: group.id, handleId: "t:work/1.1" }], actor).results[0].applied).toBe(true);
+			const ids = group.handles!.find((h) => h.id === "t:work/1.1")!.memberIds;
+			expect(host.truth.apply([{ kind: "unfoldGroup", groupId: group.id, handleId: "t:work/1.1" }, { kind: "unfold", ids }], actor).results.every((r) => r.applied)).toBe(true);
 		}
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		expect(groupOf(host, parent)).toBeUndefined();
@@ -507,6 +508,19 @@ describe("taskfold", () => {
 		const list = { slug: "work", title: "Work", createdAt: "", updatedAt: "", claim: null,
 			tasks: ["1", "1.1", "1.2"].map((id) => ({ id, title: id, status: "done" as const, updatedAt: "" })) };
 		expect([...foldedTaskIds(list, foldedTaskTokens(list, host.truth))]).toEqual(["1.2"]);
+		if (actor === "you") {
+			const more = new Session();
+			Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+			for (const id of ["2", "3"]) { more.start(id, `Task ${id}`); more.work(2, id); more.finish(id, { outcome: `${id} done` }); }
+			more.work(3, "tail2");
+			host.appendBlocks(more.blocks);
+			host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+			await host.commitTurn();
+			expect(groupOf(host, first)).toBeUndefined();
+			expect(host.truth.get(first)?.override).toBe("unfolded");
+			expect(host.truth.get(first)?.by).toBe("you");
+			expect(groupOf(host, second)).toBeDefined();
+		}
 	});
 
 	it("may refold a once-opened child after two newer roots, but not after a second unfold", async () => {

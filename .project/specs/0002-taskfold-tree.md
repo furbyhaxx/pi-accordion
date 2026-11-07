@@ -5,15 +5,15 @@ document:
   title: "Taskfold tree: nested task lists, composed records, pins, aging and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, attachments, move/insert), the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 12
+  revision: 13
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-07T09:08:44+01:00"
+  updated_at: "2026-11-07T11:39:01+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 12
-      reason: "complete recovery and inspection reliability contracts"
-      changes: ["human handle-based recovery", "named descendant aging", "cached metadata inspection and faithful export"]
+    - revision: 13
+      reason: "preserve human steering and YAML body bytes"
+      changes: ["sticky selective human recovery", "reversible whole-task controls", "escaped YAML control characters", "current goal-creation contract"]
 ---
 
 # Taskfold tree
@@ -95,9 +95,8 @@ verdicts, bindings) is unchanged.
   match its position 2.1; remove the id or move the task`. The file is not rewritten.
 - **v1 files** (flat `tasks[]`, no `version`) are converted in memory: the tree is rebuilt from the
   dotted ids. The next write stores v2. Every serialized candidate is validated before atomic replacement; a rejected conversion leaves the original file unchanged. Native task views name invalid lists instead of treating them as absent.
-- **Missing goal** (a migrated v1 list, or one created from the UI lists browser, which asks only
-  for a title): `start`, `add` and `move` are refused until
-  `tasks update {list, goal}` sets one. `list`, `status`, `claim` and the finishing actions still
+- **Missing goal** (a migrated legacy list): `start`, `add` and `move` are refused until
+  `tasks update {list, goal}` sets one. The native lists browser asks for title and goal when creating a list. `list`, `status`, `claim` and the finishing actions still
   work, so a running task can always be ended.
 - **Hand edits** made while a list is claimed are accepted if they validate. Changing the id or
   position of a started task is a validation error: started ids are frozen (§3.2).
@@ -348,9 +347,11 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
 - `resolveRecall` resolves a handle code to its members' raw content.
 - `resolveUnfold` on a handle code unfolds the carrier and every referenced group and emits a `state-changed` with
   `by:"agent"`. The native tasks UI sends the same handle-bearing operation through the controller
-  lease with `by:"you"`. Taskfold handles both actors and recompiles the parent around the raw child.
-- A handle-opened node refolds only under pressure and only once its task age is ≥2. After a second
-  handle-based unfold it stays open for the session. Counts and open state persist in branch-local
+  lease with `by:"you"` and holds the selected blocks open through Truth's sticky human overrides.
+  Taskfold handles both actors and recompiles the parent around the raw child. Whole-task human
+  toggles retain their existing group without selective recomposition, so they remain reversible.
+- An agent-opened node refolds only under pressure and only once its task age is ≥2. After a second
+  agent unfold it stays open for the session. Human-held blocks never expire through this policy. Counts and open state persist in branch-local
   `accordion.taskfold.unfold` entries and survive reattachment and session resume.
 - Truth snapshot, replica and protocol versions are bumped. `agentView` matches handle codes that
   are embedded inside a summary, not only leading tags.
@@ -481,7 +482,8 @@ then dropped); glyph and counts are never cut.
   Split/composed/untracked groups, dropped carriers, stragglers and substitutions retain their actual
   outgoing form. Structured details, handles and task metadata remain available as non-wire metadata.
   The transient working set is exported explicitly, distinguishing applied versus cached suffixes.
-  YAML preserves arbitrary indentation, final newlines and carriage returns.
+  YAML preserves arbitrary indentation, final newlines and carriage returns; terminal control
+  characters and Unicode line separators use escaped scalars rather than invalid literal blocks.
 
 ## 11. Skill `accordion-task-lists`
 

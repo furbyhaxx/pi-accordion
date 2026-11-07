@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability repair"
   description: "Resolve the approved session audit: unlimited nesting, safe persistence, folding fallback, faithful projection and complete task inspection."
   status: "published"
-  revision: 12
+  revision: 13
   created_at: "2026-11-07T08:16:00+01:00"
-  updated_at: "2026-11-07T11:27:42+01:00"
+  updated_at: "2026-11-07T11:39:01+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 12
-      reason: "record authenticated native recovery verification"
-      changes: ["two real successful provider requests", "selective child recall and sentinel", "actual working-set/record equivalence and additive export totals"]
+    - revision: 13
+      reason: "close final source-review defects"
+      changes: ["sticky selective human recovery", "reversible whole-task toggles", "lossless YAML terminal controls", "74 focused tests pass"]
 ---
 
 # Taskfold reliability repair
@@ -41,7 +41,8 @@ Branch `fix/taskfold-reliability`, worktree `.pi/worktrees/taskfold-reliability`
 - done: main context panel uses the same widget suspension and restores preferences after normal/failed opens (`evidence/context-panel.json`).
 - done: full terminal feature matrix and goal/session tests (`evidence/terminal.json`).
 - done: trailing-notice working-set repair and genuine native recovery (`evidence/live-result.json`).
-- now: final review/gate refresh.
+- done: final source review; human selective recovery now holds its blocks, full-task toggles remain reversible, and YAML escapes terminal controls losslessly.
+- now: final gate refresh and review of delivery evidence.
 
 ## Current slice: full verification and live evaluation
 
@@ -127,8 +128,16 @@ only widget suspension around the existing panel, not a nonexistent panel depend
   estimated 8,334 tokens; that request's real provider receipt was 6,935 including output.
   Classifier service and task-coaching closure were deliberately outside this isolated live run.
 
+Final source review reproduced two further failures before fixing them: selective human recovery
+had no sticky Truth overrides, and YAML literal scalars rejected carriage returns/ANSI output.
+Selected child blocks now use human `unfold` overrides while whole-task group toggles avoid
+selective recomposition. A two-newer-root pressure regression confirms the human-held child stays
+open; the existing agent-refold policy still passes. YAML uses escaped JSON-compatible scalars for
+terminal controls and Unicode line separators. All 74 focused tests pass, including exact byte
+round trips and whole-task open/close behavior.
+
 Remaining work:
-1. Review the full diff, refresh final gates/builds after the serializer repair and record limits.
+1. Refresh final gates/builds after all source repairs and record limits.
 
 The repository-wide artifact checker reports legacy frontmatter/changelog/dangling-reference
 errors outside this branch's changed artifacts. An extra Bun run of Vitest-only core timer tests

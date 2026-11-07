@@ -4,7 +4,7 @@ import { foldCode, foldTag } from "../../core/digest";
 import { foldedTaskIds, foldedTaskTokens } from "./taskWidget";
 import { Truth } from "../../core/truth";
 import type { TaskList } from "../tasks";
-import { sessionTranscript, spanTranscript, transcriptSpans, type TBlock, type TranscriptSource } from "./taskTranscript";
+import { sessionTranscript, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TranscriptSource } from "./taskTranscript";
 import { TaskViews, detailLines, listDetailLines, listNodes, transcriptNodes, type TaskViewsHost, type ViewData } from "./taskViews";
 import { flattenTree, treeRowLine } from "./treeView";
 
@@ -251,8 +251,26 @@ describe("task views", () => {
 		expect(applied).toEqual([]);
 		expect(view.render(140).join("\n")).toContain("Read-only");
 		allowed = true; view.handleInput("u"); await Promise.resolve();
-		expect(applied).toEqual([{ kind: "unfoldGroup", groupId: truth.groups[0].id, handleId }]);
 		expect(truth.groups[0].folded).toBe(false);
+		expect(childIds.every((id) => truth.get(id)?.override === "unfolded" && truth.get(id)?.by === "you")).toBe(true);
+		expect(b.filter((b) => !childIds.includes(b.id)).every((b) => truth.get(b.id)?.override === null)).toBe(true);
+		view.dispose();
+	});
+
+	it("keeps whole-task folds reversible without treating them as selective recovery", async () => {
+		const b = blocks(), truth = truthOf(b);
+		const ids = b.slice(3).map((b) => b.id), handleId = "t:l/1";
+		const summary = `${foldTag(`g:${ids[0]}`)} [task-record] l/1 "Parent"  status: done\n${foldTag(handleId)}`;
+		expect(truth.apply([{ kind: "group", ids, summary, handles: [{ id: handleId, memberIds: ids }] }], "auto").results[0].applied).toBe(true);
+		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => true,
+			apply: async (ops) => { const result = truth.apply(ops, "you"); expect(result.results.every((r) => r.applied)).toBe(true); return "Applied."; }, subscribe: () => () => {} };
+		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 40);
+		view.render(140); view.handleInput("u"); await Promise.resolve();
+		expect(truth.groups[0].folded).toBe(false);
+		expect(ids.every((id) => truth.get(id)?.override === null)).toBe(true);
+		view.handleInput("u"); await Promise.resolve();
+		expect(truth.groups[0].folded).toBe(true);
+		expect(transcriptSource(truth, () => undefined, null).projection.some((p) => p.text === summary)).toBe(true);
 		view.dispose();
 	});
 

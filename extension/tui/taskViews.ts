@@ -712,9 +712,13 @@ export class TaskViews {
 			return;
 		}
 		const unfold = refs.some((r) => r.group.folded);
-		this.apply(refs.filter((r) => r.group.folded === unfold).map((r): Op => unfold
-			? { kind: "unfoldGroup", groupId: r.group.id, ...(r.handleId ? { handleId: r.handleId } : {}) }
-			: { kind: "foldGroup", groupId: r.group.id }));
+		const selected = refs.filter((r) => r.group.folded === unfold);
+		const selective = unfold && selected.some((r) => r.memberIds.length < r.group.memberIds.length);
+		const ops = selected.map((r): Op => unfold
+			? { kind: "unfoldGroup", groupId: r.group.id, ...(selective && r.handleId ? { handleId: r.handleId } : {}) }
+			: { kind: "foldGroup", groupId: r.group.id });
+		if (selective) ops.push({ kind: "unfold", ids: [...new Set(selected.flatMap((r) => r.memberIds))] });
+		this.apply(ops);
 	}
 
 	private toggleBlocks(ids: string[], key: "f" | "p"): void {

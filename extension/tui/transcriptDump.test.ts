@@ -249,7 +249,7 @@ describe("transcript dump", () => {
 	});
 
 	it("YAML round-trips indented, blank and trailing-newline text exactly", () => {
-		for (const text of ["    first\nsecond", " leading\n  next\n", "a\n\n", "\n", "\n\n", "", "a\n\n  b", "trailing spaces  "]) {
+		for (const text of ["    first\nsecond", " leading\n  next\n", "a\n\n", "\n", "\n\n", "", "a\n\n  b", "trailing spaces  ", "progress\rfinished", "\x1b[32mgreen\x1b[0m", "a\u0085b\u2028c\u2029d"]) {
 			const log = new Log(); log.user(text);
 			const parsed = Bun.YAML.parse(renderDump(doc(source(log)), "yaml")) as { transcript: { orientation: { wire: string }[] } };
 			expect(parsed.transcript.orientation[0].wire).toBe(text);
