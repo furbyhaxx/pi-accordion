@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 20
+  revision: 21
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T15:20:00+01:00"
+  updated_at: "2026-11-08T14:58:07+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 20
-      reason: "details found while implementing eager JSON records (slice 6)"
-      changes: ["carrier role is a conductor-only Group.role", "a unit waits for its closing blocks to leave the protected tail and for in-flight user-message classification", "pressure history works on folded records inside open roots; no other aging"]
+    - revision: 21
+      reason: "details found while implementing content anchors (slice 7)"
+      changes: ["attachment cap is the existing tasks.attachments.maxLines (60), not a token cap", "too_large state and lost candidates", "a moved quote returns its exact text without disambiguation", "legacy lines ranges are read by line and upgraded to a quote anchor on delivery", "attachment delivery keys are by id only"]
 ---
 
 # Taskfold
@@ -173,7 +173,8 @@ type Attachment = {
   id: string; ref: string;           // canonical anchor, e.g. "docs/auth.md#Token store > Interface"
   note?: string;
   content: string;                   // resolved text; omitted when settings render = "reference"
-  state?: "moved" | "fuzzy" | "changed" | "lost";   // §4.2; omitted when exact
+  state?: "moved" | "fuzzy" | "changed" | "lost" | "too_large";   // §4.2; omitted when exact
+  candidates?: string[];             // with "lost": what exists nearby
 };
 type Item = { id: string; text: string };           // goal or criterion
 type TaskContext = {                 // a task entering doing
@@ -438,8 +439,13 @@ first:
 - `lines` is input sugar only: at attach time the range becomes a quote anchor over those lines
   (`exact` = their text). Line numbers are never stored and never compared.
 - Exactly one of `section`, `symbol`, `quote`, `lines` may be given. Content resolved from any
-  anchor is capped at `tasks.attachments.maxTokens` (default 1,500); larger targets are refused
-  with `cap_exceeded` and a suggestion to anchor a subsection.
+  anchor is capped at `tasks.attachments.maxLines` (default 60); a larger target is refused with
+  `cap_exceeded` and a suggestion to anchor a smaller part. A target that grows past the cap after
+  attaching is delivered as `state: "too_large"` without content.
+- A quote must be unique in the file when attached. A hand-written `lines` range in a stored list
+  is read by its lines and replaced by a quote anchor the next time the attachment is delivered.
+- An attachment is delivered once per live context, keyed by its id (§4.3): edits the agent makes to
+  the file while the result is still in front of the model are never sent again.
 - The store keeps `hash` = sha256 of the resolved content at the time it was last **delivered**,
   and for quote anchors the `exact`/`prefix`/`suffix`/position.
 
@@ -448,7 +454,7 @@ Resolution and `state`:
 | Anchor | Content changed, anchor found | Anchor moved | Anchor gone |
 |---|---|---|---|
 | section / symbol | delivered as is; `state: "changed"` only versus the last delivery | irrelevant (structural) | `state: "lost"`, no content, `fix` names candidates |
-| quote | — (exact match is identical) | `state: "moved"` (exact found elsewhere, nearest to the hint, disambiguated by prefix/suffix) | fuzzy match (prefix/suffix + position, similarity ≥0.8) → `state: "fuzzy"` with the found text; else `"lost"` |
+| quote | — (exact match is identical) | `state: "moved"` (exact text found elsewhere; its content is identical wherever it sits, and the stored anchor is refreshed) | fuzzy match (prefix/suffix + position, similarity ≥0.8) → `state: "fuzzy"` with the found text; else `"lost"` |
 | file | `state: "changed"` versus the last delivery | — | `"lost"` |
 
 When changes are reported:
@@ -875,7 +881,7 @@ Evidence lives in the plan's `evidence/`.
 ```jsonc
 {
   "tasks": {
-    "attachments": { "render": "inline", "maxTokens": 1500 },
+    "attachments": { "render": "inline", "maxLines": 60 },
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
   },
   "taskfold": {

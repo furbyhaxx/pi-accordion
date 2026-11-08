@@ -5,15 +5,15 @@ document:
   title: "Structured Taskfold: nested events, adoption, delivered-once results, eager JSON folds"
   description: "Slices, progress and acceptance for implementing SPEC-0002 r18 on branch feat/taskfold-structured, ordered so overflowed legacy sessions can continue first."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-08T13:16:40+01:00"
-  updated_at: "2026-11-08T13:38:07+01:00"
+  updated_at: "2026-11-08T14:58:07+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "slices 1 and 2 delivered"
-      changes: ["progress: nested events and adoption done, slice 3 now"]
+    - revision: 3
+      reason: "slices 3 to 7 delivered"
+      changes: ["progress: JSON results, list v3, eager records and anchors done; notices and routing next"]
 ---
 
 # Structured Taskfold: plan
@@ -43,7 +43,7 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 | 4 | Structured JSON results for every action; delivery manifests and liveness; claim/resume delivery | §3, §4.3 | done |
 | 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | done (abd8560) |
 | 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | done |
-| 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | later |
+| 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | done (taskAnchors.ts, taskSymbols.ts, 75e6be0, 603deb1) |
 | 8 | Notices and user-message routing (classify, extract, apply, notify) | §4.4, §4.6 | later |
 | 9 | Views, dump, settings, docs; replay `01a1b680`, comprehension eval on real rendering, live run | §10, §12, §13 | later |
 
