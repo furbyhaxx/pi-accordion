@@ -248,6 +248,53 @@ check("task context rides in the start result and requests are never rewritten",
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+check("start re-delivers task context only when the model can no longer see it", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-liveness-"));
+	const messages = [{ role: "user", content: "Plan it.", timestamp: 1 }];
+	const r = runtime(messages, { cwd: dir, sessionId: "liveness" });
+	let call = 0;
+	const run = async args => {
+		const id = `live-${++call}`;
+		const res = await r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
+		messages.push({ role: "assistant", responseId: id, timestamp: 2 * call, content: [{ type: "toolCall", id, name: "tasks", arguments: args }] },
+			{ role: "toolResult", toolCallId: id, toolName: "tasks", content: res.content, details: res.details, isError: false, timestamp: 2 * call + 1 });
+		await r.request(messages);
+		return JSON.parse(res.content[0].text);
+	};
+	try {
+		const host = await r.open();
+		await run({ action: "create", list: "w", title: "W", goal: "Ship it", tasks: [{ title: "A", acceptanceCriteria: ["a holds"], subtasks: [{ title: "A1" }, { title: "A2" }] }] });
+		const first = await run({ action: "start", list: "w", id: "1.1" });
+		assert.deepEqual(first.list, { goal: "Ship it" });
+		assert.deepEqual(first.started[0], { id: "1", title: "A", criteria: ["a holds"] });
+		await run({ action: "abandon", list: "w", id: "1.1", report: { outcome: "x" } });
+		assert.deepEqual(await run({ action: "start", list: "w", id: "1.2" }), { ok: true, started: [{ id: "1.2", title: "A2" }] }, "live goal is not re-sent");
+		// The model can no longer see a folded delivery, so its content comes back once.
+		const truth = host.truth();
+		const carrier = truth.blocks.find(b => b.details?.delivered?.some(k => k.startsWith("w/goal#")));
+		assert.ok(carrier, "the first start result records its delivery keys");
+		host.command({ kind: "setFolding", value: true });
+		host.command({ kind: "setProtect", value: 0 });
+		const folded = host.command({ kind: "ops", ops: [{ kind: "fold", ids: [carrier.id] }] });
+		assert.ok(truth.isFolded(carrier), JSON.stringify(folded.results));
+		assert.ok(truth.isFolded(carrier));
+		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
+		const resumed = await run({ action: "start", list: "w", id: "1.2" });
+		assert.deepEqual(resumed.list, { goal: "Ship it" });
+		assert.deepEqual(resumed.resumed[0], { id: "1", title: "A", criteria: ["a holds"] });
+		// An edited goal has a new key, so it counts as not delivered.
+		await run({ action: "update", list: "w", goal: "Ship it today" });
+		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
+		assert.deepEqual((await run({ action: "start", list: "w", id: "1.2" })).list, { goal: "Ship it today" });
+		// A pin the agent wrote is live through its own pin result.
+		await run({ action: "pin", list: "w", items: [{ kind: "rule", text: "Plan it.", source: "user" }] });
+		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
+		assert.equal((await run({ action: "start", list: "w", id: "1.2" })).list, undefined);
+	} finally {
+		r.close();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 check("shutdown releases only this session's task claims across visited projects", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-claims-"));
 	const r = runtime([], { sessionId: "owner" });

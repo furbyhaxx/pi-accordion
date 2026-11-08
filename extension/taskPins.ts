@@ -245,6 +245,20 @@ export const deliveryKey = {
 	attachment: (id: string, content: string | null) => `att:${id}#${content === null ? "lost" : hashOf(content)}`,
 };
 
+/**
+ * Delivery keys the model can still see: those recorded on result blocks that are present and not
+ * folded. Folded or absent (compacted, other branch) deliveries do not count, so their content is sent again.
+ */
+export function liveDeliveryKeys(blocks: Iterable<{ details?: unknown }>, folded: (b: { details?: unknown }) => boolean): Set<string> {
+	const live = new Set<string>();
+	for (const b of blocks) {
+		const keys = b.details && typeof b.details === "object" ? (b.details as { delivered?: unknown }).delivered : undefined;
+		if (!Array.isArray(keys) || folded(b)) continue;
+		for (const k of keys) if (typeof k === "string") live.add(k);
+	}
+	return live;
+}
+
 /** What a context delivery contains, and the keys and attachment hashes it delivered. */
 export interface Delivery {
 	list?: ListContext;

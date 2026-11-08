@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { attachmentContent, deliverContext, deliveryKey, makeAttachment, makePin, parseLines, PIN_LIMITS } from "./taskPins";
+import { attachmentContent, deliverContext, deliveryKey, liveDeliveryKeys, makeAttachment, makePin, parseLines, PIN_LIMITS } from "./taskPins";
 
 const dirs: string[] = [];
 function directory(): string {
@@ -79,3 +79,10 @@ test("line ranges reject unsafe numeric values", () => {
 	expect(parseLines("1-999999999999999999999999")).toBeNull();
 });
 
+
+test("only deliveries on unfolded result blocks are live", () => {
+	const shown = { details: { delivered: ["w/goal#a", "w/pin:p1"] } };
+	const hidden = { details: { delivered: ["w/crit:1#b"] } };
+	const unrelated = { details: { action: "status" } };
+	expect([...liveDeliveryKeys([shown, hidden, unrelated, {}], (b) => b === hidden)]).toEqual(["w/goal#a", "w/pin:p1"]);
+});

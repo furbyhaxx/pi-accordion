@@ -57,7 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
-import { deliverContext, PIN_LIMITS, PinError } from "./taskPins";
+import { deliverContext, deliveryKey, liveDeliveryKeys, PIN_LIMITS, PinError } from "./taskPins";
 import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
@@ -75,6 +75,7 @@ import { Truth } from "../core/truth";
 import { wireFoldable } from "../core/digest";
 import { estTokens } from "../core/tokens";
 import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage } from "../core/wire";
+import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfold, resolveRecall } from "../core/agentView";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
@@ -4089,10 +4090,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				// Task context rides once in the result that starts the work, so it folds with the span.
 				const result: Record<string, unknown> = { ...run.result };
 				let delivered: string[] = [];
+				// Keys are scoped by list: pin and attachment ids repeat across lists.
+				const scoped = (key: string) => `${args.list}/${key}`;
 				if (list && args.list && (args.action === "start" || args.action === "claim")) {
 					const entering = args.action === "start" ? run.started : list.tasks.filter((t) => t.status === "doing").map((t) => t.id);
-					const delivery = deliverContext(list, entering, true, () => false, ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines);
-					delivered = delivery.delivered;
+					const current = truth;
+					const live = current ? liveDeliveryKeys(current.blocks, (b) => foldingEnabled && current.isFolded(b as Block)) : new Set<string>();
+					const delivery = deliverContext(list, entering, true, (key) => live.has(scoped(key)), ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines);
+					delivered = delivery.delivered.map(scoped);
 					if (Object.keys(delivery.seen).length) store.recordSeen(args.list, delivery.seen);
 					const byId = new Map(delivery.tasks.map((t) => [t.id, t]));
 					const withContext = (ref: unknown) => {
@@ -4121,6 +4126,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				};
 				const event = taskEventOf(args, list, run);
 				if (event && !nestedTaskEvents.queue(toolCallId, event)) details.taskEvents = [event];
+				// The agent wrote a pin's text, so a direct pin result counts as delivering it.
+				if (args.action === "pin" && Array.isArray(run.result.pins)) delivered = (run.result.pins as string[]).map((id) => scoped(deliveryKey.pin(id)));
 				if (delivered.length) details.delivered = delivered;
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {

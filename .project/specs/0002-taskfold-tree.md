@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 18
+  revision: 19
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T13:15:06+01:00"
+  updated_at: "2026-11-08T14:11:08+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 18
-      reason: "multiple goals with item ids; nested-call mechanism verified against pi 1.5"
-      changes: ["list file v3: goals[] on lists and tasks, {id,text} criteria, item ids for goals/criteria/pins/attachments", "update takes ItemEdit for goals and criteria; results return assigned item ids", "§5.3 parentToolCallId queue + outer tool_result details; ingest keeps taskEvents on any tool result", "§14.2 adoption reads nestedCalls instead of parsing scripts"]
+    - revision: 19
+      reason: "record liveness details found while implementing slice 4"
+      changes: ["delivery keys scoped by list", "disarmed folding counts every present delivery", "nested starts record no live delivery"]
 ---
 
 # Taskfold
@@ -475,6 +475,11 @@ The tool must know what the model can still see. That is derived, not tracked:
   pins by id since pins are immutable, attachments by content hash; `null` never matches).
 - A `start`/resume/`claim` delivers exactly `required − live`, where `required` is the list context
   plus the context of every task entering (or, for claim, in) `doing`.
+- Keys are scoped by list (`<slug>/goal#…`, `<slug>/pin:p1`), since pin and attachment ids repeat
+  across lists. While folding is disarmed nothing on the wire is folded, so every present
+  delivery counts.
+- A `start` run inside another tool (§5.3) records no live delivery: the outer tool decides what
+  of the nested result reaches the model. The next direct `start` or `claim` delivers it again.
 
 Why this is correct without extra state:
 - **Folding:** a folded delivery block drops out of the live set immediately, so the next delivery
