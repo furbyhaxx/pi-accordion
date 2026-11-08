@@ -719,12 +719,11 @@ export class Truth {
 		// Covered blocks use k; blocks newer than the receipt frontier stay raw. Use unrounded float
 		// costs during the walk so cumulative per-block rounding cannot move the boundary. Host and
 		// replica carry the same k/frontier and block order, so this is deterministic on both sides.
-		const realCost = (b: Block) => b.tokens * (this.isCalibrated(b) ? this.calibrationMul : 1);
 		const cap = targetReal * PROTECT_OVERFLOW_CAP;
-		let sum = realCost(blocks[blocks.length - 1]);
+		let sum = this.realTokens(blocks[blocks.length - 1]);
 		if (sum >= targetReal) return blocks.length - 1;
 		for (let i = blocks.length - 2; i >= floor; i--) {
-			const next = sum + realCost(blocks[i]);
+			const next = sum + this.realTokens(blocks[i]);
 			if (next > cap) return i + 1;
 			sum = next;
 			if (sum >= targetReal) return i;
@@ -1214,9 +1213,10 @@ export class Truth {
 	 * the session; on plain detach `protectTokens` snaps BACK to the human's larger dial, and the
 	 * very next housekeep then prunes the (freeze-converted, human-owned) whole-session group and
 	 * heals the frozen folds — destroying exactly the work `freeze` promised to preserve. With
-	 * `inheritTail:true`, the enforced tail is adopted as `protectTokens` BEFORE the lock releases,
-	 * so the protected boundary does NOT snap back; the human regains the dial and re-expanding it
-	 * later is their own conscious act (normal healing then applies, and F3 makes that heal
+	 * `inheritTail:true`, `protectTokens` becomes the largest tail up to the human dial that leaves
+	 * every fold and group outside it (never below the enforced tail) BEFORE the lock releases, so
+	 * frozen work survives and the dial comes back as far as it safely can; re-expanding it further
+	 * is the human's own conscious act (normal healing then applies, and F3 makes that heal
 	 * complete). Plain `clearLocks()` keeps the legacy snap-back behavior.
 	 *
 	 * No protocol change: `protectTokens` already rides `config` events, so the inherited value is
@@ -1226,7 +1226,7 @@ export class Truth {
 	 * silent state fork. Wave 2 wires `LiveConductorHost.detachActive` to pass `{inheritTail:true}`.
 	 */
 	clearLocks(opts?: { inheritTail?: boolean }): void {
-		const inheritedTail = opts?.inheritTail && this.isLocked("tail-size") ? this.activeTailTok : null;
+		const inheritedTail = opts?.inheritTail && this.isLocked("tail-size") ? this.inheritableTail() : null;
 		this.activeLocks = [];
 		this.holderLabel = null;
 		this.activeTailTok = 0;
@@ -1240,6 +1240,21 @@ export class Truth {
 		const rev = ++this.revCounter;
 		for (const id of touched) this.lastChangedRev.set(id, rev);
 		this.emit({ type: "locks", locks: this.activeLocks, holder: null, tailTokens: 0, rev });
+	}
+	/** The largest tail up to the human dial that leaves every fold and group outside it, never below the enforced tail. */
+	private inheritableTail(): number {
+		let newest = -1;
+		for (let i = this.blockLog.length - 1; i >= 0; i--) {
+			const b = this.blockLog[i];
+			if (this.isFolded(b) || this.groupOf(b)) { newest = i; break; }
+		}
+		if (newest < 0) return this.protectTokensTarget;
+		let free = 0;
+		for (let i = newest + 1; i < this.blockLog.length; i++) free += this.realTokens(this.blockLog[i]);
+		return Math.max(this.activeTailTok, Math.min(this.protectTokensTarget, Math.floor(free)));
+	}
+	private realTokens(b: Block): number {
+		return b.tokens * (this.isCalibrated(b) ? this.calibrationMul : 1);
 	}
 	private releaseLockedDomains(locks: readonly LockName[], touched: Set<string>): void {
 		const lockHuman = hasLock(locks, "human-steering");

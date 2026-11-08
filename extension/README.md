@@ -111,9 +111,11 @@ attaches):
 
 Finished tasks fold at the next request, a finished top-level task becomes a one-line history
 entry, and history inside an open root is only produced under pressure (`high`, `low`). History
-entries are never rewritten, so each fold costs the provider cache once. `keepRecentTasks` is for
-experiments: it delays folds. Setting `floor` to `true` additionally applies recoverable per-block
-folding inside long open tasks and untracked work, outside the protected tail; it is off by default.
+entries are never rewritten, so each fold costs the provider cache once. Taskfold holds the
+protected-tail lock while attached, so folds land while the cache can still absorb them; your tail
+dial is locked meanwhile and still limits pressure folding. `keepRecentTasks` is for experiments: it
+delays folds. Setting `floor` to `true` additionally applies recoverable per-block folding inside
+long open tasks and untracked work, outside your tail dial; it is off by default.
 
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
 output against the actual serialized prompt, including restored content. Stored usage and costs

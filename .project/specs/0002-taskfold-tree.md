@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 23
+  revision: 24
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T15:20:00+01:00"
+  updated_at: "2026-11-08T16:49:11+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 23
-      reason: "details found while implementing routed-message links (slice 8)"
-      changes: ["records link routed user messages to item ids; history entries do not", "notices are JSON deltas against the state the agent last saw, sent after tool results and with the next prompt", "restored notice dropped: notices are not Truth blocks, start/claim re-deliver hidden context"]
+    - revision: 24
+      reason: "folds waiting for the protected tail rewrote the provider cache far behind its lookback"
+      changes: ["Taskfold holds tail-size with a zero tail; records fold at the next request", "a record never ends the request", "floor and untracked records keep the user's tail dial", "detach inherits the largest safe tail up to the user's dial"]
 ---
 
 # Taskfold
@@ -695,7 +695,7 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
 finished tasks and pressure-history targets, `unit` compiles them into runs and handles, and `commit` reconciles
 the proposed operations and rolls back partially rejected units. **There is no `ownGroups` cache.**
 Ours are the automatic groups whose summary `taskKeyOfSummary` recognizes. Every epoch recomputes the desired
-state, so a group pruned by protected-tail growth or by a human is proposed again once it is
+state, so a group pruned by a tail resize between attachments or by a human is proposed again once it is
 eligible. Exception: a node the human unfolded (`by:"you"`) is left alone for the session.
 
 ### 7.2 Compile
@@ -748,11 +748,20 @@ final form and never rewritten.
 
 | Event | Effect, at the next request |
 |---|---|
-| a task finishes inside an open parent | its span becomes a record (§6.2) once its closing blocks have left the protected tail and none of its user messages is still being classified (a folded span is never re-extended, so it folds whole or not yet) |
+| a task finishes inside an open parent | its span becomes a record (§6.2) once another message follows its closing message and none of its user messages is still being classified (a folded span is never re-extended, so it folds whole or not yet) |
 | a non-root parent finishes | its span becomes one record composing its children's records |
 | a root finishes | its whole span becomes history (§6.3) |
 | pressure ≥ `high` inside an open root | finished subtrees, oldest first, become history until `low` |
 
+- **Taskfold owns the tail.** It holds the `tail-size` lock with a zero tail, so a finished span
+  folds at the next request instead of after it leaves the protected tail. Waiting rewrote the cache
+  from a position tens of thousands of tokens back, beyond the provider's lookback, so every such
+  fold re-billed the whole tail (ANA-fold-representations §8: +41 % on the nukular replay at a 20k
+  tail). While attached, the user's tail dial is locked; Taskfold applies its value to pressure folds
+  of open and untracked work (§9.2, §9.3). On detach the dial returns as far as it leaves every fold
+  outside the tail.
+- **A record never ends the request.** A span whose last message is the newest message waits one
+  step, so the wire never ends on an assistant carrier.
 - No other aging. A history entry is never rewritten, merged or shortened. (Merging all history
   under pressure was measured: up to 20× more rebilled tokens on the nukular session.)
 - History within an open root rewrites from the oldest affected subtree onward: it happens only
@@ -785,7 +794,7 @@ folds and multiplies rebilled tokens; it exists for experiments only.
   Taskfold previews a `KeelLiteConductor` behind a masked host; its decisions are rebuilt from
   Truth each epoch and it does not independently commit.
 - **Hidden from keel-lite:** blocks in Taskfold groups and planned groups, document and rule-file
-  reads (`DOC_PATH_RE`, `RULE_FILE_RE`), the protected tail, kept user messages.
+  reads (`DOC_PATH_RE`, `RULE_FILE_RE`), the user's tail dial (§8), kept user messages.
 - R1–R5 only (`maxRung: 5`); R7 is off (`groupSteps: false`).
 - **Same transaction:** `planPressure` previews keel-lite's ops without committing them. Taskfold
   appends them to its epoch's op list, so there is one `propose` and one cache break.

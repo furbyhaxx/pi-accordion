@@ -45,7 +45,7 @@ export interface TaskfoldOptions {
 	maxLoss?: number;
 	/** User messages matching any of these are harness text and fold without a model call. */
 	harnessPatterns?: readonly RegExp[];
-	/** The newest finished top-level tasks that stay raw. Default 0: a finished task folds as soon as its span is clear of the protected tail. */
+	/** The newest finished top-level tasks that stay raw. Default 0: a finished task folds at the next request. */
 	keepRecentTasks?: number;
 	/** Maximum tokens in a full composed record before its deepest children become history entries. */
 	recordTokens?: number;
@@ -430,10 +430,32 @@ export function recordFacts<B extends FactBlock>(members: readonly B[], textOf: 
 	return { changed: [...changed], verified };
 }
 
+/** First block index inside the user's protected-tail dial, which Truth stops enforcing while Taskfold holds `tail-size`. */
+export function userTailFrom(blocks: readonly ViewBlock[], protectTokens: number): number {
+	if (protectTokens <= 0) return blocks.length;
+	let sum = 0;
+	for (let i = blocks.length - 1; i >= 0; i--) {
+		if (blocks[i].kind === "system") return i + 1;
+		sum += blocks[i].tokens;
+		if (sum >= protectTokens) return i;
+	}
+	return 0;
+}
+
+/** First block index of the newest message. */
+function finalMessageFrom(blocks: readonly ViewBlock[]): number {
+	let i = blocks.length - 1;
+	while (i > 0 && messageKey(blocks[i - 1].id) === messageKey(blocks[i].id)) i--;
+	return Math.max(0, i);
+}
+
 export class TaskfoldConductor implements Conductor {
 	readonly id = "taskfold";
 	readonly label = "Taskfold";
 	readonly description = "Folds finished task spans into structured task records; user steering folds when a classifier says so.";
+	/** Taskfold owns the tail so a finished task folds at the next request, inside the provider's cache lookback. Pressure folds of open or untracked work still honor the user's dial (`userTailFrom`). */
+	readonly locks = ["tail-size"] as const;
+	readonly tailTokens = 0;
 
 	private readonly k: Required<TaskfoldOptions>;
 	private host: ConductorHost | null = null;
@@ -787,6 +809,7 @@ export class TaskfoldConductor implements Conductor {
 		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
 		const coverage = taskCoverage(blocks.length, spans);
 		const positions = new Map(blocks.map((b, i) => [b.id, i]));
+		const userTail = userTailFrom(blocks, host.stats().protectTokens);
 		const documents = new Set<string>();
 		for (const b of blocks) {
 			if (b.kind !== "tool_call" || !b.callId || b.toolName !== "read") continue;
@@ -796,7 +819,7 @@ export class TaskfoldConductor implements Conductor {
 		const mask = (b: ViewBlock): ViewBlock => {
 			const i = positions.get(b.id) ?? -1;
 			const allowed = i >= 0 && (scope === "open" ? !!coverage.open[i] && !coverage.finished[i] : !coverage.open[i] && !coverage.finished[i]);
-			return !allowed || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
+			return !allowed || i >= userTail || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
 		};
 		const proxy: ConductorHost = {
 			on: () => () => {}, get: (id) => { const b = host.get(id); return b ? mask(b) : undefined; },
@@ -822,7 +845,8 @@ export class TaskfoldConductor implements Conductor {
 			const path = parseCall(this.textOf(b))?.path;
 			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documentCalls.add(b.callId);
 		}
-		const eligible = (b: ViewBlock, i: number) => !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId)) && !coverage.open[i] && !coverage.finished[i];
+		const userTail = Math.min(userTailFrom(blocks, host.stats().protectTokens), finalMessageFrom(blocks));
+		const eligible = (b: ViewBlock, i: number) => i < userTail && !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId)) && !coverage.open[i] && !coverage.finished[i];
 		const runs: ViewBlock[][] = [];
 		let run: ViewBlock[] = [];
 		for (let i = 0; i < blocks.length;) {
@@ -895,8 +919,13 @@ export class TaskfoldConductor implements Conductor {
 			while (hi >= lo && hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi--;
 		}
 		if (lo > hi) return null;
-		// A span whose own tail is still protected folds once it leaves the tail: a folded span is never re-extended, and folding a prefix leaves the rest raw for good.
+		// A span whose own tail is still protected (only without the tail-size lock) folds once it leaves the tail: a folded span is never re-extended.
 		if (blocks.slice(hi + 1, snapHi + 1).some((b, k) => b.protected && span.intervals.some((r) => r.start <= hi + 1 + k && hi + 1 + k <= r.end))) {
+			deferred?.add(span.key);
+			return null;
+		}
+		// A record never ends the request: the wire would end on an assistant carrier (prefill). The next appended step re-runs the epoch.
+		if (finalMessageFrom(blocks) <= hi) {
 			deferred?.add(span.key);
 			return null;
 		}

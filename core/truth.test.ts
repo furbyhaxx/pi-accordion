@@ -868,7 +868,7 @@ describe("Truth — strategy unfold behaves like auto (S4)", () => {
 // exactly when a tail-size conductor detached with a large human tail waiting. `clearLocks({
 // inheritTail:true })` adopts the enforced tail so the protected boundary does not snap back.
 describe("Truth — clearLocks inheritTail (freeze-safe detach, P1-5)", () => {
-	it("inheritTail adopts the enforced (zero) tail so frozen work survives housekeep", () => {
+	it("inheritTail restores the human dial only as far as it leaves frozen work outside the tail", () => {
 		const t = live();
 		t.append(seq(6, 1000));
 		t.setProtect(20_000); // the human dial that would otherwise snap back over everything
@@ -882,7 +882,7 @@ describe("Truth — clearLocks inheritTail (freeze-safe detach, P1-5)", () => {
 		t.apply([{ kind: "freeze" }], "you"); // transfer ownership to the human
 		t.clearLocks({ inheritTail: true });
 
-		expect(t.protectTokens).toBe(0); // inherited the enforced tail — did NOT snap back to 20k
+		expect(t.protectTokens).toBe(2000); // b4+b5 after the newest frozen block, not the 20k dial
 		expect(t.locks.length).toBe(0);
 		expect(t.groups.length).toBe(1); // the whole-session group survives
 		expect(t.get("a:b0:p0")!.override).toBe("folded");
@@ -908,9 +908,10 @@ describe("Truth — clearLocks inheritTail (freeze-safe detach, P1-5)", () => {
 
 	it("inheritTail emits a config event carrying the inherited protectTokens (replicas can track it)", () => {
 		const t = live();
-		t.append(seq(3, 1000));
+		t.append(seq(6, 1000));
 		t.setProtect(20_000);
-		t.setLocks(["tail-size"], "handoff", 4000);
+		t.setLocks(["tail-size"], "handoff", 0);
+		t.apply([{ kind: "fold", ids: ["a:b1:p0"] }], "auto"); // b2..b5 stay free: 4000
 		const events: any[] = [];
 		t.onEvent((e) => events.push(e));
 		t.clearLocks({ inheritTail: true });

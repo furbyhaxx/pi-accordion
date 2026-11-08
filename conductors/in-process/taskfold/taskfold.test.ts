@@ -67,6 +67,7 @@ function setup(s: Session, budgetFactor = 0.7): TestHost {
 
 async function attach(host: TestHost): Promise<TaskfoldConductor> {
 	const c = new TaskfoldConductor({ keepRecentTasks: 0 });
+	host.truth.setLocks(c.locks, c.label, c.tailTokens);
 	c.attach(host);
 	await host.commitTurn();
 	return c;
@@ -195,101 +196,53 @@ describe("taskfold", () => {
 		expect(proposals.flat().filter((kind) => kind === "ungroup")).toEqual([]);
 	});
 
-	it("defers a finished task until its closing blocks leave the protected tail", async () => {
+	it("folds a finished task at the next request even when the user's tail dial covers it", async () => {
 		const { s, start } = oneTask();
 		const host = setup(s, 5);
 		host.setProtect(host.stats().fullTokens);
 		await attach(host);
-		expect(groupOf(host, start)).toBeUndefined();
-		host.setProtect(200);
-		await host.commitTurn();
 		expect(taskKeyOfSummary(groupOf(host, start)?.summary)).toBe("work/1");
+		expect(host.stats().protectTokens).toBe(host.stats().fullTokens);
 	});
-	it("folds a finished root once when only its closing blocks are still protected, not child by child", async () => {
+	it("waits one step when a root's finish is the final message, then folds it once as history", async () => {
 		const s = new Session();
 		s.user("Fix the parser.");
 		s.start("1", "Parser");
 		const first = s.start("1.1", "Fix CRLF").call;
 		s.work(2, "c1");
 		s.finish("1.1", { outcome: "CRLF handled." });
-		const second = s.start("1.2", "Fix tabs").call;
+		s.start("1.2", "Fix tabs");
 		s.work(2, "c2");
 		s.finish("1.2", { outcome: "Tabs handled." });
 		const root = s.finish("1", { outcome: "Parser fixed." }).result;
-		s.work(1, "tail");
 		const host = setup(s, 5);
 		const proposals: string[][] = [];
 		const propose = host.propose.bind(host);
 		host.propose = (txn) => { proposals.push(txn.ops.map((op) => op.kind)); return propose(txn); };
-		const at = s.blocks.findIndex((b) => b.id === second);
-		host.setProtect(s.blocks.slice(at).reduce((n, b) => n + b.tokens, 0));
 		await attach(host);
-		expect(groupOf(host, first)).toBeUndefined();
-		host.setProtect(200);
+		expect(host.groups()).toEqual([]);
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		more.work(1, "next");
+		host.appendBlocks(more.blocks);
 		await host.commitTurn();
 		const g = groupOf(host, first)!;
 		expect(g.memberIds).toContain(root);
 		expect(taskKeyOfSummary(g.summary)).toBe("work/1");
 		expect(isHistoryCarrier(g.summary)).toBe(true);
 		expect(proposals.flat().filter((kind) => kind === "ungroup")).toEqual([]);
-		expect(proposals.flat().filter((kind) => kind === "group")).toHaveLength(1);
 	});
 
-	it("falls back to finished descendants when historical parent intervals cannot cover them", async () => {
-		const s = new Session();
-		s.user("Continue an old list without rewriting its history.");
-		s.start("1", "Already ended parent");
-		s.work(1, "parent");
-		s.finish("1", { outcome: "Parent ended before later work was added." });
-		const child = s.start("1.1", "Later child").call;
-		s.work(4, "safe-child");
-		s.finish("1.1", { outcome: "Later work is complete." });
-		s.work(3, "tail");
-		const host = setup(s, 0.6);
-		const conductor = await attach(host);
-		expect(taskKeyOfSummary(groupOf(host, child)?.summary)).toBe("work/1.1");
-		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
-		expect(recalled.missing).toEqual([]);
-		expect(JSON.stringify(recalled)).toContain("safe-child");
-		conductor.detach();
-	});
-
-	it("folds a finished parent whose paused child shares a message with a sibling that finished first", async () => {
-		const s = new Session();
-		s.user("Go.");
-		s.start("1", "Root");
-		s.start("1.1", "Parent");
-		s.start("1.1.1", "Paused child");
-		s.work(3, "before-pause");
-		const shared = s.batch([
-			["tasks", { action: "block", list: "work", id: "1.1.1", reason: "dependency", detail: "Needs the neighbour.", blockedBy: "1.2" }, "ok"],
-			["tasks", { action: "start", list: "work", id: "1.2" }, "ok"],
-		]);
-		s.work(3, "neighbour");
-		s.finish("1.2", { outcome: "Neighbour is done." });
-		s.start("1.1.1", "Paused child");
-		s.work(3, "after-pause");
-		s.finish("1.1.1", { outcome: "Child is done." });
-		s.finish("1.1", { outcome: "Parent is done." });
-		s.start("1.3", "Open");
-		s.work(6, "tail");
-		const host = setup(s, 0.4);
-		await attach(host);
-		expect(carrier(groupOf(host, shared.calls[0]))).toBeDefined();
-		const raw = host.blocks().filter((b) => b.kind === "tool_result" && b.text.startsWith("after-pause") && !host.groups().some((g) => g.memberIds.includes(b.id)));
-		expect(raw).toEqual([]);
-		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
-	});
-
-	it("re-proposes a task after protected-tail growth prunes its group", async () => {
+	it("re-proposes a task after a user tail resize between attachments prunes its group", async () => {
 		const { s, start } = oneTask();
 		const host = setup(s);
-		await attach(host);
+		const c = await attach(host);
 		expect(groupOf(host, start)).toBeDefined();
+		c.detach();
+		host.truth.clearLocks();
 		host.setProtect(host.stats().fullTokens * 2);
 		expect(groupOf(host, start)).toBeUndefined();
-		host.setProtect(200);
-		await host.commitTurn();
+		await attach(host);
 		expect(taskKeyOfSummary(groupOf(host, start)?.summary)).toBe("work/1");
 		expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
 	});
@@ -309,6 +262,39 @@ describe("taskfold", () => {
 		expect(untracked!.memberIds).not.toContain(steering);
 		expect(groupOf(host, open)).toBeUndefined();
 		expect(resolveRecall(host.truth, [foldCode(untracked!.id)]).missing).toEqual([]);
+	});
+
+	it("keeps untracked pressure folds outside the user's tail dial while holding tail-size", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.work(10, "early");
+		const lateFrom = s.blocks.length;
+		s.work(10, "late");
+		const late = s.blocks.slice(lateFrom).map((b) => b.id);
+		const host = setup(s, 0.35);
+		const lateTokens = s.blocks.slice(lateFrom).reduce((n, b) => n + b.tokens, 0);
+		host.setProtect(lateTokens);
+		await attach(host);
+		expect(host.groups().find((g) => carrier(g)?.untracked !== undefined)).toBeDefined();
+		expect(host.groups().some((g) => late.some((id) => g.memberIds.includes(id)))).toBe(false);
+	});
+
+	it("never folds the final message: a record waits until another message follows", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const start = s.start("1", "Only task").call;
+		s.work(3, "w");
+		const done = s.finish("1", { outcome: "done" }).result;
+		const host = setup(s, 0.5);
+		await attach(host);
+		expect(groupOf(host, start)).toBeUndefined();
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		more.user("Next?");
+		host.appendBlocks(more.blocks);
+		await host.commitTurn();
+		expect(groupOf(host, done)?.role).toBe("assistant");
+		expect(host.blocks().at(-1)?.kind).toBe("user");
 	});
 
 	it("does not fold short untracked runs or run the fallback when disabled", async () => {
@@ -350,12 +336,17 @@ describe("taskfold", () => {
 		s.finish("1", { outcome: "done" });
 		const open = s.start("2", "Open").call;
 		const doc = s.call("read", { path: "docs/spec.md" }, "Important policy");
-		s.work(12, "open");
+		s.work(8, "open");
+		const tailFrom = s.blocks.length;
+		s.work(4, "recent");
 		const host = setup(s, 0.5);
+		host.setProtect(s.blocks.slice(tailFrom).reduce((n, b) => n + b.tokens, 0));
 		const proposals: string[][] = [];
 		const propose = host.propose.bind(host);
 		host.propose = (txn) => { proposals.push(txn.ops.map((op) => op.kind)); return propose(txn); };
-		new TaskfoldConductor({ keepRecentTasks: 0, floor: true, untracked: { enabled: false, minSteps: 8 } }).attach(host);
+		const c = new TaskfoldConductor({ keepRecentTasks: 0, floor: true, untracked: { enabled: false, minSteps: 8 } });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
 		await host.commitTurn();
 		expect(proposals).toHaveLength(1);
 		expect(proposals[0]).toContain("group");
@@ -363,7 +354,7 @@ describe("taskfold", () => {
 		expect(taskKeyOfSummary(groupOf(host, finished)?.summary)).toBe("work/1");
 		expect(groupOf(host, open)).toBeUndefined();
 		expect(host.truth.isFolded(host.truth.get(doc.result)!)).toBe(false);
-		expect(host.blocks().filter((b) => b.protected).every((b) => !b.folded)).toBe(true);
+		expect(s.blocks.slice(tailFrom).every((b) => !host.truth.isFolded(host.truth.get(b.id)!))).toBe(true);
 	});
 
 	it("reports the largest open task when no safe folding can relieve pressure", async () => {
@@ -1000,7 +991,7 @@ describe("taskfold", () => {
 		expect(second.memberIds).toContain(shared.results[1]);
 	});
 
-	it("folds a task whose closing message also carries the next task's work only after that message leaves the protected tail", async () => {
+	it("folds a task whose closing message also carries the next task's work at once, without growing later", async () => {
 		const s = new Session();
 		s.user("Go.");
 		const a = s.start("1", "First").call;
@@ -1013,16 +1004,16 @@ describe("taskfold", () => {
 		]);
 		const host = setup(s, 0.4);
 		await attach(host);
-		expect(groupOf(host, a)).toBeUndefined();
+		const first = groupOf(host, a)!;
+		expect(taskKeyOfSummary(first?.summary)).toBe("work/1");
+		expect(first.memberIds).toContain(shared.results[0]);
+		expect(groupOf(host, shared.results[3])).toBeUndefined();
 		const more = new Session();
 		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
 		more.work(3, "later");
 		host.appendBlocks(more.blocks);
 		await host.commitTurn();
-		const first = groupOf(host, a)!;
-		expect(taskKeyOfSummary(first?.summary)).toBe("work/1");
-		expect(first.memberIds).toContain(shared.results[0]);
-		expect(host.blocks().filter((b) => first.memberIds.includes(b.id)).some((b) => b.protected)).toBe(false);
+		expect(groupOf(host, a)?.memberIds).toEqual(first.memberIds);
 	});
 	it("turns the deepest children into history entries when a record exceeds recordTokens, keeping handles and pins", async () => {
 		const s = new Session();

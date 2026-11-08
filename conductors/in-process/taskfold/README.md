@@ -99,5 +99,5 @@ kept and the status line counts the unclassified ones.
 
 If pressure remains after finished tasks are folded and open roots condensed, runs of at least eight
 assistant steps outside task spans can fold into recoverable `[untracked-work]` records. User
-messages, document reads, existing groups, held blocks and the protected tail stay outside those
+messages, document reads, existing groups, held blocks and your tail dial stay outside those
 runs. Without task boundaries these records have only limited derived facts, not the agent's report.
