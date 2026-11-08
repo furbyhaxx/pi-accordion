@@ -42,9 +42,11 @@ legend. Press `g` for the list's goal, pins and attachments; task details show c
 to see this session's transcript by task, `/accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]`
 to write that projection to a file. Every actual carrier appears once, including split/composed
 and untracked groups; substituted results never print their original bodies. Inspection metadata
-includes goals, criteria, scoped pins, attachments and recovery handles. The transient working set
-is labeled as appended or only cached, and only appended tokens enter the projection totals.
-Trailing task notices do not hide the working set: it attaches to the current user/tool input without changing the notice. An unchanged working set stays on the message that already carries it, so consecutive requests share a cacheable prefix; it moves to the current input only when its text changes.
+includes goals, criteria, scoped pins, attachments and recovery handles. Task context
+(goal, criteria, pins, attachment content) reaches the agent once, in the result of `tasks start`
+or `claim`, and folds with the task's span; nothing is appended to outgoing requests, so each
+request extends the previous one and the provider cache stays warm. Sessions recorded before task
+events are adopted on resume (`tasks.adopt`) or with `/accordion tasks adopt [--dry-run]`.
 Use `/accordion budget 200k` / `/accordion tail 20k` to set the
 budget and protected tail (remembered per model; `--default` or `ctrl+s` in the panel saves them under
 `modelDefaults`), or `/accordion sessions` to choose another live local session. Folding auto-arms with `keel-lite` by default (configurable
