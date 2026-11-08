@@ -7,10 +7,11 @@
  * one epoch folds the oldest finished spans, outermost first, until the projection reaches
  * LOW·budget. Each folded span becomes a group whose summary is a fixed-shape record:
  *
- *   [task-record] <list>/<id> "<title>"  status: done
- *   outcome / decisions / open      ← agent-written, from the finishing call's `report`
- *   changed / verified              ← derived from the span's own tool calls
- *   children                        ← composed finished subtask records
+ *   {#code FOLDED} {"task":"<list>/<id>","title":…,"status":"done","outcome":…,"changed":[…],"children":[…]}
+ *
+ * `outcome` / `decisions` / `open` are agent-written (the finishing call's `report`); `changed` /
+ * `verified` are derived from the span's own tool calls; `children` composes finished subtasks. A
+ * finished top-level task becomes a one-line history entry instead (records.ts, SPEC-0002 §6.3).
  *
  * User messages inside a span stay verbatim unless a classifier scores that losing them costs the
  * later work nothing (approvals, status checks, step steering, consumed facts, harness notices).
@@ -30,6 +31,9 @@ import { VerdictLedger } from "./verdicts";
 import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { KeelLiteConductor } from "../keel-lite/keel-lite";
+import { isHistory, oneLine, parseCarrier, partCarrier, priorEntry, render, shrinkDeepest, taskKeyOfSummary, toHistory, untrackedCarrier, visibleTags, type HistoryObj, type RecordObj } from "./records";
+
+export { taskKeyOfSummary };
 
 export interface TaskfoldOptions {
 	/** Start an epoch once live tokens reach `high · budget`. Default 0.8. */
@@ -40,12 +44,10 @@ export interface TaskfoldOptions {
 	maxLoss?: number;
 	/** User messages matching any of these are harness text and fold without a model call. */
 	harnessPatterns?: readonly RegExp[];
-	/** The newest finished top-level tasks that stay open; the working context of the next step. Default 1. */
+	/** The newest finished top-level tasks that stay raw. Default 0: a finished task folds as soon as its span is clear of the protected tail. */
 	keepRecentTasks?: number;
-	/** Maximum tokens in a full composed record before its children are condensed. */
+	/** Maximum tokens in a full composed record before its deepest children become history entries. */
 	recordTokens?: number;
-	/** Finished-root ages at which children, then the root, then its archive are condensed. */
-	aging?: readonly [number, number, number];
 	/** Apply recoverable per-block pressure relief before folding untracked work. */
 	floor?: boolean;
 	/** Fold long runs outside task spans when pressure remains. */
@@ -56,9 +58,8 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	high: 0.8,
 	low: 0.6,
 	maxLoss: 0.3,
-	keepRecentTasks: 1,
+	keepRecentTasks: 0,
 	recordTokens: 1500,
-	aging: [3, 6, 11],
 	floor: false,
 	untracked: { enabled: true, minSteps: 8 },
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
@@ -109,9 +110,6 @@ const GOAL_CHARS = 1500;
 const NEIGHBOUR_CHARS = 600;
 /** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
 export const ZOMBIE_STEPS = 40;
-const RECORD_TAG = "[task-record]";
-const PART_TAG = "[task-part]";
-const ARCHIVE_TAG = "[task-archived]";
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
 const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
@@ -359,83 +357,10 @@ export function staleSpans<B extends SpanBlock>(spans: readonly TaskSpan[], bloc
 	});
 }
 
-type RetainedPin = { task: string; kind: string; text: string; source: string };
-
-function retainTaskPins(summary: string, pins: readonly RetainedPin[]): string {
-	const marker = /\n\[retained-task-pins (\d+)\]\n/g;
-	for (const match of summary.matchAll(marker)) {
-		const start = match.index + match[0].length;
-		if (start + Number(match[1]) === summary.length) { summary = summary.slice(0, match.index); break; }
-	}
-	if (!pins.length) return summary;
-	const payload = pins.map((p) => `${p.task} · ${p.kind} (${p.source}):\n${p.text}`).join("\n");
-	return `${summary}\n[retained-task-pins ${payload.length}]\n${payload}`;
-}
-
-function pinsIn(spans: readonly TaskSpan[]): RetainedPin[] {
-	return spans.flatMap((span) => (span.pins ?? []).map((pin) => ({ task: span.key, ...pin })));
-}
-
-const CHILD_RECOVERY = /^\s+- (?:\{#[0-9a-z]{6} FOLDED\} )?\S+\/\S+ ".*" (?:done|failed|abandoned)(?: · .*|)$/;
-
-/** Condense direct child records while retaining named descendant recovery and supplied pins. */
-export function condenseChildren(summary: string, pins: readonly RetainedPin[] = []): string | null {
-	const lines = summary.split("\n");
-	const sections = lines.flatMap((line, i) => { const m = /^( *)children:$/.exec(line); return m ? [{ i, indent: m[1] }] : []; }).sort((a, b) => b.indent.length - a.indent.length);
-	for (const section of sections) {
-		const indent = `${section.indent}  `;
-		const header = (line: string) => line.startsWith(indent) ? /^(?:(\{#[0-9a-z]{6} FOLDED\}) )?\[task-(?:record|archived)\] (\S+) "(.*)"\s+(?:status: )?(\w+)(.*)$/.exec(line.slice(indent.length)) : null;
-		let sectionEnd = section.i + 1;
-		while (sectionEnd < lines.length && (lines[sectionEnd].startsWith(indent) || !lines[sectionEnd])) sectionEnd++;
-		const rows: string[] = [];
-		let i = section.i + 1;
-		while (i < sectionEnd) {
-			const m = header(lines[i]);
-			if (!m) { i++; continue; }
-			let end = i + 1;
-			while (end < sectionEnd && !header(lines[end])) end++;
-			const outcome = lines.slice(i + 1, end).map((line) => line.startsWith(`${indent}outcome: `) ? line.slice(indent.length + 9) : undefined).find(Boolean) ?? /^\s*·\s*(.*?)(?:\s*·\s*(?:recall|handles:)|$)/.exec(m[5])?.[1];
-			rows.push(`${indent}- ${m[1] ? `${m[1]} ` : ""}${m[2]} "${m[3]}" ${m[4]}${outcome ? ` · ${oneLine(outcome, 160)}` : ""}`);
-			rows.push(...lines.slice(i + 1, end).filter((line) => CHILD_RECOVERY.test(line)));
-			i = end;
-		}
-		if (!rows.length) continue;
-		const body = [...lines.slice(0, section.i + 1), ...rows, ...lines.slice(sectionEnd)].join("\n");
-		const missing = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((tag) => !body.includes(tag));
-		return retainTaskPins(missing.length ? `${body}\nhandles: ${missing.join(" ")}` : body, pins);
-	}
-	return null;
-}
-
-/**
- * One step down the aging ladder for a record summary: level 1 keeps the head line and the outcome
- * on one line, level 2 keeps an archive stub. Both retain named child recovery and supplied pins.
- */
-export function ageRecord(summary: string, level: 1 | 2, pins: readonly RetainedPin[] = []): string | null {
-	const m = /^(\{#[0-9a-z]{6} FOLDED\}) \[task-(record|archived)\] (\S+) "(.*)"\s+(?:status: )?(\w+)/.exec(summary);
-	if (!m) return null;
-	const [, tag, kind, key, title, status] = m;
-	if (level === 1 && !/^outcome: /m.test(summary)) return summary;
-	let condensed = summary;
-	for (;;) {
-		const next = condenseChildren(condensed, pins);
-		if (!next || next === condensed) break;
-		condensed = next;
-	}
-	const children = condensed.split("\n").filter((line) => CHILD_RECOVERY.test(line)).map((line) => `  ${line.trim()}`);
-	const recovery = children.length ? `\nchildren:\n${children.join("\n")}` : "";
-	const tags = [...new Set(summary.match(/\{#[0-9a-z]{6} FOLDED\}/g) ?? [])].filter((t) => t !== tag && !recovery.includes(t));
-	const suffix = tags.length ? ` · handles: ${tags.join(" ")}` : "";
-	if (level === 2 || kind === "archived") return retainTaskPins(`${tag} ${ARCHIVE_TAG} ${key} "${title}" ${status}; recall ${tag} instead of re-reading.${suffix}${recovery}`, pins);
-	const outcome = /^outcome: (.*)$/m.exec(summary)?.[1];
-	return retainTaskPins(`${tag} ${RECORD_TAG} ${key} "${title}"  status: ${status}${outcome ? ` · ${oneLine(outcome, 200)}` : ""} · recall ${tag} instead of re-reading${suffix}${recovery}`, pins);
-}
-
-/** The `<list>/<id>` key of a Taskfold record or part summary, or null for any other summary. */
-export function taskKeyOfSummary(summary: string | null | undefined): string | null {
-	if (typeof summary !== "string") return null;
-	if (/^\{#[0-9a-z]{6} FOLDED\} \[untracked-work\]/.test(summary)) return "untracked";
-	return /^\{#[0-9a-z]{6} FOLDED\} \[task-(?:record|part|archived)\] (\S+)/.exec(summary)?.[1] ?? null;
+/** A record without its identity keys, for re-keying a child around `recall`. */
+function rest(r: RecordObj): Omit<RecordObj, "task" | "title" | "status" | "recall"> {
+	const { task: _t, title: _l, status: _s, recall: _r, ...tail } = r;
+	return tail;
 }
 
 /** One span's fold: its ops, the span key per group op, and how to restore absorbed child groups. */
@@ -470,11 +395,6 @@ function taskCoverage(length: number, spans: readonly TaskSpan[]): { open: Uint8
 	let a = 0, b = 0;
 	for (let i = 0; i < length; i++) { a += openDiff[i]; b += finishedDiff[i]; open[i] = Number(a > 0); finished[i] = Number(b > 0); }
 	return { open, finished };
-}
-
-function oneLine(s: string, max: number): string {
-	const t = s.replace(/\s+/g, " ").trim();
-	return t.length > max ? t.slice(0, max - 1) + "…" : t;
 }
 
 /** A block as `recordFacts` reads it. */
@@ -525,7 +445,6 @@ export class TaskfoldConductor implements Conductor {
 		const k = this.k;
 		if (!Number.isFinite(k.high) || !Number.isFinite(k.low) || !(k.low > 0 && k.low < k.high && k.high <= 1)) throw new RangeError("taskfold: require 0 < low < high <= 1");
 		if (!Number.isSafeInteger(k.keepRecentTasks) || k.keepRecentTasks < 0 || !Number.isSafeInteger(k.recordTokens) || k.recordTokens < 1) throw new RangeError("taskfold: invalid recent-task or record-token limit");
-		if (k.aging.length !== 3 || !k.aging.every((n) => Number.isSafeInteger(n) && n > 0) || !(k.aging[0] < k.aging[1] && k.aging[1] < k.aging[2])) throw new RangeError("taskfold: aging thresholds must be positive and strictly increasing");
 		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
 		this.verdicts = verdicts;
 	}
@@ -703,9 +622,10 @@ export class TaskfoldConductor implements Conductor {
 			return;
 		}
 		const stats = host.stats();
-		if (stats.budget <= 0 || stats.liveTokens < this.k.high * stats.budget) return;
-		const plan = this.plan(host);
+		const pressure = stats.budget > 0 && stats.liveTokens >= this.k.high * stats.budget;
+		const plan = this.plan(host, undefined, pressure);
 		if (!plan.length) {
+			if (!pressure) return;
 			const blocks = host.blocks();
 			const scanned = scanTaskSpans(blocks, (b) => this.textOf(b));
 			const stale = staleSpans(scanned, blocks, ZOMBIE_STEPS).map((s) => s.key);
@@ -717,7 +637,8 @@ export class TaskfoldConductor implements Conductor {
 		return this.commit(host, plan);
 	}
 
-	private plan(host: ConductorHost, recompose?: ReadonlySet<string>): Unit[] {
+	/** `pressure`: the projection is at or above `high·budget`; below it only finished tasks fold (eager records, SPEC-0002 §8). */
+	private plan(host: ConductorHost, recompose?: ReadonlySet<string>, pressure = true): Unit[] {
 		const blocks = host.blocks();
 		const stats = host.stats();
 		const allSpans = this.spans(blocks);
@@ -740,32 +661,26 @@ export class TaskfoldConductor implements Conductor {
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
 		const planned = new Set<string>();
-		const fold = (span: Span): void => {
-			if (!recompose && projected <= target) return;
+		const fold = (span: Span, eager = false): void => {
+			if (!recompose && !eager && projected <= target) return;
 			const descendants = spans.filter((s) => contains(span, s));
 			const unit = foldedKeys.has(span.key) ? null : this.unit(host, blocks, span, descendants, planned);
 			if (!unit) {
-				for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) fold(child);
+				for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) fold(child, eager);
 				return;
 			}
 			units.push(unit);
 			for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
 			projected -= unit.saved;
 		};
-		for (const span of candidates) fold(span);
-		if (!recompose) {
-			const touched = new Set(units.flatMap((u) => u.ops.flatMap((op) => (op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : []))));
-			const positions = new Map(blocks.map((b, i) => [b.id, i]));
-			const boundary = Math.min(...units.flatMap((u) => u.ops.flatMap((op) => op.kind === "group" ? op.ids.map((id) => positions.get(id) ?? Infinity) : [])), Infinity);
-			const aged = this.ladder(host, blocks, Math.max(0, projected - target), touched, roots, boundary);
-			units.push(...aged);
-			projected -= aged.reduce((sum, unit) => sum + unit.saved, 0);
+		for (const span of candidates) fold(span, !recompose);
+		if (!recompose && pressure) {
 			for (const span of roots.filter((s) => recent.has(s.key))) fold(span);
-			if (projected > target) {
-				const already = new Set(units.flatMap((u) => u.ops.flatMap((op) => op.kind === "group" ? op.ids : op.kind === "ungroup" ? [op.groupId] : [])));
-				const agedRecent = this.ladder(host, blocks, projected - target, already, roots, boundary, true);
-				units.push(...agedRecent);
-				projected -= agedRecent.reduce((sum, unit) => sum + unit.saved, 0);
+			const condensed = projected > target ? this.condense(host, blocks, projected - target, planned) : null;
+			if (condensed) {
+				units.push(condensed);
+				for (const op of condensed.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
+				projected -= condensed.saved;
 			}
 			if (projected > target && this.k.floor) {
 				for (const scope of ["open", "untracked"] as const) {
@@ -783,6 +698,31 @@ export class TaskfoldConductor implements Conductor {
 			if (projected > target && this.k.untracked.enabled) units.push(...this.untracked(host, blocks, projected - target, planned));
 		}
 		return units;
+	}
+
+	/** Pressure row of SPEC-0002 §8: folded records inside open roots become history entries, oldest first, until `need` tokens are freed. */
+	private condense(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit | null {
+		const positions = new Map(blocks.map((b, i) => [b.id, i]));
+		const ours = host.groups()
+			.filter((g) => g.by === "auto" && g.folded && typeof g.summary === "string" && parseCarrier(g.summary)?.obj.task !== undefined && !g.memberIds.some((id) => planned.has(id)))
+			.sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
+		const ops: Op[] = [];
+		const restore: Op[] = [];
+		let saved = 0;
+		for (const g of ours) {
+			if (saved >= need) break;
+			const entry = priorEntry(g.summary as string);
+			if (!entry || isHistory(entry)) continue;
+			const { recall: tag, ...history } = toHistory(entry);
+			const text = render(parseCarrier(g.summary)!.tag, history);
+			const gain = host.countTokens(g.summary as string) - host.countTokens(text);
+			if (gain <= 0 || !tag) continue;
+			const handles = (g.handles ?? []).filter((h) => text.includes(foldTag(h.id))).map((h) => ({ id: h.id, memberIds: [...h.memberIds] }));
+			ops.push({ kind: "ungroup", groupId: g.id }, { kind: "group", ids: g.memberIds.slice(), summary: text, role: "assistant", ...(handles.length ? { handles } : {}) });
+			restore.push({ kind: "group", ids: g.memberIds.slice(), summary: g.summary, role: "assistant", ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) } as Op);
+			saved += gain;
+		}
+		return ops.length ? { ops, restore, saved } : null;
 	}
 
 	private floor(host: ConductorHost, blocks: readonly ViewBlock[], live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
@@ -846,62 +786,14 @@ export class TaskfoldConductor implements Conductor {
 			const firstText = members.find((b) => b.kind === "text");
 			const label = firstText ? oneLine(this.textOf(firstText), 120) : "Work outside tasks";
 			const facts = recordFacts(members, (b) => this.textOf(b));
-			const lines = [`${foldTag(`g:${members[0].id}`)} [untracked-work] ${label}`];
-			if (facts.changed.length) lines.push(`changed: ${facts.changed.slice(0, 20).join(", ")}`);
-			if (facts.verified.length) lines.push("verified:", ...facts.verified.slice(-5).map((v) => `  - ${v}`));
-			const summary = lines.join("\n");
+			const summary = untrackedCarrier(foldTag(`g:${members[0].id}`), label, facts.changed, facts.verified);
 			const current = members.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
 			const reclaimed = current - host.countTokens(summary);
 			if (reclaimed <= 0) continue;
-			units.push({ ops: [{ kind: "group", ids: members.map((b) => b.id), summary }], restore: [], saved: reclaimed });
+			units.push({ ops: [{ kind: "group", ids: members.map((b) => b.id), summary, role: "assistant" }], restore: [], saved: reclaimed });
 			saved += reclaimed;
 		}
 		return units;
-	}
-
-	private ladder(host: ConductorHost, blocks: readonly ViewBlock[], need: number, touched: ReadonlySet<string>, roots: readonly Span[], boundary: number, allowNewest = false): Unit[] {
-		const pos = new Map(blocks.map((b, i) => [b.id, i]));
-		const keys = this.groupKeys(host);
-		const newest = [...roots].sort((a, b) => b.end - a.end)[0]?.key;
-		const owner = (key: string) => roots.find((s) => key === s.key || key.startsWith(`${s.key}.`));
-		const ours = host.groups().filter((g) => {
-			const key = keys.get(g.id);
-			const root = key ? owner(key) : undefined;
-			return !!root && (allowNewest || root.key !== newest) && g.folded && typeof g.summary === "string" && !g.summary.includes(PART_TAG) && !touched.has(g.id) && !g.memberIds.some((id) => touched.has(id)) && !(g.handles ?? []).some((h) => h.memberIds.some((id) => touched.has(id)));
-		}).sort((a, b) => (pos.get(a.memberIds[0]) ?? 0) - (pos.get(b.memberIds[0]) ?? 0));
-		const aged = new Map<string, string>();
-		let freed = 0;
-		const target = (key: string): number => {
-			const root = owner(key);
-			if (!root) return 0;
-			const age = roots.filter((s) => s.end > root.end).length;
-			return age >= this.k.aging[2] ? 3 : age >= this.k.aging[1] ? 2 : age >= this.k.aging[0] ? 1 : 0;
-		};
-		const spans = this.spans(blocks);
-		const advance = (from: string, level: number, key: string): string => {
-			const pins = pinsIn(spans.filter((s) => s.key === key || s.key.startsWith(`${key}.`)));
-			let next = from;
-			if (level >= 1) for (;;) { const child = condenseChildren(next, pins); if (!child || host.countTokens(child) >= host.countTokens(next)) break; next = child; }
-			if (level >= 2) next = ageRecord(next, 1, pins) ?? next;
-			if (level >= 3) next = ageRecord(next, 2, pins) ?? next;
-			return next;
-		};
-		const apply = (g: typeof ours[number], level: number) => {
-			const from = aged.get(g.id) ?? g.summary!;
-			const next = advance(from, level, keys.get(g.id)!);
-			const delta = host.countTokens(from) - host.countTokens(next);
-			if (delta > 0) { aged.set(g.id, next); freed += delta; }
-		};
-		for (const g of ours) if ((pos.get(g.memberIds[0]) ?? Infinity) > boundary) apply(g, target(keys.get(g.id)!));
-		for (const g of ours) {
-			for (let level = Math.max(1, target(keys.get(g.id)!)); level <= 3 && freed < need; level++) apply(g, level);
-			if (freed >= need) break;
-		}
-		return ours.filter((g) => aged.has(g.id)).map((g) => ({
-			ops: [{ kind: "ungroup", groupId: g.id } as Op, { kind: "group", ids: g.memberIds.slice(), summary: aged.get(g.id)!, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) } as Op],
-			restore: [{ kind: "group", ids: g.memberIds.slice(), summary: g.summary!, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) } as Op],
-			saved: host.countTokens(g.summary!) - host.countTokens(aged.get(g.id)!),
-		}));
 	}
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
@@ -939,12 +831,17 @@ export class TaskfoldConductor implements Conductor {
 		}
 		// The same holds for a trailing message that is protected or held, e.g. `complete A` batched
 		// with B's work into the newest message: A's record ends before it.
+		const snapHi = hi;
 		while (hi >= lo && (foreign(blocks[hi]) || blocks[hi].protected || blocks[hi].held)) {
 			hi--;
 			while (hi >= lo && hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi--;
 		}
 		if (lo > hi) return null;
+		// A span whose own tail is still protected folds once it leaves the tail: a folded span is never re-extended, and folding a prefix leaves the rest raw for good.
+		if (blocks.slice(hi + 1, snapHi + 1).some((b, k) => b.protected && span.intervals.some((r) => r.start <= hi + 1 + k && hi + 1 + k <= r.end))) return null;
 		const members = blocks.slice(lo, hi + 1);
+		// A fold is never re-extended, so a user message still being classified must settle first; its verdict re-runs the epoch.
+		if (members.some((b) => b.kind === "user" && this.classifying.has(b.id))) return null;
 		const allowed = new Set<number>();
 		for (const interval of span.intervals) {
 			let a = interval.start;
@@ -987,32 +884,32 @@ export class TaskfoldConductor implements Conductor {
 		const handles = [...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle), ...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] })))];
 		const unique = [...new Map(handles.map((h) => [h.id, h])).values()];
 		if (unique.some((h) => !covered(h))) return null;
-		const aliases = unique.filter((h) => h.id.startsWith("g:")).map((h) => foldTag(h.id));
-		const prior = new Map<string, string>();
+		const prior = new Map<string, RecordObj | HistoryObj>();
 		for (const g of ours) {
 			const key = taskKeyOfSummary(g.summary);
-			if (key && typeof g.summary === "string" && !g.summary.includes(PART_TAG)) prior.set(key, g.summary);
+			const entry = key && typeof g.summary === "string" ? priorEntry(g.summary) : null;
+			if (key && entry) prior.set(key, entry);
 		}
-		const body = this.record(span, blocks, children, covered(rootHandle), prior, included);
-		const missingAliases = aliases.filter((tag) => !body.includes(tag));
-		let record = `${body}${missingAliases.length ? `\nearlier handles: ${missingAliases.join(" ")}` : ""}`;
-		const recordTag = foldTag(`g:${viable[viable.length - 1][0].id}`);
-		const pins = pinsIn([span, ...children]);
-		while (host.countTokens(`${recordTag} ${record}`) > this.k.recordTokens) {
-			const next = condenseChildren(record, pins);
-			if (!next || host.countTokens(next) >= host.countTokens(record)) break;
-			record = next;
-		}
-		if (host.countTokens(`${recordTag} ${record}`) > this.k.recordTokens) return null;
+		const rootCovered = covered(rootHandle);
+		const lastRun = viable[viable.length - 1];
+		const tag = rootCovered ? foldTag(`t:${span.key}`) : foldTag(`g:${lastRun[0].id}`);
+		const entry = this.record(span, blocks, children, prior, included);
+		const isRoot = !span.id.includes(".");
+		let carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
+		let text = render(tag, carrier);
+		while (!isHistory(carrier) && host.countTokens(text) > this.k.recordTokens && shrinkDeepest(carrier)) text = render(tag, carrier);
+		if (host.countTokens(text) > this.k.recordTokens) return null;
+		const shown = visibleTags(text);
+		const visible = unique.filter((h) => shown.has(foldTag(h.id)));
+		if (visible.some((h) => !covered(h))) return null;
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
-		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) }) as Op);
+		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary, ...(g.role ? { role: g.role } : {}), ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) }) as Op);
 		let saved = 0;
 		viable.forEach((r, i) => {
 			const gid = `g:${r[0].id}`;
 			const last = i === viable.length - 1;
-			const body = last ? record : `${PART_TAG} ${span.key} "${span.title}" part ${i + 1}/${viable.length}; the task record follows the kept message(s) below.`;
-			const summary = `${foldTag(gid)} ${body}`;
-			ops.push({ kind: "group", ids: r.map((b) => b.id), summary, ...(last && unique.length ? { handles: unique } : {}) });
+			const summary = last ? text : partCarrier(foldTag(gid), span.key, i + 1, viable.length);
+			ops.push({ kind: "group", ids: r.map((b) => b.id), summary, role: "assistant", ...(last && visible.length ? { handles: visible } : {}) });
 			const collapsible = collapsibleMessageKeys(r, true);
 			const current = r.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
 			saved += Math.max(0, current - host.countTokens(summary));
@@ -1020,35 +917,32 @@ export class TaskfoldConductor implements Conductor {
 		return { ops, restore, saved };
 	}
 
-	/** The fixed-shape record for a span, with descendant records kept intact. */
-	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], exposeHandle = true, prior: ReadonlyMap<string, string> = new Map(), included?: ReadonlySet<string>): string {
-		const lines = [`${RECORD_TAG} ${span.key} "${span.title}"  status: ${span.status}`];
-		if (exposeHandle) lines.push(`handle: ${foldTag(`t:${span.key}`)}`);
-		const list = (name: string, items: readonly string[] | undefined) => {
-			if (items?.length) lines.push(`${name}:`, ...items.map((x) => `  - ${x}`));
-		};
-		list("acceptance criteria", span.acceptanceCriteria);
-		if (span.report.outcome) lines.push(`outcome: ${span.report.outcome}`);
-		list("decisions", span.report.decisions);
-		list("pins", span.pins?.map((p) => `${p.kind}: ${p.text} (${p.source})`));
+	/** A span's record as an object, with descendant records kept intact. */
+	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>): RecordObj {
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
 		const own = blocks.filter((b, i) => (!included || included.has(b.id)) && inside(span, i) && !children.some((c) => inside(c, i)));
 		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
-		if (changed.length) lines.push(`changed: ${changed.slice(0, 20).join(", ")}${changed.length > 20 ? `, +${changed.length - 20} more` : ""}`);
-		list("verified", verified.slice(-5));
-		list("open", span.report.open);
 		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)));
-		if (direct.length) {
-			lines.push("children:");
-			for (const child of direct) {
-				const descendants = children.filter((c) => c.key.startsWith(`${child.key}.`));
-				const tag = foldTag(`t:${child.key}`);
-				const existing = prior.get(child.key);
-				const content = existing ? `${existing}${child.intervals.length && !existing.includes(tag) ? `\nhandle: ${tag}` : ""}` : `${child.intervals.length ? `${tag} ` : ""}${this.record(child, blocks, descendants, false, prior, included)}`;
-				lines.push(...content.split("\n").map((line) => `  ${line}`));
-			}
-		}
-		return lines.join("\n");
+		const entries = direct.map((child): RecordObj | HistoryObj => {
+			const existing = prior.get(child.key);
+			if (existing) return !existing.recall && child.intervals.length ? { ...existing, recall: foldTag(`t:${child.key}`) } : existing;
+			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included);
+			return child.intervals.length ? { task: full.task, title: full.title, status: full.status, recall: foldTag(`t:${child.key}`), ...rest(full) } : full;
+		});
+		const { outcome, decisions, open } = span.report;
+		return {
+			task: span.key,
+			title: span.title,
+			status: span.status,
+			...(span.acceptanceCriteria?.length ? { criteria: span.acceptanceCriteria } : {}),
+			...(outcome ? { outcome } : {}),
+			...(decisions?.length ? { decisions } : {}),
+			...(open?.length ? { open } : {}),
+			...(span.pins?.length ? { pins: span.pins } : {}),
+			...(changed.length ? { changed: changed.length > 20 ? [...changed.slice(0, 20), `+${changed.length - 20} more`] : changed } : {}),
+			...(verified.length ? { verified: verified.slice(-5) } : {}),
+			...(entries.length ? { children: entries } : {}),
+		};
 	}
 
 	private async commit(host: ConductorHost, units: Unit[]): Promise<void> {
