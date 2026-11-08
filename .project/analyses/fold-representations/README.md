@@ -136,10 +136,45 @@ Extraction: 50 messages × ~8k context ≈ 0.4M tokens per model. A/C agent runs
 ≈ 43M input tokens (≈ 70 % cache reads) and < 1M output for one model. Dollar cost depends on the
 model chosen and is quoted from current prices before running. Nothing has been run.
 
-## 4. Recommendation from offline data (before live results)
+## 3.3 Live comprehension results (deepseek-flash)
+
+Model `deepseek/deepseek-flash` (DeepSeek V4.1 Flash 1017, api.deepseek.com). 6 cut points on the
+nukular session (77k–190k tokens) plus 12 on three synthetic trees, 6 representations, 5 probes
+each: 540 probes. Run 2 lets the model take up to 4 steps; `tasks status` and `recall` are answered
+from the true list and the task's full record, everything else returns "unavailable". Run 1
+(single reply, lookups scored as failures) is kept in `evidence/live-comprehension.txt`.
+
+| Rep | current | status | recall | continue | place | mean | steps/probe |
+|---|---|---|---|---|---|---|---|
+| S | 1.00 | 1.00 | 0.94 | 1.00 | 0.94 | 0.978 | 1.30 |
+| B | 1.00 | 1.00 | 1.00 | 1.00 | 0.89 | 0.978 | 1.37 |
+| T | 1.00 | 0.94 | 1.00 | 1.00 | 0.69 | 0.928 | 1.16 |
+| B→S | 0.94 | 1.00 | 1.00 | 1.00 | 0.89 | 0.967 | 1.27 |
+| HR | 0.92 | 0.97 | 0.94 | 1.00 | 0.94 | 0.956 | 1.76 |
+| HP | 1.00 | 0.81 | 0.89 | 1.00 | 0.92 | 0.922 | 1.84 |
+
+7. **All in-root forms are understood.** S, B and B→S score 0.97–0.98; differences are within
+   one or two probes. T is lowest on `place` (0.69): the synthetic `started-and-completed` call
+   seems to make the model treat folded tasks as tool events rather than list positions.
+8. **History works, but costs a lookup.** With no detail in context, HR/HP answer through
+   `tasks status` + `recall` (1.8 steps per probe vs 1.3). Without those tools answering (run 1)
+   history collapsed to 0.3–0.4 on status/recall — the mechanism depends on recall being cheap and
+   the history line naming the right code.
+9. **Recall targets the root, not the child.** Under HR/HP, 11–12 of 18 recall probes used the
+   root's code (correct content, but the whole subtree comes back). History lines should list
+   child codes, or recall of a root should return a compact child index first.
+10. **HP is worse than HR** (status 0.81): parents-as-history inside an open root hide sibling
+    outcomes the agent still needs.
+
+Spend: ~55M prompt tokens (52.5M cache hits) + 0.27M completion across both runs, about
+$1.40 at the local pig price ($0.30 in / $0.006 cached / $1.20 out per M).
+
+## 4. Recommendation
 
 - Fold eagerly: `keepRecentTasks` default 0, fold at the request after `complete`.
-- Leading candidate: HR (or HP) — completed roots become 1–3 line history immediately, open
-  roots' finished children fold as S/T/B→S. Choose the in-root form on comprehension (§3.1).
-- Pure B stays in the comprehension eval (user decision) despite its cost.
+- HR: completed roots become 1–3 line history immediately (cheapest, 0.956 comprehension, one
+  extra lookup when detail is needed). Add child codes to the history line or a child index to
+  the root's recall.
+- Inside an open root: S or B→S (0.97–0.98). B scores the same but costs 1–58 % more; T is
+  cheaper but places new tasks worse. HP rejected.
 - No pressure-time consolidation; one history message per root.
