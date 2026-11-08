@@ -5,15 +5,15 @@ document:
   title: "Fold representations, fold timing and user-message routing: evaluation"
   description: "Offline cache/token simulation of folded-task representations and fold timing, plus the design of the live comprehension and user-message routing evaluations"
   status: "draft"
-  revision: 3
+  revision: 4
   created_at: "2026-11-08T11:26:48+01:00"
-  updated_at: "2026-11-08T15:22:00+01:00"
+  updated_at: "2026-11-08T16:37:04+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "check the shipped extractor live"
-      changes: ["§3.5 routing-live result: the implemented prompt, parser and store on deepseek-flash"]
+    - revision: 4
+      reason: "a cache miss after restart showed the always-warm prefix model is wrong"
+      changes: ["§8 breakpoint cache model: fold timing re-measured; the protected-tail wait, not depth, drives rebills"]
 ---
 
 # Fold representations, timing and user-message routing
@@ -298,3 +298,41 @@ Native terminal pass: the same session resumed in a real pig TUI under tmux at 3
 Live rerun after the two fixes (`evidence/live/rerun-after-fixes.json` vs `first-run.json`, same prompts, synthetic notes, deepseek-flash through a capped logging proxy): the list ends with three tasks (no duplicate), agent-request prefix breaks 6 → 1 (the single remaining break is a root fold, which rewrites history once by design), cache hit ratio 0.886 → 0.935, all fold carriers are `assistant` messages, every `tasks` result is JSON. Harness: `harness/live.py`, `live-proxy.py`, `live-analyze.py`.
 
 `/accordion tasks dump-transcript --formats yaml,tree` in the real TUI on the rerun session wrote both files (`evidence/live/dump-after-live-run.txt`); the YAML parses, tasks appear as `survey/1`, `survey/1.1`, with the JSON `start`/`complete` results inline. A resumed session shows the not-yet-folded projection: eager folds are applied at the next request, not on load.
+
+## 8. Breakpoint cache model (2026-11-08)
+
+Trigger: in this repository's session, request 3504 read only 25k (system and tools) and rewrote
+177k right after Taskfold folded finished root 15 on load. §2 assumed every unchanged prefix is a
+hit. Anthropic only stores entries at request breakpoints (Pi sets system, last tool, last message)
+and looks back ~20 blocks from each breakpoint, so a change further back than that rewrites
+everything after the system prompt.
+
+`harness/sim.py --cache lcp|bp|stable --tail N` (evidence: `evidence/cache-model.txt`):
+- `bp`: entries only at each request's last message, lookback 10 messages.
+- `stable`: `bp` plus a 4th breakpoint at the innermost open task's start.
+- `--tail N`: a finished task folds only once N tokens follow it (the protected tail).
+
+Weighted cost, thousands of input-token units (reads 0.1, writes 1.25):
+
+| Fixture | Rep | tail 0, lcp | tail 0, bp | tail 5k, bp | tail 20k, bp | tail 20k, stable |
+|---|---|---|---|---|---|---|
+| nukular 120k | HR | 15,712 | 15,712 | 19,622 | 22,217 | 20,938 |
+| nukular 120k | S | 16,044 | 17,100 | 20,410 | 23,006 | 21,734 |
+| synth 1, 40k | HR | 73 | 73 | | 1,043 | 1,043 |
+| synth 2, 40k | HR | 42 | 42 | | 552 | 552 |
+
+Findings:
+1. **Folding at the next request costs nothing extra under breakpoints.** With tail 0 the fold
+   point is within the lookback of the previous breakpoint; HR's `bp` cost equals the
+   always-warm model.
+2. **Waiting for the protected tail is the expensive part.** A 20k tail puts every fold ~20k
+   tokens behind the newest breakpoint: +41 % on nukular, 14× on the synthetic trees. The shipped
+   planner waits for it (`taskfold.ts`: a span whose tail is protected folds once it leaves).
+3. **A 4th "stable" breakpoint recovers only a fraction** (22.2M → 20.9M) and needs payload
+   rewriting per provider; it is not worth it once folds land at the tail.
+4. **Deep folds stay expensive** (load-time folds, pressure history): their rewrite cost is the
+   live tokens after the fold point. They pay back after ≈ 11.5 · rewrite / saving requests.
+
+Decisions: Taskfold owns the tail (`tail-size` lock, small tail) so finished spans fold at the
+next request; it holds the departing wire until its epoch lands; a deep fold not required by
+pressure waits for a cold cache or a short payback. No extra breakpoint.

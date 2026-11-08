@@ -157,22 +157,30 @@ def walk(roots):
     for r in roots:
         yield r; yield from walk(r["kids"])
 
-def simulate(msgs, roots, rep, timing, budget, high=0.8, low=0.6):
+CUM = {}
+def prep(msgs):
+    c = [0]
+    for m in msgs: c.append(c[-1] + m["tok"])
+    CUM[id(msgs)] = c
+
+def simulate(msgs, roots, rep, timing, budget, high=0.8, low=0.6, cache="lcp", lookback=10, tail=0):
     alltasks = list(walk(roots))
     folded, hist, prev, merged = set(), set(), [], []
     base = rep
     tot = dict(input=0, read=0, write=0, rebill=0, requests=0, peak=0, folds=0, histed=0)
     live_series = []
+    entries = set()   # (prefix length, prefix hash) of every cache entry written so far (breakpoint models)
     for a, m in enumerate(msgs):
         if m["role"] != "assistant" or a == 0: continue
-        fin = [t for t in alltasks if t["e"] < a - 0]  # finished before this request
+        cum = CUM[id(msgs)]
+        fin = [t for t in alltasks if t["e"] < a and cum[a] - cum[t["e"] + 1] >= tail]  # finished and out of the protected tail
         if rep != "RAW":
             if timing == "eager":
                 for t in fin:
                     if t["key"] not in folded: folded.add(t["key"]); tot["folds"] += 1
             if rep in ("HR", "HRC"):
                 for t in roots:
-                    if t["e"] < a: hist.add(t["key"])
+                    if t in fin: hist.add(t["key"])
             if rep == "HP":
                 for t in fin:
                     if t["kids"]: hist.add(t["key"])
@@ -199,10 +207,30 @@ def simulate(msgs, roots, rep, timing, budget, high=0.8, low=0.6):
         live = sum(x[2] for x in wire)
         lcp = 0
         while lcp < len(wire) and lcp < len(prev) and wire[lcp] == prev[lcp]: lcp += 1
-        read = sum(x[2] for x in wire[:lcp]); write = live - read
+        if cache == "lcp":
+            hit = lcp
+        else:
+            ph = [0]
+            for x in wire: ph.append(hash((ph[-1], x)))
+            bps = [len(wire)]
+            if cache == "stable":   # 4th breakpoint at the start of the innermost open task: the next fold point
+                open_ = [t for t in alltasks if t["s"] < a <= t["e"]]
+                if open_ and rep != "RAW":
+                    t = max(open_, key=lambda t: t["s"]); pre = []
+                    render(msgs, 0, t["s"], roots, folded, hist, rep, pre, merged)
+                    if 0 < len(pre) < len(wire): bps.append(len(pre))
+            if cache == "anchor":
+                cands = [n for n, h in entries if n <= lcp and n < len(wire) and ph[n] == h]
+                if cands: bps.append(max(cands))
+            hit = 0
+            for b in bps:
+                for n in range(b, max(0, b - lookback) - 1, -1):
+                    if n > 0 and (n, ph[n]) in entries: hit = max(hit, n); break
+            for b in bps: entries.add((b, ph[b]))
+        read = sum(x[2] for x in wire[:hit]); write = live - read
         prev_tail = sum(x[2] for x in prev[lcp:])
         tot["input"] += live; tot["read"] += read; tot["write"] += write
-        tot["rebill"] += min(write, prev_tail)   # previously-sent content that had to be written again
+        tot["rebill"] += max(0, sum(x[2] for x in wire[hit:lcp])) + min(sum(x[2] for x in wire[lcp:]), prev_tail)   # previously-sent content that had to be written again
         tot["requests"] += 1; tot["peak"] = max(tot["peak"], live); live_series.append(live)
         prev = wire
     tot["final"] = live_series[-1] if live_series else 0
@@ -213,15 +241,17 @@ def simulate(msgs, roots, rep, timing, budget, high=0.8, low=0.6):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument("session"); ap.add_argument("--budget", type=int, default=120000)
+    ap.add_argument("--cache", default="lcp", help="lcp | bp | anchor | stable | all"); ap.add_argument("--lookback", type=int, default=10); ap.add_argument("--tail", default="0")
     ap.add_argument("--json"); args = ap.parse_args()
-    msgs = load(args.session); roots, crossing, ntasks = spans(msgs)
+    msgs = load(args.session); roots, crossing, ntasks = spans(msgs); prep(msgs)
     print(f"messages {len(msgs)}  tasks {ntasks}  finished roots {len(roots)}  crossing(unfoldable) {crossing}  raw tokens {sum(m['tok'] for m in msgs)}")
     rows = []
-    for rep, timing in [("RAW", "-"), ("S", "lazy"), ("S", "eager"), ("B", "eager"), ("BS", "eager"), ("T", "eager"), ("B", "lazy"), ("T", "lazy")]:
-        r = simulate(msgs, roots, rep, timing, args.budget); r.update(rep=rep, timing=timing); rows.append(r)
-    for rep in ("HR", "HP", "HRC"):
-        r = simulate(msgs, roots, rep, "eager", args.budget); r.update(rep=rep, timing="eager"); rows.append(r)
-    hdr = ["rep", "timing", "input", "read", "write", "rebill", "cost", "peak", "mean", "final", "msgs_final", "histed"]
+    caches = ["lcp", "bp", "stable"] if args.cache == "all" else [args.cache]
+    for tail in [int(x) for x in args.tail.split(",")]:
+      for cache in caches:
+        for rep, timing in [("RAW", "-"), ("S", "lazy"), ("S", "eager"), ("HR", "eager"), ("HRC", "eager")]:
+            r = simulate(msgs, roots, rep, timing, args.budget, cache=cache, lookback=args.lookback, tail=tail); r.update(rep=rep, timing=timing, cache=cache, tail=tail); rows.append(r)
+    hdr = ["tail", "cache", "rep", "timing", "input", "read", "write", "rebill", "cost", "peak", "mean", "final", "histed"]
     print(" | ".join(hdr))
     for r in rows: print(" | ".join(str(r[h]) for h in hdr))
     if args.json: json.dump(rows, open(args.json, "w"), indent=1)
