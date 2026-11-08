@@ -59,6 +59,7 @@ import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./t
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { PIN_LIMITS, placeWorkingSet, workingSet, type WorkingSetAnchor } from "./taskPins";
 import { taskEventOf } from "./taskEvents";
+import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
@@ -603,6 +604,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let controllerHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
 	// ── the authoritative Truth (Phase B) ──────────────────────────────────────
+	// Span events derived for a session recorded before task events existed (SPEC-0002 §14);
+	// overlaid on every message array before it reaches Truth.
+	let adoption: Adoption | null = null;
+
 	// The single source of context state for this live session. Built at session_start, rebuilt on
 	// structural divergence (compaction / fork / tree-nav / another extension rewriting messages).
 	// pi's `context` hook operates against it LOCALLY. `unsubTruth` detaches the event forwarder.
@@ -2589,6 +2594,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * context window BEFORE subscribing so those internal bumps ride the snapshot, not a stray event.
 	 */
 	function buildTruth(messages: PiMessage[]): void {
+		messages = applyAdoption(messages, adoption);
 		if (unsubTruth) {
 			unsubTruth();
 			unsubTruth = null;
@@ -2740,6 +2746,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * diverges structurally, REBUILD. Mutations broadcast automatically via the Truth subscription.
 	 */
 	function ingestMessages(messages: PiMessage[]): void {
+		messages = applyAdoption(messages, adoption);
 		if (!truth) {
 			rebuildTruth(messages);
 			return;
@@ -2905,6 +2912,43 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 	// ── lifecycle ──────────────────────────────────────────────────────────────
 	const taskStores = new Map<string, { session: string; store: TaskStore }>();
+	/** Derive the adoption for this branch from its messages and the project's list files. */
+	function deriveFor(ctx: ExtensionContext): Adoption {
+		const lists = new Map(taskStoreFor(ctx).scan().lists.map((l) => [l.slug, l.tasks] as const));
+		return deriveAdoption(readSessionMessages(ctx), lists);
+	}
+
+	/** Persist and apply an adoption, then rebuild Truth so the next epoch sees the closed spans. */
+	function adopt(ctx: ExtensionContext, next: Adoption): void {
+		pi.appendEntry(ADOPTED_ENTRY, next);
+		adoption = next;
+		rebuildTruth(readSessionMessages(ctx));
+	}
+
+	function adoptionSummary(a: Adoption): string {
+		return `${a.stats.nested} task event${a.stats.nested === 1 ? "" : "s"} from nested calls, ${a.stats.reconciled} span${a.stats.reconciled === 1 ? "" : "s"} closed from the list file${a.stats.lists.length ? ` (${a.stats.lists.join(", ")})` : ""}`;
+	}
+
+	/** Adopt a legacy session on resume according to `tasks.adopt`. Never throws. */
+	function adoptOnStart(ctx: ExtensionContext, sessionAtStart: string): void {
+		try {
+			if (settings.tasks.adopt === "off" || !needsAdoption(readSessionMessages(ctx), adoption)) return;
+			const next = deriveFor(ctx);
+			if (!Object.keys(next.events).length) return;
+			if (settings.tasks.adopt === "auto") {
+				adopt(ctx, next);
+				ctx.ui.notify(`Accordion adopted this session for Taskfold: ${adoptionSummary(next)}.`, "info");
+				return;
+			}
+			if (!ctx.hasUI) return;
+			void ctx.ui.confirm("Adopt this session for Taskfold?", `It was recorded before task events existed. Adoption adds ${adoptionSummary(next)} so finished tasks can fold. Messages are not changed.`).then((yes) => {
+				if (yes && sessionId === sessionAtStart) adopt(ctx, next);
+			}, () => undefined);
+		} catch (err) {
+			ctx.ui.notify(`Accordion could not adopt this session; it continues on the legacy scan: ${err instanceof Error ? err.message : String(err)}`, "warning");
+		}
+	}
+
 	function taskStoreFor(ctx: ExtensionContext): TaskStore {
 		const session = ctx.sessionManager.getSessionId();
 		const project = path.resolve(ctx.cwd);
@@ -3031,6 +3075,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const sessionAtStart = sessionId;
 		try {
 			const entries = typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
+			adoption = adoptionOf(entries);
 			taskfoldVerdicts.reset(verdictsOf(entries), (id, v) => {
 				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
 			}, unfoldStatesOf(entries), (key, state) => {
@@ -3045,6 +3090,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// (the Truth constructor marks all loaded blocks sent). A client that attaches before any
 		// turn still gets a correct snapshot.
 		buildTruth(readSessionMessages(ctx));
+		adoptOnStart(ctx, sessionAtStart);
 		startServer();
 		if (settings.autoArm) {
 			setFolding(true);
@@ -3742,6 +3788,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "tail ", label: "tail", description: "Set the protected tail for this session, e.g. 20k (--default saves it for this model)" },
 				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release, start one, or drill into tasks and their folds" },
 				{ value: "tasks tree", label: "tasks tree", description: "This session's transcript by task: spans, folds, kept user messages, untracked work" },
+				{ value: "tasks adopt", label: "tasks adopt", description: "Adopt a session recorded before task events so its finished tasks fold; --dry-run only reports" },
 				{ value: "tasks dump-transcript ", label: "tasks dump-transcript", description: "Write the outgoing projection to a file: [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]" },
 				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
@@ -3786,6 +3833,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				ctx.ui.notify(asDefault ? `${saveDialDefault(kind, value)}; this session uses ${formatTokens(set)}${clamped}.` : `${name} ${formatTokens(set)} for this session${clamped}.`, "info");
 				return;
 			}
+			const tasksAdopt = /^tasks\s+adopt(\s+--dry-run)?\s*$/.exec(argument);
+			if (tasksAdopt) {
+				const next = needsAdoption(readSessionMessages(ctx), adoption) ? deriveFor(ctx) : null;
+				if (!next || !Object.keys(next.events).length) ctx.ui.notify("Nothing to adopt: every task call in this session already records its events.", "info");
+				else if (tasksAdopt[1]) ctx.ui.notify(`Dry run: adoption would add ${adoptionSummary(next)}. Nothing was written.`, "info");
+				else {
+					adopt(ctx, next);
+					ctx.ui.notify(`Adopted: ${adoptionSummary(next)}.`, "info");
+				}
+				return;
+			}
 			const tasksDump = /^tasks\s+dump-transcript\b(.*)$/.exec(argument);
 			if (tasksDump) {
 				await dumpTranscript(tasksDump[1], ctx);
@@ -3816,7 +3874,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				else if (verb === "collapse") taskWidget.setExpanded(false);
 				else if (verb === "hide") taskWidget.hide();
 				else {
-					ctx.ui.notify("Usage: /accordion tasks [lists | tree | dump-transcript | expand | collapse | hide | show]", "warning");
+					ctx.ui.notify("Usage: /accordion tasks [lists | tree | adopt [--dry-run] | dump-transcript | expand | collapse | hide | show]", "warning");
 					return;
 				}
 				taskWidget.reload();

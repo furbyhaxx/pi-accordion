@@ -915,13 +915,15 @@ inside codemode without events) is converted once so it continues under the new 
 
 ### 14.1 Trigger
 
-- On `session_start` with `reason` `resume`/`fork`/`startup` and Taskfold attached, the extension
-  checks for an `accordion.taskfold.adopted` entry. Without one it runs **detection**: any `tasks`
-  result without `details.taskEvents`, or a v1/v2 list file, marks the session legacy.
+- On every `session_start` the extension loads the newest `accordion.taskfold.adopted` entry and runs
+  **detection**: a non-`tasks` tool result whose `nestedCalls` hold a `start` or finishing `tasks`
+  call, that carries no `details.taskEvents` and is not covered by the current entry, marks the
+  session legacy. Direct `tasks` results keep the existing scan (prose and `details`), so they need no
+  adoption.
 - `tasks.adopt` (`"auto"` default, `"ask"`, `"off"`): `auto` adopts silently; `ask` shows the
   resume dialog with the measured effect; `off` leaves the session on the legacy scan.
-- Manual: `/accordion tasks adopt [--dry-run]` at any time. `--dry-run` prints the derived events
-  and the resulting fold plan without writing anything.
+- Manual: `/accordion tasks adopt [--dry-run]` at any time. `--dry-run` reports the derived event
+  counts without writing anything.
 
 ### 14.2 What adoption derives
 
@@ -930,25 +932,29 @@ that holds everything the scan would otherwise read from `details`:
 
 | Derived | Source, in order of preference |
 |---|---|
-| Task events for direct calls | the call's arguments + result `details` (`started`, `closed`, `cascaded`) + prose fallback regexes |
+| Store state for direct calls | replayed from the call's arguments and result `details` (`closed`) so nested events know which ancestors are already open; no events are written for them |
 | Task events for nested calls | the outer result message's `nestedCalls` record (pi ≥1.5: name, full `arguments` within pi's size limits, `status`), in call order; calls with `status: "error"` are skipped. A record marked incomplete or with omitted arguments falls back to the list file's `endedAt`/`status` for the task ids it can name; anything left unknown keeps its span open. The tool's printed output is never parsed |
-| Titles, reports, criteria, pins | the list file at adoption time, by task id; renumbering from `move`/`add` results is replayed backwards |
-| Open spans the list says are finished | closed at the outer result where the list's `finishedAt` falls, else at the next `start` of a non-descendant |
+| Titles, reports, criteria, pins | the list file at adoption time, by task id; the call's own `report` wins for the finishing task |
+| Open spans the list says are finished | closed (deepest first) at the first non-`tasks` result at or after the task's `endedAt`, else at the last one |
 
-Entries are keyed by block id (`r:<callId>`), so the scan merges them exactly like `details`.
+The entry maps the outer `toolCallId` to its events (`extension/taskAdoption.ts`). On every ingest
+the extension overlays them on those results' `details.taskEvents` before linearizing, so the scan,
+the views and the dump read adopted and native events the same way; message identity and the wire
+are unchanged.
 
 ### 14.3 Rules
 
-- **Idempotent:** the entry carries the scan version and a fingerprint of the branch it was built
-  for. Re-running produces the same entry; a newer scan version re-adopts and supersedes it.
-- **List file:** a v1/v2 list is migrated by the normal write path (§2.2) with the original kept as
-  `<slug>.v<n>.json`. A list that fails validation is not touched; adoption stops with the error.
+- **Idempotent:** the entry carries `version` and a branch fingerprint. Derivation is a pure function
+  of the branch and the list files; a resume whose legacy results are all covered does nothing, and
+  a newer `version` re-adopts and supersedes the entry.
+- **List files are read, never written.** A list that fails validation is skipped; its calls are
+  replayed from arguments alone.
 - **Delivery ledger:** legacy sessions have no manifests, so nothing counts as delivered. The next
   `start` or `claim` delivers the full context once.
 - **Working set:** no suffix is ever re-injected. The first request after adoption may differ from
   the last legacy request; that one cache miss is the whole cost.
-- **Folding:** the next epoch folds every finished span eagerly (§8). Adoption reports the
-  projected live tokens before and after in the dialog and in the `adopted` entry.
+- **Folding:** the next epoch folds every finished span eagerly (§8). The notice and the dialog name
+  the derived event and reconciliation counts.
 - **Failure:** any derivation error keeps the session on the legacy scan and shows one notice; a
   partial entry is never written.
 

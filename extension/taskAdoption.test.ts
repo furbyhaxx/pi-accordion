@@ -78,7 +78,9 @@ describe("legacy adoption", () => {
 		expect(deriveAdoption(messages, lists)).toEqual(a);
 		expect(needsAdoption(messages, null)).toBe(true);
 		expect(needsAdoption(messages, a)).toBe(false);
-		expect(needsAdoption([...messages, ...bash("b9", "x")], a)).toBe(true);
+		expect(needsAdoption([...messages, ...bash("b9", "x")], a)).toBe(false);
+		expect(needsAdoption([...messages, ...codemode("m9", [{ action: "start", list: "w", id: "3" }])], a)).toBe(true);
+		expect(needsAdoption(messages, { ...a, version: 0 })).toBe(true);
 		expect(adoptionOf([{ type: "custom", customType: ADOPTED_ENTRY, data: a }])).toEqual(a);
 		const applied = applyAdoption(messages, a);
 		expect(applyAdoption(applied, a)).toEqual(applied);

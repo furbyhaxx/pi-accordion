@@ -61,10 +61,10 @@ function asCall(args: unknown): Call | null {
 	return { action: a.action, list: a.list, ...(typeof a.id === "string" ? { id: a.id } : {}), ...(a.report && typeof a.report === "object" ? { report: a.report as Call["report"] } : {}) };
 }
 
-/** True when the branch has `tasks` work that predates task events and no adoption covers it. */
+/** True when the branch has lifecycle `tasks` calls without events that no current adoption covers. */
 export function needsAdoption(messages: readonly PiMessage[], adoption: Adoption | null): boolean {
-	if (adoption && adoption.version === ADOPTION_VERSION && adoption.fingerprint === fingerprintOf(messages)) return false;
-	return messages.some((m) => m.role === "toolResult" && m.toolName !== "tasks" && !taskEventsIn(m.details).length && nestedTasksCalls(m).some((c) => c.action in FINISH || c.action === "start" || c.action === "block"));
+	const covered = adoption?.version === ADOPTION_VERSION ? adoption.events : {};
+	return messages.some((m) => m.role === "toolResult" && m.toolName !== "tasks" && !!m.toolCallId && !covered[m.toolCallId] && !taskEventsIn(m.details).length && nestedTasksCalls(m).some((c) => c.action in FINISH || c.action === "start"));
 }
 
 /** Identifies the branch an adoption was derived for. */

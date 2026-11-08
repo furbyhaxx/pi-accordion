@@ -42,6 +42,8 @@ export interface TaskWidgetSettings {
 export interface TaskSettings {
 	attachments: { render: "inline" | "reference"; maxLines: number };
 	pins: { listTokens: number; taskTokens: number };
+	/** How a session recorded before task events is adopted on resume (SPEC-0002 §14). */
+	adopt: "auto" | "ask" | "off";
 }
 
 export interface TaskfoldSettings {
@@ -88,7 +90,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	models: { defaults: {}, conductors: {} },
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
-	tasks: { attachments: { render: "inline", maxLines: 60 }, pins: { listTokens: 2000, taskTokens: 1500 } },
+	tasks: { attachments: { render: "inline", maxLines: 60 }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, aging: [...TASKFOLD_DEFAULTS.aging], floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked } },
 	modelDefaults: {},
 };
@@ -209,6 +211,7 @@ export function sanitizeTaskSettings(value: unknown): TaskSettings {
 	return {
 		attachments: { render: attachments.render === "reference" ? "reference" : "inline", maxLines: integer(attachments.maxLines, 60, 1000) },
 		pins: { listTokens: integer(pins.listTokens, 2000, 100000), taskTokens: integer(pins.taskTokens, 1500, 100000) },
+		adopt: raw.adopt === "ask" || raw.adopt === "off" ? raw.adopt : "auto",
 	};
 }
 

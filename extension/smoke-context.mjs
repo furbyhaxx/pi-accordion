@@ -124,6 +124,43 @@ check("nested tasks calls put their span events on the outer tool result", async
 		assert.equal(again?.details, undefined, "events are delivered once");
 	} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+check("a legacy session is adopted once on resume and its nested finishes close spans", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-adopt-"));
+	fs.mkdirSync(path.join(dir, ".pig", "tasks"), { recursive: true });
+	const now = new Date().toISOString();
+	fs.writeFileSync(path.join(dir, ".pig", "tasks", "w.json"), JSON.stringify({ version: 2, slug: "w", title: "W", goal: "Done", createdAt: now, updatedAt: now, claim: null,
+		tasks: [{ id: "1", title: "A", status: "done", updatedAt: now }, { id: "2", title: "B", status: "doing", updatedAt: now }] }));
+	const call = (id, name, args) => ({ role: "assistant", responseId: `resp-${id}`, timestamp: 10, content: [{ type: "toolCall", id, name, arguments: args }] });
+	const messages = [
+		{ role: "user", content: "Work", timestamp: 1 },
+		call("d1", "tasks", { action: "start", list: "w", id: "1" }),
+		{ role: "toolResult", toolCallId: "d1", toolName: "tasks", content: [{ type: "text", text: 'Started w/1 "A".' }], isError: false, timestamp: 11 },
+		call("m1", "codemode", { code: "…" }),
+		{ role: "toolResult", toolCallId: "m1", toolName: "codemode", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 12, details: { calls: [] },
+			nestedCalls: { complete: true, calls: [
+				{ id: "m1/1", name: "tasks", status: "ok", arguments: { action: "complete", list: "w", id: "1", report: { outcome: "A done." } } },
+				{ id: "m1/2", name: "tasks", status: "ok", arguments: { action: "start", list: "w", id: "2" } }] } },
+	];
+	const notes = [];
+	const r = runtime(messages, { cwd: dir, sessionId: "adopt" });
+	try {
+		const adopted = r.entries.filter(e => e.customType === "accordion.taskfold.adopted");
+		assert.equal(adopted.length, 1, "auto adoption writes one entry");
+		assert.deepEqual(adopted[0].data.events.m1.map(e => [e.action, e.id]), [["complete", "1"], ["start", "2"]]);
+		const host = await r.open();
+		const { scanTaskSpans } = await jiti.import("../conductors/in-process/taskfold/taskfold.ts");
+		const spans = scanTaskSpans(host.truth().blocks, b => b.text).map(s => [s.key, s.status]);
+		assert.deepEqual(spans, [["w/1", "done"], ["w/2", null]]);
+		r.ctx.ui.notify = text => notes.push(text);
+		await r.command("tasks adopt --dry-run");
+		assert.match(notes.at(-1), /Nothing to adopt/);
+	} finally { r.close(); }
+	try {
+		const again = runtime(messages, { cwd: dir, sessionId: "adopt", entries: r.entries });
+		try { assert.equal(again.entries.filter(e => e.customType === "accordion.taskfold.adopted").length, 1, "resume does not adopt twice"); }
+		finally { again.close(); }
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 check("native task inspection caches disk reads, refreshes changes and refuses a replacement session", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-task-views-"));
 	const messages = [{ role: "user", content: "Inspect tasks", timestamp: 1 }];
