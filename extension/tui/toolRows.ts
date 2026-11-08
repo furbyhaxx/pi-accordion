@@ -6,6 +6,7 @@
  *
  * The line builders are pure; `toolRowRenderers` adapts them to Pi's self-shell tool renderers.
  */
+import type { TaskEvent } from "../../core/taskEvents";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { blockLabel, type Renumbering, type TaskBlock, type TaskList, type TaskStatus } from "../tasks";
 import { taskDuration } from "./taskTree";
@@ -36,6 +37,8 @@ export interface TasksDetails {
 	/** Ids that changed because `add` inserted or `move` moved unstarted tasks. */
 	renumbered?: Renumbering[];
 	started?: string[];
+	/** Span events of this execution (SPEC-0002 §5.3); nested executions put theirs on the outer result. */
+	taskEvents?: TaskEvent[];
 	closed?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] }; acceptanceCriteria?: string[]; pins?: TaskList["pins"] }[];
 	cascaded?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] }; acceptanceCriteria?: string[]; pins?: TaskList["pins"] }[];
 }

@@ -101,6 +101,29 @@ check("the context panel suspends its task widget and restores it after every ex
 		assert.equal(notices.filter(text => /intentional/.test(text)).length, 2);
 	} finally { r.close(); }
 });
+check("nested tasks calls put their span events on the outer tool result", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-task-events-"));
+	const r = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: dir, sessionId: "events" });
+	const run = (id, args) => r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
+	try {
+		await run("c1", { action: "create", list: "w", title: "W", goal: "Done", tasks: [{ title: "A" }, { title: "B" }] });
+		const direct = await run("c2", { action: "start", list: "w", id: "1" });
+		assert.deepEqual(direct.details.taskEvents.map(e => [e.action, e.id, e.task.title]), [["start", "1", "A"]]);
+		await r.handlers.tool_result({ toolName: "bash", toolCallId: "c3", input: {}, content: [], details: undefined, isError: false }, r.ctx);
+		const nestedA = await run("c4/1", { action: "complete", list: "w", id: "1", report: { outcome: "A done." } });
+		const nestedB = await run("c4/2", { action: "start", list: "w", id: "2" });
+		assert.equal(nestedA.details.taskEvents, undefined);
+		assert.equal(nestedB.details.taskEvents, undefined);
+		const inner = await r.handlers.tool_result({ toolName: "tasks", toolCallId: "c4/2", parentToolCallId: "c4", input: {}, content: [], details: nestedB.details, isError: false }, r.ctx);
+		assert.equal(inner?.details, undefined, "a nested result is not the carrier");
+		const outer = await r.handlers.tool_result({ toolName: "codemode", toolCallId: "c4", input: {}, content: [{ type: "text", text: "ok" }], details: { calls: 2 }, isError: false }, r.ctx);
+		assert.equal(outer.details.calls, 2);
+		assert.deepEqual(outer.details.taskEvents.map(e => [e.action, e.id]), [["complete", "1"], ["start", "2"]]);
+		assert.equal(outer.details.taskEvents[0].task.report.outcome, "A done.");
+		const again = await r.handlers.tool_result({ toolName: "codemode", toolCallId: "c4", input: {}, content: [], details: {}, isError: false }, r.ctx);
+		assert.equal(again?.details, undefined, "events are delivered once");
+	} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
 check("native task inspection caches disk reads, refreshes changes and refuses a replacement session", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-task-views-"));
 	const messages = [{ role: "user", content: "Inspect tasks", timestamp: 1 }];

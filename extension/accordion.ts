@@ -58,6 +58,8 @@ import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens,
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { PIN_LIMITS, placeWorkingSet, workingSet, type WorkingSetAnchor } from "./taskPins";
+import { taskEventOf } from "./taskEvents";
+import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { TASK_SCREEN_OPTIONS } from "./tui/taskLists";
@@ -2961,6 +2963,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	pi.on("session_start", (event, ctx: ExtensionContext) => {
 		releaseTaskClaims();
+		nestedTaskEvents.clear();
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
 		// session swap invalidates the whole context state (a fresh Truth is authoritative). Detach
 		// any attached conductor first (kills a spawned runner, clears its locks off the old Truth,
@@ -3068,9 +3071,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	});
 
+	// A tasks call made inside another tool (codemode) has no block of its own: its span event rides
+	// on the outer call's persisted result instead (SPEC-0002 §5.3).
+	const nestedTaskEvents = new TaskEventQueue();
+
 	// Coaching on the task protocol rides on tool results: work outside any task gets a reminder.
 	pi.on("tool_result", (event, ctx: ExtensionContext) => {
-		if (event.toolName === "tasks" || !tasksToolActive() || latestCtx?.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()) return;
+		const details = event.parentToolCallId ? null : withTaskEvents(event.details, nestedTaskEvents.take(event.toolCallId));
+		const withDetails = details ? { details } : undefined;
+		if (event.toolName === "tasks" || !tasksToolActive() || latestCtx?.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()) return withDetails;
 		let list: TaskList | null = null;
 		try {
 			list = attachedList(taskStoreFor(ctx).claimedBySession());
@@ -3079,7 +3088,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		taskCoach.setList(list);
 		const note = taskCoach.toolResult(!!event.parentToolCallId);
-		return note ? { content: [...event.content, { type: "text" as const, text: note }] } : undefined;
+		return note ? { ...withDetails, content: [...event.content, { type: "text" as const, text: note }] } : withDetails;
 	});
 
 	// Prose the agent writes inside a task is work too: an analysis may need no tool call.
@@ -3355,6 +3364,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// touching `pendingWireEst`, which stays reserved for the final message's own pairing attempt.
 	pi.on("agent_end", (event, ctx: ExtensionContext) => {
 		latestCtx = ctx;
+		nestedTaskEvents.clear();
 		taskSession?.record();
 		recordIdleVerdict(ctx);
 		sendStream({ type: "stream", phase: "abort", kind: "text", contentIndex: -1 });
@@ -4032,7 +4042,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			supersededBy: Type.Optional(Type.String({ description: "For abandon: the id of the task that replaces this one." })),
 			force: Type.Optional(Type.Boolean({ description: "For claim: take over a list another session holds. Ask the user first." })),
 		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(toolCallId, params, _signal, _onUpdate, ctx) {
 			const store = taskStoreFor(ctx);
 			const args = params as TasksArgs;
 			const read = (): TaskList | null => {
@@ -4060,6 +4070,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					...(run.closed.length ? { closed: run.closed.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria, pins })) } : {}),
 					...(run.cascaded.length ? { cascaded: run.cascaded.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria, pins })) } : {}),
 				};
+				const event = taskEventOf(args, list, run);
+				if (event && !nestedTaskEvents.queue(toolCallId, event)) details.taskEvents = [event];
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {
 				if (err instanceof TaskError) throw err;
