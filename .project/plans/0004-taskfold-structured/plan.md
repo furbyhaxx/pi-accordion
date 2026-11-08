@@ -42,7 +42,7 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 | 3 | Remove the working set and request injection | §4.5 | done (interim: start/claim append the prose context until slice 4) |
 | 4 | Structured JSON results for every action; delivery manifests and liveness; claim/resume delivery | §3, §4.3 | done |
 | 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | done (abd8560) |
-| 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | now |
+| 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | done |
 | 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | later |
 | 8 | Notices and user-message routing (classify, extract, apply, notify) | §4.4, §4.6 | later |
 | 9 | Views, dump, settings, docs; replay `01a1b680`, comprehension eval on real rendering, live run | §10, §12, §13 | later |
@@ -106,7 +106,7 @@ Change, in order (each its own commit with tests on a real `Truth`):
    summary is reused verbatim (parsed, re-keyed), so an unchanged child never changes bytes. When the root
    handle is not covered the group's own tag is used. `taskKeyOfSummary` parses `task`/`history`/`part`/`untracked`;
    `taskTranscript.recordLevel` and the dump follow. `applyPlan` gives a Taskfold group carrier the role
-   `assistant` (new optional `Group.role`, default unchanged; snapshot/protocol bump).
+   `assistant` (new optional `Group.role`, conductor groups only; rides the existing group spread, no protocol bump).
 2. **Eager epoch.** `evaluate()` always plans records; `plan()` folds every finished unit regardless of
    `low·budget`; `keepRecentTasks` default 0. A unit whose end still lies in the protected tail is
    deferred, not folded partially, unless pressure ≥ `high` (then partial runs as today). Steps 2–6 of §9

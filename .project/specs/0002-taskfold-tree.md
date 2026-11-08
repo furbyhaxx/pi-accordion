@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 19
+  revision: 20
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T14:11:08+01:00"
+  updated_at: "2026-11-08T15:20:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 19
-      reason: "record liveness details found while implementing slice 4"
-      changes: ["delivery keys scoped by list", "disarmed folding counts every present delivery", "nested starts record no live delivery"]
+    - revision: 20
+      reason: "details found while implementing eager JSON records (slice 6)"
+      changes: ["carrier role is a conductor-only Group.role", "a unit waits for its closing blocks to leave the protected tail and for in-flight user-message classification", "pressure history works on folded records inside open roots; no other aging"]
 ---
 
 # Taskfold
@@ -628,7 +628,8 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
 ### 6.1 Carrier
 
 - Every Taskfold carrier is one `assistant` message, independent of the role of the run's first
-  message. Its text starts with the task's own tag (`{#code FOLDED}`, the tag is the handle), then one
+  message. The conductor's `group` op carries `role: "assistant"` (`Group.role`, honoured only for
+  conductor groups; a human group keeps the role of its run's first message). Its text starts with the task's own tag (`{#code FOLDED}`, the tag is the handle), then one
   line of compact JSON. Adjacent carriers stay separate messages; each is append-only.
 - One fold code per task: `foldCode("t:<list>/<id>")` (§7.3). The group's own code is not shown.
 
@@ -728,7 +729,7 @@ final form and never rewritten.
 
 | Event | Effect, at the next request |
 |---|---|
-| a task finishes inside an open parent | its span becomes a record (§6.2) |
+| a task finishes inside an open parent | its span becomes a record (§6.2) once its closing blocks have left the protected tail and none of its user messages is still being classified (a folded span is never re-extended, so it folds whole or not yet) |
 | a non-root parent finishes | its span becomes one record composing its children's records |
 | a root finishes | its whole span becomes history (§6.3) |
 | pressure ≥ `high` inside an open root | finished subtrees, oldest first, become history until `low` |
