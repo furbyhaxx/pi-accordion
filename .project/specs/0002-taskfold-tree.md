@@ -3,17 +3,17 @@ document:
   type: "specification"
   id: "SPEC-0002"
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
-  description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
+  description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 17
+  revision: 18
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T12:56:10+01:00"
+  updated_at: "2026-11-08T13:15:06+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 17
-      reason: "nested tasks calls and legacy session adoption"
-      changes: ["§5.3 task events on the outer result for tasks calls inside codemode; stale spans", "§14 one-time adoption of legacy sessions (auto/ask/off, dry run, derived entry, no message rewrites)"]
+    - revision: 18
+      reason: "multiple goals with item ids; nested-call mechanism verified against pi 1.5"
+      changes: ["list file v3: goals[] on lists and tasks, {id,text} criteria, item ids for goals/criteria/pins/attachments", "update takes ItemEdit for goals and criteria; results return assigned item ids", "§5.3 parentToolCallId queue + outer tool_result details; ingest keeps taskEvents on any tool result", "§14.2 adoption reads nestedCalls instead of parsing scripts"]
 ---
 
 # Taskfold
@@ -35,7 +35,7 @@ commit `f04f39d`.
 
 | In | Out (separate changes) |
 |---|---|
-| Task list file v2 (nested, `goal`, `acceptanceCriteria`, pins, attachments) and v1 migration | Synthetic usage units and calibration bounds (fixed upstream; accepted as wrong for now) |
+| Task list file v3 (nested, `goals`, `acceptanceCriteria`, item ids, pins, attachments) and v1/v2 migration | Synthetic usage units and calibration bounds (fixed upstream; accepted as wrong for now) |
 | Store actions `update`, `move`, `add before/after`, `pin`/`unpin`, `attach`/`detach` | Sequential-order enforcement, `delegated`, HUD, gate, consent decoupling, prompt rewrite (`DRAFT-taskfold-reliability` §5–6) |
 | Span intervals, structured span facts, cascade nodes | Making `acceptanceCriteria` required |
 | Tree planner, flat compiler, composed records, `Group.handles` | Orientation typed fold, agent orientation task, doorman, keel-note note |
@@ -48,7 +48,7 @@ commit `f04f39d`.
 | Out-of-band list changes as appended notices | |
 | Skill `accordion-task-lists` | |
 
-## 2. Task list file v2
+## 2. Task list file v3
 
 ### 2.1 Format
 
@@ -59,16 +59,19 @@ referenced by `$schema`.
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
-  "version": 2,
+  "version": 3,
   "slug": "auth",
   "title": "Token store",
-  "goal": "All token access goes through TokenStore; no direct map access left; npm test passes.",
+  "goals": [
+    { "id": "g1", "text": "All token access goes through TokenStore; no direct map access left." },
+    { "id": "g2", "text": "npm test passes." }
+  ],
   "createdAt": "…", "updatedAt": "…",
   "claim": null,
   "pins": [ { "id": "p1", "kind": "constraint", "text": "Never modify vendor/", "source": "user", "at": "…" } ],
   "attachments": [ { "id": "a1", "path": "docs/plans/auth.md", "anchor": { "section": "Rollout > Phase 3" }, "note": "plan §3", "hash": "…", "at": "…" } ],
   "tasks": [
-    { "id": "1", "title": "Survey token callers", "acceptanceCriteria": ["every caller of the token map is listed"], "status": "todo" },
+    { "id": "1", "title": "Survey token callers", "acceptanceCriteria": [{ "id": "c1", "text": "every caller of the token map is listed" }], "status": "todo" },
     { "id": "2", "title": "Extract TokenStore", "status": "todo", "subtasks": [
       { "id": "2.1", "title": "Add the interface", "status": "todo",
         "attachments": [ { "id": "a2", "path": "src/auth/store.ts", "anchor": { "symbol": "TokenStore" } } ] }
@@ -79,11 +82,12 @@ referenced by `$schema`.
 
 | Field | Rule |
 |---|---|
-| `version` | `2`. Absent means v1 |
-| `goal` | Required for authoring and for `create`, 1–600 chars. One goal per list: the end state the whole list delivers. The store loads a list without one (v1, or created from the UI) and gates new work on it (§2.2) |
+| `version` | `3`. `2` (single `goal` string, string criteria) and absent (v1) are migrated on load |
+| `goals` | On the list: required for authoring and for `create`, 1–5 items of 1–600 chars, together the end state the whole list delivers. On a task: optional, ≤3 items of ≤300 chars, what this subtree must achieve beyond its criteria. The store loads a list without goals (migrated, or created from the UI) and gates new work on it (§2.2) |
+| item ids | Goals `g<n>`, criteria `c<n>`, pins `p<n>`, attachments `a<n>`: unique within the list, assigned by the store, never reused after removal. Authors may omit them; an explicit id that collides is a validation error |
 | `tasks[].subtasks` | Nested tree with no fixed maximum depth |
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
-| `acceptanceCriteria` | Optional now, 1–3 strings of ≤120 chars, checkable end-state statements |
+| `acceptanceCriteria` | Optional, ≤8 items (1–3 recommended) `{id, text}` of ≤120 chars, checkable end-state statements. Authoring accepts plain strings and assigns ids |
 | `status` | Optional when authoring (`todo`). Other `Task` fields (`report`, timestamps, `blocks`, `supersededBy`, `autoClosed`) keep their v1 meaning |
 | `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files with `lines` are converted to a quote anchor on load |
 
@@ -96,9 +100,10 @@ verdicts, bindings) is unchanged.
   `TaskError` naming each problem and its fix, for example `tasks[1].subtasks[0]: id "2.3" does not
   match its position 2.1; remove the id or move the task`. The file is not rewritten.
 - **v1 files** (flat `tasks[]`, no `version`) are converted in memory: the tree is rebuilt from the
-  dotted ids. The next write stores v2. Every serialized candidate is validated before atomic replacement; a rejected conversion leaves the original file unchanged. Native task views name invalid lists instead of treating them as absent.
-- **Missing goal** (a migrated legacy list): `start`, `add` and `move` are refused until
-  `tasks update {list, goal}` sets one. The native lists browser asks for title and goal when creating a list. `list`, `status`, `claim` and the finishing actions still
+  dotted ids. **v2 files** convert `goal` to `goals: [{id: "g1", text}]` and string criteria to
+  `{id, text}` in document order. The next write stores v3. Every serialized candidate is validated before atomic replacement; a rejected conversion leaves the original file unchanged. Native task views name invalid lists instead of treating them as absent.
+- **No goals** (a migrated legacy list): `start`, `add` and `move` are refused until
+  `tasks update {list, goals: {add: [...]}}` sets one. The native lists browser asks for title and goals when creating a list. `list`, `status`, `claim` and the finishing actions still
   work, so a running task can always be ended.
 - **Hand edits** made while a list is claimed are accepted if they validate. Changing the id or
   position of a started task is a validation error: started ids are frozen (§3.5).
@@ -149,7 +154,7 @@ type Err = { ok: false; error: ErrorCode; message: string; fix?: string };
 | `invalid_args` | missing/unknown field, wrong type | the call that works |
 | `not_found` | list, task, pin, attachment or anchor does not exist | closest match |
 | `invalid_file` | list file fails validation (§2.2) | each problem and its fix |
-| `no_goal` | `start`/`add`/`move` on a list without a goal | `update {list, goal}` |
+| `no_goal` | `start`/`add`/`move` on a list without goals | `update {list, goals: {add: [...]}}` |
 | `claimed_by_other` | list claimed by another session | `claim {force: true}` after asking the user |
 | `frozen` | edit of a started id, finished title/criteria | the call that works, e.g. `add … after` |
 | `invalid_transition` | e.g. complete a todo task, start a finished one | |
@@ -170,11 +175,13 @@ type Attachment = {
   content: string;                   // resolved text; omitted when settings render = "reference"
   state?: "moved" | "fuzzy" | "changed" | "lost";   // §4.2; omitted when exact
 };
+type Item = { id: string; text: string };           // goal or criterion
 type TaskContext = {                 // a task entering doing
   id: string; title: string;
-  criteria?: string[]; pins?: Pin[]; attachments?: Attachment[];
+  goals?: Item[]; criteria?: Item[]; pins?: Pin[]; attachments?: Attachment[];
 };
-type ListContext = { goal: string; pins?: Pin[]; attachments?: Attachment[] };
+type ListContext = { goals: Item[]; pins?: Pin[]; attachments?: Attachment[] };
+type ItemEdit = { add?: string[]; remove?: string[]; edit?: Item[] };  // update goals/criteria
 type Ref = { id: string; title: string };
 ```
 
@@ -188,15 +195,15 @@ Parameters are listed in full; `null` means optional and absent.
 #### create
 
 ```js
-tasks({ action: "create", list: "auth", title: "Token store", goal: "All token access goes through TokenStore.",
+tasks({ action: "create", list: "auth", title: "Token store", goals: ["All token access goes through TokenStore.", "npm test passes."],
   tasks: [{ title: "Design", acceptanceCriteria: ["Interface reviewed"], pins: null, attachments: null, supersedes: null,
             subtasks: [{ title: "Draft interface" }, { title: "Review interface" }] },
           { title: "Implement" }] })
 ```
 ```json
-{"ok": true, "list": "auth", "ids": ["1", "1.1", "1.2", "2"]}
+{"ok": true, "list": "auth", "ids": ["1", "1.1", "1.2", "2"], "goals": ["g1", "g2"], "criteria": {"1": ["c1"]}}
 ```
-`ids` in authored order. The list is claimed by this session. Pins and attachments given here are
+`ids` in authored order; `goals` and `criteria` give the assigned item ids (criteria keyed by task). The list is claimed by this session. Pins and attachments given here are
 validated and stored, not echoed; they are delivered by `start` (§4.3).
 
 #### list
@@ -234,7 +241,7 @@ tasks({ action: "claim", list: "auth", force: null })
 ```
 ```json
 {"ok": true, "done": 7, "total": 15,
- "list": {"goal": "All token access goes through TokenStore.", "pins": [ … ]},
+ "list": {"goals": [{"id": "g1", "text": "All token access goes through TokenStore."}], "pins": [ … ]},
  "active": [{"id": "3", "title": "Implement"}, {"id": "3.1.1.2", "title": "set()", "criteria": [ … ], "attachments": [ … ]}],
  "blocked": [ … ], "next": { … }}
 ```
@@ -256,10 +263,10 @@ tasks({ action: "release", list: "auth" })
 
 ```js
 tasks({ action: "add", list: "auth", parent: "2", before: null, after: null,
-  tasks: [{ title: "get/set", acceptanceCriteria: ["get/set round-trip"], pins: null, attachments: null, subtasks: null, supersedes: null }] })
+  tasks: [{ title: "get/set", goals: null, acceptanceCriteria: ["get/set round-trip"], pins: null, attachments: null, subtasks: null, supersedes: null }] })
 ```
 ```json
-{"ok": true, "ids": ["2.1"]}
+{"ok": true, "ids": ["2.1"], "criteria": {"2.1": ["c7"]}}
 {"ok": true, "ids": ["3"], "renumbered": {"3": "4"}}
 {"ok": true, "ids": ["2.3"], "abandoned": ["2.1"]}
 ```
@@ -279,12 +286,16 @@ tasks({ action: "move", list: "auth", id: "4", parent: null, before: "3", after:
 #### update
 
 ```js
-tasks({ action: "update", list: "auth", id: null, title: null, goal: "Every token read/write goes through TokenStore.", acceptanceCriteria: null })
-tasks({ action: "update", list: "auth", id: "1.1", title: "Draft TokenStore interface", goal: null, acceptanceCriteria: ["get/set/delete signatures exist"] })
+tasks({ action: "update", list: "auth", id: null, title: null, goals: { add: ["No plaintext tokens on disk."], remove: ["g2"], edit: null }, acceptanceCriteria: null })
+tasks({ action: "update", list: "auth", id: "1.1", title: "Draft TokenStore interface", goals: null, acceptanceCriteria: { add: null, remove: null, edit: [{ id: "c1", text: "get/set/delete signatures exist" }] } })
 ```
 ```json
+{"ok": true, "goals": ["g3"]}
 {"ok": true}
 ```
+`goals` and `acceptanceCriteria` take an `ItemEdit`: `add` texts (ids returned), `remove` ids,
+`edit` id + new text. `goals` without `id` edits the list, with `id` the task. Removing the last list
+goal is refused. Criteria and goals of finished tasks are frozen.
 
 #### pin / unpin
 
@@ -322,19 +333,19 @@ tasks({ action: "start", list: "auth", id: "3.1.1.1" })
 First start in the list, ancestors auto-started:
 ```json
 {"ok": true,
- "list": {"goal": "All token access goes through TokenStore.",
+ "list": {"goals": [{"id": "g1", "text": "All token access goes through TokenStore."}],
           "pins": [{"id": "p1", "kind": "constraint", "text": "Never touch vendor/.", "source": "user"}]},
  "started": [
    {"id": "3", "title": "Implement"},
    {"id": "3.1", "title": "Store core", "pins": [{"id": "p4", "kind": "fact", "text": "Use the platform keychain.", "source": "docs/auth.md:12"}]},
-   {"id": "3.1.1", "title": "Read path", "criteria": ["get() never touches disk directly"]},
-   {"id": "3.1.1.1", "title": "get()", "criteria": ["get/set round-trip passes"],
+   {"id": "3.1.1", "title": "Read path", "criteria": [{"id": "c4", "text": "get() never touches disk directly"}]},
+   {"id": "3.1.1.1", "title": "get()", "criteria": [{"id": "c5", "text": "get/set round-trip passes"}],
     "attachments": [{"id": "a2", "ref": "docs/auth.md#Token store > Interface", "note": "interface contract",
                      "content": "## Interface\n\n```ts\ninterface TokenStore { … }\n```"}]}]}
 ```
 Next sibling, ancestors' context live:
 ```json
-{"ok": true, "started": [{"id": "3.1.1.2", "title": "set()", "criteria": ["set overwrites atomically"]}]}
+{"ok": true, "started": [{"id": "3.1.1.2", "title": "set()", "criteria": [{"id": "c6", "text": "set overwrites atomically"}]}]}
 ```
 Resume of a blocked task whose earlier delivery is still live:
 ```json
@@ -455,12 +466,12 @@ no-disk-I/O invariant there.
 The tool must know what the model can still see. That is derived, not tracked:
 
 - Every `tasks` result that delivers context records a **manifest** in its `details`:
-  `delivered: { list?: { goal: hash, pins: id[], attachments: {id, hash}[] }, tasks: {id, criteria: hash, pins: id[], attachments: {id, hash}[]}[] }`.
+  `delivered: { list?: { goals: {id, hash}[], pins: id[], attachments: {id, hash}[] }, tasks: {id, goals: {id, hash}[], criteria: {id, hash}[], pins: id[], attachments: {id, hash}[]}[] }`.
   `pin` records its pin ids; `attach` records attachment ids with `hash: null` (reference only).
 - Ingest already copies tool-result `details` onto the Truth block (§5.1).
 - **Live set** = the union of manifests on `tasks` tool-result blocks that are present in the
   authoritative Truth and not folded (`!isFolded(b)`, and not a member of a folded group). An item
-  is live when a live manifest contains it with the current hash (`criteria`/goal hashed text,
+  is live when a live manifest contains it with the current hash (goals and criteria by id + text hash,
   pins by id since pins are immutable, attachments by content hash; `null` never matches).
 - A `start`/resume/`claim` delivers exactly `required − live`, where `required` is the list context
   plus the context of every task entering (or, for claim, in) `doing`.
@@ -470,7 +481,7 @@ Why this is correct without extra state:
   re-sends what it carried.
 - **Compaction, `/tree` navigation, fork, reload:** Truth is rebuilt from the active branch; blocks
   not on the branch do not exist, so their manifests do not count.
-- **Edits:** a changed goal, criteria or attachment content changes its hash, so the old delivery no
+- **Edits:** a changed goal, criterion or attachment content changes its hash, so the old delivery no
   longer matches.
 - **Other sessions:** a manifest only counts in the session whose Truth contains it.
 
@@ -487,14 +498,14 @@ while a turn runs, or with the next prompt through `before_agent_start` when idl
 an earlier message.
 
 ```json
-{"tasks": "auth", "changed": {"goal": "…", "pins": {"added": [{"id": "p7", …}], "removed": ["p2"]}, "attachments": {"added": [{…, "content": "…"}], "removed": ["a3"]}, "tasks": {"renumbered": {"4": "5"}}}}
+{"tasks": "auth", "changed": {"goals": {"added": [{"id": "g3", "text": "…"}], "removed": ["g2"]}, "pins": {"added": [{"id": "p7", …}], "removed": ["p2"]}, "attachments": {"added": [{…, "content": "…"}], "removed": ["a3"]}, "tasks": {"renumbered": {"4": "5"}}}}
 {"tasks": "auth", "restored": {"list": {…}, "tasks": [{"id": "3.1", …}]}}
 {"tasks": "auth", "waiting": [{"id": "1.2", "reason": "user-decision", "detail": "…"}]}
 ```
 
 | Kind | Trigger | Content |
 |---|---|---|
-| `changed` | the user edits the list (UI, hand edit, another session) and the edit touches the goal or a `doing` branch | only the delta; detected by comparing list fingerprints before each agent start and after each tool batch |
+| `changed` | the user edits the list (UI, hand edit, another session) and the edit touches the list goals or a `doing` branch | only the delta; detected by comparing list fingerprints before each agent start and after each tool batch |
 | `restored` | the live set misses items required by `doing` tasks (human fold of a delivery, compaction) | only the missing items, computed with §4.3 |
 | `waiting` | user prompt while a task is blocked on `user-decision`/`user-input` | the resume note |
 
@@ -525,7 +536,8 @@ the extension reaches 0.93.
      `chat` and `answer` produce nothing.
   2. **Extract**: one structured model call (`models` setting type `taskfold.extract`) with the list,
      the `doing` branch, the agent's last turn and the message. Output: list operations
-     `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, value, pinKind?}`.
+     `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, value, pinKind?}`,
+     where `target` is the list, a task id, or an item id (`g2`, `c5`, `p3`, `a1`) for `-`/`~`.
      Questions, approvals and one-off instructions for the next step produce no operations.
   3. **Apply** through the store with `source: "user"`. A pin must occur verbatim in the message
      (existing quote check) or it is dropped. Removals and renames of started tasks follow the store's
@@ -585,8 +597,15 @@ longer fold anything (ANA-fold-representations §5).
   the outermost tool result of the step: `details.taskEvents: {action, list, id, started, finished,
   closed, cascaded, delivered}[]`, in execution order. A direct call puts one event on its own
   result.
-- For a nested call the extension resolves the outer `toolCallId` (`parentToolCallId`) and appends
-  the event to that result's `details` in `tool_result`, before it is persisted.
+- Mechanism (pi ≥1.5): a nested call runs through `ctx.executeTool()` with id `<outer>/<n>`, and
+  its `tool_call`/`tool_result` events carry `parentToolCallId`. The `tasks` handler queues its
+  event under the outer id (the id prefix before the first `/`, so calls nested twice resolve to
+  the model-issued call). The extension's `tool_result` hook for the outer call returns
+  `details: {...details, taskEvents}` (pi lets `tool_result` handlers replace `details`), so the
+  events are persisted on the outer result. Queued events of an outer call that never produces a
+  result are dropped with the turn.
+- Ingest copies `details` onto every tool-result block whose `details` has `taskEvents`, not only
+  on `tasks` results; the fingerprint includes it.
 - The scan reads task events from any tool result. Interval boundaries for a nested event use the
   outer call/result pair: `start` opens at the outer call, `complete` closes at the outer result.
   Events in one outer call apply in order, so `complete A` then `start B` inside one script still
@@ -898,7 +917,7 @@ inside codemode without events) is converted once so it continues under the new 
 
 - On `session_start` with `reason` `resume`/`fork`/`startup` and Taskfold attached, the extension
   checks for an `accordion.taskfold.adopted` entry. Without one it runs **detection**: any `tasks`
-  result without `details.taskEvents`, or a v1 list file, marks the session legacy.
+  result without `details.taskEvents`, or a v1/v2 list file, marks the session legacy.
 - `tasks.adopt` (`"auto"` default, `"ask"`, `"off"`): `auto` adopts silently; `ask` shows the
   resume dialog with the measured effect; `off` leaves the session on the legacy scan.
 - Manual: `/accordion tasks adopt [--dry-run]` at any time. `--dry-run` prints the derived events
@@ -912,7 +931,7 @@ that holds everything the scan would otherwise read from `details`:
 | Derived | Source, in order of preference |
 |---|---|
 | Task events for direct calls | the call's arguments + result `details` (`started`, `closed`, `cascaded`) + prose fallback regexes |
-| Task events for nested calls | the outer tool's argument script (`core/codemode.ts` `codemodeScriptCalls`), matched by order to the result sections; the list file's `finishedAt`/`status` confirms each finish |
+| Task events for nested calls | the outer result message's `nestedCalls` record (pi ≥1.5: name, full `arguments` within pi's size limits, `status`), in call order; calls with `status: "error"` are skipped. A record marked incomplete or with omitted arguments falls back to the list file's `endedAt`/`status` for the task ids it can name; anything left unknown keeps its span open. The tool's printed output is never parsed |
 | Titles, reports, criteria, pins | the list file at adoption time, by task id; renumbering from `move`/`add` results is replayed backwards |
 | Open spans the list says are finished | closed at the outer result where the list's `finishedAt` falls, else at the next `start` of a non-descendant |
 
@@ -922,8 +941,8 @@ Entries are keyed by block id (`r:<callId>`), so the scan merges them exactly li
 
 - **Idempotent:** the entry carries the scan version and a fingerprint of the branch it was built
   for. Re-running produces the same entry; a newer scan version re-adopts and supersedes it.
-- **List file:** a v1 list is migrated by the normal write path (§2.2) with the original kept as
-  `<slug>.v1.json`. A list that fails validation is not touched; adoption stops with the error.
+- **List file:** a v1/v2 list is migrated by the normal write path (§2.2) with the original kept as
+  `<slug>.v<n>.json`. A list that fails validation is not touched; adoption stops with the error.
 - **Delivery ledger:** legacy sessions have no manifests, so nothing counts as delivered. The next
   `start` or `claim` delivers the full context once.
 - **Working set:** no suffix is ever re-injected. The first request after adoption may differ from
