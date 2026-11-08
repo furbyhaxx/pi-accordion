@@ -11,8 +11,8 @@ if (!file || process.argv.length !== 3) {
 	try {
 		const raw = JSON.parse(await readFile(file, "utf8"));
 		const slug = basename(file, ".json");
-		if (raw?.version !== 2) {
-			console.error("version: expected 2; use the tasks tool to migrate an older list before editing it");
+		if (raw?.version !== 3) {
+			console.error("version: expected 3; use the tasks tool to migrate an older list before editing it");
 			process.exitCode = 1;
 		} else {
 			const result = parseListFile(raw, slug);

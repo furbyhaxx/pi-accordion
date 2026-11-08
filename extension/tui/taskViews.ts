@@ -275,12 +275,18 @@ function holderLines(holder: PinHolder, scope: string, theme: WidgetTheme): stri
 	];
 }
 
-/** A list's goal and scoped facts, available even before any task exists. */
+/** One line per goal, labeled with its id, or "not set". */
+function goalFields(theme: WidgetTheme, goals: readonly { id: string; text: string }[] | undefined, label = "Goals"): string[] {
+	if (!goals?.length) return detailField(theme, label, "not set");
+	return goals.flatMap((g, i) => detailField(theme, i ? "" : label, `${g.id} ${g.text}`));
+}
+
+/** A list's goals and scoped facts, available even before any task exists. */
 export function listDetailLines(list: TaskList, theme: WidgetTheme): string[] {
 	return [
 		` ${theme.bold(clean(list.title))}`,
 		...detailField(theme, "List", list.slug),
-		...detailField(theme, "Goal", list.goal ?? "not set"),
+		...goalFields(theme, list.goals),
 		...detailField(theme, "Claim", list.claim ? `${list.claim.session}${list.claim.name ? ` · ${list.claim.name}` : ""}` : "unclaimed"),
 		...holderLines(list, "list", theme),
 	];
@@ -298,8 +304,9 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 	const label = (k: string) => t.fg("muted", k.padEnd(10));
 	const wrap = (k: string, v: string) => [` ${label(k)} ${v}`];
 	const items = (k: string, xs: readonly string[] | undefined) => (xs?.length ? xs.map((x, i) => ` ${label(i ? "" : k)} · ${clean(x)}`) : [` ${label(k)} ${t.fg("dim", "–")}`]);
-	const lines = [` ${taskLabel(task, glyphState(node), t)}`, ...detailField(t, "Goal", list.goal ?? "not set")];
-	lines.push(...items("Criteria", task.acceptanceCriteria), ...holderLines(list, "list", t));
+	const lines = [` ${taskLabel(task, glyphState(node), t)}`, ...goalFields(t, list.goals, "List goals")];
+	if (task.goals?.length) lines.push(...goalFields(t, task.goals));
+	lines.push(...items("Criteria", task.acceptanceCriteria?.map((c) => `${c.id} ${c.text}`)), ...holderLines(list, "list", t));
 	for (const parent of list.tasks.filter((p) => task.id.startsWith(`${p.id}.`))) lines.push(...holderLines(parent, `parent ${parent.id}`, t));
 	lines.push(...holderLines(task, `task ${task.id}`, t));
 	const done = node.children.filter((c) => c.task.status === "done").length;

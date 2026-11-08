@@ -10,8 +10,8 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BLOCK_REASONS, checkCriteria, compareIds, GOAL_MAX, parentId, parseListFile, toListFile, type BlockReason, type FlatList, type TaskStatus } from "./taskSchema";
-import { checkPinCap, makeAttachment, makePin, nextId, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
+import { BLOCK_REASONS, checkTexts, compareIds, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, parentId, parseListFile, TASK_GOAL_MAX, TASK_GOALS_MAX, toListFile, type BlockReason, type FlatList, type Item, type ItemPrefix, type ItemSeq, type TaskStatus } from "./taskSchema";
+import { checkPinCap, makeAttachment, makePin, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
 
 export { BLOCK_REASONS, type BlockReason, type TaskStatus };
 
@@ -41,8 +41,10 @@ export interface Task {
 	id: string;
 	title: string;
 	status: TaskStatus;
+	/** What this subtree must achieve beyond its criteria. */
+	goals?: Item[];
 	/** Checkable statements that are true when the task is finished. */
-	acceptanceCriteria?: string[];
+	acceptanceCriteria?: Item[];
 	pins?: Pin[];
 	attachments?: Attachment[];
 	report?: TaskReport;
@@ -71,8 +73,10 @@ export interface TaskClaim {
 export interface TaskList {
 	slug: string;
 	title: string;
-	/** The end state the whole list delivers. Absent only on a list migrated from v1 that has not been given one. */
-	goal?: string;
+	/** Together, the end state the whole list delivers. Absent or empty only on a migrated list that has not been given one. */
+	goals?: Item[];
+	/** The last number used per item id prefix, so removed ids are never reused. */
+	seq: ItemSeq;
 	pins?: Pin[];
 	attachments?: Attachment[];
 	createdAt: string;
@@ -84,6 +88,7 @@ export interface TaskList {
 /** A task as the agent writes it in `create` / `add`. */
 export interface TaskInput {
 	title: string;
+	goals?: string[];
 	acceptanceCriteria?: string[];
 	pins?: unknown[];
 	attachments?: unknown[];
@@ -158,18 +163,87 @@ export function cleanReport(report: unknown): TaskReport {
 	return { outcome, ...(decisions ? { decisions } : {}), ...(open ? { open } : {}) };
 }
 
-function cleanGoal(goal: unknown): string {
-	if (typeof goal !== "string" || !goal.trim()) throw new TaskError("invalid_args", 'A list needs a "goal": the end state the whole list delivers, e.g. "All token access goes through TokenStore; npm test passes."');
-	const g = goal.trim().replace(/\s+/g, " ");
-	if (g.length > GOAL_MAX) throw new TaskError("invalid_args", `"goal" is ${g.length} chars; keep it under ${GOAL_MAX}.`);
-	return g;
-}
-
-function cleanCriteria(v: unknown, title: string): string[] {
+/** Item texts as given in `create`/`add`/`update`: a non-empty array of strings within the limits. */
+function cleanTexts(v: unknown, where: string, max: number, maxChars: number): string[] {
 	const errors: string[] = [];
-	checkCriteria(v, `acceptanceCriteria of "${title}"`, errors);
+	checkTexts(v, where, max, maxChars, errors);
 	if (errors.length) throw new TaskError("invalid_args", `${errors[0]}.`);
 	return (v as string[]).map((x) => x.trim().replace(/\s+/g, " "));
+}
+
+const GOALS_HINT = 'e.g. goals: ["All token access goes through TokenStore.", "npm test passes."]';
+const listGoals = (v: unknown): string[] => {
+	if (v === undefined || (Array.isArray(v) && !v.length)) throw new TaskError("invalid_args", `A list needs "goals": together the end state the whole list delivers, ${GOALS_HINT}.`);
+	return cleanTexts(v, "goals", GOALS_MAX, GOAL_MAX);
+};
+const taskGoals = (v: unknown, title: string) => cleanTexts(v, `goals of "${title}"`, TASK_GOALS_MAX, TASK_GOAL_MAX);
+const criteriaOf = (v: unknown, title: string) => cleanTexts(v, `acceptanceCriteria of "${title}"`, CRITERIA_MAX, CRITERION_MAX);
+
+/**
+ * The next free id for `prefix` in this list: above the recorded `seq` and every id present, so a
+ * removed id is never handed out again. Advances `list.seq`.
+ */
+export function allocateId(list: Pick<TaskList, "seq" | "goals" | "pins" | "attachments" | "tasks">, prefix: ItemPrefix): string {
+	let n = list.seq[prefix] ?? 0;
+	const scan = (items: readonly { id: string }[] | undefined) => {
+		for (const x of items ?? []) {
+			const m = new RegExp(`^${prefix}(\\d+)$`).exec(x.id);
+			if (m) n = Math.max(n, Number(m[1]));
+		}
+	};
+	const field = { g: "goals", c: "acceptanceCriteria", p: "pins", a: "attachments" } as const;
+	scan((list as Record<string, unknown>)[field[prefix]] as { id: string }[] | undefined);
+	for (const t of list.tasks) scan(t[field[prefix]] as { id: string }[] | undefined);
+	list.seq[prefix] = n + 1;
+	return `${prefix}${n + 1}`;
+}
+
+/** Give new tasks' goals and criteria their ids, in document order, once the tasks have their positions. */
+function assignItems(list: TaskList, nodes: readonly Node[]): void {
+	for (const node of nodes) {
+		for (const g of node.task.goals ?? []) if (!g.id) g.id = allocateId(list, "g");
+		for (const c of node.task.acceptanceCriteria ?? []) if (!c.id) c.id = allocateId(list, "c");
+		assignItems(list, node.kids);
+	}
+}
+
+/** An `update` edit of goals or criteria: texts to add, ids to remove, id + new text to replace. */
+export interface ItemEdit {
+	add?: string[];
+	remove?: string[];
+	edit?: Item[];
+}
+
+/** Apply an `ItemEdit` to `items`; returns the new list and the ids assigned to added texts. */
+function applyItemEdit(items: readonly Item[], raw: unknown, what: string, max: number, maxChars: number, alloc: () => string): { items: Item[]; added: string[] } {
+	if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some((k) => !["add", "remove", "edit"].includes(k)))
+		throw new TaskError("invalid_args", `"${what}" takes { add?: [texts], remove?: [ids], edit?: [{ id, text }] }.`);
+	const e = raw as Record<string, unknown>;
+	let next = [...items];
+	if (e.remove !== undefined && e.remove !== null) {
+		if (!Array.isArray(e.remove) || e.remove.some((x) => typeof x !== "string")) throw new TaskError("invalid_args", `${what}.remove must be an array of ids.`);
+		for (const id of e.remove as string[]) if (!next.some((x) => x.id === id)) throw new TaskError("not_found", `No ${what} item ${id}; present: ${next.map((x) => x.id).join(", ") || "none"}.`);
+		next = next.filter((x) => !(e.remove as string[]).includes(x.id));
+	}
+	if (e.edit !== undefined && e.edit !== null) {
+		if (!Array.isArray(e.edit)) throw new TaskError("invalid_args", `${what}.edit must be an array of { id, text }.`);
+		for (const x of e.edit as unknown[]) {
+			const item = x as Partial<Item>;
+			const at = next.findIndex((y) => y.id === item?.id);
+			if (at < 0) throw new TaskError("not_found", `No ${what} item ${String(item?.id)}; present: ${next.map((y) => y.id).join(", ") || "none"}.`);
+			next[at] = { id: next[at]!.id, text: cleanTexts([item.text], `${what}.edit ${item.id}`, 1, maxChars)[0]! };
+		}
+	}
+	const added: string[] = [];
+	if (e.add !== undefined && e.add !== null) {
+		for (const text of cleanTexts(e.add, `${what}.add`, max, maxChars)) {
+			const id = alloc();
+			next.push({ id, text });
+			added.push(id);
+		}
+	}
+	if (next.length > max) throw new TaskError("invalid_args", `${what} would have ${next.length} items; keep at most ${max}.`);
+	return { items: next, added };
 }
 
 /** A task tree node; `kids` in sibling order. */
@@ -198,7 +272,9 @@ function nodesOf(inputs: unknown, at: string, links: [Task, string][]): Node[] {
 		const input = raw as TaskInput;
 		const title = cleanTitle(input?.title);
 		const task: Task = { id: "", title, status: "todo", createdAt: at, updatedAt: at };
-		if (input.acceptanceCriteria !== undefined) task.acceptanceCriteria = cleanCriteria(input.acceptanceCriteria, title);
+		// Item ids are assigned once the list is known (`assignItems`); texts are validated here.
+		if (input.goals !== undefined && input.goals !== null) task.goals = taskGoals(input.goals, title).map((text) => ({ id: "", text }));
+		if (input.acceptanceCriteria !== undefined && input.acceptanceCriteria !== null) task.acceptanceCriteria = criteriaOf(input.acceptanceCriteria, title).map((text) => ({ id: "", text }));
 		const sup = input.supersedes;
 		if (sup !== undefined) {
 			if (typeof sup !== "string" || !sup.trim()) throw new TaskError("invalid_args", `"supersedes" of "${title}" must be a task id, e.g. "3.2".`);
@@ -316,8 +392,12 @@ export class TaskStore {
 		list.updatedAt ??= at;
 		list.claim ??= null;
 		for (const t of list.tasks) t.updatedAt ??= at;
+		if (parsed.migratedFrom) this.migratedFrom.set(file, parsed.migratedFrom);
 		return list as TaskList;
 	}
+
+	/** Files read from an older version that have not been written as v3 yet: their first write keeps a copy. */
+	private readonly migratedFrom = new Map<string, 1 | 2>();
 
 	private write(list: TaskList): void {
 		const file = this.file(list.slug);
@@ -326,6 +406,12 @@ export class TaskStore {
 		const checked = parseListFile(candidate, list.slug, { requireGoal: false });
 		if (!checked.ok) throw new TaskError("invalid_file", `Cannot save task list "${list.slug}":\n${checked.errors.join("\n")}\nThe original file is unchanged.`);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
+		const from = this.migratedFrom.get(file);
+		if (from) {
+			const backup = file.replace(/\.json$/, `.v${from}.json`);
+			if (!fs.existsSync(backup) && fs.existsSync(file)) fs.copyFileSync(file, backup);
+			this.migratedFrom.delete(file);
+		}
 		const tmp = `${file}.${process.pid}.tmp`;
 		fs.writeFileSync(tmp, JSON.stringify(candidate, null, 2) + "\n");
 		fs.renameSync(tmp, file);
@@ -358,48 +444,69 @@ export class TaskStore {
 		return { lists: out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)), invalid: invalid.sort() };
 	}
 
-	/** Create and claim a list with its goal. */
-	create(slug: string, title: string, goal: string, tasks: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): TaskList {
+	/** Create and claim a list with its goals. */
+	create(slug: string, title: string, goals: unknown, tasks: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): TaskList {
 		if (fs.existsSync(this.file(slug))) throw new TaskError("invalid_args", `Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
-		const list: TaskList = { slug, title: cleanTitle(title), goal: cleanGoal(goal), createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
+		const list: TaskList = { slug, title: cleanTitle(title), seq: {}, createdAt: at, updatedAt: at, claim: this.newClaim(), tasks: [] };
+		list.goals = listGoals(goals).map((text) => ({ id: allocateId(list, "g"), text }));
 		const links: [Task, string][] = [];
 		const roots = nodesOf(tasks ?? [], at, links);
 		if (links.length) throw new TaskError("invalid_args", '"supersedes" points at a task in the same list, so it only works with "add".');
 		renumber(list, roots);
+		assignItems(list, roots);
 		this.prepareReferences(list, roots, userTexts, limits);
 		this.write(list);
 		return list;
 	}
 
-	/** Edit the list's title or goal (no `id`), or a task's title or acceptance criteria. */
-	update(slug: string, id: string | undefined, fields: { title?: unknown; goal?: unknown; acceptanceCriteria?: unknown }): { list: TaskList; task?: Task; changed: string[] } {
+	/**
+	 * Edit the list's title or goals (no `id`), or a task's title, goals or acceptance criteria.
+	 * Goals and criteria take an `ItemEdit`; `added` holds the ids given to added items.
+	 */
+	update(slug: string, id: string | undefined, fields: { title?: unknown; goals?: unknown; acceptanceCriteria?: unknown }): { list: TaskList; task?: Task; changed: string[]; added: { goals?: string[]; criteria?: string[] } } {
 		const list = this.owned(slug);
 		const changed: string[] = [];
+		const added: { goals?: string[]; criteria?: string[] } = {};
+		const has = (v: unknown) => v !== undefined && v !== null;
 		if (id === undefined) {
-			if (fields.acceptanceCriteria !== undefined) throw new TaskError("invalid_args", '"acceptanceCriteria" belongs to a task; give its "id".');
-			if (fields.title !== undefined) (list.title = cleanTitle(fields.title)), changed.push("title");
-			if (fields.goal !== undefined) (list.goal = cleanGoal(fields.goal)), changed.push("goal");
-		} else {
-			const task = this.task(list, id);
-			if (fields.goal !== undefined) throw new TaskError("invalid_args", '"goal" belongs to the list; leave out "id".');
-			if (FINISHED.has(task.status)) throw new TaskError("frozen", `Task ${id} is ${task.status}; a finished task's title and criteria stay as they were. Add a follow-up task instead.`);
-			if (fields.title !== undefined) (task.title = cleanTitle(fields.title)), changed.push("title");
-			if (fields.acceptanceCriteria !== undefined) (task.acceptanceCriteria = cleanCriteria(fields.acceptanceCriteria, task.title)), changed.push("acceptanceCriteria");
-			if (changed.length) task.updatedAt = now();
-			if (!changed.length) throw new TaskError("invalid_args", 'Nothing to update: give "title" or "acceptanceCriteria".');
+			if (has(fields.acceptanceCriteria)) throw new TaskError("invalid_args", '"acceptanceCriteria" belongs to a task; give its "id".');
+			if (has(fields.title)) (list.title = cleanTitle(fields.title)), changed.push("title");
+			if (has(fields.goals)) {
+				const r = applyItemEdit(list.goals ?? [], fields.goals, "goals", GOALS_MAX, GOAL_MAX, () => allocateId(list, "g"));
+				if (!r.items.length) throw new TaskError("invalid_args", `A list keeps at least one goal; add the replacement in the same call, ${GOALS_HINT}.`);
+				list.goals = r.items;
+				if (r.added.length) added.goals = r.added;
+				changed.push("goals");
+			}
+			if (!changed.length) throw new TaskError("invalid_args", 'Nothing to update: give "title" or "goals".');
 			this.write(list);
-			return { list, task, changed };
+			return { list, changed, added };
 		}
-		if (!changed.length) throw new TaskError("invalid_args", 'Nothing to update: give "title" or "goal".');
+		const task = this.task(list, id);
+		if (FINISHED.has(task.status)) throw new TaskError("frozen", `Task ${id} is ${task.status}; a finished task's title, goals and criteria stay as they were. Add a follow-up task instead.`);
+		if (has(fields.title)) (task.title = cleanTitle(fields.title)), changed.push("title");
+		if (has(fields.goals)) {
+			const r = applyItemEdit(task.goals ?? [], fields.goals, `goals of ${id}`, TASK_GOALS_MAX, TASK_GOAL_MAX, () => allocateId(list, "g"));
+			task.goals = r.items.length ? r.items : undefined;
+			if (r.added.length) added.goals = r.added;
+			changed.push("goals");
+		}
+		if (has(fields.acceptanceCriteria)) {
+			const r = applyItemEdit(task.acceptanceCriteria ?? [], fields.acceptanceCriteria, `acceptanceCriteria of ${id}`, CRITERIA_MAX, CRITERION_MAX, () => allocateId(list, "c"));
+			task.acceptanceCriteria = r.items.length ? r.items : undefined;
+			if (r.added.length) added.criteria = r.added;
+			changed.push("acceptanceCriteria");
+		}
+		if (!changed.length) throw new TaskError("invalid_args", 'Nothing to update: give "title", "goals" or "acceptanceCriteria".');
+		task.updatedAt = now();
 		this.write(list);
-		return { list, changed };
+		return { list, task, changed, added };
 	}
 
 	private prepareReferences(list: TaskList, nodes: readonly Node[], userTexts: readonly string[], limits: PinLimits): void {
-		const holders: PinHolder[] = [list, ...list.tasks];
-		const pinId = nextId(holders, "p");
-		const attachmentId = nextId(holders, "a");
+		const pinId = () => allocateId(list, "p");
+		const attachmentId = () => allocateId(list, "a");
 		const context = { projectDir: this.projectDir, userTexts, limits, now: now() };
 		const visit = (node: Node) => {
 			const input = node.input;
@@ -426,10 +533,9 @@ export class TaskStore {
 		const list = this.owned(slug);
 		const holder: PinHolder = id === undefined ? list : this.task(list, id);
 		if (!Array.isArray(items) || !items.length) throw new TaskError("invalid_args", 'Give a non-empty "items" array.');
-		const holders: PinHolder[] = [list, ...list.tasks];
 		if (action === "pin") {
 			const fresh: Pin[] = [];
-			const alloc = nextId(holders, "p");
+			const alloc = () => allocateId(list, "p");
 			for (const item of items) fresh.push(makePin(item, { projectDir: this.projectDir, userTexts, limits, now: now() }, alloc(), [...(holder.pins ?? []), ...fresh]));
 			checkPinCap([...(holder.pins ?? []), ...fresh], id === undefined ? limits.listTokens : limits.taskTokens, id ?? slug);
 			holder.pins = [...(holder.pins ?? []), ...fresh];
@@ -438,7 +544,7 @@ export class TaskStore {
 		}
 		if (action === "attach") {
 			const fresh: Attachment[] = [];
-			const alloc = nextId(holders, "a");
+			const alloc = () => allocateId(list, "a");
 			for (const item of items) fresh.push(makeAttachment(item, { projectDir: this.projectDir, userTexts, limits, now: now() }, alloc(), [...(holder.attachments ?? []), ...fresh]));
 			holder.attachments = [...(holder.attachments ?? []), ...fresh];
 			this.write(list);
@@ -457,8 +563,8 @@ export class TaskStore {
 	/** A list that may grow or move on: it needs a goal first. */
 	private planned(slug: string): TaskList {
 		const list = this.owned(slug);
-		if (!list.goal)
-			throw new TaskError("no_goal", `Task list "${slug}" has no goal yet. Set one first: tasks update {list: "${slug}", goal: "<the end state this list delivers>"}. Ending a running task works without it.`);
+		if (!list.goals?.length)
+			throw new TaskError("no_goal", `Task list "${slug}" has no goals yet. Set them first: tasks update {list: "${slug}", goals: {add: ["<the end state this list delivers>"]}}. Ending a running task works without them.`);
 		return list;
 	}
 
@@ -536,6 +642,7 @@ export class TaskStore {
 		}
 		spot.siblings.splice(spot.index, 0, ...nodes);
 		const renumbered = renumber(list, roots);
+		assignItems(list, nodes);
 		this.prepareReferences(list, nodes, userTexts, limits);
 		for (const [by, oldTask] of pairs) {
 			if (oldTask.status === "todo" || oldTask.status === "blocked") abandon(oldTask, { outcome: `Superseded by ${by.id}.` }, at);
@@ -800,7 +907,7 @@ export function slugFor(title: string, taken: ReadonlySet<string>): string {
 
 /** A compact outline of a list for tool results. */
 export function renderList(list: TaskList): string {
-	const lines = [`${list.slug} — ${list.title}${list.claim ? `  (claimed ${list.claim.at})` : ""}`, list.goal ? `goal: ${list.goal}` : `goal: none yet — set it with update {list: "${list.slug}", goal}`];
+	const lines = [`${list.slug} — ${list.title}${list.claim ? `  (claimed ${list.claim.at})` : ""}`, ...(list.goals?.length ? list.goals.map((g) => `goal ${g.id}: ${g.text}`) : [`goals: none yet — set them with update {list: "${list.slug}", goals: {add: [...]}}`])];
 	for (const t of list.tasks) {
 		const b = currentBlock(t);
 		const note = b ? `  (blocked: ${blockLabel(b)} — ${b.detail})` : t.supersededBy ? `  (superseded by ${t.supersededBy})` : "";
@@ -816,10 +923,10 @@ export interface TasksArgs {
 	action: (typeof TASK_ACTIONS)[number];
 	list?: string;
 	title?: string;
-	/** For create and update: the end state the whole list delivers. */
-	goal?: string;
-	/** For update: a task's new acceptance criteria. */
-	acceptanceCriteria?: string[];
+	/** For create: the goal texts; for update: an `ItemEdit` of the list's (no `id`) or a task's goals. */
+	goals?: string[] | ItemEdit;
+	/** For update: an `ItemEdit` of a task's acceptance criteria. */
+	acceptanceCriteria?: ItemEdit;
 	items?: unknown[];
 	pins?: string[];
 	attachments?: string[];
@@ -862,6 +969,10 @@ export interface TaskResult {
 	ok: true;
 	list?: string | Record<string, unknown>;
 	ids?: string[];
+	/** Ids assigned to added goals: a flat list for the list's goals, keyed by task id for task goals. */
+	goals?: string[] | Record<string, string[]>;
+	/** Ids assigned to added criteria: a flat list for `update`, keyed by task id for `create`/`add`. */
+	criteria?: string[] | Record<string, string[]>;
 	lists?: Record<string, unknown>[];
 	renumbered?: Record<string, string>;
 	abandoned?: string[];
@@ -907,7 +1018,7 @@ export function statusOf(list: TaskList): Pick<TaskResult, "done" | "total" | "n
 	return {
 		done: list.tasks.filter((t) => FINISHED.has(t.status)).length,
 		total: list.tasks.length,
-		...(list.goal ? {} : { noGoal: true as const }),
+		...(list.goals?.length ? {} : { noGoal: true as const }),
 		...(doing.length ? { doing } : {}),
 		...(blocked.length ? { blocked } : {}),
 		...(next ? { next } : {}),
@@ -949,10 +1060,13 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 		return v as NonNullable<TasksArgs[K]>;
 	};
 	const ok: TaskResult = { ok: true };
+	if ((args as { goal?: unknown }).goal !== undefined)
+		throw new TaskError("invalid_args", 'Lists and tasks take "goals", not "goal": create {goals: ["…"]}, update {goals: {add: ["…"], remove: ["g1"], edit: [{id: "g2", text: "…"}]}}.');
 	switch (args.action) {
 		case "create": {
-			const list = store.create(need("list"), need("title"), cleanGoal(args.goal), args.tasks ?? [], userTexts, limits);
-			return { ok: true, list: list.slug, ids: list.tasks.map((t) => t.id) };
+			const list = store.create(need("list"), need("title"), args.goals, args.tasks ?? [], userTexts, limits);
+			const criteria = Object.fromEntries(list.tasks.filter((t) => t.acceptanceCriteria?.length).map((t) => [t.id, t.acceptanceCriteria!.map((c) => c.id)]));
+			return { ok: true, list: list.slug, ids: list.tasks.map((t) => t.id), goals: (list.goals ?? []).map((g) => g.id), ...(Object.keys(criteria).length ? { criteria } : {}) };
 		}
 		case "list": {
 			const { lists: all, invalid } = store.scan();
@@ -963,7 +1077,7 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 				done: l.tasks.filter((t) => FINISHED.has(t.status)).length,
 				total: l.tasks.length,
 				...(l.claim ? { claim: l.claim.session === session ? "this" : "other" } : {}),
-				...(l.goal ? {} : { noGoal: true }),
+				...(l.goals?.length ? {} : { noGoal: true }),
 			}));
 			for (const slug of invalid) lists.push({ list: slug, invalid: true });
 			return { ok: true, lists };
@@ -978,9 +1092,13 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			track.renumbered = renumbered;
 			const abandoned = superseded.filter((t) => t.status === "abandoned").map((t) => t.id);
 			const kept = superseded.filter((t) => t.status !== "abandoned").map((t) => t.id);
+			const criteria = Object.fromEntries(added.filter((t) => t.acceptanceCriteria?.length).map((t) => [t.id, t.acceptanceCriteria!.map((c) => c.id)]));
+			const goals = Object.fromEntries(added.filter((t) => t.goals?.length).map((t) => [t.id, t.goals!.map((g) => g.id)]));
 			return {
 				ok: true,
 				ids: added.map((t) => t.id),
+				...(Object.keys(goals).length ? { goals } : {}),
+				...(Object.keys(criteria).length ? { criteria } : {}),
 				...(renumbered.length ? { renumbered: renumberMap(renumbered) } : {}),
 				...(abandoned.length ? { abandoned } : {}),
 				...(kept.length ? { superseded: kept } : {}),
@@ -991,9 +1109,10 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			track.renumbered = renumbered;
 			return { ok: true, renumbered: renumberMap(renumbered) };
 		}
-		case "update":
-			store.update(need("list"), args.id, { title: args.title, goal: args.goal, acceptanceCriteria: args.acceptanceCriteria });
-			return ok;
+		case "update": {
+			const { added } = store.update(need("list"), args.id, { title: args.title, goals: args.goals, acceptanceCriteria: args.acceptanceCriteria });
+			return { ok: true, ...added };
+		}
 		case "pin":
 		case "unpin":
 		case "attach":

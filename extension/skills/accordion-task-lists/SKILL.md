@@ -1,6 +1,6 @@
 ---
 name: "accordion-task-lists"
-description: "Create, edit, or validate Accordion task-list JSON files in .pig/tasks: turn an implementation plan into a nested task tree of fine-grained, independently foldable subtasks with a goal and acceptance criteria, or repair an invalid list. Use when a user asks to write a plan directly as tasks JSON or edit an existing task list outside the tasks tool."
+description: "Create, edit, or validate Accordion task-list JSON files in .pig/tasks: turn an implementation plan into a nested task tree of fine-grained, independently foldable subtasks with goals and acceptance criteria, or repair an invalid list. Use when a user asks to write a plan directly as tasks JSON or edit an existing task list outside the tasks tool."
 ---
 
 # Author an Accordion task list
@@ -9,7 +9,7 @@ Use the `tasks` tool for normal progress and for changes to a running list. Dire
 
 ## Create a plan
 
-1. Read the source plan and applicable project instructions. Write one `goal`: the end state the whole list delivers, not a list of activities.
+1. Read the source plan and applicable project instructions. Write `goals` (one to five): together the end state the whole list delivers, not a list of activities.
 2. Decompose the work before writing JSON; the task tree is how Accordion folds context. A task folds into a short record only when it finishes, so an open task keeps all its raw work in the request, while small finished children fold individually and keep recoverable records. Open with an `Orientation, Analysis, Scope & Objective clarification` task, then split by independently verifiable outcome and nest by scale: broad features and plans need a minimum of two to three levels (area, feature, step; nest further when useful), and only a genuinely small change gets a flat list. Never put several features in one leaf (`Transcript row: branches, filters, previews, scrolling` becomes `Transcript row` with children `Branches`, `Filters`, `Previews`, `Scrolling`), and never split a step that has no result of its own. Order by dependency, finishing each child before the next. Read `references/decomposition.md` for the reasoning, a bad and good example, and a checklist, and `references/examples.md` for worked translations of a feature, a bug, a migration, a phased plan and a research task into task lists.
 3. Give each leaf 1–3 concise, checkable `acceptanceCriteria`. Preserve required verification and unresolved prerequisites. Do not invent a requirement that the source does not support.
 4. Save `.pig/tasks/<slug>.json`. Slugs use lowercase letters, digits and hyphens. The filename and `slug` must match. Omit task IDs when creating the list: the store derives dotted IDs from their positions. There is no fixed nesting-depth limit.
@@ -23,16 +23,28 @@ Use the `tasks` tool for normal progress and for changes to a running list. Dire
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "slug": "transcript",
   "title": "Transcript",
-  "goal": "The transcript displays branches and filters with regression coverage.",
+  "goals": [
+    "The transcript displays branches and filters with regression coverage."
+  ],
   "tasks": [
     {
       "title": "Transcript view",
       "subtasks": [
-        { "title": "Show branches", "acceptanceCriteria": ["Branches are distinguishable in the view"] },
-        { "title": "Filter the transcript", "acceptanceCriteria": ["A filter narrows visible messages"] }
+        {
+          "title": "Show branches",
+          "acceptanceCriteria": [
+            "Branches are distinguishable in the view"
+          ]
+        },
+        {
+          "title": "Filter the transcript",
+          "acceptanceCriteria": [
+            "A filter narrows visible messages"
+          ]
+        }
       ]
     }
   ]
@@ -41,7 +53,7 @@ Use the `tasks` tool for normal progress and for changes to a running list. Dire
 
 ## Change an existing list
 
-Inspect its current structure and claim first. Use `tasks add` with `before` or `after`, or `tasks move`, for insertions and moves: only unstarted subtrees may be moved or renumbered, and started IDs are referenced by session history. Use `tasks update` for the goal, title, or criteria. Do not rewrite a claimed list concurrently with its owner.
+Inspect its current structure and claim first. Use `tasks add` with `before` or `after`, or `tasks move`, for insertions and moves: only unstarted subtrees may be moved or renumbered, and started IDs are referenced by session history. Use `tasks update` for goals, the title, or criteria; goals and criteria are items with ids (`g1`, `c3`), edited with `{add, remove, edit}`. Do not rewrite a claimed list concurrently with its owner.
 
 Use `tasks pin` for a durable rule or constraint and `tasks attach` for source material. Give file references as `path:line` or `path:start-end`; use the narrowest relevant range. The tool validates pins and attachments and handles IDs and hashes. List pins apply throughout the list; task pins apply to that task and its descendants. Do not fabricate a quoted constraint or a source location.
 

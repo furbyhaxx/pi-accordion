@@ -15,6 +15,16 @@ export interface TaskEventTask {
 	pins?: { kind: string; text: string; source: string }[];
 }
 
+/**
+ * Criterion texts from a task snapshot: v3 lists store `{id, text}` items, older results and list
+ * files plain strings. Records show the texts; anything else yields undefined.
+ */
+export function criteriaTexts(v: unknown): string[] | undefined {
+	if (!Array.isArray(v) || !v.length) return undefined;
+	const texts = v.map((x) => (typeof x === "string" ? x : x && typeof x === "object" && typeof (x as { text?: unknown }).text === "string" ? (x as { text: string }).text : null));
+	return texts.every((t): t is string => t !== null) ? texts : undefined;
+}
+
 /** One lifecycle `tasks` execution, in the order it ran. */
 export interface TaskEvent {
 	action: "start" | "block" | "complete" | "fail" | "abandon";

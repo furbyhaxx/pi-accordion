@@ -76,16 +76,22 @@ The same shape as a list file, with criteria on the leaves:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "slug": "acceptance-rows",
   "title": "Acceptance rows",
-  "goal": "Every acceptance row has behavioral regression coverage and passes the project gates.",
+  "goals": [
+    "Every acceptance row has behavioral regression coverage and passes the project gates."
+  ],
   "tasks": [
     {
       "title": "Orientation, Analysis, Scope & Objective clarification",
       "subtasks": [
-        { "title": "Read the specification and plan" },
-        { "title": "Find the affected modules and their tests" }
+        {
+          "title": "Read the specification and plan"
+        },
+        {
+          "title": "Find the affected modules and their tests"
+        }
       ]
     },
     {
@@ -94,23 +100,50 @@ The same shape as a list file, with criteria on the leaves:
         {
           "title": "Transcript row",
           "subtasks": [
-            { "title": "Branches", "acceptanceCriteria": ["Branches are distinguishable in the view"] },
-            { "title": "Filters", "acceptanceCriteria": ["A filter narrows the visible messages"] },
-            { "title": "Previews", "acceptanceCriteria": ["Long messages show a bounded preview"] }
+            {
+              "title": "Branches",
+              "acceptanceCriteria": [
+                "Branches are distinguishable in the view"
+              ]
+            },
+            {
+              "title": "Filters",
+              "acceptanceCriteria": [
+                "A filter narrows the visible messages"
+              ]
+            },
+            {
+              "title": "Previews",
+              "acceptanceCriteria": [
+                "Long messages show a bounded preview"
+              ]
+            }
           ]
         },
         {
           "title": "Bindings row",
           "subtasks": [
-            { "title": "Action contract", "acceptanceCriteria": ["Display, remap and dispatch use one action list"] },
-            { "title": "Remap and unbind", "acceptanceCriteria": ["An unbound action no longer dispatches"] }
+            {
+              "title": "Action contract",
+              "acceptanceCriteria": [
+                "Display, remap and dispatch use one action list"
+              ]
+            },
+            {
+              "title": "Remap and unbind",
+              "acceptanceCriteria": [
+                "An unbound action no longer dispatches"
+              ]
+            }
           ]
         }
       ]
     },
     {
       "title": "Run live, interactive and workspace gates",
-      "acceptanceCriteria": ["The project gates pass and the result is verified"]
+      "acceptanceCriteria": [
+        "The project gates pass and the result is verified"
+      ]
     }
   ]
 }

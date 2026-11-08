@@ -38,12 +38,12 @@ and attach the project's task lists (tasks show as ☐ todo, ▶/◐ in progress
 reason, ▣ done, ☒ failed, ⊘ abandoned) and drill into a task's details and folds. In the expanded
 widget, ≡ means folded, · means finished but raw, and ! flags a finished parent with unfinished
 children; progress counts are broken down by leaf status. Press `?` in the task list view for the
-legend. Press `g` for the list's goal, pins and attachments; task details show criteria and inherited/task-scoped facts with attachment references. Inspection uses cached snapshots refreshed on task calls or reopening, never disk reads during rendering. Task screens use modal focus so page keys scroll the inspector rather than the transcript. Task screens and the context panel temporarily hide the widget without changing its preferences, leaving room for content and controls in short terminals. Human child-handle unfolds recompose siblings through the controller lease and hold the selected blocks open; whole-task toggles remain reversible. `p` pins transcript blocks, not scoped facts. Task lists have no fixed nesting-depth limit; invalid files are named in warnings and rejected migrations leave the original file unchanged. Use `/accordion tasks tree`
+legend. Press `g` for the list's goals, pins and attachments; task details show criteria and inherited/task-scoped facts with attachment references. Inspection uses cached snapshots refreshed on task calls or reopening, never disk reads during rendering. Task screens use modal focus so page keys scroll the inspector rather than the transcript. Task screens and the context panel temporarily hide the widget without changing its preferences, leaving room for content and controls in short terminals. Human child-handle unfolds recompose siblings through the controller lease and hold the selected blocks open; whole-task toggles remain reversible. `p` pins transcript blocks, not scoped facts. Task lists have no fixed nesting-depth limit; invalid files are named in warnings and rejected migrations leave the original file unchanged. Use `/accordion tasks tree`
 to see this session's transcript by task, `/accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]`
 to write that projection to a file. Every actual carrier appears once, including split/composed
 and untracked groups; substituted results never print their original bodies. Inspection metadata
 includes goals, criteria, scoped pins, attachments and recovery handles. Task context
-(goal, criteria, pins, attachment content) reaches the agent once, in the result of `tasks start`
+(goals, criteria, pins, attachment content) reaches the agent once, in the result of `tasks start`
 or `claim`, and folds with the task's span; it is sent again only once the model can no longer see
 it (folded, compacted or edited). Every `tasks` result is one-line JSON with only what the tool
 decided; refusals carry an error code. Nothing is appended to outgoing requests, so each
@@ -73,7 +73,7 @@ until you configure it:
 A conductor that sends session content to a model running off this machine asks once for consent
 before it attaches. Accepted notices are stored under `privacyConsent`.
 
-Every new Taskfold list has a goal and can hold scoped pins and file attachments. The list browser asks for the title and goal when creating a list. Pins on the list and pins,
+Every new Taskfold list has one to five goals (a task may add up to three of its own) and can hold scoped pins and file attachments. The list browser asks for the title and a goal when creating a list. Goals, criteria, pins and attachments carry list-unique ids (`g1`, `c1`, `p1`, `a1`) that are never reused; `tasks update` edits goals and criteria with `{add, remove, edit}`. Files from earlier versions are converted on their first write and the original is kept as `<slug>.v1.json` or `<slug>.v2.json`. Pins on the list and pins,
 acceptance criteria and attachments on the active task's branch are sent with requests. Attachments
 accept a path and optional lines (`spec.md:12` or `spec.md:12-20`); their contents are cached and
 refreshed between turns, so an external edit may briefly be stale. Configure their display and pin

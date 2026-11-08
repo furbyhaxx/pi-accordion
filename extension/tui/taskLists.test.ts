@@ -41,7 +41,7 @@ function project() {
 		},
 		create(title, goal) {
 			const slug = slugFor(title, new Set(mine.lists().map((l) => l.slug)));
-			return { ok: true, list: mine.create(slug, title, goal, []), message: `Created "${slug}".` };
+			return { ok: true, list: mine.create(slug, title, [goal], []), message: `Created "${slug}".` };
 		},
 	};
 	return { mine, other, host };
@@ -69,7 +69,7 @@ describe("task list browser", () => {
 
 	test("keeps selection, diagnostics and close controls visible at short height", () => {
 		const { mine, host } = project();
-		for (let i = 0; i < 5; i++) mine.create(`list-${i}`, `List ${i}`, "Short terminal goal", []);
+		for (let i = 0; i < 5; i++) mine.create(`list-${i}`, `List ${i}`, ["Short terminal goal"], []);
 		host.invalid = () => ["broken"];
 		const browser = new TaskListsBrowser(tui, theme, keys, host, "manage", () => {}, () => 10);
 		for (const width of [36, 57, 80, 140]) {
@@ -84,7 +84,7 @@ describe("task list browser", () => {
 
 	test("rows keep slug, progress and claim at every width", () => {
 		const { mine, other } = project();
-		runTasks(other, { action: "create", list: "auth-refactor", title: "Auth refactor", goal: "G", tasks: [{ title: "A" }, { title: "B" }] });
+		runTasks(other, { action: "create", list: "auth-refactor", title: "Auth refactor", goals: ["G"], tasks: [{ title: "A" }, { title: "B" }] });
 		const list = mine.read("auth-refactor");
 		for (const w of [36, 57, 80, 140]) {
 			const row = listRowLine(list, "s1", true, w, theme, Date.now());
@@ -96,8 +96,8 @@ describe("task list browser", () => {
 
 	test("manage mode attaches, takes over after confirmation, releases and creates", () => {
 		const { mine, other, host } = project();
-		runTasks(other, { action: "create", list: "held", title: "Held", goal: "G", tasks: [{ title: "A" }] });
-		mine.create("free", "Free", "G", []);
+		runTasks(other, { action: "create", list: "held", title: "Held", goals: ["G"], tasks: [{ title: "A" }] });
+		mine.create("free", "Free", ["G"], []);
 		mine.release("free");
 		let closed: AttachOutcome | null | undefined;
 		const b = new TaskListsBrowser(tui, theme, keys, host, "manage", (v) => (closed = v), () => 30);
@@ -119,7 +119,7 @@ describe("task list browser", () => {
 		expect(b.render(80).join("\n")).toContain("Goal:");
 		type(b, "Deliver changes", "enter");
 		expect(mine.read("my-new-list").claim?.session).toBe("s1");
-		expect(mine.read("my-new-list").goal).toBe("Deliver changes");
+		expect(mine.read("my-new-list").goals).toEqual([{ id: "g1", text: "Deliver changes" }]);
 		expect(closed).toBeUndefined();
 		type(b, "esc");
 		expect(closed).toBeNull();
@@ -127,7 +127,7 @@ describe("task list browser", () => {
 
 	test("pick mode closes with the attached or created list", () => {
 		const { mine, host } = project();
-		mine.create("other", "Other", "G", []);
+		mine.create("other", "Other", ["G"], []);
 		mine.release("other");
 		let picked: AttachOutcome | null | undefined;
 		type(new TaskListsBrowser(tui, theme, keys, host, "pick", (v) => (picked = v), () => 30), "enter");
@@ -140,7 +140,7 @@ describe("task list browser", () => {
 describe("resume dialog", () => {
 	test("a held list needs confirmation before it is taken over; Esc continues without", () => {
 		const { mine, other } = project();
-		runTasks(mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }] });
+		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }] });
 		runTasks(other, { action: "claim", list: "a", force: true });
 		const s = resumeSituation({ slug: "a", fingerprint: null, seenAt: new Date().toISOString() }, mine.lists(), "s1");
 		let chosen: { choice: string; title?: string } | undefined;

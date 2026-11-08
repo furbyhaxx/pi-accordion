@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, LIST_KEYS, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
+import { BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, LIST_KEYS, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
 
 const schema = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "skills/accordion-task-lists/references/tasks.schema.json"), "utf8"));
 
@@ -12,23 +12,24 @@ const errorsOf = (raw: unknown, slug = "auth") => {
 	return r.ok ? [] : r.errors;
 };
 
-const v2 = (tasks: unknown[], extra: Record<string, unknown> = {}) => ({ version: 2, slug: "auth", title: "Auth", goal: "Tokens go through TokenStore.", tasks, ...extra });
+const v3 = (tasks: unknown[], extra: Record<string, unknown> = {}) => ({ version: 3, slug: "auth", title: "Auth", goals: ["Tokens go through TokenStore."], tasks, ...extra });
 
-describe("task list v2 schema", () => {
+describe("task list v3 schema", () => {
 	test("the JSON schema states the same fields and limits as the validator", () => {
 		const task = schema.$defs.task.properties;
 		expect(Object.keys(schema.properties).sort()).toEqual([...LIST_KEYS, "tasks"].sort());
 		expect(Object.keys(task).sort()).toEqual([...TASK_KEYS, "subtasks"].sort());
 		expect(task.status.enum).toEqual([...TASK_STATUSES]);
 		expect(task.blocks.items.properties.reason.enum).toEqual([...BLOCK_REASONS]);
-		expect([task.title.maxLength, schema.properties.title.maxLength, schema.properties.goal.maxLength]).toEqual([TITLE_MAX, TITLE_MAX, GOAL_MAX]);
-		expect([task.acceptanceCriteria.maxItems, task.acceptanceCriteria.items.maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
+		expect([task.title.maxLength, schema.properties.title.maxLength, schema.properties.goals.maxItems]).toEqual([TITLE_MAX, TITLE_MAX, GOALS_MAX]);
+		expect(JSON.stringify(schema.$defs)).toContain(`"maxLength":${GOAL_MAX}`);
+		expect([task.acceptanceCriteria.maxItems, schema.$defs.criterion.oneOf[0].maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
 	});
 
 	test("every list example in the bundled skill passes the validator", () => {
 		const skill = path.join(import.meta.dir, "skills/accordion-task-lists");
 		const files = [path.join(skill, "SKILL.md"), ...fs.readdirSync(path.join(skill, "references")).filter((f) => f.endsWith(".md")).map((f) => path.join(skill, "references", f))];
-		const lists = files.flatMap((file) => [...fs.readFileSync(file, "utf8").matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]!)).filter((x) => x?.version === 2 && x.slug));
+		const lists = files.flatMap((file) => [...fs.readFileSync(file, "utf8").matchAll(/```json\n([\s\S]*?)```/g)].map((m) => JSON.parse(m[1]!)).filter((x) => x?.version === 3 && x.slug));
 		expect(lists.length).toBeGreaterThanOrEqual(5);
 		for (const list of lists) {
 			const result = parseListFile(list, list.slug, { requireGoal: true });
@@ -41,14 +42,14 @@ describe("task list v2 schema", () => {
 		const file = path.join(dir, "auth.json");
 		const script = path.join(import.meta.dir, "skills/accordion-task-lists/scripts/validate.mjs");
 		try {
-			fs.writeFileSync(file, JSON.stringify(v2([{ title: "Survey", acceptanceCriteria: ["All callers listed"] }])));
+			fs.writeFileSync(file, JSON.stringify(v3([{ title: "Survey", acceptanceCriteria: ["All callers listed"] }])));
 			const valid = spawnSync("node", [script, file], { encoding: "utf8" });
 			expect(valid.status).toBe(0);
 			expect(valid.stdout).toContain("Valid task list: auth");
-			fs.writeFileSync(file, JSON.stringify(v2([{ title: "Survey", id: "2" }], { goal: "" })));
+			fs.writeFileSync(file, JSON.stringify(v3([{ title: "Survey", id: "2" }], { goals: undefined })));
 			const invalid = spawnSync("node", [script, file], { encoding: "utf8" });
 			expect(invalid.status).toBe(1);
-			expect(invalid.stderr).toContain("goal: required");
+			expect(invalid.stderr).toContain("goals: required");
 			expect(invalid.stderr).toContain("does not match its position");
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
@@ -56,7 +57,7 @@ describe("task list v2 schema", () => {
 	});
 
 	test("a hand-written tree without ids or statuses loads flat with positional ids", () => {
-		const r = parseListFile(v2([{ title: "Survey", acceptanceCriteria: ["every caller listed"] }, { title: "Extract", subtasks: [{ title: "Interface" }, { title: "Migrate" }] }]), "auth");
+		const r = parseListFile(v3([{ title: "Survey", acceptanceCriteria: ["every caller listed"] }, { title: "Extract", subtasks: [{ title: "Interface" }, { title: "Migrate" }] }]), "auth");
 		expect(r.ok).toBe(true);
 		if (!r.ok) return;
 		expect(r.list.tasks.map((t) => [t.id, t.status])).toEqual([
@@ -65,49 +66,73 @@ describe("task list v2 schema", () => {
 			["2.1", "todo"],
 			["2.2", "todo"],
 		]);
-		expect(r.list.tasks[0].acceptanceCriteria).toEqual(["every caller listed"]);
+		expect(r.list.tasks[0].acceptanceCriteria).toEqual([{ id: "c1", text: "every caller listed" }]);
+		expect(r.list.goals).toEqual([{ id: "g1", text: "Tokens go through TokenStore." }]);
+		expect(r.list.seq).toEqual({ g: 1, c: 1 });
+	});
+
+	test("item ids are list-unique, never reused after removal, and explicit ids win", () => {
+		const r = parseListFile(v3([{ title: "A", acceptanceCriteria: [{ id: "c4", text: "kept" }, "new"] }], { goals: [{ id: "g2", text: "Old goal" }, "Second"], seq: { g: 5, c: 2 } }), "auth");
+		expect(r.ok).toBe(true);
+		if (!r.ok) return;
+		// seq records removed ids (g3–g5, c1–c3 gone): new items continue above them.
+		expect(r.list.goals).toEqual([{ id: "g2", text: "Old goal" }, { id: "g6", text: "Second" }]);
+		expect(r.list.tasks[0].acceptanceCriteria).toEqual([{ id: "c4", text: "kept" }, { id: "c5", text: "new" }]);
+		expect(errorsOf(v3([{ title: "A", acceptanceCriteria: [{ id: "c1", text: "x" }], goals: [{ id: "c1", text: "y" }] }])).join("\n")).toMatch(/goals\[0\]: id "c1" must look like g1/);
+		expect(errorsOf(v3([{ title: "A", acceptanceCriteria: [{ id: "c1", text: "x" }] }, { title: "B", acceptanceCriteria: [{ id: "c1", text: "y" }] }])).join("\n")).toContain("duplicate id c1");
+	});
+
+	test("a v2 file migrates: one goal and string criteria become items", () => {
+		const r = parseListFile({ version: 2, slug: "auth", title: "Auth", goal: "Ship it.", tasks: [{ title: "A", acceptanceCriteria: ["one", "two"], subtasks: [{ title: "B", acceptanceCriteria: ["three"] }] }] }, "auth");
+		expect(r.ok && r.migratedFrom).toBe(2);
+		if (!r.ok) return;
+		expect(r.list.goals).toEqual([{ id: "g1", text: "Ship it." }]);
+		expect(r.list.tasks.map((t) => t.acceptanceCriteria)).toEqual([[{ id: "c1", text: "one" }, { id: "c2", text: "two" }], [{ id: "c3", text: "three" }]]);
+		const again = parseListFile(JSON.parse(JSON.stringify(toListFile(r.list))), "auth");
+		expect(again.ok && again.list).toEqual(r.list);
 	});
 
 	test("every problem is reported with its location and fix", () => {
 		const errors = errorsOf({
-			version: 2,
+			version: 3,
 			slug: "other",
 			title: "Auth",
-			tasks: [{ title: "A", id: "2", subtask: [] }, { title: "B", acceptanceCriteria: ["a", "b", "c", "d"] }, { title: "C", status: "done" }],
+			tasks: [{ title: "A", id: "2", subtask: [] }, { title: "B", acceptanceCriteria: ["a", "b", "c", "d", "e", "f", "g", "h", "i"] }, { title: "C", status: "done" }],
 		});
 		expect(errors.join("\n")).toMatch(/slug: "other" must equal the file name "auth"/);
-		expect(errors.join("\n")).toMatch(/goal: required/);
+		expect(errors.join("\n")).toMatch(/goals: required/);
 		expect(errors.join("\n")).toMatch(/tasks\[0\]: id "2" does not match its position 1/);
 		expect(errors.join("\n")).toMatch(/tasks\[0\]\.subtask: unknown field/);
-		expect(errors.join("\n")).toMatch(/tasks\[1\]\.acceptanceCriteria: has 4 items/);
+		expect(errors.join("\n")).toMatch(/tasks\[1\]\.acceptanceCriteria: has 9 items/);
 		expect(errors.join("\n")).toMatch(/tasks\[2\]: a done task needs a report/);
 	});
 
 	test("pin and attachment ids must be unique across the whole list", () => {
 		const pin = { id: "p1", kind: "rule", text: "Use decimals", source: "user", at: "now" };
 		const attachment = { id: "a1", path: "spec.md" };
-		const errors = errorsOf(v2([{ title: "A", pins: [pin], attachments: [attachment] }], { pins: [pin], attachments: [attachment] }));
-		expect(errors.join("\n")).toContain("duplicate pin id p1");
-		expect(errors.join("\n")).toContain("duplicate attachment id a1");
+		const errors = errorsOf(v3([{ title: "A", pins: [pin], attachments: [attachment] }], { pins: [pin], attachments: [attachment] }));
+		expect(errors.join("\n")).toContain("duplicate id p1");
+		expect(errors.join("\n")).toContain("duplicate id a1");
 	});
 
 	test("deep authored and legacy trees round-trip without losing task identities", () => {
 		let node: { title: string; subtasks?: unknown[] } = { title: "Leaf" };
 		for (let i = 1; i < 64; i++) node = { title: `Level ${i}`, subtasks: [node] };
-		const parsed = parseListFile(v2([node]), "auth");
+		const parsed = parseListFile(v3([node]), "auth");
 		expect(parsed.ok).toBe(true);
 		if (!parsed.ok) return;
 		expect(parsed.list.tasks).toHaveLength(64);
 		expect(new RegExp(schema.$defs.task.properties.id.pattern).test(parsed.list.tasks.at(-1)!.id)).toBe(true);
-		const legacy = parseListFile({ ...parsed.list, tasks: parsed.list.tasks }, "auth");
-		expect(legacy.ok && legacy.migrated).toBe(true);
+		const { goals: _g, seq: _s, ...v1 } = parsed.list;
+		const legacy = parseListFile({ ...v1, goal: "Tokens go through TokenStore." }, "auth");
+		expect(legacy.ok && legacy.migratedFrom).toBe(1);
 		if (!legacy.ok) return;
 		const again = parseListFile(JSON.parse(JSON.stringify(toListFile(legacy.list))), "auth");
 		expect(again.ok && again.list.tasks).toEqual(parsed.list.tasks);
 	});
 
 	test("impossible status trees are rejected", () => {
-		expect(errorsOf(v2([{ title: "P", subtasks: [{ title: "C", status: "doing" }] }])).join("\n")).toMatch(/task 1.1 is doing but its parent 1 is todo/);
+		expect(errorsOf(v3([{ title: "P", subtasks: [{ title: "C", status: "doing" }] }])).join("\n")).toMatch(/task 1.1 is doing but its parent 1 is todo/);
 	});
 
 	test("a v1 file migrates and writes back as the same tree", () => {
@@ -124,10 +149,10 @@ describe("task list v2 schema", () => {
 			],
 		};
 		const r = parseListFile(v1, "auth");
-		expect(r.ok && r.migrated).toBe(true);
+		expect(r.ok && r.migratedFrom).toBe(1);
 		if (!r.ok) return;
-		expect(r.list.goal).toBeUndefined();
-		const file = toListFile({ ...r.list, goal: "G" } as FlatList);
+		expect(r.list.goals).toBeUndefined();
+		const file = toListFile({ ...r.list, goals: [{ id: "g1", text: "G" }] } as FlatList);
 		expect((file.tasks as { subtasks?: { id: string }[] }[])[0].subtasks?.map((t) => t.id)).toEqual(["1.1"]);
 		const again = parseListFile(JSON.parse(JSON.stringify(file)), "auth");
 		expect(again.ok && again.list.tasks.map((t) => t.id)).toEqual(["1", "1.1", "2"]);

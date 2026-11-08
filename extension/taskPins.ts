@@ -204,9 +204,15 @@ export function attachmentContent(projectDir: string, a: Attachment, maxLines = 
 }
 
 /** The pieces of a list task context is built from. */
+/** A goal or criterion as the list stores and `start` delivers it. */
+export interface ContextItem {
+	id: string;
+	text: string;
+}
+
 export interface ContextList extends PinHolder {
-	goal?: string;
-	tasks: readonly (PinHolder & { id: string; title: string; status: string; acceptanceCriteria?: string[] })[];
+	goals?: readonly ContextItem[];
+	tasks: readonly (PinHolder & { id: string; title: string; status: string; goals?: readonly ContextItem[]; acceptanceCriteria?: readonly ContextItem[] })[];
 }
 
 /** A pin as `start` delivers it. */
@@ -221,15 +227,16 @@ export interface AttachmentOut {
 }
 /** List context: the goal and list-scoped facts. */
 export interface ListContext {
-	goal?: string;
+	goals?: ContextItem[];
 	pins?: PinOut[];
 	attachments?: AttachmentOut[];
 }
-/** One task's context; `criteria`, `pins` and `attachments` hold only what the model cannot already see. */
+/** One task's context; `goals`, `criteria`, `pins` and `attachments` hold only what the model cannot already see. */
 export interface TaskContext {
 	id: string;
 	title: string;
-	criteria?: string[];
+	goals?: ContextItem[];
+	criteria?: ContextItem[];
 	pins?: PinOut[];
 	attachments?: AttachmentOut[];
 }
@@ -239,8 +246,8 @@ export interface TaskContext {
  * delivered text, so an edit makes the old delivery stop counting (SPEC-0002 §4.3).
  */
 export const deliveryKey = {
-	goal: (goal: string) => `goal#${hashOf(goal)}`,
-	criteria: (taskId: string, criteria: readonly string[]) => `crit:${taskId}#${hashOf(criteria.join("\n"))}`,
+	/** A goal or criterion: list-unique id plus a hash of its current text. */
+	item: (item: ContextItem) => `item:${item.id}#${hashOf(item.text)}`,
 	pin: (id: string) => `pin:${id}`,
 	attachment: (id: string, content: string | null) => `att:${id}#${content === null ? "lost" : hashOf(content)}`,
 };
@@ -299,24 +306,28 @@ export function deliverContext(list: ContextList, taskIds: readonly string[], wi
 				...(state ? { state } : {}),
 			}];
 		});
+	const itemsOf = (items: readonly ContextItem[] | undefined) =>
+		(items ?? []).flatMap((x) => {
+			const key = deliveryKey.item(x);
+			if (live(key)) return [];
+			delivered.push(key);
+			return [{ id: x.id, text: x.text }];
+		});
 	let listCtx: ListContext | undefined;
 	if (withList) {
-		const goalKey = list.goal ? deliveryKey.goal(list.goal) : null;
-		const goal = goalKey && !live(goalKey) ? list.goal : undefined;
-		if (goal && goalKey) delivered.push(goalKey);
+		const goals = itemsOf(list.goals);
 		const pins = pinsOf(list.pins);
 		const attachments = attachmentsOf(list.attachments);
-		if (goal || pins.length || attachments.length) listCtx = { ...(goal ? { goal } : {}), ...(pins.length ? { pins } : {}), ...(attachments.length ? { attachments } : {}) };
+		if (goals.length || pins.length || attachments.length) listCtx = { ...(goals.length ? { goals } : {}), ...(pins.length ? { pins } : {}), ...(attachments.length ? { attachments } : {}) };
 	}
 	const tasks = taskIds.flatMap((id): TaskContext[] => {
 		const t = list.tasks.find((x) => x.id === id);
 		if (!t) return [];
-		const critKey = t.acceptanceCriteria?.length ? deliveryKey.criteria(t.id, t.acceptanceCriteria) : null;
-		const criteria = critKey && !live(critKey) ? t.acceptanceCriteria : undefined;
-		if (criteria && critKey) delivered.push(critKey);
+		const goals = itemsOf(t.goals);
+		const criteria = itemsOf(t.acceptanceCriteria);
 		const pins = pinsOf(t.pins);
 		const attachments = attachmentsOf(t.attachments);
-		return [{ id: t.id, title: t.title, ...(criteria ? { criteria } : {}), ...(pins.length ? { pins } : {}), ...(attachments.length ? { attachments } : {}) }];
+		return [{ id: t.id, title: t.title, ...(goals.length ? { goals } : {}), ...(criteria.length ? { criteria } : {}), ...(pins.length ? { pins } : {}), ...(attachments.length ? { attachments } : {}) }];
 	});
 	return { ...(listCtx ? { list: listCtx } : {}), tasks, delivered, seen };
 }

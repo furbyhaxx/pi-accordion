@@ -52,15 +52,15 @@ test("start delivers the entering branch's context minus what the model can stil
 	const ctx = { projectDir, userTexts: [], limits: PIN_LIMITS, now: "now" };
 	const attachment = makeAttachment({ path: "spec.md:2" }, ctx, "a1", []);
 	const pin = { id: "p1", kind: "rule" as const, text: "Decimal only", source: "user", at: "now" };
-	const list = { goal: "Finish", pins: [pin], tasks: [
-		{ id: "1", title: "Parent", status: "doing", acceptanceCriteria: ["parent criterion"] },
+	const list = { goals: [{ id: "g1", text: "Finish" }, { id: "g2", text: "Tests pass" }], pins: [pin], tasks: [
+		{ id: "1", title: "Parent", status: "doing", goals: [{ id: "g3", text: "Parent ships" }], acceptanceCriteria: [{ id: "c1", text: "parent criterion" }] },
 		{ id: "1.1", title: "Current", status: "doing", attachments: [attachment] },
-		{ id: "1.2", title: "Later", status: "todo", acceptanceCriteria: ["not active"] },
+		{ id: "1.2", title: "Later", status: "todo", acceptanceCriteria: [{ id: "c2", text: "not active" }] },
 	] };
 	const first = deliverContext(list, ["1", "1.1"], true, () => false, projectDir, "inline");
-	expect(first.list).toEqual({ goal: "Finish", pins: [{ id: "p1", kind: "rule", text: "Decimal only", source: "user" }] });
+	expect(first.list).toEqual({ goals: [{ id: "g1", text: "Finish" }, { id: "g2", text: "Tests pass" }], pins: [{ id: "p1", kind: "rule", text: "Decimal only", source: "user" }] });
 	expect(first.tasks).toEqual([
-		{ id: "1", title: "Parent", criteria: ["parent criterion"] },
+		{ id: "1", title: "Parent", goals: [{ id: "g3", text: "Parent ships" }], criteria: [{ id: "c1", text: "parent criterion" }] },
 		{ id: "1.1", title: "Current", attachments: [{ id: "a1", ref: "spec.md:2", content: "two" }] },
 	]);
 	// Everything the first delivery put in front of the model is live: nothing is sent again.
@@ -68,6 +68,9 @@ test("start delivers the entering branch's context minus what the model can stil
 	const again = deliverContext(list, ["1", "1.1"], true, (k) => live.has(k), projectDir, "inline");
 	expect(again).toEqual({ tasks: [{ id: "1", title: "Parent" }, { id: "1.1", title: "Current" }], delivered: [], seen: {} });
 	expect(deliverContext(list, ["1.1"], false, () => false, projectDir, "reference").tasks[0].attachments).toEqual([{ id: "a1", ref: "spec.md:2" }]);
+	// An edited goal has a new key, so only it is delivered again; its siblings stay live.
+	const edited = { ...list, goals: [list.goals[0]!, { id: "g2", text: "Tests pass and lint is clean" }] };
+	expect(deliverContext(edited, [], true, (k) => live.has(k), projectDir, "inline").list).toEqual({ goals: [{ id: "g2", text: "Tests pass and lint is clean" }] });
 	// A changed file has a new content key, so it is delivered again and marked changed.
 	fs.writeFileSync(path.join(projectDir, "spec.md"), "one\nchanged\nthree");
 	const changed = deliverContext(list, ["1.1"], false, (k) => live.has(k), projectDir, "inline");

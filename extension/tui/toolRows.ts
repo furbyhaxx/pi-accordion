@@ -58,7 +58,7 @@ export function tasksDetails(args: { action: string; list?: string; id?: string 
 						id: task.id,
 						title: task.title,
 						status: task.status,
-						...(task.acceptanceCriteria ? { acceptanceCriteria: task.acceptanceCriteria } : {}),
+						...(task.acceptanceCriteria?.length ? { acceptanceCriteria: task.acceptanceCriteria.map((c) => c.text) } : {}),
 						...(task.pins ? { pins: task.pins } : {}),
 						startedAt: task.startedAt,
 						endedAt: task.endedAt,
@@ -145,7 +145,7 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 	if (task && (action === "complete" || action === "fail" || action === "abandon")) {
 		if (task.status !== "done") extra.push(theme.fg(task.status === "failed" ? "error" : "warning", task.status));
 		if (task.supersededBy && action === "abandon") extra.push(theme.fg("dim", `→ ${task.supersededBy}`));
-		const ms = task.endedAt ? taskDuration({ ...task, updatedAt: task.endedAt }, Date.parse(task.endedAt)) : null;
+		const ms = task.endedAt ? taskDuration(task, Date.parse(task.endedAt)) : null;
 		if (task.startedAt && ms !== null) extra.push(theme.fg("dim", formatDuration(ms)));
 	}
 	const block = task?.blocks?.[task.blocks.length - 1];

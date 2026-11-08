@@ -104,7 +104,7 @@ function* preorder(nodes: readonly TaskNode[]): Generator<TaskNode> {
 }
 
 /** Milliseconds a task has been worked on, blocked periods excluded, or null when it has no start time. */
-export function taskDuration(task: Task, now: number): number | null {
+export function taskDuration(task: Pick<Task, "startedAt" | "endedAt" | "blocks">, now: number): number | null {
 	const start = task.startedAt ? Date.parse(task.startedAt) : NaN;
 	if (!Number.isFinite(start)) return null;
 	const parsed = task.endedAt ? Date.parse(task.endedAt) : now;

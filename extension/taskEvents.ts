@@ -2,16 +2,17 @@
  * taskEvents.ts — builds the span event of one `tasks` execution from the store's view
  * (SPEC-0002 §5.3). Transport and parsing live in `core/taskEvents.ts`.
  */
-import { TASK_EVENT_ACTIONS, type TaskEvent, type TaskEventTask } from "../core/taskEvents";
+import { criteriaTexts, TASK_EVENT_ACTIONS, type TaskEvent, type TaskEventTask } from "../core/taskEvents";
 import type { Task, TaskList } from "./tasks";
 
 function snapshot(t: Task): TaskEventTask {
+	const acceptanceCriteria = criteriaTexts(t.acceptanceCriteria);
 	return {
 		id: t.id,
 		title: t.title,
 		status: t.status,
 		...(t.report ? { report: t.report } : {}),
-		...(t.acceptanceCriteria?.length ? { acceptanceCriteria: t.acceptanceCriteria } : {}),
+		...(acceptanceCriteria ? { acceptanceCriteria } : {}),
 		...(t.pins?.length ? { pins: t.pins } : {}),
 	};
 }

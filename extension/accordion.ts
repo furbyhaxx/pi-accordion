@@ -4005,9 +4005,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- abandon: stopped on purpose without a verdict (no longer wanted, replaced, the user changed course). Works on unstarted and blocked tasks too. Pass supersededBy when another task replaces it.\n" +
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
 			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
-			"Every list has one goal: the end state the whole list delivers. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
-			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. start returns the list goal and each entering task's criteria, pins and attachment content once; keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
-			"Actions: create {list, title, goal, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goal? (list), acceptanceCriteria? (task)}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
+			"Every list has 1–5 goals: together the end state the whole list delivers. A task may add up to 3 goals of its own. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
+			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. Goals, criteria, pins and attachments carry ids (g1, c1, p1, a1) that stay fixed; results return the ids they assign. start returns the list goals and each entering task's goals, criteria, pins and attachment content once; keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
+			"Actions: create {list, title, goals: [texts], tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, goals?, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goals? (list without id, task with id), acceptanceCriteria? (task)} where goals/acceptanceCriteria take {add?: [texts], remove?: [ids], edit?: [{id, text}]}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
 		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
 		promptGuidelines: [
 			"Use the `tasks` tool for work with more than one step; a single question or a one-step change needs no list. Create or claim a list, then call `start` BEFORE the first tool call of a task's work and end the task right AFTER its last one. Work done while no task is in progress belongs to no record; if new work comes up, `add` a task for it and start it first.",
@@ -4024,19 +4024,24 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			),
 			list: Type.Optional(Type.String({ description: 'List slug, e.g. "auth-refactor" (lowercase, digits, dashes).' })),
 			title: Type.Optional(Type.String({ description: "For create: the list title. For update: the new title of the list or of task id." })),
-			goal: Type.Optional(Type.String({ description: "For create and update: the end state the whole list delivers, in one or two sentences." })),
-			acceptanceCriteria: Type.Optional(Type.Array(Type.String(), { description: "For update with id: 1–3 checkable statements that are true when the task is finished." })),
+			goals: Type.Optional(
+				Type.Union([Type.Array(Type.String()), Type.Object({ add: Type.Optional(Type.Array(Type.String())), remove: Type.Optional(Type.Array(Type.String())), edit: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String() }))) })], {
+					description: "For create: 1–5 goal texts, together the end state the whole list delivers. For update: {add?: [texts], remove?: [ids], edit?: [{id, text}]} on the list's goals (no id) or a task's goals (id).",
+				}),
+			),
+			acceptanceCriteria: Type.Optional(Type.Object({ add: Type.Optional(Type.Array(Type.String())), remove: Type.Optional(Type.Array(Type.String())), edit: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String() }))) }, { description: "For update with id: {add?: [texts], remove?: [ids], edit?: [{id, text}]} on the task's checkable acceptance criteria." })),
 			tasks: Type.Optional(
 				Type.Array(
 					Type.Object({
 						title: Type.String(),
+						goals: Type.Optional(Type.Array(Type.String(), { description: "Up to 3 goals of this subtree beyond its criteria." })),
 						acceptanceCriteria: Type.Optional(Type.Array(Type.String(), { description: "1–3 checkable statements that are true when the task is finished." })),
 						pins: Type.Optional(Type.Array(Type.Any())),
 						attachments: Type.Optional(Type.Array(Type.Any())),
 						subtasks: Type.Optional(Type.Array(Type.Any())),
 						supersedes: Type.Optional(Type.String({ description: "For add: id of an earlier task this one replaces; it is abandoned if still open." })),
 					}),
-					{ description: "Tasks to create or add: [{ title, acceptanceCriteria?, subtasks?: [{ title, … }], supersedes? }]." },
+					{ description: "Tasks to create or add: [{ title, goals?, acceptanceCriteria?, subtasks?: [{ title, … }], supersedes? }]." },
 				),
 			),
 			items: Type.Optional(Type.Array(Type.Any(), { description: 'For pin: [{kind, text, source}]; attach: [{path, lines?, note?}]. Omit id for list scope.' })),
@@ -4121,8 +4126,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const details: TasksDetails = {
 					...tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered),
 					...(run.started.length ? { started: run.started } : {}),
-					...(run.closed.length ? { closed: run.closed.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria, pins })) } : {}),
-					...(run.cascaded.length ? { cascaded: run.cascaded.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria, pins })) } : {}),
+					...(run.closed.length ? { closed: run.closed.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria: acceptanceCriteria?.map((c) => c.text), pins })) } : {}),
+					...(run.cascaded.length ? { cascaded: run.cascaded.map(({ id, title, status, report, acceptanceCriteria, pins }) => ({ id, title, status, report, acceptanceCriteria: acceptanceCriteria?.map((c) => c.text), pins })) } : {}),
 				};
 				const event = taskEventOf(args, list, run);
 				if (event && !nestedTaskEvents.queue(toolCallId, event)) details.taskEvents = [event];

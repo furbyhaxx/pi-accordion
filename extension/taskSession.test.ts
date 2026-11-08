@@ -56,12 +56,12 @@ describe("task session", () => {
 		expect(invalid.ok).toBe(false);
 		const created = ts.host().create("Plan", "Ship the implementation");
 		expect(created.ok).toBe(true);
-		expect(mine.read("plan").goal).toBe("Ship the implementation");
+		expect(mine.read("plan").goals).toEqual([{ id: "g1", text: "Ship the implementation" }]);
 	});
 
 	test("reminds on the next prompt when an attached task awaits the user", async () => {
 		const { mine, ts } = setup();
-		runTasks(mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "Review" }] });
+		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "Review" }] });
 		runTasks(mine, { action: "start", list: "a", id: "1" });
 		runTasks(mine, { action: "block", list: "a", id: "1", reason: "user-input", detail: "Which option?" });
 		expect(await ts.takeNotice()).toContain('1 "Review"');
@@ -71,7 +71,7 @@ describe("task session", () => {
 
 	test("a reload silently reclaims a free, unchanged list and tells the agent nothing", async () => {
 		const s = setup();
-		runTasks(s.mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }] });
+		runTasks(s.mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }] });
 		const fp = taskFingerprint(s.mine.read("a"));
 		s.mine.release("a");
 		s.ts.start([{ type: "custom", customType: BINDING_ENTRY, timestamp: new Date().toISOString(), data: { slug: "a", fingerprint: fp } }], "reload", fakeUi().ui);
@@ -81,7 +81,7 @@ describe("task session", () => {
 
 	test("resuming offers the previous list; reclaiming a changed list tells the agent its state", async () => {
 		const s = setup();
-		runTasks(s.mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }, { title: "Two" }] });
+		runTasks(s.mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }, { title: "Two" }] });
 		const fp = taskFingerprint(s.mine.read("a"));
 		s.mine.release("a");
 		runTasks(s.other, { action: "claim", list: "a" });
@@ -104,10 +104,10 @@ describe("task session", () => {
 
 	test("a list held elsewhere: choosing another list tells the agent who holds the old one", async () => {
 		const s = setup();
-		runTasks(s.mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }] });
+		runTasks(s.mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }] });
 		s.mine.release("a");
 		runTasks(s.other, { action: "claim", list: "a" });
-		s.mine.create("b", "Bee", "G", []);
+		s.mine.create("b", "Bee", ["G"], []);
 		s.mine.release("b");
 		const ts = new TaskSession({ store: () => s.mine, session: () => "s1", enabled: () => true, appendEntry: () => {}, changed: () => {} });
 		const ui = fakeUi();
@@ -124,7 +124,7 @@ describe("task session", () => {
 
 	test("without a terminal, a held list is left alone and the agent is told", async () => {
 		const s = setup();
-		runTasks(s.mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }] });
+		runTasks(s.mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }] });
 		runTasks(s.other, { action: "claim", list: "a", force: true });
 		const ts = new TaskSession({ store: () => s.mine, session: () => "s1", enabled: () => true, appendEntry: () => {}, changed: () => {} });
 		ts.start([{ type: "custom", customType: BINDING_ENTRY, timestamp: new Date().toISOString(), data: { slug: "a" } }], "startup", null);
@@ -136,7 +136,7 @@ describe("task session", () => {
 		ts.start([], "new", null);
 		ts.record();
 		expect(appended).toEqual([]);
-		runTasks(mine, { action: "create", list: "a", title: "A", goal: "G", tasks: [{ title: "One" }] });
+		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }] });
 		ts.record();
 		ts.record();
 		expect(appended.map((r) => r.slug)).toEqual(["a"]);

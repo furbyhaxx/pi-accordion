@@ -70,11 +70,11 @@ describe("task views", () => {
 	it("shows goal, criteria and scoped facts without confusing inherited and task pins", () => {
 		const pin = { id: "p1", kind: "rule" as const, text: "Exact\nlist fact", source: "user", at: at(0) };
 		const attachment = { id: "a1", path: "spec.md", lines: "2-4", note: "Design evidence", at: at(0), hash: "recorded-hash" };
-		const enriched = { ...list, goal: "Explicit list goal", pins: [pin], attachments: [attachment], tasks: list.tasks.map((t) => ({ ...t,
+		const enriched = { ...list, goals: [{ id: "g1", text: "Explicit list goal" }], pins: [pin], attachments: [attachment], tasks: list.tasks.map((t) => ({ ...t,
 			...(t.id === "1" ? { pins: [{ ...pin, id: "p2", text: "Parent constraint" }] } : {}),
-			...(t.id === "1.1" ? { acceptanceCriteria: ["Observable result"], pins: [{ ...pin, id: "p3", text: "Own constraint" }], attachments: [{ ...attachment, id: "a2" }] } : {}) })) };
+			...(t.id === "1.1" ? { goals: [{ id: "g2", text: "Task goal" }], acceptanceCriteria: [{ id: "c1", text: "Observable result" }], pins: [{ ...pin, id: "p3", text: "Own constraint" }], attachments: [{ ...attachment, id: "a2" }] } : {}) })) };
 		const lines = detailLines(enriched, "1.1", data(null), []).join("\n");
-		for (const text of ["Explicit list goal", "Observable result", "list · p1", "parent 1 · p2", "task 1.1 · p3", "Own constraint", "spec.md:2-4", "Design evidence", "recorded-hash"])
+		for (const text of ["g1 Explicit list goal", "g2 Task goal", "c1 Observable result", "list · p1", "parent 1 · p2", "task 1.1 · p3", "Own constraint", "spec.md:2-4", "Design evidence", "recorded-hash"])
 			expect(lines).toContain(text);
 		expect(listDetailLines(enriched, theme).join("\n")).toContain("Explicit list goal");
 		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [{ ...enriched, tasks: [] }], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
@@ -156,7 +156,7 @@ describe("task views", () => {
 		for (let i = 0; i < 3; i++) for (const width of [36, 57, 80, 140]) view.render(width);
 		expect(reads).toBe(1);
 		expect(projections).toBe(initialProjections);
-		lists = [{ ...list, goal: "Updated goal" }]; changed(); view.handleInput("g");
+		lists = [{ ...list, goals: [{ id: "g1", text: "Updated goal" }] }]; changed(); view.handleInput("g");
 		const afterRefresh = { reads, projections };
 		for (const width of [36, 57, 80, 140]) expect(view.render(width).join("\n")).toContain("Updated goal");
 		expect({ reads, projections }).toEqual(afterRefresh);

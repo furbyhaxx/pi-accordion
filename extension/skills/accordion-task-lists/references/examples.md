@@ -65,26 +65,104 @@ children.
 
 ```json
 {
-  "version": 2, "slug": "api-key-auth", "title": "API-key authentication",
-  "goal": "Requests authenticate with scoped API keys that can be rotated, and the behavior is documented and tested.",
+  "version": 3,
+  "slug": "api-key-auth",
+  "title": "API-key authentication",
+  "goals": [
+    "Requests authenticate with scoped API keys that can be rotated, and the behavior is documented and tested."
+  ],
   "tasks": [
-    { "title": "Orientation, Analysis, Scope & Objective clarification", "subtasks": [
-      { "title": "Read the auth design and the request pipeline" },
-      { "title": "Find existing token handling and its tests" } ] },
-    { "title": "Key storage", "subtasks": [
-      { "title": "Key model and hashing", "acceptanceCriteria": ["Keys are stored only as salted hashes"] },
-      { "title": "Persistence and lookup", "acceptanceCriteria": ["A stored key is found by its identifier"] } ] },
-    { "title": "Request authentication", "subtasks": [
-      { "title": "Middleware rejects missing and invalid keys", "acceptanceCriteria": ["Missing and invalid keys return 401"] },
-      { "title": "Scopes limit each key to its routes", "acceptanceCriteria": ["A key outside its scope returns 403"] },
-      { "title": "Rate limit per key", "acceptanceCriteria": ["The limit applies per key, not per client address"] } ] },
-    { "title": "Key rotation", "subtasks": [
-      { "title": "Issue a replacement key", "acceptanceCriteria": ["Rotation returns a new key once"] },
-      { "title": "Old key stays valid for the grace period", "acceptanceCriteria": ["Both keys authenticate during the grace period"] },
-      { "title": "Old key is rejected afterwards", "acceptanceCriteria": ["The old key returns 401 after the period ends"] } ] },
-    { "title": "Documentation and final gates", "subtasks": [
-      { "title": "Operator and API docs", "acceptanceCriteria": ["Docs describe key creation, scopes and rotation"] },
-      { "title": "Project test and lint gates pass", "acceptanceCriteria": ["The project test and lint commands pass"] } ] }
+    {
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "subtasks": [
+        {
+          "title": "Read the auth design and the request pipeline"
+        },
+        {
+          "title": "Find existing token handling and its tests"
+        }
+      ]
+    },
+    {
+      "title": "Key storage",
+      "subtasks": [
+        {
+          "title": "Key model and hashing",
+          "acceptanceCriteria": [
+            "Keys are stored only as salted hashes"
+          ]
+        },
+        {
+          "title": "Persistence and lookup",
+          "acceptanceCriteria": [
+            "A stored key is found by its identifier"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Request authentication",
+      "subtasks": [
+        {
+          "title": "Middleware rejects missing and invalid keys",
+          "acceptanceCriteria": [
+            "Missing and invalid keys return 401"
+          ]
+        },
+        {
+          "title": "Scopes limit each key to its routes",
+          "acceptanceCriteria": [
+            "A key outside its scope returns 403"
+          ]
+        },
+        {
+          "title": "Rate limit per key",
+          "acceptanceCriteria": [
+            "The limit applies per key, not per client address"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Key rotation",
+      "subtasks": [
+        {
+          "title": "Issue a replacement key",
+          "acceptanceCriteria": [
+            "Rotation returns a new key once"
+          ]
+        },
+        {
+          "title": "Old key stays valid for the grace period",
+          "acceptanceCriteria": [
+            "Both keys authenticate during the grace period"
+          ]
+        },
+        {
+          "title": "Old key is rejected afterwards",
+          "acceptanceCriteria": [
+            "The old key returns 401 after the period ends"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Documentation and final gates",
+      "subtasks": [
+        {
+          "title": "Operator and API docs",
+          "acceptanceCriteria": [
+            "Docs describe key creation, scopes and rotation"
+          ]
+        },
+        {
+          "title": "Project test and lint gates pass",
+          "acceptanceCriteria": [
+            "The project test and lint commands pass"
+          ]
+        }
+      ]
+    }
   ]
 }
 ```
@@ -111,18 +189,62 @@ fix then relies on.
 
 ```json
 {
-  "version": 2, "slug": "importer-last-row", "title": "Importer drops the last row",
-  "goal": "CSV files import every row, including those without a trailing newline, with a regression test.",
+  "version": 3,
+  "slug": "importer-last-row",
+  "title": "Importer drops the last row",
+  "goals": [
+    "CSV files import every row, including those without a trailing newline, with a regression test."
+  ],
   "tasks": [
-    { "title": "Orientation, Analysis, Scope & Objective clarification" },
-    { "title": "Reproduce the failure", "subtasks": [
-      { "title": "Failing test with a file that loses its last row", "acceptanceCriteria": ["The new test fails for the reported file"] },
-      { "title": "Identify which files trigger it", "acceptanceCriteria": ["The trigger condition is stated and checked on two files"] } ] },
-    { "title": "Find the cause", "acceptanceCriteria": ["The defective line is identified and explained"] },
-    { "title": "Fix and prove", "subtasks": [
-      { "title": "Fix the boundary handling", "acceptanceCriteria": ["The reproduction test passes"] },
-      { "title": "Regression test covers the trigger", "acceptanceCriteria": ["The test fails on the old code and passes now"] },
-      { "title": "Project test gate passes", "acceptanceCriteria": ["The project test command passes"] } ] }
+    {
+      "title": "Orientation, Analysis, Scope & Objective clarification"
+    },
+    {
+      "title": "Reproduce the failure",
+      "subtasks": [
+        {
+          "title": "Failing test with a file that loses its last row",
+          "acceptanceCriteria": [
+            "The new test fails for the reported file"
+          ]
+        },
+        {
+          "title": "Identify which files trigger it",
+          "acceptanceCriteria": [
+            "The trigger condition is stated and checked on two files"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Find the cause",
+      "acceptanceCriteria": [
+        "The defective line is identified and explained"
+      ]
+    },
+    {
+      "title": "Fix and prove",
+      "subtasks": [
+        {
+          "title": "Fix the boundary handling",
+          "acceptanceCriteria": [
+            "The reproduction test passes"
+          ]
+        },
+        {
+          "title": "Regression test covers the trigger",
+          "acceptanceCriteria": [
+            "The test fails on the old code and passes now"
+          ]
+        },
+        {
+          "title": "Project test gate passes",
+          "acceptanceCriteria": [
+            "The project test command passes"
+          ]
+        }
+      ]
+    }
   ]
 }
 ```
@@ -156,24 +278,93 @@ so each group's work can fold, and the legacy removal is the last, separately ve
 
 ```json
 {
-  "version": 2, "slug": "session-repository", "title": "Migrate to SessionRepository",
-  "goal": "All code uses SessionRepository and the legacy Session store is removed with behavior unchanged.",
+  "version": 3,
+  "slug": "session-repository",
+  "title": "Migrate to SessionRepository",
+  "goals": [
+    "All code uses SessionRepository and the legacy Session store is removed with behavior unchanged."
+  ],
   "tasks": [
-    { "title": "Orientation, Analysis, Scope & Objective clarification", "subtasks": [
-      { "title": "Map callers of the legacy store by module" },
-      { "title": "Capture behavior that must not change" } ] },
-    { "title": "New repository seam", "subtasks": [
-      { "title": "Interface and adapter over the legacy store", "acceptanceCriteria": ["The adapter implements the whole interface"] },
-      { "title": "Characterization tests pass against both", "acceptanceCriteria": ["The same tests pass against the legacy store and the repository"] } ] },
-    { "title": "Migrate callers", "subtasks": [
-      { "title": "HTTP handlers", "acceptanceCriteria": ["Handlers use the repository and their tests pass"] },
-      { "title": "Background jobs", "acceptanceCriteria": ["Jobs use the repository and their tests pass"] },
-      { "title": "CLI commands", "acceptanceCriteria": ["Commands use the repository and their tests pass"] },
-      { "title": "Test fixtures", "acceptanceCriteria": ["Fixtures build sessions through the repository"] } ] },
-    { "title": "Remove the legacy store", "subtasks": [
-      { "title": "No remaining references", "acceptanceCriteria": ["A search finds no use of the legacy store outside its own module"] },
-      { "title": "Delete the legacy implementation", "acceptanceCriteria": ["The module is gone and the build succeeds"] },
-      { "title": "Project gates pass", "acceptanceCriteria": ["The project test, lint and type checks pass"] } ] }
+    {
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "subtasks": [
+        {
+          "title": "Map callers of the legacy store by module"
+        },
+        {
+          "title": "Capture behavior that must not change"
+        }
+      ]
+    },
+    {
+      "title": "New repository seam",
+      "subtasks": [
+        {
+          "title": "Interface and adapter over the legacy store",
+          "acceptanceCriteria": [
+            "The adapter implements the whole interface"
+          ]
+        },
+        {
+          "title": "Characterization tests pass against both",
+          "acceptanceCriteria": [
+            "The same tests pass against the legacy store and the repository"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Migrate callers",
+      "subtasks": [
+        {
+          "title": "HTTP handlers",
+          "acceptanceCriteria": [
+            "Handlers use the repository and their tests pass"
+          ]
+        },
+        {
+          "title": "Background jobs",
+          "acceptanceCriteria": [
+            "Jobs use the repository and their tests pass"
+          ]
+        },
+        {
+          "title": "CLI commands",
+          "acceptanceCriteria": [
+            "Commands use the repository and their tests pass"
+          ]
+        },
+        {
+          "title": "Test fixtures",
+          "acceptanceCriteria": [
+            "Fixtures build sessions through the repository"
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Remove the legacy store",
+      "subtasks": [
+        {
+          "title": "No remaining references",
+          "acceptanceCriteria": [
+            "A search finds no use of the legacy store outside its own module"
+          ]
+        },
+        {
+          "title": "Delete the legacy implementation",
+          "acceptanceCriteria": [
+            "The module is gone and the build succeeds"
+          ]
+        },
+        {
+          "title": "Project gates pass",
+          "acceptanceCriteria": [
+            "The project test, lint and type checks pass"
+          ]
+        }
+      ]
+    }
   ]
 }
 ```

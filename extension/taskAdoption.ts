@@ -6,7 +6,7 @@
  * turned into events — and reconciles with the list files. Persisted messages are never rewritten:
  * the derived events live in one `accordion.taskfold.adopted` entry and are overlaid on ingest.
  */
-import { taskEventsIn, withTaskEvents, type TaskEvent, type TaskEventTask } from "../core/taskEvents";
+import { criteriaTexts, taskEventsIn, withTaskEvents, type TaskEvent, type TaskEventTask } from "../core/taskEvents";
 import type { PiMessage } from "../core/wire";
 import { parentId } from "./taskSchema";
 
@@ -20,7 +20,8 @@ export interface AdoptionTask {
 	title: string;
 	status: string;
 	report?: TaskEventTask["report"];
-	acceptanceCriteria?: string[];
+	/** Plain strings (v1/v2 files) or `{id, text}` items (v3). */
+	acceptanceCriteria?: readonly (string | { text: string })[];
 	pins?: TaskEventTask["pins"];
 	endedAt?: string;
 }
@@ -87,12 +88,13 @@ export function deriveAdoption(messages: readonly PiMessage[], lists: ReadonlyMa
 	let reconciled = 0;
 	const snap = (list: string, id: string, status: string, report?: TaskEventTask["report"]): TaskEventTask => {
 		const t = byList.get(list)?.get(id);
+		const acceptanceCriteria = criteriaTexts(t?.acceptanceCriteria);
 		return {
 			id,
 			title: t?.title ?? id,
 			status,
 			...(report ?? t?.report ? { report: report ?? t?.report } : {}),
-			...(t?.acceptanceCriteria?.length ? { acceptanceCriteria: t.acceptanceCriteria } : {}),
+			...(acceptanceCriteria ? { acceptanceCriteria } : {}),
 			...(t?.pins?.length ? { pins: t.pins } : {}),
 		};
 	};

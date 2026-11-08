@@ -27,7 +27,7 @@ import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, Ho
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
-import { taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
+import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { KeelLiteConductor } from "../keel-lite/keel-lite";
 
@@ -187,7 +187,8 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 		if (!source || typeof source !== "object") return;
 		const data = source as Record<string, unknown>;
 		if (typeof data.title === "string" && data.title) s.title = data.title;
-		if (Array.isArray(data.acceptanceCriteria) && data.acceptanceCriteria.every((v) => typeof v === "string")) s.acceptanceCriteria = data.acceptanceCriteria;
+		const criteria = criteriaTexts(data.acceptanceCriteria);
+		if (criteria) s.acceptanceCriteria = criteria;
 		if (Array.isArray(data.pins) && data.pins.every((v) => v && typeof v.kind === "string" && typeof v.text === "string" && typeof v.source === "string")) s.pins = data.pins;
 	};
 	// One recorded execution (SPEC-0002 §5.3). `at` is where a start opens, `end` where a finish
@@ -265,7 +266,8 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 		const updateMetadata = (s: State, source: unknown = taskDetails) => {
 			if (!source || typeof source !== "object") return;
 			const data = source as Record<string, unknown>;
-			if (Array.isArray(data.acceptanceCriteria) && data.acceptanceCriteria.every((v) => typeof v === "string")) s.acceptanceCriteria = data.acceptanceCriteria;
+			const criteria = criteriaTexts(data.acceptanceCriteria);
+			if (criteria) s.acceptanceCriteria = criteria;
 			if (Array.isArray(data.pins) && data.pins.every((v) => v && typeof v.kind === "string" && typeof v.text === "string" && typeof v.source === "string")) s.pins = data.pins;
 		};
 		if (action === "start") {

@@ -88,7 +88,7 @@ check("the context panel suspends its task widget and restores it after every ex
 		const host = await r.open();
 		host.command({ kind: "selectConductor", id: "taskfold" });
 		await new Promise(resolve => setImmediate(resolve));
-		await r.tools.tasks.execute("create", { action: "create", list: "panel", title: "Panel work", goal: "Keep controls visible", tasks: [{ title: "Inspect" }] }, undefined, undefined, r.ctx);
+		await r.tools.tasks.execute("create", { action: "create", list: "panel", title: "Panel work", goals: ["Keep controls visible"], tasks: [{ title: "Inspect" }] }, undefined, undefined, r.ctx);
 		assert.match(widget.render(80).join("\n"), /Panel work/);
 		const settings = JSON.stringify(host.settings().taskWidget);
 		inspect = true;
@@ -106,7 +106,7 @@ check("nested tasks calls put their span events on the outer tool result", async
 	const r = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: dir, sessionId: "events" });
 	const run = (id, args) => r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
 	try {
-		await run("c1", { action: "create", list: "w", title: "W", goal: "Done", tasks: [{ title: "A" }, { title: "B" }] });
+		await run("c1", { action: "create", list: "w", title: "W", goals: ["Done"], tasks: [{ title: "A" }, { title: "B" }] });
 		const direct = await run("c2", { action: "start", list: "w", id: "1" });
 		assert.deepEqual(direct.details.taskEvents.map(e => [e.action, e.id, e.task.title]), [["start", "1", "A"]]);
 		await r.handlers.tool_result({ toolName: "bash", toolCallId: "c3", input: {}, content: [], details: undefined, isError: false }, r.ctx);
@@ -172,7 +172,7 @@ check("native task inspection caches disk reads, refreshes changes and refuses a
 	TaskStore.prototype.scan = function (...args) { scans++; return scan.apply(this, args); };
 	let view;
 	try {
-		await run({ action: "create", list: "ui", title: "UI", goal: "Initial goal", tasks: [{ title: "Inspect work" }] });
+		await run({ action: "create", list: "ui", title: "UI", goals: ["Initial goal"], tasks: [{ title: "Inspect work" }] });
 		const result = await run({ action: "start", list: "ui", id: "1" });
 		messages.push({ role: "assistant", responseId: "start", timestamp: 2, content: [{ type: "toolCall", id: "begin", name: "tasks", arguments: { action: "start", list: "ui", id: "1" } }] },
 			{ role: "toolResult", toolCallId: "begin", toolName: "tasks", timestamp: 3, ...result, isError: false });
@@ -184,7 +184,7 @@ check("native task inspection caches disk reads, refreshes changes and refuses a
 			const before = scans;
 			for (const width of [36, 57, 80, 140]) assert.match(view.render(width).join("\n"), /Initial goal/);
 			assert.equal(scans, before, "render must not scan task files");
-			await run({ action: "update", list: "ui", goal: "Updated goal" });
+			await run({ action: "update", list: "ui", goals: { edit: [{ id: "g1", text: "Updated goal" }] } });
 			assert.ok(scans > before, "task updates must reload the shared snapshot");
 			const after = scans;
 			for (const width of [36, 57, 80, 140]) assert.match(view.render(width).join("\n"), /Updated goal/);
@@ -219,12 +219,12 @@ check("task context rides in the start result and requests are never rewritten",
 	const r = runtime(messages, { cwd: dir, sessionId: "task-context" });
 	const run = args => r.tools.tasks.execute("call", args, undefined, undefined, r.ctx).then(res => res.content[0].text);
 	try {
-		await run({ action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Task", acceptanceCriteria: ["Decimal everywhere"] }, { title: "Next" }] });
+		await run({ action: "create", list: "w", title: "Work", goals: ["Finish work"], tasks: [{ title: "Task", acceptanceCriteria: ["Decimal everywhere"] }, { title: "Next" }] });
 		await run({ action: "pin", list: "w", items: [{ kind: "constraint", text: "Always use decimal.", source: "user" }] });
 		await run({ action: "attach", list: "w", id: "1", items: [{ path: "spec.md:1" }] });
 		assert.equal(await run({ action: "start", list: "w", id: "1" }), JSON.stringify({ ok: true,
-			list: { goal: "Finish work", pins: [{ id: "p1", kind: "constraint", text: "Always use decimal.", source: "user" }] },
-			started: [{ id: "1", title: "Task", criteria: ["Decimal everywhere"], attachments: [{ id: "a1", ref: "spec.md:1", content: "before" }] }] }));
+			list: { goals: [{ id: "g1", text: "Finish work" }], pins: [{ id: "p1", kind: "constraint", text: "Always use decimal.", source: "user" }] },
+			started: [{ id: "1", title: "Task", criteria: [{ id: "c1", text: "Decimal everywhere" }], attachments: [{ id: "a1", ref: "spec.md:1", content: "before" }] }] }));
 		assert.equal(await run({ action: "pin", list: "w", id: "1", items: [{ kind: "fact", text: "Always use decimal.", source: "user" }] }), '{"ok":true,"pins":["p2"]}', "pin acknowledges only");
 		assert.equal(await run({ action: "status", list: "w" }), '{"ok":true,"done":0,"total":2,"doing":["1"],"next":{"id":"2","title":"Next"}}', "status never repeats content");
 		const stable = [{ role: "user", content: "Go.", timestamp: 10 }];
@@ -240,7 +240,8 @@ check("task context rides in the start result and requests are never rewritten",
 		const flat = fs.readFileSync(path.join(dir, "snapshot.log"), "utf8");
 		assert.doesNotMatch(flat, /working.set/i);
 		const metadata = JSON.parse(flat.split("metadata (not on wire)\n")[1].split("\n").map(line => line.slice(4)).join("\n"));
-		assert.equal(metadata.task_lists[0].goal, "Finish work");
+		assert.deepEqual(metadata.task_lists[0].goals, [{ id: "g1", text: "Finish work" }]);
+		assert.equal(metadata.task_lists[0].version ?? 3, 3);
 		assert.equal(messages[0].content, "Always use decimal.");
 	} finally {
 		r.close();
@@ -263,15 +264,15 @@ check("start re-delivers task context only when the model can no longer see it",
 	};
 	try {
 		const host = await r.open();
-		await run({ action: "create", list: "w", title: "W", goal: "Ship it", tasks: [{ title: "A", acceptanceCriteria: ["a holds"], subtasks: [{ title: "A1" }, { title: "A2" }] }] });
+		await run({ action: "create", list: "w", title: "W", goals: ["Ship it"], tasks: [{ title: "A", acceptanceCriteria: ["a holds"], subtasks: [{ title: "A1" }, { title: "A2" }] }] });
 		const first = await run({ action: "start", list: "w", id: "1.1" });
-		assert.deepEqual(first.list, { goal: "Ship it" });
-		assert.deepEqual(first.started[0], { id: "1", title: "A", criteria: ["a holds"] });
+		assert.deepEqual(first.list, { goals: [{ id: "g1", text: "Ship it" }] });
+		assert.deepEqual(first.started[0], { id: "1", title: "A", criteria: [{ id: "c1", text: "a holds" }] });
 		await run({ action: "abandon", list: "w", id: "1.1", report: { outcome: "x" } });
 		assert.deepEqual(await run({ action: "start", list: "w", id: "1.2" }), { ok: true, started: [{ id: "1.2", title: "A2" }] }, "live goal is not re-sent");
 		// The model can no longer see a folded delivery, so its content comes back once.
 		const truth = host.truth();
-		const carrier = truth.blocks.find(b => b.details?.delivered?.some(k => k.startsWith("w/goal#")));
+		const carrier = truth.blocks.find(b => b.details?.delivered?.some(k => k.startsWith("w/item:g1#")));
 		assert.ok(carrier, "the first start result records its delivery keys");
 		host.command({ kind: "setFolding", value: true });
 		host.command({ kind: "setProtect", value: 0 });
@@ -280,12 +281,12 @@ check("start re-delivers task context only when the model can no longer see it",
 		assert.ok(truth.isFolded(carrier));
 		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
 		const resumed = await run({ action: "start", list: "w", id: "1.2" });
-		assert.deepEqual(resumed.list, { goal: "Ship it" });
-		assert.deepEqual(resumed.resumed[0], { id: "1", title: "A", criteria: ["a holds"] });
+		assert.deepEqual(resumed.list, { goals: [{ id: "g1", text: "Ship it" }] });
+		assert.deepEqual(resumed.resumed[0], { id: "1", title: "A", criteria: [{ id: "c1", text: "a holds" }] });
 		// An edited goal has a new key, so it counts as not delivered.
-		await run({ action: "update", list: "w", goal: "Ship it today" });
+		await run({ action: "update", list: "w", goals: { edit: [{ id: "g1", text: "Ship it today" }] } });
 		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
-		assert.deepEqual((await run({ action: "start", list: "w", id: "1.2" })).list, { goal: "Ship it today" });
+		assert.deepEqual((await run({ action: "start", list: "w", id: "1.2" })).list, { goals: [{ id: "g1", text: "Ship it today" }] });
 		// A pin the agent wrote is live through its own pin result.
 		await run({ action: "pin", list: "w", items: [{ kind: "rule", text: "Plan it.", source: "user" }] });
 		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
@@ -302,15 +303,15 @@ check("shutdown releases only this session's task claims across visited projects
 	const read = (project, slug) => JSON.parse(fs.readFileSync(path.join(project, ".pig", "tasks", `${slug}.json`), "utf8"));
 	try {
 		r.ctx.cwd = dir;
-		await run({ action: "create", list: "owned", title: "Owned", goal: "G", tasks: [{ title: "Work" }] });
+		await run({ action: "create", list: "owned", title: "Owned", goals: ["G"], tasks: [{ title: "Work" }] });
 		await run({ action: "start", list: "owned", id: "1" });
-		await run({ action: "create", list: "taken", title: "Taken", goal: "G", tasks: [] });
+		await run({ action: "create", list: "taken", title: "Taken", goals: ["G"], tasks: [] });
 		const takenFile = path.join(dir, ".pig", "tasks", "taken.json");
 		const taken = read(dir, "taken");
 		taken.claim.session = "other";
 		fs.writeFileSync(takenFile, JSON.stringify(taken));
 		r.ctx.cwd = path.join(dir, "second");
-		await run({ action: "create", list: "second", title: "Second", goal: "G", tasks: [] });
+		await run({ action: "create", list: "second", title: "Second", goals: ["G"], tasks: [] });
 		// A mutable session manager must not make cleanup release the replacement session's claims.
 		r.ctx.sessionManager.getSessionId = () => "other";
 		r.close();
