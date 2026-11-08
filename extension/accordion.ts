@@ -3129,7 +3129,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return list ? { store, list } : null;
 				},
 				limits: () => ({ ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines }),
-				applied: () => { taskWidget.reload(); notifyNative(); },
+				applied: (slug, outcome) => {
+					taskSession?.noteRouted(slug, outcome.applied);
+					taskWidget.reload();
+					notifyNative();
+					void flushTaskNotices(latestCtx ?? ctx);
+				},
 			});
 		}
 	});
@@ -3150,6 +3155,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			/* an unreadable list directory just means no coaching */
 		}
 		taskCoach.setList(list);
+		void flushTaskNotices(ctx);
 		const note = taskCoach.toolResult(!!event.parentToolCallId);
 		return note ? { ...withDetails, content: [...event.content, { type: "text" as const, text: note }] } : withDetails;
 	});
@@ -3176,6 +3182,19 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (list) pi.appendEntry(IDLE_ENTRY, { list: list.slug, at: new Date().toISOString(), ...idleVerdict(list) });
 		} catch {
 			/* no list, no verdict */
+		}
+	}
+
+	// Changes made while a turn runs (a user edit, an extracted instruction) reach the agent between
+	// tool calls as one appended steer message; while idle they wait for the next prompt (SPEC-0002 §4.4).
+	async function flushTaskNotices(ctx: ExtensionContext): Promise<void> {
+		if (!taskSession || !tasksToolActive() || ctx.isIdle()) return;
+		const content = await taskSession.takeNotice(false);
+		if (!content) return;
+		try {
+			await pi.sendMessage({ customType: NOTICE_MESSAGE, content, display: true }, { deliverAs: "steer" });
+		} catch {
+			taskSession.requeue(content);
 		}
 	}
 
@@ -4161,6 +4180,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				throw new Error(JSON.stringify({ ok: false, error: "internal", message: err instanceof Error ? err.message : String(err) }));
 			} finally {
 				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) {
+					taskSession?.markSeen();
 					taskWidget.reload();
 					notifyNative();
 				}

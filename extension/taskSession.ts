@@ -4,7 +4,9 @@
  * attachment changed outside its own tool calls.
  */
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, replyNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
+import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
+import { changedNotice, listDelta, routedNotice, waitingNotice } from "./taskNotices";
+import type { AppliedOp } from "./taskRouting";
 import { TaskError, slugFor, taskFingerprint, type TaskList, type TaskStore } from "./tasks";
 import { ResumeDialog, TASK_SCREEN_OPTIONS, TaskListsBrowser, type ListDrillDown, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
 
@@ -39,6 +41,8 @@ export function attachedList(claimed: readonly TaskList[]): TaskList | null {
 export class TaskSession {
 	private recorded: BindingRecord | null = null;
 	private notices: string[] = [];
+	/** The attached list as the agent last knew it: after its own call, or after the last note about it. */
+	private seen: TaskList | null = null;
 	private resume: Promise<void> | null = null;
 	private disposed = false;
 
@@ -91,6 +95,7 @@ export class TaskSession {
 	private settle(situation: ResumeSituation, outcome: AttachOutcome): void {
 		const note = agentNotice(situation, outcome);
 		if (note) this.notices.push(note);
+		this.markSeen();
 		this.record();
 		this.deps.changed();
 	}
@@ -201,14 +206,58 @@ export class TaskSession {
 		this.deps.appendEntry(BINDING_ENTRY, next);
 	}
 
-	/** The pending note for the agent, after any open resume dialog is answered; null when none. */
-	async takeNotice(): Promise<string | null> {
-		if (this.resume) await this.resume;
-		this.resume = null;
+	/** The agent just wrote to its list, or was told its current state: later edits are changes it has not seen. */
+	markSeen(): void {
+		try {
+			this.seen = attachedList(this.deps.store().claimedBySession());
+		} catch {
+			this.seen = null;
+		}
+	}
+
+	/** List changes taken from a user message: queue the note and treat the resulting state as seen. */
+	noteRouted(slug: string, applied: readonly AppliedOp[]): void {
+		if (!applied.length) return;
+		this.notices.push(routedNotice(slug, applied));
+		this.markSeen();
+	}
+
+	/** Put back a note that could not be delivered, so the next prompt still carries it. */
+	requeue(text: string): void {
+		this.notices.unshift(text);
+	}
+
+	/** The change note for edits made since the agent last saw its list, or null. Moves `seen` forward. */
+	private changeNote(): string | null {
+		let list: TaskList | null;
+		try {
+			list = attachedList(this.deps.store().claimedBySession());
+		} catch {
+			return null;
+		}
+		const before = this.seen;
+		this.seen = list;
+		if (!list || !before || before.slug !== list.slug) return null;
+		const delta = listDelta(before, list);
+		return delta ? changedNotice(list.slug, delta) : null;
+	}
+
+	/**
+	 * The notes waiting for the agent, or null when none. With `prompt` (a new user prompt starts) a task
+	 * waiting on the user is named too, after any open resume dialog is answered; between tool calls only
+	 * changes are returned.
+	 */
+	async takeNotice(prompt = true): Promise<string | null> {
+		if (prompt && this.resume) await this.resume;
+		if (prompt) this.resume = null;
 		if (this.deps.enabled()) {
-			const list = attachedList(this.deps.store().claimedBySession());
-			const reminder = list ? replyNotice(list) : null;
-			if (reminder) this.notices.push(reminder);
+			const change = this.changeNote();
+			if (change) this.notices.push(change);
+			if (prompt) {
+				const list = attachedList(this.deps.store().claimedBySession());
+				const waiting = list ? waitingNotice(list) : null;
+				if (waiting) this.notices.push(waiting);
+			}
 		}
 		if (!this.notices.length) return null;
 		const text = this.notices.join("\n\n");

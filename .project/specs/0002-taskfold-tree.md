@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 21
+  revision: 22
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T14:58:07+01:00"
+  updated_at: "2026-11-08T15:16:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 21
-      reason: "details found while implementing content anchors (slice 7)"
-      changes: ["attachment cap is the existing tasks.attachments.maxLines (60), not a token cap", "too_large state and lost candidates", "a moved quote returns its exact text without disambiguation", "legacy lines ranges are read by line and upgraded to a quote anchor on delivery", "attachment delivery keys are by id only"]
+    - revision: 22
+      reason: "details found while implementing notices (slice 8)"
+      changes: ["notices are JSON deltas against the state the agent last saw, sent after tool results and with the next prompt", "routed-message notice lists applied operations with their ids", "restored notice dropped: notices are not Truth blocks, start/claim re-deliver hidden context"]
 ---
 
 # Taskfold
@@ -503,25 +503,31 @@ it early; §4.4 covers that.
 
 ### 4.4 Out-of-band changes
 
-Changes the agent did not make reach it as **one appended custom message**, persisted in the
-session, sent through `pi.sendMessage({customType: "accordion.tasks.notice", content, display: true}, {deliverAs: "steer"})`
-while a turn runs, or with the next prompt through `before_agent_start` when idle. Never an edit of
-an earlier message.
+Changes the agent did not make reach it as **one appended custom message** (`accordion.tasks.notice`),
+persisted in the session and never an edit of an earlier message:
+- while a turn runs, after a tool result, as `pi.sendMessage(…, {deliverAs: "steer"})`;
+- while idle, with the next prompt through `before_agent_start`. A note that cannot be sent is kept for that prompt.
 
 ```json
-{"tasks": "auth", "changed": {"goals": {"added": [{"id": "g3", "text": "…"}], "removed": ["g2"]}, "pins": {"added": [{"id": "p7", …}], "removed": ["p2"]}, "attachments": {"added": [{…, "content": "…"}], "removed": ["a3"]}, "tasks": {"renumbered": {"4": "5"}}}}
-{"tasks": "auth", "restored": {"list": {…}, "tasks": [{"id": "3.1", …}]}}
+{"tasks": "auth", "changed": {"goals": {"added": [{"id": "g3", "text": "…"}], "removed": ["g2"], "edited": [{"id": "g1", "text": "…"}]}, "pins": {"added": [{"id": "p7", "kind": "rule", "text": "…"}], "removed": ["p2"]}, "attachments": {"added": [{"id": "a4", "ref": "docs/auth.md#Token store"}], "removed": ["a3"]}, "tasks": {"added": [{"id": "5", "title": "…"}], "removed": ["4"], "changed": [{"id": "2", "status": "abandoned"}]}, "within": {"3.1": {"criteria": {"added": [{"id": "c4", "text": "…"}]}}}}}
+{"tasks": "auth", "changed": {"by": "user-message", "ops": [{"op": "+", "kind": "pin", "target": "list", "ref": "p7", "text": "Never touch vendor/"}]}}
 {"tasks": "auth", "waiting": [{"id": "1.2", "reason": "user-decision", "detail": "…"}]}
 ```
 
 | Kind | Trigger | Content |
 |---|---|---|
-| `changed` | the user edits the list (UI, hand edit, another session) and the edit touches the list goals or a `doing` branch | only the delta; detected by comparing list fingerprints before each agent start and after each tool batch |
-| `restored` | the live set misses items required by `doing` tasks (human fold of a delivery, compaction) | only the missing items, computed with §4.3 |
-| `waiting` | user prompt while a task is blocked on `user-decision`/`user-input` | the resume note |
+| `changed` | the user edits the list (UI, hand edit, another session) | the delta against the state the agent last saw: list goals, pins and attachments; tasks added, removed, renamed or with a new status; goals, criteria, pins and attachments of tasks on the `doing` branch (`within`, by task id). At most 20 task entries, the rest counted in `more`. Compared before each prompt and after each tool result |
+| `changed` `by: "user-message"` | the extractor changed the list (§4.6) | the applied operations with the ids they created; `text` is shortened to 100 characters |
+| `waiting` | user prompt while a task is blocked on `user-decision`/`user-input` | the blocked tasks and their `detail` |
 
-A notice carries its own manifest in `details`, so it counts as delivery. File changes on disk are
-never notices; they are reported at the next delivery (§4.2).
+"Last saw" is the list after the agent's own `tasks` call, after the last note, or after an attach
+note, so the agent never hears about its own edits. File changes on disk are never notices; they are
+reported at the next delivery (§4.2).
+
+Notices are not Truth blocks (`linearize` skips custom messages), so they do not enter the delivery
+ledger (§4.3). A `restored` notice, which would re-deliver context a human fold or a compaction hid
+from a task in progress, is therefore not sent: `start` and `claim` re-deliver it (§4.3), and the next
+`start`/resume of the task shows what is missing.
 
 ### 4.5 Removed
 

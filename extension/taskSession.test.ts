@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { BINDING_ENTRY, type BindingRecord } from "./taskBinding";
 import { TaskSession, type TaskSessionUi } from "./taskSession";
-import { TaskStore, runTasks, taskFingerprint } from "./tasks";
+import { TaskStore, runTasks, runTasksTracked, taskFingerprint } from "./tasks";
 
 const KEY: Record<string, string> = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b" };
 const keys = { matches: (d: string, b: string) => KEY[{ "tui.select.up": "up", "tui.select.down": "down", "tui.select.confirm": "enter", "tui.select.cancel": "esc" }[b] ?? ""] === d };
@@ -59,14 +59,42 @@ describe("task session", () => {
 		expect(mine.read("plan").goals).toEqual([{ id: "g1", text: "Ship the implementation" }]);
 	});
 
-	test("reminds on the next prompt when an attached task awaits the user", async () => {
+	test("names a task that awaits the user on the next prompt only", async () => {
 		const { mine, ts } = setup();
 		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "Review" }] });
 		runTasks(mine, { action: "start", list: "a", id: "1" });
 		runTasks(mine, { action: "block", list: "a", id: "1", reason: "user-input", detail: "Which option?" });
-		expect(await ts.takeNotice()).toContain('1 "Review"');
+		expect(await ts.takeNotice(false)).toBeNull();
+		expect(JSON.parse((await ts.takeNotice())!)).toEqual({ tasks: "a", waiting: [{ id: "1", reason: "user-input", detail: "Which option?" }] });
 		runTasks(mine, { action: "start", list: "a", id: "1" });
+		ts.markSeen();
 		expect(await ts.takeNotice()).toBeNull();
+	});
+
+	test("tells the agent once about edits it did not make, and never about its own", async () => {
+		const { mine, other, ts } = setup();
+		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }, { title: "Two" }] });
+		ts.markSeen();
+		runTasks(mine, { action: "start", list: "a", id: "1" });
+		runTasksTracked(mine, { action: "pin", list: "a", items: [{ kind: "rule", text: "agent pin", source: "user" }] }, ["agent pin"]);
+		ts.markSeen();
+		expect(await ts.takeNotice(false)).toBeNull();
+		runTasks(other, { action: "claim", list: "a", force: true });
+		runTasks(other, { action: "update", list: "a", goals: { add: ["Also SSO"] } });
+		runTasks(other, { action: "update", list: "a", id: "1", acceptanceCriteria: { add: ["Reviewed"] } });
+		runTasks(mine, { action: "claim", list: "a", force: true });
+		expect(JSON.parse((await ts.takeNotice(false))!)).toEqual({ tasks: "a", changed: { goals: { added: [{ id: "g2", text: "Also SSO" }] }, within: { "1": { criteria: { added: [{ id: "c1", text: "Reviewed" }] } } } } });
+		expect(await ts.takeNotice(false)).toBeNull();
+	});
+
+	test("queues a routed-message note once and treats the new state as seen", async () => {
+		const { mine, ts } = setup();
+		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }] });
+		ts.markSeen();
+		runTasksTracked(mine, { action: "pin", list: "a", items: [{ kind: "constraint", text: "Never touch vendor/", source: "user" }] }, ["Never touch vendor/"]);
+		ts.noteRouted("a", [{ op: "+", kind: "pin", target: "list", value: "Never touch vendor/", pinKind: "constraint", ref: "p1" }]);
+		expect(JSON.parse((await ts.takeNotice(false))!)).toEqual({ tasks: "a", changed: { by: "user-message", ops: [{ op: "+", kind: "pin", target: "list", ref: "p1", text: "Never touch vendor/" }] } });
+		expect(await ts.takeNotice(false)).toBeNull();
 	});
 
 	test("a reload silently reclaims a free, unchanged list and tells the agent nothing", async () => {
