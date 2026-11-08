@@ -138,6 +138,36 @@ describe("taskfold", () => {
 		expect(staleSpans(scanTaskSpans(parent.blocks, (b) => b.text), parent.blocks, 3)).toEqual([]);
 	});
 
+	it("holds the first request after load until the epoch has folded", async () => {
+		const { s, start } = oneTask();
+		const host = setup(s);
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 });
+		expect(c.holdWireUpToMs).toBeGreaterThan(0);
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		// Load fires the epoch asynchronously (the host's initial turn-committed); the wire leaves before it commits unless the hold waits.
+		const epoch = host.commitTurn();
+		await host.departWire();
+		await epoch;
+		expect(groupOf(host, start)).toBeDefined();
+	});
+
+	it("defers a fold that sits beyond the cache lookback until the cache is cold or pressure requires it", async () => {
+		const { s, start } = oneTask();
+		s.work(30, "after");
+		const host = setup(s, 2);
+		host.truth.setLocks(["tail-size"], "Taskfold", 0);
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 });
+		c.attach(host);
+		// A warm cache: the span was already sent, and it starts far behind the newest message.
+		await host.departWire();
+		expect(groupOf(host, start)).toBeUndefined();
+		// Pressure overrides the deferral.
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+		await host.commitTurn();
+		expect(groupOf(host, start)).toBeDefined();
+	});
+
 	it("folds a finished root into a one-line history carrier on an assistant group", async () => {
 		const { s, start, end } = oneTask();
 		const host = setup(s);

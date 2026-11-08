@@ -114,6 +114,8 @@ const ROUTE_TIMEOUT_MS = 45_000;
 const ROUTE_MAX_OUTPUT_TOKENS = 1500;
 /** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
 export const ZOMBIE_STEPS = 40;
+/** Blocks the provider looks back from a cache breakpoint. A fold starting further back rewrites the whole tail. */
+const CACHE_LOOKBACK = 20;
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
 const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
@@ -456,6 +458,8 @@ export class TaskfoldConductor implements Conductor {
 	/** Taskfold owns the tail so a finished task folds at the next request, inside the provider's cache lookback. Pressure folds of open or untracked work still honor the user's dial (`userTailFrom`). */
 	readonly locks = ["tail-size"] as const;
 	readonly tailTokens = 0;
+	/** The first request after load or cache expiry waits for the epoch, so a fold lands before the wire leaves instead of one request late. */
+	readonly holdWireUpToMs = 2_000;
 
 	private readonly k: Required<TaskfoldOptions>;
 	private host: ConductorHost | null = null;
@@ -470,6 +474,8 @@ export class TaskfoldConductor implements Conductor {
 	private readonly routing = new Set<string>();
 	private classifyFailures = 0;
 	private epochs = 0;
+	/** The epoch currently committing, awaited by the wire-departing hold so the first request after load carries its folds. */
+	private inflight: Promise<void> | null = null;
 
 	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger(), private readonly router: RoutingPort = taskfoldRouting) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
@@ -503,6 +509,8 @@ export class TaskfoldConductor implements Conductor {
 		switch (e.type) {
 			case "resync":
 				return this.evaluate();
+			case "wire-departing":
+				return this.inflight ?? undefined;
 			case "blocks-appended":
 				this.classifyNew(e.blocks);
 				return this.evaluate();
@@ -706,7 +714,9 @@ export class TaskfoldConductor implements Conductor {
 			host.setStatus(`Taskfold saturated: ${holder}; no safe fold is available.${stale.length ? ` Stale open task${stale.length > 1 ? "s" : ""}: ${stale.join(", ")}.` : ""}`, { epochs: this.epochs, groups: this.groupKeys(host).size, level: "error" });
 			return;
 		}
-		return this.commit(host, plan);
+		const run = this.commit(host, plan).finally(() => { if (this.inflight === run) this.inflight = null; });
+		this.inflight = run;
+		return run;
 	}
 
 	/** `pressure`: the projection is at or above `high·budget`; below it only finished tasks fold (eager records, SPEC-0002 §8). */
@@ -729,6 +739,10 @@ export class TaskfoldConductor implements Conductor {
 		const foldedKeys = new Set(this.groupKeys(host).values());
 		const recent = new Set([...roots].sort((a, b) => b.end - a.end).slice(0, this.k.keepRecentTasks).map((s) => s.key));
 		const candidates = recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.filter((s) => !recent.has(s.key));
+		// A fold changes the cache from its first block. Beyond the provider's lookback of the newest breakpoint that rewrites everything after the system prompt, so it pays back only after about 11.5 requests per token saved. Inside the lookback, under pressure, or on a cold cache it folds now.
+		const lookback = Math.max(0, blocks.length - CACHE_LOOKBACK);
+		const cold = !blocks.some((b) => b.sent);
+		const deep = (span: Span) => !cold && !pressure && span.start < lookback && !foldedKeys.has(span.key);
 		const units: Unit[] = [];
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
@@ -753,7 +767,7 @@ export class TaskfoldConductor implements Conductor {
 				if (outside && !foldedKeys.has(child.key)) fold(child, eager);
 			}
 		};
-		for (const span of candidates) fold(span, !recompose);
+		for (const span of candidates) if (!deep(span)) fold(span, !recompose);
 		if (!recompose && pressure) {
 			for (const span of roots.filter((s) => recent.has(s.key))) fold(span);
 			const condensed = projected > target ? this.condense(host, blocks, projected - target, planned) : null;

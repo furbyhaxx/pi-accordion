@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 24
+  revision: 25
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T16:49:11+01:00"
+  updated_at: "2026-11-08T17:47:03+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 24
-      reason: "folds waiting for the protected tail rewrote the provider cache far behind its lookback"
-      changes: ["Taskfold holds tail-size with a zero tail; records fold at the next request", "a record never ends the request", "floor and untracked records keep the user's tail dial", "detach inherits the largest safe tail up to the user's dial"]
+    - revision: 25
+      reason: "a fold one request late and beyond the cache lookback re-billed the whole tail"
+      changes: ["the first request after load waits for the epoch", "a fold beyond the cache lookback waits for a cold cache or pressure", "a deep fold never pays back in a few requests"]
 ---
 
 # Taskfold
@@ -762,6 +762,17 @@ final form and never rewritten.
   outside the tail.
 - **A record never ends the request.** A span whose last message is the newest message waits one
   step, so the wire never ends on an assistant carrier.
+- **The first request after load waits for the epoch.** Taskfold declares `holdWireUpToMs`, and its
+  `wire-departing` handler returns the epoch that is still committing. After a resume, restart or
+  model change the host fires that epoch on attach; the hold makes the first request carry its folds
+  instead of leaving one request early and paying for the rewrite on the next one (the 177k miss in
+  this repository's session).
+- **A fold beyond the cache lookback waits.** A fold changes the cache from its first block. When that
+  block is more than the provider's lookback (~20 blocks) behind the newest breakpoint, the fold
+  rewrites everything after the system prompt. Such a fold waits unless the cache is already cold
+  (nothing sent yet) or pressure requires it. It never pays back in a few requests: the rewrite
+  includes the span itself, so the cost always exceeds the per-request saving (ANA-fold-representations
+  §8: payback ≈ 11.5 · rewrite / saving, and rewrite ≥ saving). Folds inside the lookback stay eager.
 - No other aging. A history entry is never rewritten, merged or shortened. (Merging all history
   under pressure was measured: up to 20× more rebilled tokens on the nukular session.)
 - History within an open root rewrites from the oldest affected subtree onward: it happens only
