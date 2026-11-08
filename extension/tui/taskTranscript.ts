@@ -42,18 +42,9 @@ export interface TGroup {
 	live: number;
 }
 
-/** The cached task suffix, separate from persisted blocks and request overhead. */
-export interface TranscriptWorkingSet {
-	text: string;
-	tokens: number;
-	applied: boolean;
-	targetRole: "user" | "toolResult" | null;
-}
-
 export interface TranscriptSource {
 	lists?: readonly TaskList[];
 	listIssues?: readonly string[];
-	workingSet?: TranscriptWorkingSet | null;
 	blocks: readonly TBlock[];
 	groups: readonly TGroup[];
 	/** Authoritative carrier order and per-block charges, including drops and stragglers. */
@@ -78,7 +69,7 @@ export type TNode =
 	| { type: "edge"; edge: "start" | "finish"; span: TaskSpan; block: TBlock };
 
 /** Optional session metadata and whether folding is armed on the outgoing request. */
-export interface TranscriptOptions extends Pick<TranscriptSource, "lists" | "listIssues" | "workingSet"> {
+export interface TranscriptOptions extends Pick<TranscriptSource, "lists" | "listIssues"> {
 	folding?: boolean;
 }
 
@@ -90,7 +81,6 @@ export function transcriptSource(truth: Truth, verdict: (id: string) => Verdict 
 	return {
 		lists: options.lists,
 		listIssues: options.listIssues,
-		workingSet: options.workingSet,
 		projection,
 		blocks: truth.blocks.map((b) => ({
 			id: b.id,

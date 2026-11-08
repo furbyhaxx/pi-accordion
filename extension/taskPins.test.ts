@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { makeAttachment, makePin, parseLines, PIN_LIMITS, placeWorkingSet, readAttachment, workingSet } from "./taskPins";
+import { makeAttachment, makePin, parseLines, PIN_LIMITS, readAttachment, workingSet } from "./taskPins";
 
 const dirs: string[] = [];
 function directory(): string {
@@ -70,15 +70,3 @@ test("line ranges reject unsafe numeric values", () => {
 	expect(parseLines("1-999999999999999999999999")).toBeNull();
 });
 
-test("an unchanged working set stays on its carrier so earlier requests remain a cache prefix", () => {
-	const user = { role: "user", timestamp: 1 };
-	const call = { role: "assistant", timestamp: 2 };
-	const result = { role: "toolResult", timestamp: 3, toolCallId: "c1" };
-	const first = placeWorkingSet([user], "ws", null);
-	expect(first?.index).toBe(0);
-	const second = placeWorkingSet([user, call, result], "ws", first?.anchor ?? null);
-	expect(second?.index).toBe(0);
-	const changed = placeWorkingSet([user, call, result], "ws2", second?.anchor ?? null);
-	expect(changed?.index).toBe(2);
-	expect(placeWorkingSet([{ role: "user", timestamp: 9 }], "ws2", changed?.anchor ?? null)?.index).toBe(0);
-});

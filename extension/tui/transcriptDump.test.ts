@@ -229,23 +229,17 @@ describe("transcript dump", () => {
 		group.handles = [{ id: "t:l/1", memberIds: span }];
 		log.blocks.find((b) => b.id === span.at(-1))!.details = { task: lists[0].tasks[0] };
 		const src = source(log, [group]); src.lists = lists;
-		for (const applied of [true, false]) {
-			src.workingSet = { text: "working-set-suffix\n  active criteria", tokens: 20, applied, targetRole: applied ? "toolResult" : null };
-			const snapshot = doc(src);
-			const base = src.blocks.reduce((n, b) => n + b.live, 1000);
-			expect(snapshot.totals.live).toBe(base + (applied ? 20 : 0));
-			for (const format of DUMP_FORMATS) {
-				const out = renderDump(snapshot, format);
-				for (const text of ["Deliver reliable exports", "Every carrier exactly once", "Keep the scoped fact", "spec.md", "working-set-suffix", "handles", "block_details"])
-					expect(out).toContain(text);
-			}
-			const parsed = Bun.YAML.parse(renderDump(snapshot, "yaml")) as { transcript: { metadata: DumpDoc["metadata"]; working_set: { text: string; tokens: number; applied: boolean } } };
-			expect(parsed.transcript.metadata.task_lists).toEqual(lists);
-			expect(parsed.transcript.metadata.groups[0].handles).toEqual(group.handles);
-			expect(parsed.transcript.working_set.text).toBe(src.workingSet.text);
-			expect(parsed.transcript.working_set.applied).toBe(applied);
-			expect(parsed.transcript.working_set.tokens).toBe(applied ? 20 : 0);
+		const snapshot = doc(src);
+		expect(snapshot.totals.live).toBe(src.blocks.reduce((n, b) => n + b.live, 1000));
+		for (const format of DUMP_FORMATS) {
+			const out = renderDump(snapshot, format);
+			for (const text of ["Deliver reliable exports", "Every carrier exactly once", "Keep the scoped fact", "spec.md", "handles", "block_details"])
+				expect(out).toContain(text);
+			expect(out).not.toMatch(/working.set/i);
 		}
+		const parsed = Bun.YAML.parse(renderDump(snapshot, "yaml")) as { transcript: { metadata: DumpDoc["metadata"] } };
+		expect(parsed.transcript.metadata.task_lists).toEqual(lists);
+		expect(parsed.transcript.metadata.groups[0].handles).toEqual(group.handles);
 	});
 
 	it("YAML round-trips indented, blank and trailing-newline text exactly", () => {

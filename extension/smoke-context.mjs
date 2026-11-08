@@ -207,8 +207,8 @@ check("native task inspection caches disk reads, refreshes changes and refuses a
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
-check("task working set refreshes outside the request hook and stays session-local", async () => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-working-set-"));
+check("task context rides in the start result and requests are never rewritten", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-task-context-"));
 	const configDir = path.join(home, ".accordion");
 	const config = path.join(configDir, "config.json");
 	fs.mkdirSync(configDir, { recursive: true });
@@ -216,56 +216,30 @@ check("task working set refreshes outside the request hook and stays session-loc
 	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
 	fs.writeFileSync(path.join(dir, "spec.md"), "before");
 	const messages = [{ role: "user", content: "Always use decimal.", timestamp: 1 }];
-	const r = runtime(messages, { cwd: dir, sessionId: "work-set" });
-	const run = args => r.tools.tasks.execute("call", args, undefined, undefined, r.ctx);
+	const r = runtime(messages, { cwd: dir, sessionId: "task-context" });
+	const run = args => r.tools.tasks.execute("call", args, undefined, undefined, r.ctx).then(res => res.content[0].text);
 	try {
-		await run({ action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Task" }] });
-		await run({ action: "start", list: "w", id: "1" });
+		await run({ action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Task", acceptanceCriteria: ["Decimal everywhere"] }, { title: "Next" }] });
 		await run({ action: "pin", list: "w", items: [{ kind: "constraint", text: "Always use decimal.", source: "user" }] });
 		await run({ action: "attach", list: "w", id: "1", items: [{ path: "spec.md:1" }] });
-		fs.writeFileSync(path.join(dir, "spec.md"), "after");
-		const request = () => r.handlers.context_with_system({ messages: messages.map(m => ({ ...m })) }, r.ctx).messages[0].content;
-		assert.match(request(), /Always use decimal\./);
-		assert.match(request(), /│ before/);
-		r.handlers.turn_end({}, r.ctx);
-		assert.match(request(), /│ after/);
-		assert.match(request(), /changed since attached/);
-		const notice = { role: "custom", customType: "accordion.tasks.notice", content: "Resumed work.", display: false, timestamp: 2 };
-		messages.push(notice);
-		const noticeWire = r.handlers.context_with_system({ messages: [...messages] }, r.ctx).messages;
-		assert.match(noticeWire[0].content, /\[tasks\]/);
-		assert.equal(noticeWire[1], notice);
+		const started = await run({ action: "start", list: "w", id: "1" });
+		for (const part of [/goal: Finish work/, /Always use decimal\./, /Decimal everywhere/, /│ before/]) assert.match(started, part);
+		assert.doesNotMatch(await run({ action: "pin", list: "w", id: "1", items: [{ kind: "fact", text: "Always use decimal.", source: "user" }] }), /\[tasks\]/, "pin acknowledges only");
+		assert.doesNotMatch(await run({ action: "status", list: "w" }), /│ before/, "status never repeats content");
+		const stable = [{ role: "user", content: "Go.", timestamp: 10 }];
+		const firstWire = r.handlers.context_with_system({ messages: stable.map(m => ({ ...m })) }, r.ctx)?.messages ?? stable;
+		assert.equal(JSON.stringify(firstWire), JSON.stringify(stable), "no task text is appended to the request");
+		await run({ action: "abandon", list: "w", id: "1", report: { outcome: "Done." } });
+		const followUp = [...stable, { role: "assistant", responseId: "a", timestamp: 11, content: [{ type: "toolCall", id: "call-2", name: "tasks", arguments: {} }] },
+			{ role: "toolResult", toolCallId: "call-2", toolName: "tasks", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 12 }];
+		const secondWire = r.handlers.context_with_system({ messages: followUp.map(m => ({ ...m })) }, r.ctx)?.messages ?? followUp;
+		assert.equal(JSON.stringify(secondWire.slice(0, firstWire.length)), JSON.stringify(firstWire), "a task transition keeps the previous request a byte prefix");
 		await r.request(messages);
 		await r.command("tasks dump-transcript --formats all snapshot");
 		const flat = fs.readFileSync(path.join(dir, "snapshot.log"), "utf8");
-		assert.match(flat, /working set · transient, not persisted · appended to user/);
-		assert.match(flat, /│ after/);
+		assert.doesNotMatch(flat, /working.set/i);
 		const metadata = JSON.parse(flat.split("metadata (not on wire)\n")[1].split("\n").map(line => line.slice(4)).join("\n"));
 		assert.equal(metadata.task_lists[0].goal, "Finish work");
-		assert.equal(metadata.task_lists[0].tasks[0].attachments[0].path, "spec.md");
-		assert.match(fs.readFileSync(path.join(dir, "snapshot.yaml"), "utf8"), /working_set:\n    applied: true/);
-		messages.push({ role: "assistant", responseId: "done", timestamp: 3, content: [{ type: "text", text: "Done." }] });
-		await r.request(messages);
-		await r.command("tasks dump-transcript cached.log");
-		assert.match(fs.readFileSync(path.join(dir, "cached.log"), "utf8"), /working set · transient, not persisted · appended to user/);
-		messages.pop();
-		const toolResult = { role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 2 };
-		const resultMessages = r.handlers.context_with_system({ messages: [toolResult, notice] }, r.ctx).messages;
-		const resultWire = resultMessages[0];
-		assert.equal(resultMessages[1], notice);
-		assert.match(resultWire.content.at(-1).text, /\[tasks\]/);
-		assert.equal(toolResult.content.length, 1);
-		const stable = [{ role: "user", content: "Go.", timestamp: 10 }];
-		const firstWire = r.handlers.context_with_system({ messages: stable.map(m => ({ ...m })) }, r.ctx).messages;
-		const followUp = [...stable, { role: "assistant", responseId: "a", timestamp: 11, content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: {} }] },
-			{ role: "toolResult", toolCallId: "call-2", toolName: "bash", content: [{ type: "text", text: "ok" }], isError: false, timestamp: 12 }];
-		const secondWire = r.handlers.context_with_system({ messages: followUp.map(m => ({ ...m })) }, r.ctx).messages;
-		assert.equal(JSON.stringify(secondWire.slice(0, firstWire.length)), JSON.stringify(firstWire), "an unchanged working set must keep the previous request a prefix");
-		await run({ action: "unpin", list: "w", pins: ["p1"] });
-		await run({ action: "detach", list: "w", id: "1", attachments: ["a1"] });
-		assert.doesNotMatch(request(), /spec\.md/);
-		r.ctx.sessionManager.getSessionId = () => "different-session";
-		assert.doesNotMatch(request(), /\[tasks\]/);
 		assert.equal(messages[0].content, "Always use decimal.");
 	} finally {
 		r.close();

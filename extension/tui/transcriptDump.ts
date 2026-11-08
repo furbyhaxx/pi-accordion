@@ -18,7 +18,7 @@ import type { TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
 import { messageKey } from "../../core/groupShape";
 import type { TaskList } from "../tasks";
-import { spanBlocks, spanContains, taskForest, type TranscriptWorkingSet, type TaskBranch, type TBlock, type TGroup, type Tokens, type TranscriptSource } from "./taskTranscript";
+import { spanBlocks, spanContains, taskForest, type TaskBranch, type TBlock, type TGroup, type Tokens, type TranscriptSource } from "./taskTranscript";
 
 export type DumpFormat = "tree" | "yaml" | "xml" | "md" | "flat";
 
@@ -132,7 +132,6 @@ export interface DumpDoc {
 	generatedAt: string;
 	/** Inspection metadata, never counted as model-visible content. */
 	metadata: { task_lists: readonly TaskList[]; list_issues: readonly string[]; groups: { id: string; memberIds: readonly string[]; handles?: TGroup["handles"]; folded: boolean }[]; block_details: { id: string; details: unknown }[] };
-	workingSet: TranscriptWorkingSet | null;
 	orientation: DumpNode[];
 	body: DumpNode[];
 	tail: DumpNode[];
@@ -219,13 +218,11 @@ export function dumpDocument(input: DumpInput): DumpDoc {
 	};
 	for (const branch of taskForest(spans)) { const node = build(branch); if (node) body.push(node); }
 	body.sort((a, b) => (position.get(a) ?? 0) - (position.get(b) ?? 0));
-	const workingSet = source.workingSet ?? null;
-	const transient = workingSet?.applied ? workingSet.tokens : 0;
 	const metadata = { task_lists: source.lists ?? [], list_issues: source.listIssues ?? [],
 		groups: source.groups.map((g) => ({ id: g.id, memberIds: g.memberIds, ...(g.handles ? { handles: g.handles } : {}), folded: g.folded })),
 		block_details: source.blocks.filter((b) => b.details !== undefined).map((b) => ({ id: b.id, details: b.details })) };
-	return { meta: input.meta, system: input.system, totals: { ...input.totals, full: input.totals.full + transient, live: input.totals.live + transient }, generatedAt: dumpStamp(input.generatedAt),
-		metadata, workingSet, orientation, body, tail, wire: entries.map((e) => e.node) };
+	return { meta: input.meta, system: input.system, totals: input.totals, generatedAt: dumpStamp(input.generatedAt),
+		metadata, orientation, body, tail, wire: entries.map((e) => e.node) };
 }
 
 /* ── shared helpers ─────────────────────────────────────────────────────────── */
@@ -235,7 +232,6 @@ const label = (n: DumpBlock) => (n.block.toolName ? `${n.block.kind} ${n.block.t
 /** A human-authored digest carries no `{#code FOLDED}` tag, so it has no handle to report. */
 const foldMark = (n: DumpNode): string => (n.code ? `FOLDED {#${n.code}}` : "FOLDED (no code)");
 const hasMetadata = (doc: DumpDoc): boolean => Object.values(doc.metadata).some((xs) => xs.length > 0);
-const workingSetLabel = (ws: TranscriptWorkingSet): string => `working set · transient, not persisted · ${ws.applied ? `appended to ${ws.targetRole}` : "cached, not appended to this snapshot"}`;
 /** `text` as a literal block: every line prefixed, blank lines kept empty. */
 function graft(out: string[], text: string, prefix: string): void {
 	for (const line of lines(text)) out.push(line.length ? `${prefix}${line}` : "");
@@ -282,10 +278,6 @@ export function renderTree(doc: DumpDoc): string {
 		...doc.body.map((child) => (pre: string, last: boolean) => node(child, pre, last)),
 		(pre, last) => section(`tail  ·  ${sumLive(doc.tail)} tok  (protected)`, doc.tail, pre, last),
 	];
-	if (doc.workingSet) items.push((pre, last) => {
-		out.push(`${pre}${last ? "└─ " : "├─ "}${workingSetLabel(doc.workingSet!)} · ${doc.workingSet!.applied ? doc.workingSet!.tokens : 0} tok`);
-		graft(out, doc.workingSet!.text, `${pre}${last ? "   " : "│  "}┆ `);
-	});
 	if (hasMetadata(doc)) items.push((pre, last) => {
 		out.push(`${pre}${last ? "└─ " : "├─ "}metadata (not on wire)`);
 		graft(out, JSON.stringify(doc.metadata, null, 2), `${pre}   `);
@@ -316,7 +308,6 @@ export function renderFlat(doc: DumpDoc): string {
 		row(`${turn}${label(n)}`, n.block.live, n.wire, marksOf(n));
 		if (n.result) row(`${turn}tool_result${n.result.toolName ? ` ${n.result.toolName}` : ""}`, n.result.live, n.resultWire ?? "", n.result.folded ? "FOLDED" : "");
 	}
-	if (doc.workingSet) row("WORKING SET", doc.workingSet.applied ? doc.workingSet.tokens : 0, doc.workingSet.text, workingSetLabel(doc.workingSet));
 	if (hasMetadata(doc)) { out.push("metadata (not on wire)"); graft(out, JSON.stringify(doc.metadata, null, 2), "    "); }
 	return out.join("\n");
 }
@@ -392,15 +383,6 @@ export function renderYaml(doc: DumpDoc): string {
 	out.push("  tail:");
 	for (const n of doc.tail) node(n, 4);
 	if (!doc.tail.length) out.push("    []");
-	if (doc.workingSet) {
-		const ws = doc.workingSet;
-		out.push("  working_set:");
-		out.push(`    applied: ${ws.applied}`);
-		out.push(`    target_role: ${json(ws.targetRole)}`);
-		out.push(`    tokens: ${ws.applied ? ws.tokens : 0}`);
-		out.push(`    available_tokens: ${ws.tokens}`);
-		block("text", ws.text, 4);
-	}
 	if (hasMetadata(doc)) out.push(`  metadata: ${json(doc.metadata)}`);
 	return `${out.join("\n")}\n`;
 }
@@ -466,10 +448,6 @@ export function renderXml(doc: DumpDoc): string {
 	out.push(`${ind(1)}<tail tokens="${sumLive(doc.tail)}">`);
 	for (const n of doc.tail) node(n, 2);
 	out.push(`${ind(1)}</tail>`);
-	if (doc.workingSet) {
-		const ws = doc.workingSet;
-		out.push(`${ind(1)}<working-set applied="${ws.applied}" target="${ws.targetRole ?? ""}" tokens="${ws.applied ? ws.tokens : 0}" available-tokens="${ws.tokens}">${cdata(ws.text)}</working-set>`);
-	}
 	if (hasMetadata(doc)) out.push(`${ind(1)}<metadata format="json">${cdata(JSON.stringify(doc.metadata))}</metadata>`);
 	out.push(`</transcript>`);
 	return out.join("\n");
@@ -530,7 +508,6 @@ export function renderMarkdown(doc: DumpDoc): string {
 	for (const n of doc.body) heading(n, 2);
 	out.push(`## tail · ${sumLive(doc.tail)} tok`);
 	for (const n of doc.tail) heading(n, 3);
-	if (doc.workingSet) { out.push(`## ${workingSetLabel(doc.workingSet)} · ${doc.workingSet.applied ? doc.workingSet.tokens : 0} tok`); block(doc.workingSet.text); }
 	if (hasMetadata(doc)) { out.push("## metadata (not on wire)"); block(JSON.stringify(doc.metadata, null, 2)); }
 	return out.join("\n");
 }

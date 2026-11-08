@@ -57,7 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
-import { PIN_LIMITS, placeWorkingSet, workingSet, type WorkingSetAnchor } from "./taskPins";
+import { PIN_LIMITS, workingSet } from "./taskPins";
 import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
@@ -3162,30 +3162,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
-	let cachedWorkingSet: { session: string; cwd: string; text: string } | null = null;
-	let workingSetAnchor: (WorkingSetAnchor & { session: string }) | null = null;
-	function anchorFor(ctx: ExtensionContext): WorkingSetAnchor | null {
-		return workingSetAnchor?.session === ctx.sessionManager.getSessionId() ? workingSetAnchor : null;
-	}
-	function currentWorkingSet(ctx: ExtensionContext): string | null {
-		const cache = cachedWorkingSet;
-		return tasksToolActive() && cache?.session === ctx.sessionManager.getSessionId() && cache.cwd === ctx.cwd ? cache.text : null;
-	}
-	function refreshWorkingSet(ctx: ExtensionContext): void {
-		cachedWorkingSet = null;
-		if (!tasksToolActive()) return;
-		try {
-			const list = attachedList(taskStoreFor(ctx).claimedBySession());
-			if (list) cachedWorkingSet = { session: ctx.sessionManager.getSessionId(), cwd: ctx.cwd, text: workingSet(list, ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines) };
-		} catch (err) {
-			ctx.ui.notify(`Cannot refresh task working set: ${err instanceof Error ? err.message : String(err)}`, "error");
-		}
-	}
-
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
 	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
-		refreshWorkingSet(ctx);
 		const content = await taskSession?.takeNotice();
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
@@ -3324,23 +3303,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	// ── model swap: keep the context window in lockstep ─────────────────────────
-	pi.on("context_with_system", (event, ctx: ExtensionContext) => {
-		const suffix = currentWorkingSet(ctx);
-		if (!foldingEnabled && !suffix) return;
+	// Request-local only: armed folding clears historical usage anchors so Pi estimates the actual
+	// outgoing prefix. Nothing is appended to any message; every request extends the previous one.
+	pi.on("context_with_system", (event) => {
+		if (!foldingEnabled) return;
 		const messages = event.messages.map((message) => {
-			if (!foldingEnabled || message.role !== "assistant" || !message.usage) return message;
+			if (message.role !== "assistant" || !message.usage) return message;
 			return { ...message, usage: { ...message.usage, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 } };
 		});
-		const placement = suffix ? placeWorkingSet(messages, suffix, anchorFor(ctx)) : null;
-		if (suffix && placement) {
-			workingSetAnchor = { ...placement.anchor, session: ctx.sessionManager.getSessionId() };
-			const last = messages[placement.index];
-			if (last?.role === "user") {
-				messages[placement.index] = { ...last, content: typeof last.content === "string" ? `${last.content}\n\n${suffix}` : [...last.content, { type: "text", text: suffix }] };
-			} else if (last?.role === "toolResult") {
-				messages[placement.index] = { ...last, content: [...last.content, { type: "text", text: suffix }] };
-			}
-		}
 		return { messages };
 	});
 
@@ -3364,8 +3334,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// `TestHost.commitTurn` — an attached conductor (in-process) or the remote replica (over the
 	// wire) treats it as the moment to re-run its pass. Purely a notification; folding still happens
 	// only at `context`, and there is no conductor attached ⇒ this is a no-op.
-	pi.on("turn_end", (_event, ctx: ExtensionContext) => {
-		if (ctx) refreshWorkingSet(ctx);
+	pi.on("turn_end", () => {
 		if (!truth) return;
 		const last = truth.blocks[truth.blocks.length - 1];
 		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
@@ -3725,11 +3694,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const relevant = new Set(transcriptSpans(source).map((span) => span.list));
 		source.lists = scan.lists.filter((list) => relevant.has(list.slug) || list.claim?.session === ctx.sessionManager.getSessionId());
 		source.listIssues = scan.invalid;
-		const suffix = currentWorkingSet(ctx);
-		if (suffix) {
-			const target = placeWorkingSet(foldingEnabled ? truth.serializeWire(lastMessages) : lastMessages, suffix, anchorFor(ctx));
-			source.workingSet = { text: suffix, tokens: estTokens(suffix), applied: target !== null, targetRole: target?.role ?? null };
-		}
 		const system = source.blocks.find((b) => b.kind === "system");
 		const doc = dumpDocument({
 			source,
@@ -4120,8 +4084,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const run = runTasksTracked(store, args, userTexts, { ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines });
 				if (run.started.length && args.list) taskCoach.started(args.list, run.started);
 				if (run.finished && args.list) taskCoach.finished(args.list, run.finished);
-				const text = run.text;
 				const list = read();
+				// Task context rides once in the result that starts the work, so it folds with the span.
+				const context = list && (args.action === "start" || args.action === "claim") && list.tasks.some((t) => t.status === "doing")
+					? workingSet(list, ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines) : "";
+				const text = context ? `${run.text}\n\n${context}` : run.text;
 				const details: TasksDetails = {
 					...tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered),
 					...(run.started.length ? { started: run.started } : {}),
@@ -4137,7 +4104,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			} finally {
 				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) {
 					taskWidget.reload();
-					refreshWorkingSet(ctx);
 					notifyNative();
 				}
 			}

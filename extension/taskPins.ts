@@ -208,40 +208,7 @@ export interface WorkingSetList extends PinHolder {
 	tasks: readonly (PinHolder & { id: string; title: string; status: string; acceptanceCriteria?: string[] })[];
 }
 
-/** Find the request input before opaque trailing messages, never crossing an assistant reply. */
-export function workingSetTarget(messages: readonly { role: string }[]): { index: number; role: "user" | "toolResult" } | null {
-	const index = messages.findLastIndex((message) => message.role === "user" || message.role === "toolResult" || message.role === "assistant");
-	const role = messages[index]?.role;
-	return role === "user" || role === "toolResult" ? { index, role } : null;
-}
-
-/** Where a working set was last appended: its text and the input message that carried it. */
-export interface WorkingSetAnchor {
-	readonly text: string;
-	readonly key: string;
-}
-
-type AnchorMessage = { role: string; timestamp?: unknown; toolCallId?: unknown };
-const anchorKey = (m: AnchorMessage): string => `${m.role}:${String(m.timestamp ?? "")}:${String(m.toolCallId ?? "")}`;
-
-/**
- * Choose the message that carries the working set. An unchanged working set stays on the message
- * that already carries it, so earlier requests remain a byte-identical prefix for provider caches;
- * only a changed text, or a carrier that left the request, moves it to the current input.
- */
-export function placeWorkingSet(messages: readonly AnchorMessage[], text: string, previous: WorkingSetAnchor | null): { index: number; role: "user" | "toolResult"; anchor: WorkingSetAnchor } | null {
-	if (previous?.text === text) {
-		const index = messages.findIndex((m) => (m.role === "user" || m.role === "toolResult") && anchorKey(m) === previous.key);
-		const role = messages[index]?.role;
-		if (role === "user" || role === "toolResult") return { index, role, anchor: previous };
-	}
-	const target = workingSetTarget(messages);
-	if (!target) return null;
-	const message = messages[target.index];
-	return message ? { ...target, anchor: { text, key: anchorKey(message) } } : null;
-}
-
-/** The working-set text for the attached list: goal, list pins, and the doing branch's pins, attachments and criteria. */
+/** The task context `start` and `claim` deliver: goal, list pins, and the doing branch's pins, attachments and criteria. */
 export function workingSet(list: WorkingSetList, projectDir: string, render: AttachmentRender, maxLines = PIN_LIMITS.maxLines): string {
 	const out = [`[tasks] ${list.slug} — ${list.title}`, list.goal ? `goal: ${list.goal}` : `goal: none yet — set it with tasks update {list: "${list.slug}", goal}`];
 	const pinLines = (pins: readonly Pin[] | undefined, indent: string) => (pins ?? []).map((p) => `${indent}pin ${p.id} ${p.kind}: ${p.text} (${p.source})`);
