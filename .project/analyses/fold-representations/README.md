@@ -1,0 +1,121 @@
+---
+document:
+  type: "analysis"
+  id: "ANA-fold-representations"
+  title: "Fold representations, fold timing and user-message routing: evaluation"
+  description: "Offline cache/token simulation of folded-task representations and fold timing, plus the design of the live comprehension and user-message routing evaluations"
+  status: "draft"
+  revision: 1
+  created_at: "2026-11-08T11:26:48+01:00"
+  updated_at: "2026-11-08T11:26:48+01:00"
+  created_by: "orchestrator"
+  updated_by: "orchestrator"
+  changelog:
+    - revision: 1
+      reason: "document creation"
+      changes: ["offline simulation results", "live evaluation design and cost"]
+---
+
+# Fold representations, timing and user-message routing
+
+Feeds SPEC-0002 §6–§9 (records, planner, aging, epoch) and the user-message design. Decided by the
+user before this analysis: under hard pressure a completed root becomes **one history message per
+root** (more cache friendly than one merged history message).
+
+## 1. Candidates
+
+| Id | Folded task on the wire |
+|---|---|
+| S | one synthetic `assistant` message holding the composed record |
+| B | bracket: original `tasks start` call + result, one `assistant` work record (own facts only), children as nested brackets, original `tasks complete` call + result |
+| B→S | B for a leaf; once a parent folds, the parent becomes S |
+| T | one synthetic tool pair: `assistant` `toolCall tasks {action:"started-and-completed", id}` + `toolResult` record |
+| H | history (hard pressure): one `assistant` line per completed root, recall by one code |
+
+Timing: **eager** folds every finished task at the next request; **lazy** folds finished roots only
+when live > high·budget (current behaviour, keep-recent waived), down to low·budget.
+
+## 2. Offline simulation
+
+`harness/sim.py <session.jsonl> --budget N` rebuilds the outgoing message list before every
+assistant response for each candidate × timing and compares it with the previous request
+(longest common message prefix = provider prefix-cache hit; always-warm cache). Tokens are
+chars/4. `cost` weights reads 0.1 and writes 1.25 (Anthropic 5-minute cache multipliers) in
+input-token units. `rebill` counts previously sent tokens that had to be written again. Spans
+crossing their parent (historical late children) stay raw. `harness/synth.py` generates nested
+synthetic sessions. No model calls; the private session is only read (sha256 checked).
+
+Full output: `evidence/results.txt`. Excerpt (weighted cost in input-token units, thousands):
+
+| Fixture, budget | RAW | S lazy | S eager | B eager | B→S eager | T eager | rebill S lazy → eager |
+|---|---|---|---|---|---|---|---|
+| nukular, 120k | 79,288 | 21,927 | 16,016 | 16,127 | 16,043 | 16,023 | 1,374k → 261k |
+| nukular, 200k | 79,288 | 23,796 | 16,241 | 16,423 | 16,309 | 16,253 | 1,602k → 289k |
+| synth 6×3×3, 120k | 8,063 | 4,341 | 620 | 865 | 630 | 625 | 599k → 12k |
+| synth 12×4 leaves, 40k | 1,892 | 1,084 | 213 | 336 | 222 | 217 | 200k → 6k |
+| synth 3×3×3 big, 40k | 13,184 | 2,739 | 1,230 | 1,333 | 1,237 | 1,232 | 756k → 8k |
+
+Findings:
+1. **Timing dominates.** Eager folding cuts weighted cost by 27–88 % against lazy and rebilled
+   tokens 5–95×, on every fixture and budget. It also lowers peak and mean context.
+2. **Representation is second order** under eager folding: S, T and B→S are within ~2 % of each
+   other. T costs one extra small message per task over S.
+3. **Pure B is the most expensive**, 1–58 % above S, and keeps 2–30× more messages (nukular
+   final wire: 288 vs 149 messages), because every nested child keeps four scaffolding messages.
+   B→S removes that overhead at a ≤2 % premium.
+4. Nukular's eager peak (183k) is set by the long-open root and two crossing spans, not by the
+   representation; history (H) engaged at 60k–200k budgets on 5–11 roots.
+
+Limits: chars/4 estimates; a perfectly warm cache (no TTL expiry, which would favour folding even
+more); folding decisions simplified (no protected tail, no held blocks, no keel-lite floor).
+
+## 3. Live evaluation (designed, not run)
+
+The offline numbers cannot say whether the model **understands** a representation: recalls the
+right code, does not redo finished work, places new work in the right task. That needs model
+calls.
+
+### 3.1 Comprehension (S, T, B→S, H)
+
+Fixtures: the nukular replay at 120k cut at 10 points, and the three synthetic shapes cut at 5
+points each, 25 contexts per representation. Per context, 6 probes, one per request:
+
+| Probe | Correct when |
+|---|---|
+| "Which task are you on and what is its parent?" | names the doing id and parent |
+| "Was 3.2 completed? What was its outcome?" | answers from the record without a tool call |
+| "Show the test command you ran for 2.1." | calls `recall` with 2.1's code (not the parent's, not re-run) |
+| "Continue." (next step) | no tool call that repeats a finished task's work |
+| "Add a check for X under the task it belongs to." | `tasks add` with the right parent |
+| "Summarize what is left." | lists only unfinished tasks |
+
+Metrics: accuracy per probe, wrong-code recalls, redo rate, tokens. 4 representations × 25
+contexts × 6 probes = 600 requests, mean context ≈ 60k tokens → **≈ 36M input tokens, ≈ 0.3M
+output**. With prefix caching across the 6 probes of a context, ≈ 6M written + 30M read.
+
+### 3.2 User-message routing (options A, B, C)
+
+Corpus: the 10 user messages of the nukular session plus 40 synthetic ones (directives,
+corrections, scope changes, chat, answers), each with the list state at that moment. Gold labels
+for the expected list operations written by hand.
+
+| Option | Measured |
+|---|---|
+| Extraction alone (shared by B and C) | precision/recall of ops vs gold; verbatim-pin validity; latency, tokens |
+| A agent applies proposals | ops actually applied by the agent within its next 3 calls; turns spent |
+| B sidecar applies | ops applied; wrong ops applied; agent's next action consistent with the change |
+| C hybrid | as B for safe ops, as A for risky ops |
+
+Extraction: 50 messages × ~8k context ≈ 0.4M tokens per model. A/C agent runs: 50 × ~3 requests ×
+~40k ≈ 6M tokens. Total ≈ **7M input tokens** per model tried.
+
+### 3.3 Cost
+
+≈ 43M input tokens (≈ 70 % cache reads) and < 1M output for one model. Dollar cost depends on the
+model chosen and is quoted from current prices before running. Nothing has been run.
+
+## 4. Recommendation from offline data
+
+- Fold eagerly: `keepRecentTasks` default 0, fold at the request after `complete`.
+- Choose between S, T and B→S on comprehension (§3.1); cost does not separate them. Drop pure B.
+- H as decided: one message per completed root.
