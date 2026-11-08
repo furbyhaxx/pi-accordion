@@ -2,18 +2,18 @@
 document:
   type: "specification"
   id: "SPEC-0002"
-  title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, aging and floor"
-  description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans into composed records, aging, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
+  title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
+  description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 15
+  revision: 16
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-07T23:31:29+01:00"
+  updated_at: "2026-11-08T12:48:24+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 15
-      reason: "replace the injected working set with structured, delivered-once tool results"
-      changes: ["JSON results for every action", "start delivers task context once; delivery ledger derived from Truth", "section/symbol/quote anchors instead of line ranges", "out-of-band changes as appended notices", "working set and request injection removed"]
+    - revision: 16
+      reason: "adopt the fold-representation, timing and user-message routing evaluation (ANA-fold-representations)"
+      changes: ["eager folding at the next request", "JSON records on assistant carriers; root history on completion with child codes; aging levels removed", "user messages fold with their span after their list changes are applied by a sidecar extractor", "pressure-only history inside open roots", "legacy session adoption"]
 ---
 
 # Taskfold
@@ -476,7 +476,7 @@ Why this is correct without extra state:
 
 Protection: a delivery block belongs to the span of the task it started, so it folds when that span
 folds. Until then strategies must not fold it alone: the floor (§9.2), untracked records (§9.3)
-and aging skip `tasks` result blocks whose manifest names a `doing` task. Only a human fold can hide
+and history skip `tasks` result blocks whose manifest names a `doing` task. Only a human fold can hide
 it early; §4.4 covers that.
 
 ### 4.4 Out-of-band changes
@@ -510,6 +510,36 @@ never notices; they are reported at the next delivery (§4.2).
   request.
 - `tasks.attachments.render = "inline" | "reference"` keeps its meaning for `start` results:
   `reference` omits `content`.
+
+### 4.6 User messages
+
+Evidence: `.project/analyses/fold-representations/README.md` §3.4. The agent alone records a third
+of durable instructions too few (recall 0.68, real nukular corrections 0/9); an extractor applied by
+the extension reaches 0.93.
+
+- A user message is **never a fold boundary**. Inside a span it folds with the span. Outside every
+  span it stays raw.
+- Before it may fold, its durable content must be in the list. Pipeline per user message, run
+  after `before_agent_start` and off the request path:
+  1. **Classify** (existing classifier): `chat | answer | directive | correction | scope-change`.
+     `chat` and `answer` produce nothing.
+  2. **Extract**: one structured model call (`models` setting type `taskfold.extract`) with the list,
+     the `doing` branch, the agent's last turn and the message. Output: list operations
+     `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, value, pinKind?}`.
+     Questions, approvals and one-off instructions for the next step produce no operations.
+  3. **Apply** through the store with `source: "user"`. A pin must occur verbatim in the message
+     (existing quote check) or it is dropped. Removals and renames of started tasks follow the store's
+     rules; a refused operation is dropped and logged.
+  4. **Notify** the agent once with a §4.4 `changed` notice carrying `by: "user-message"` and the
+     applied operations. The agent may revert any of them with `tasks`.
+- The message's block records `details.routed = {ops: [...ids], at}`. Only routed messages may join
+  a group. Extraction failure or timeout leaves the message raw for the session (today's behaviour).
+- Records carry `"user": [{"said": "<first 120 chars>", "ids": ["p7", "c3"]}]` so the agent sees
+  where each instruction went.
+- The extractor sends session content to a model: Taskfold declares `privacy` and attaches through
+  the consent gate.
+- Proposing the operations to the agent instead was measured and rejected: it applied 71 % of
+  proposals, 37 % when some were already applied.
 
 ## 5. Spans
 
@@ -547,50 +577,56 @@ veto.
 
 ## 6. Records
 
-### 6.1 Shape (full level, L2)
+Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
+
+### 6.1 Carrier
+
+- Every Taskfold carrier is one `assistant` message, independent of the role of the run's first
+  message. Its text starts with the task's own tag (`{#code FOLDED}`, the tag is the handle), then one
+  line of compact JSON. Adjacent carriers stay separate messages; each is append-only.
+- One fold code per task: `foldCode("t:<list>/<id>")` (§7.3). The group's own code is not shown.
+
+### 6.2 Record (S)
 
 ```
-{#p1c2x9 FOLDED} [task-record] auth/2 "Extract TokenStore"  status: done
-acceptance criteria:
-  - no direct map access left
-outcome: …
-decisions:
-  - choice — reason
-pins:
-  - constraint: Never modify vendor/ (user)
-changed: src/auth/store.ts
-verified:
-  - `npm test` → ok
-open:
-  - …
-children:
-  {#c11k3a FOLDED} [task-record] auth/2.1 "Add the interface"  status: done
-    acceptance criteria: …
-    outcome: …
-    changed: …
-    children: …
+{#c11k3a FOLDED} {"task":"auth/2.1","title":"Add the interface","status":"done","criteria":["…"],"outcome":"…","decisions":["choice — reason"],"open":["…"],"pins":[{"id":"p4","kind":"constraint","text":"…","source":"user"}],"user":[{"said":"…","ids":["p4"]}],"changed":["src/auth/store.ts"],"verified":["npm test → ok"],"children":[…]}
 ```
 
-- Field order is fixed. Empty fields are omitted.
-- `changed` and `verified` come from the node's **own** traffic only: blocks inside its intervals
-  and outside every descendant's intervals.
-- Children are composed **verbatim**, indented two spaces per level, each with its own fold code
-  (§7.3). A record never re-summarizes a child.
-- Size cap per root record: `taskfold.recordTokens` (default 1,500). Over the cap, children are
-  condensed bottom-up (§8 L2c) until it fits. Never truncated mid-field; if its own fields and
-  recoverable handles still exceed the cap, keep the task raw and report saturation.
-- Part markers: `{#code FOLDED} [task-part] <key> "<title>" part i/n; the record follows the kept message(s) below.`
-- Untracked records: `{#code FOLDED} [untracked-work] <first assistant line ≤120>` plus `changed`
-  and `verified`.
-- `taskKeyOfSummary` recognizes `task-record`, `task-part`, `task-archived` and
-  `untracked-work` (key `untracked`).
+- Key order is fixed; empty keys are omitted. `children` holds the children's records verbatim, each
+  with its own `"recall"` code instead of a leading tag.
+- `changed` and `verified` come from the node's own traffic only (blocks inside its intervals and
+  outside every descendant's intervals).
+- Cap `taskfold.recordTokens` (default 1,500): over the cap, the deepest children become history
+  entries (§6.3) until it fits; never truncated mid-field. If own fields and pins still exceed it,
+  the task stays raw and saturation is reported.
+- `taskfold.leafForm = "record" | "bracket"` (default `record`). `bracket` (B→S) keeps a leaf's
+  original `tasks start` and finishing call/result pairs around a record without `outcome`, and
+  becomes a plain record once its parent folds. Comprehension equal, cost ≤2 % higher.
+
+### 6.3 History (H)
+
+```
+{#e1fc37 FOLDED} {"history":"auth/1","title":"Design","status":"done","subtasks":{"done":9,"abandoned":1},"outcome":"…≤160","children":{"1.1":"#ucn7c8","1.2":"#v6m0f5"}}
+```
+
+- One message per task; at most three lines when wrapped. `children` names the **direct** children's
+  codes so recall can target them (the eval recalled the root in 11 of 18 cases without them).
+- `status` is truthful about the subtree: a failed or abandoned descendant shows in `subtasks`.
+- Recalling the root code returns its full record (§6.2); recalling a child code returns that child's.
+
+### 6.4 Parts and untracked work
+
+- A span split by a held, protected or foreign block: earlier runs carry
+  `{#code FOLDED} {"part":"auth/2","of":[1,3]}`; the record rides on the last run.
+- Untracked runs: `{#code FOLDED} {"untracked":"<first assistant line ≤120>","changed":[…],"verified":[…]}`.
+- `taskKeyOfSummary` parses the JSON after the tag: `task`, `history`, `part`, `untracked`.
 
 ## 7. Planner
 
 ### 7.1 Pipeline
 
 `scanTaskSpans` derives the task intervals, reports and metadata. `TaskfoldConductor.plan` selects
-finished roots and aging targets, `unit` compiles them into runs and handles, and `commit` reconciles
+finished tasks and pressure-history targets, `unit` compiles them into runs and handles, and `commit` reconciles
 the proposed operations and rolls back partially rejected units. **There is no `ownGroups` cache.**
 Ours are the automatic groups whose summary `taskKeyOfSummary` recognizes. Every epoch recomputes the desired
 state, so a group pruned by protected-tail growth or by a human is proposed again once it is
@@ -600,9 +636,9 @@ eligible. Exception: a node the human unfolded (`by:"you"`) is left alone for th
 
 - A folded parent absorbs its finished descendants; the selected outermost finished node owns its
   eligible blocks. While a parent stays open, finished children are independent fold candidates.
-- Each maximal run of consecutive blocks with the same owner, excluding kept user messages,
-  becomes one group.
-- The owner's record rides on its last run. Earlier runs get `[task-part]`.
+- Each maximal run of consecutive blocks with the same owner becomes one group. Routed user
+  messages (§4.6) belong to the run; unrouted ones end it.
+- The owner's record rides on its last run. Earlier runs get a `part` marker (§6.4).
 - Edges snap to whole messages, as today.
 - Protected, held, system and foreign-group blocks end a run. A run with nothing collapsible
   (`collapsibleMessageKeys`) is dropped.
@@ -637,53 +673,45 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
 - Truth snapshot, replica and protocol versions are bumped. `agentView` matches handle codes that
   are embedded inside a summary, not only leading tags.
 
-## 8. Aging
+## 8. Fold lifecycle
 
-**Task age** of a finished root is the number of finished roots that finished after it. Children
-share their root's age.
+Evidence: `.project/analyses/fold-representations/README.md` §2–4. Folding as soon as a task
+finishes cut weighted cost 27–88 % against folding under pressure; history on completion cut
+rebilled tokens a further ~10× on the nukular session, because a finished root is written once in its
+final form and never rewritten.
 
-| Level | Form | Target by age (defaults) |
-|---|---|---|
-| L2 | full record, children verbatim | 0–2 |
-| L2c | full record; children condensed to one line each (`{#code} id "title" status · outcome≤160`), deepest first | 3–5 |
-| L3 | one line: `{#code} [task-record] key "title" status · outcome≤200 · recall {#code} instead of re-reading` | 6–10 |
-| L4 | `{#code} [task-archived] key "title" status; recall {#code} instead of re-reading` | ≥11 |
+| Event | Effect, at the next request |
+|---|---|
+| a task finishes inside an open parent | its span becomes a record (§6.2) |
+| a non-root parent finishes | its span becomes one record composing its children's records |
+| a root finishes | its whole span becomes history (§6.3) |
+| pressure ≥ `high` inside an open root | finished subtrees, oldest first, become history until `low` |
 
-Configured as `taskfold.aging = [3, 6, 11]`. Every shortened record also retains named descendant
-recovery rows (key, title, status, outcome≤160 and handle) and exact pinned text.
-
-Cache rule (one cache break per epoch):
-1. The epoch's planned ops define the earliest changed position P.
-2. Records **after** P move straight to their target level for free.
-3. Records **before** P change only if the projection is still above `low · budget`. Then they go
-   oldest root first, each jumping straight to its target level, then one level further if still
-   short.
-4. No epoch runs only for aging. Aging rides on epochs triggered by `high`.
-
-Never aged: the newest finished root (unless waived, §9.1), kept user messages, list pins. All
-previously emitted child and group tags remain visible and recoverable through later aging. Child
-recovery entries retain their task key, title, status and short outcome beside the handle, rather
-than reducing completed work to an anonymous collection of tags. Task-scoped
-pins are retained verbatim with their task and source, including when child records condense or the
-parent ages. If those pins prevent a record from fitting its cap, leave it raw rather than drop them.
+- No other aging. A history entry is never rewritten, merged or shortened. (Merging all history
+  under pressure was measured: up to 20× more rebilled tokens on the nukular session.)
+- History within an open root rewrites from the oldest affected subtree onward: it happens only
+  under pressure and in the same propose as everything else that epoch.
+- A human or agent unfold (§7.3) reopens the task raw; refolding returns it to its form above.
 
 ## 9. Epoch
 
+Every request after a task finished runs an epoch (eager). Steps 2–6 run only when the projection
+is ≥ `high·budget`.
+
 ```
-live ≥ high·budget →
-  1 records     compile finished roots, oldest first; try safe descendants if a root cannot compile; stop at ≤ low·budget
-  2 aging       §8
+  1 records     fold every task that finished since the last epoch, in its §8 form; try safe descendants if a node cannot compile
+  2 history     §8 pressure row
   3 keep-recent waive the kept root if still above
   4 floor       §9.2, if enabled
-  5 untracked   [untracked-work] records, if enabled
+  5 untracked   untracked records (§6.4), if enabled
   6 saturated   status level error, naming the largest unfoldable holder
 → ONE propose
 ```
 
 ### 9.1 Keep-recent
 
-`keepRecentTasks` (default 1) keeps the most recently **finished** roots raw, by finish order. It is
-waived when step 2 still leaves the projection above `low · budget`.
+`keepRecentTasks` (default **0**) keeps that many most recently finished tasks raw. Raising it delays
+folds and multiplies rebilled tokens; it exists for experiments only.
 
 ### 9.2 Floor
 
@@ -705,7 +733,7 @@ waived when step 2 still leaves the projection above `low · budget`.
 ### 9.3 Untracked records
 
 When over budget after step 4, runs of at least `taskfold.untracked.minSteps` (default 8)
-assistant steps outside every span and outside the tail become `[untracked-work]` groups.
+assistant steps outside every span and outside the tail become untracked records (§6.4).
 
 ## 10. Task widget (amends SPEC-0001 §4.3–4.4)
 
@@ -805,9 +833,9 @@ Evidence lives in the plan's `evidence/`.
   },
   "taskfold": {
     "high": 0.8, "low": 0.6,
-    "keepRecentTasks": 1,
+    "keepRecentTasks": 0,
     "recordTokens": 1500,
-    "aging": [3, 6, 11],
+    "leafForm": "record",
     "floor": false,
     "untracked": { "enabled": true, "minSteps": 8 }
   }
@@ -815,7 +843,7 @@ Evidence lives in the plan's `evidence/`.
 ```
 
 Sanitized like existing settings: an invalid value is reported and ignored, and the default
-applies. `low < high`, aging thresholds strictly increasing.
+applies. `low < high`. The extractor model resolves through `models` like other out-of-band calls.
 
 ## 13. Verification
 
@@ -826,7 +854,11 @@ applies. `low < high`, aging thresholds strictly increasing.
 | Anchors | section/symbol/quote resolution, moved/fuzzy/lost, `lines` → quote conversion, cap |
 | Liveness | delivery folded → re-sent; compaction and `/tree` drop manifests; changed hash re-sent; live items never re-sent |
 | Cache | consecutive requests are byte-identical prefixes across start, pin, attach, notices (`extension/smoke-context.mjs`) |
-| Tree, compile, diff, records, aging, intervals | `bun test conductors/in-process/taskfold/*.test.ts` with real `Truth` (`TestHost`) |
+| Records, history | exact carrier JSON, `assistant` role for every carrier, root history with direct child codes, truthful subtree status |
+| Eager timing | a finished task is folded at the next request; consecutive requests share every byte before the new fold |
+| User messages | routed messages fold inside spans, unrouted stay raw; verbatim pin check; `changed` notice once; extraction failure keeps the message raw |
+| Comprehension, routing | `.project/analyses/fold-representations/harness/eval.py`, `routing.py` against the implementation's real rendering |
+| Tree, compile, diff, records, intervals | `bun test conductors/in-process/taskfold/*.test.ts` with real `Truth` (`TestHost`) |
 | Handles | `core/truth.test.ts`, `core/agentView` recall/unfold tests |
 | Regression scripts (synthetic, no private sessions) | Each must stay ≤ `low·budget` or end saturated with only unfoldable blocks, and every fold and handle code must round-trip through `recall`: blocked task with sibling work (S2 1.3.4); giant open leaf; prelude before the list; three-level tree folded in two epochs; tail-pruned group re-proposed |
 | Widget | `bun test extension/tui/*.test.ts`, plus a real terminal at 36/57/80/140 |
