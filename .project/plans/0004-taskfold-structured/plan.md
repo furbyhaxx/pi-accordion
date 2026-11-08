@@ -45,7 +45,7 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 | 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | done |
 | 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | done (taskAnchors.ts, taskSymbols.ts, 75e6be0, 603deb1) |
 | 8 | Notices and user-message routing (classify, extract, apply, notify) | §4.4, §4.6 | now |
-| 9 | Views, dump, settings, docs; replay `01a1b680`, comprehension eval on real rendering, live run | §10, §12, §13 | later |
+| 9 | Views, dump, settings, docs; replay `01a1b680`, comprehension eval on real rendering, live run | §10, §12, §13 | now: views, docs, replay, comprehension and live session done (README §6–§7); final gates and merge left |
 
 Slices 1–2 let the overflowed session continue under the current record format. Slice 3 removes
 the dominant cache cost (107M rebilled tokens in `01a1b680`). Slices 4–8 deliver the new

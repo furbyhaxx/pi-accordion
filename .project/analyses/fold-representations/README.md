@@ -270,3 +270,25 @@ epochs small.
 - **Recall by code works:** 12/12 recall probes used the task's own code on the first try; every fold and handle code in the rendered wire resolves through `resolveRecall` where the task is recoverable.
 - **Finding:** half the status probes about deep tasks fell back to `bash` or `tasks status` (which returns no outcomes) because a root history named only the ids of its direct children, so a task known by its title could not be found. History children now carry a title (≤60 chars) next to the code (SPEC-0002 §6.3). The mean rose from 0.80–0.85 to 0.85–0.93; with 6 status probes per run this is a trend, not a significant result.
 - **Limits:** at five of six cuts the replay finds no open task, so `current` and `continue` have one probe each; real status probes pick deep tasks from a session with 155 tasks, which is harder than the synthetic trees; one model; keyword scoring; the offline row is not the same probe mix.
+
+## 7. Live session on the implementation (deepseek-flash)
+
+`harness/live.py` runs two print-mode turns of the worktree's extension (`-e extension/accordion.ts`, taskfold attached, 12k budget, 2k tail) in an isolated agent dir. Every provider request goes through `harness/live-proxy.py` (logs payloads and usage, 2 USD cap, key stays in the proxy). `harness/live-analyze.py` compares consecutive agent requests; raw results in `evidence/live/`. Turn 1 builds a list with two roots and four subtasks and reads four notes; turn 2 states a new rule ("write in French, never mention file names") and asks for a follow-up task and a recall.
+
+| | run 1 (before fixes) | run 2 (after fixes) |
+|---|---|---|
+| agent requests | 25 | 25 |
+| requests that did not extend the previous one | 4 (21, 23, 24, 25) | 2 (23, 25) |
+| cache hit ratio | 0.89 | 0.93 |
+| duplicate follow-up task | yes (task 3 extracted and task 4 added by the agent) | no |
+
+Verified live:
+- Every `tasks` result is JSON; fold carriers are `assistant` messages with `{#code FOLDED} {…}`; the list is v3 with `goals`, and the user's rule became pin `p1` quoted word for word, announced by one `accordion.tasks.notice` appended after the extraction.
+- `start` after the carriers folded returned the list goal and pins again (delivery liveness), the recall of a child code returned its original `start` call and result.
+- No request mutates earlier messages except at a fold; every break in run 2 is a root folding into history at its next request (two roots, two breaks).
+
+Findings fixed from this run (both with regression tests):
+1. The extractor added "Final digest" as task 3 while the agent added the same title as task 4. `add` now reuses an unstarted sibling with the same title (`5b05ace`).
+2. A finished root whose closing blocks were still in the protected tail was folded child by child, then again as a whole one request later: four rewrites of the same region. The planner now waits and folds the root once (4 breaks → 2).
+
+Limits: one provider and a trivial task; a 12k budget forces folds that real sessions meet at 272k; the extractor's own requests are excluded from the prefix comparison by tool presence.

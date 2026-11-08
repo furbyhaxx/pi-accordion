@@ -205,6 +205,36 @@ describe("taskfold", () => {
 		await host.commitTurn();
 		expect(taskKeyOfSummary(groupOf(host, start)?.summary)).toBe("work/1");
 	});
+	it("folds a finished root once when only its closing blocks are still protected, not child by child", async () => {
+		const s = new Session();
+		s.user("Fix the parser.");
+		s.start("1", "Parser");
+		const first = s.start("1.1", "Fix CRLF").call;
+		s.work(2, "c1");
+		s.finish("1.1", { outcome: "CRLF handled." });
+		const second = s.start("1.2", "Fix tabs").call;
+		s.work(2, "c2");
+		s.finish("1.2", { outcome: "Tabs handled." });
+		const root = s.finish("1", { outcome: "Parser fixed." }).result;
+		s.work(1, "tail");
+		const host = setup(s, 5);
+		const proposals: string[][] = [];
+		const propose = host.propose.bind(host);
+		host.propose = (txn) => { proposals.push(txn.ops.map((op) => op.kind)); return propose(txn); };
+		const at = s.blocks.findIndex((b) => b.id === second);
+		host.setProtect(s.blocks.slice(at).reduce((n, b) => n + b.tokens, 0));
+		await attach(host);
+		expect(groupOf(host, first)).toBeUndefined();
+		host.setProtect(200);
+		await host.commitTurn();
+		const g = groupOf(host, first)!;
+		expect(g.memberIds).toContain(root);
+		expect(taskKeyOfSummary(g.summary)).toBe("work/1");
+		expect(isHistoryCarrier(g.summary)).toBe(true);
+		expect(proposals.flat().filter((kind) => kind === "ungroup")).toEqual([]);
+		expect(proposals.flat().filter((kind) => kind === "group")).toHaveLength(1);
+	});
+
 	it("falls back to finished descendants when historical parent intervals cannot cover them", async () => {
 		const s = new Session();
 		s.user("Continue an old list without rewriting its history.");

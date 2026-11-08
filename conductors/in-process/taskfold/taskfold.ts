@@ -711,11 +711,14 @@ export class TaskfoldConductor implements Conductor {
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
 		const planned = new Set<string>();
+		const deferred = new Set<string>();
 		const fold = (span: Span, eager = false): void => {
 			if (!recompose && !eager && projected <= target) return;
 			const descendants = spans.filter((s) => contains(span, s));
-			const unit = foldedKeys.has(span.key) ? null : this.unit(host, blocks, span, descendants, planned);
+			const unit = foldedKeys.has(span.key) ? null : this.unit(host, blocks, span, descendants, planned, deferred);
 			if (!unit) {
+				// A span that only waits for the tail to pass folds whole then; folding its children now would rewrite the same region again.
+				if (deferred.has(span.key) && !pressure) return;
 				for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) fold(child, eager);
 				return;
 			}
@@ -852,7 +855,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
-	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): Unit | null {
+	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set(), deferred?: Set<string>): Unit | null {
 		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
@@ -893,10 +896,16 @@ export class TaskfoldConductor implements Conductor {
 		}
 		if (lo > hi) return null;
 		// A span whose own tail is still protected folds once it leaves the tail: a folded span is never re-extended, and folding a prefix leaves the rest raw for good.
-		if (blocks.slice(hi + 1, snapHi + 1).some((b, k) => b.protected && span.intervals.some((r) => r.start <= hi + 1 + k && hi + 1 + k <= r.end))) return null;
+		if (blocks.slice(hi + 1, snapHi + 1).some((b, k) => b.protected && span.intervals.some((r) => r.start <= hi + 1 + k && hi + 1 + k <= r.end))) {
+			deferred?.add(span.key);
+			return null;
+		}
 		const members = blocks.slice(lo, hi + 1);
 		// A fold is never re-extended, so a user message still being classified must settle first; its verdict re-runs the epoch.
-		if (members.some((b) => b.kind === "user" && (this.classifying.has(b.id) || this.routing.has(b.id)))) return null;
+		if (members.some((b) => b.kind === "user" && (this.classifying.has(b.id) || this.routing.has(b.id)))) {
+			deferred?.add(span.key);
+			return null;
+		}
 		const allowed = new Set<number>();
 		for (const interval of span.intervals) {
 			let a = interval.start;
