@@ -222,10 +222,11 @@ check("task context rides in the start result and requests are never rewritten",
 		await run({ action: "create", list: "w", title: "Work", goal: "Finish work", tasks: [{ title: "Task", acceptanceCriteria: ["Decimal everywhere"] }, { title: "Next" }] });
 		await run({ action: "pin", list: "w", items: [{ kind: "constraint", text: "Always use decimal.", source: "user" }] });
 		await run({ action: "attach", list: "w", id: "1", items: [{ path: "spec.md:1" }] });
-		const started = await run({ action: "start", list: "w", id: "1" });
-		for (const part of [/goal: Finish work/, /Always use decimal\./, /Decimal everywhere/, /│ before/]) assert.match(started, part);
-		assert.doesNotMatch(await run({ action: "pin", list: "w", id: "1", items: [{ kind: "fact", text: "Always use decimal.", source: "user" }] }), /\[tasks\]/, "pin acknowledges only");
-		assert.doesNotMatch(await run({ action: "status", list: "w" }), /│ before/, "status never repeats content");
+		assert.equal(await run({ action: "start", list: "w", id: "1" }), JSON.stringify({ ok: true,
+			list: { goal: "Finish work", pins: [{ id: "p1", kind: "constraint", text: "Always use decimal.", source: "user" }] },
+			started: [{ id: "1", title: "Task", criteria: ["Decimal everywhere"], attachments: [{ id: "a1", ref: "spec.md:1", content: "before" }] }] }));
+		assert.equal(await run({ action: "pin", list: "w", id: "1", items: [{ kind: "fact", text: "Always use decimal.", source: "user" }] }), '{"ok":true,"pins":["p2"]}', "pin acknowledges only");
+		assert.equal(await run({ action: "status", list: "w" }), '{"ok":true,"done":0,"total":2,"doing":["1"],"next":{"id":"2","title":"Next"}}', "status never repeats content");
 		const stable = [{ role: "user", content: "Go.", timestamp: 10 }];
 		const firstWire = r.handlers.context_with_system({ messages: stable.map(m => ({ ...m })) }, r.ctx)?.messages ?? stable;
 		assert.equal(JSON.stringify(firstWire), JSON.stringify(stable), "no task text is appended to the request");

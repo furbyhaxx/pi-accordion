@@ -57,7 +57,7 @@ import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
-import { PIN_LIMITS, workingSet } from "./taskPins";
+import { deliverContext, PIN_LIMITS, PinError } from "./taskPins";
 import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
@@ -4005,6 +4005,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
 			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
 			"Every list has one goal: the end state the whole list delivers. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
+			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. start returns the list goal and each entering task's criteria, pins and attachment content once; keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
 			"Actions: create {list, title, goal, tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goal? (list), acceptanceCriteria? (task)}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
 		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
 		promptGuidelines: [
@@ -4078,7 +4079,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			try {
 				if ((args.action === "complete" || args.action === "fail") && args.list && args.id && tasksToolActive() && taskCoach.spanWork(args.list, args.id) === 0) {
 					const ended = read()?.tasks.filter((t) => t.endedAt && t.id !== args.id && !t.id.startsWith(`${args.id}.`)).sort((a, b) => b.endedAt!.localeCompare(a.endedAt!))[0];
-					throw new TaskError(emptySpanRefusal(args.list, args.id, ended?.id ?? null));
+					throw new TaskError("empty_span", emptySpanRefusal(args.list, args.id, ended?.id ?? null));
 				}
 				const userTexts = ["pin", "create", "add"].includes(args.action) ? readSessionMessages(ctx).filter((m) => m.role === "user").map((m) => typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((p) => p.type === "text" ? p.text ?? "" : "").join("\n") : "") : [];
 				const run = runTasksTracked(store, args, userTexts, { ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines });
@@ -4086,9 +4087,32 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (run.finished && args.list) taskCoach.finished(args.list, run.finished);
 				const list = read();
 				// Task context rides once in the result that starts the work, so it folds with the span.
-				const context = list && (args.action === "start" || args.action === "claim") && list.tasks.some((t) => t.status === "doing")
-					? workingSet(list, ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines) : "";
-				const text = context ? `${run.text}\n\n${context}` : run.text;
+				const result: Record<string, unknown> = { ...run.result };
+				let delivered: string[] = [];
+				if (list && args.list && (args.action === "start" || args.action === "claim")) {
+					const entering = args.action === "start" ? run.started : list.tasks.filter((t) => t.status === "doing").map((t) => t.id);
+					const delivery = deliverContext(list, entering, true, () => false, ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines);
+					delivered = delivery.delivered;
+					if (Object.keys(delivery.seen).length) store.recordSeen(args.list, delivery.seen);
+					const byId = new Map(delivery.tasks.map((t) => [t.id, t]));
+					const withContext = (ref: unknown) => {
+						const id = typeof ref === "string" ? ref : (ref as { id: string }).id;
+						const c = byId.get(id);
+						return c && (c.criteria || c.pins || c.attachments) ? c : ref;
+					};
+					if (args.action === "claim") {
+						if (delivery.tasks.length) result.active = delivery.tasks.map((c) => (c.criteria || c.pins || c.attachments ? c : { id: c.id, title: c.title }));
+					} else {
+						if (run.result.started) result.started = run.result.started.map(withContext);
+						if (run.result.resumed) result.resumed = run.result.resumed.map(withContext);
+					}
+					if (delivery.list) {
+						const { ok: _ok, ...rest } = result;
+						for (const k of Object.keys(result)) delete result[k];
+						Object.assign(result, { ok: true, list: delivery.list }, rest);
+					}
+				}
+				const text = JSON.stringify(result);
 				const details: TasksDetails = {
 					...tasksDetails(args, list, sizeBefore === undefined ? undefined : (list?.tasks.length ?? sizeBefore) - sizeBefore, args.action === "list" ? store.lists().length : undefined, run.renumbered),
 					...(run.started.length ? { started: run.started } : {}),
@@ -4097,10 +4121,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				};
 				const event = taskEventOf(args, list, run);
 				if (event && !nestedTaskEvents.queue(toolCallId, event)) details.taskEvents = [event];
+				if (delivered.length) details.delivered = delivered;
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {
-				if (err instanceof TaskError) throw err;
-				throw new Error(`tasks: ${err instanceof Error ? err.message : String(err)}`);
+				// Pi turns a thrown error into an error result whose text is the message: the JSON envelope.
+				if (err instanceof TaskError) throw new Error(err.toResult());
+				if (err instanceof PinError) throw new Error(new TaskError(err.code, err.message).toResult());
+				throw new Error(JSON.stringify({ ok: false, error: "internal", message: err instanceof Error ? err.message : String(err) }));
 			} finally {
 				if (latestCtx?.sessionManager.getSessionId() === ctx.sessionManager.getSessionId()) {
 					taskWidget.reload();

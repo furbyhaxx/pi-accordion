@@ -16,6 +16,10 @@ describe("tool rows", () => {
 
 	test("a refused call shows the reason, and rows recorded before details still find the title", () => {
 		expect(tasksRow(plain, { action: "start", list: "p", id: "2" }, "error", undefined, "Task 2 is done. Add a follow-up task instead.", false)).toEqual(["✗ tasks start 2 · Task 2 is done. Add a follow-up task instead."]);
+		expect(tasksRow(plain, { action: "start", list: "p", id: "2" }, "error", undefined, '{"ok":false,"error":"invalid_transition","message":"Task 2 is done. Add a follow-up task instead."}', false)).toEqual(["✗ tasks start 2 · Task 2 is done. Add a follow-up task instead."]);
+		expect(tasksRow(plain, { action: "status", list: "p" }, "ok", { action: "status", progress: { done: 1, total: 3 } }, '{"ok":true,"done":1,"total":3,"doing":["2"],"blocked":[{"id":"3","reason":"user-input","detail":"API key"}],"next":{"id":"3.1","title":"Wire"}}', true)).toEqual([
+			"✓ tasks status p · 1/3 done", "  done 1", "  total 3", "  doing 2", "  blocked 3: user-input — API key", "  next 3.1 Wire",
+		]);
 		expect(tasksRow(plain, { action: "start", list: "p", id: "2" }, "ok", undefined, 'Started p/2 "Report".', false)).toEqual(["✓ tasks start 2 Report"]);
 	});
 

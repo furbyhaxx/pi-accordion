@@ -174,7 +174,7 @@ export class TaskSession {
 	private create(title: string, goal: string): { ok: true; list: TaskList; message: string } | { ok: false; message: string } {
 		const store = this.deps.store();
 		try {
-			if (!title.trim()) throw new TaskError("A task list needs a title.");
+			if (!title.trim()) throw new TaskError("invalid_args", "A task list needs a title.");
 			const slug = slugFor(title, new Set(store.lists().map((l) => l.slug)));
 			const list = store.create(slug, title, goal, []);
 			for (const o of store.claimedBySession().filter((l) => l.slug !== slug)) store.release(o.slug);

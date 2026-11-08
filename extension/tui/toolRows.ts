@@ -37,6 +37,8 @@ export interface TasksDetails {
 	/** Ids that changed because `add` inserted or `move` moved unstarted tasks. */
 	renumbered?: Renumbering[];
 	started?: string[];
+	/** Delivery keys of the context this result put in front of the model (SPEC-0002 §4.3). */
+	delivered?: string[];
 	/** Span events of this execution (SPEC-0002 §5.3); nested executions put theirs on the outer result. */
 	taskEvents?: TaskEvent[];
 	closed?: { id: string; title: string; status: TaskStatus; report?: { outcome: string; decisions?: string[]; open?: string[] }; acceptanceCriteria?: string[]; pins?: TaskList["pins"] }[];
@@ -95,14 +97,42 @@ function tasksTarget(args: Args): string {
 	return `${action}${list ? ` ${list}` : ""}`;
 }
 
+/** A JSON `tasks` result, or null for a legacy prose result. */
+function parseResult(text: string): Record<string, unknown> | null {
+	if (!text.startsWith("{")) return null;
+	try {
+		const v: unknown = JSON.parse(text);
+		return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+	} catch {
+		return null;
+	}
+}
+
+/** One readable line per result field, for the expanded row. */
+function resultLines(r: Record<string, unknown>): string[] {
+	const ref = (x: unknown) => (x && typeof x === "object" ? `${(x as { id?: unknown }).id} ${(x as { title?: unknown }).title ?? ""}`.trim() : String(x));
+	return Object.entries(r).flatMap(([k, v]) => {
+		if (k === "ok") return [];
+		if (k === "lists" && Array.isArray(v))
+			return v.map((l: Record<string, unknown>) => (l.invalid ? `${l.list} — invalid file` : `${l.list} — ${l.title} (${l.done}/${l.total} done${l.claim ? `, ${l.claim === "this" ? "claimed" : "claimed elsewhere"}` : ""})`));
+		if (k === "blocked" && Array.isArray(v)) return v.map((b: Record<string, unknown>) => `blocked ${b.id}: ${b.reason} — ${b.detail}`);
+		if (k === "next") return [`next ${ref(v)}`];
+		if (Array.isArray(v)) return [`${k} ${v.map(ref).join(", ")}`];
+		if (v && typeof v === "object") return [`${k} ${JSON.stringify(v)}`];
+		return [`${k} ${String(v)}`];
+	});
+}
+
 /** The row for a `tasks` call: pending, succeeded or failed. */
 export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok" | "error", details: TasksDetails | undefined, resultText: string, expanded: boolean): string[] {
 	const glyph = state === "pending" ? theme.fg("dim", "…") : state === "ok" ? theme.fg("success", "✓") : theme.fg("error", "✗");
 	const head = `${glyph} ${theme.bold("tasks")} ${theme.fg("accent", tasksTarget(args))}`;
 	if (state === "pending") return [head];
 	if (state === "error") {
-		const lines = [`${head}${theme.fg("dim", " · ")}${theme.fg("error", firstLine(resultText))}`];
-		if (expanded) lines.push(...resultText.split("\n").slice(1).filter(Boolean).map((l) => theme.fg("dim", `  ${l}`)));
+		const parsed = parseResult(resultText);
+		const message = typeof parsed?.message === "string" ? parsed.message : resultText;
+		const lines = [`${head}${theme.fg("dim", " · ")}${theme.fg("error", firstLine(message))}`];
+		if (expanded) lines.push(...message.split("\n").slice(1).filter(Boolean).map((l) => theme.fg("dim", `  ${l}`)));
 		return lines;
 	}
 	const action = str(args.action);
@@ -137,7 +167,9 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 		for (const d of report.decisions ?? []) lines.push(`  ${theme.fg("muted", "decision")} ${d}`);
 		for (const o of report.open ?? []) lines.push(`  ${theme.fg("muted", "open")}     ${o}`);
 	} else if (action === "create" || action === "status" || action === "claim" || action === "list") {
-		lines.push(...resultText.split("\n").slice(action === "list" ? 0 : 1).map((l) => theme.fg("dim", `  ${l}`)));
+		const parsed = parseResult(resultText);
+		const shown = parsed ? resultLines(parsed) : resultText.split("\n").slice(action === "list" ? 0 : 1);
+		lines.push(...shown.map((l) => theme.fg("dim", `  ${l}`)));
 	}
 	return lines;
 }

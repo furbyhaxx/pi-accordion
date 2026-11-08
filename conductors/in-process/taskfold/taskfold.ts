@@ -148,6 +148,19 @@ export interface SpanBlock {
 	details?: unknown;
 }
 
+/** Task refs (`{id, title}`) in a JSON `tasks start` result's `started`/`resumed`; empty for legacy prose results. */
+function jsonRefs(text: string): { id: string; title: string }[] {
+	if (!text.startsWith("{")) return [];
+	try {
+		const r = JSON.parse(text) as { started?: unknown; resumed?: unknown };
+		return [r.started, r.resumed].flatMap((xs) => (Array.isArray(xs) ? xs : [])).flatMap((x) =>
+			x && typeof x === "object" && typeof (x as { id?: unknown }).id === "string" && typeof (x as { title?: unknown }).title === "string" ? [{ id: (x as { id: string }).id, title: (x as { title: string }).title }] : [],
+		);
+	} catch {
+		return [];
+	}
+}
+
 /**
  * Every task span in `blocks`: finished spans in finishing order (innermost first when two end
  * together), then still-open spans running to the last block.
@@ -271,12 +284,12 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 				updateMetadata(s, c);
 				finish(s, c.status, c.report ?? { outcome: "Closed automatically after its subtasks." }, Math.max(s.start, i - 1));
 			}
-			const parents = lines.flatMap((line) => {
+			const parents = [...jsonRefs(textOf(blocks[ri])), ...lines.flatMap((line) => {
 				const m = /^Also (?:started|resumed) parent (\S+) "(.*)" so its span/.exec(line);
 				return m ? [{ id: m[1], title: m[2] }] : [];
-			});
+			})];
 			const task = details?.task && typeof details.task === "object" ? details.task as { title?: unknown } : undefined;
-			const title = typeof task?.title === "string" ? task.title : /^(?:Started|Resumed) \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
+			const title = typeof task?.title === "string" ? task.title : parents.find((p) => p.id === id)?.title ?? /^(?:Started|Resumed) \S+ "(.*)"\.$/.exec(lines[0] ?? "")?.[1] ?? "";
 			const started = Array.isArray(details?.started) ? details.started.filter((x): x is string => typeof x === "string") : [...parents.map((p) => p.id), id];
 			for (const startedId of started) {
 				const skey = `${list}/${startedId}`;
