@@ -39,8 +39,8 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 |---|---|---|---|
 | 1 | Nested task events: queue by outer call, outer `details.taskEvents`, ingest, scan; stale spans | §5.3 | done (3c5d0fb, 5dc3483, ba25f91) |
 | 2 | Legacy adoption from `nestedCalls` and prose; `/accordion tasks adopt [--dry-run]`; `tasks.adopt` | §14 | done (00ba073, 38fea61); replay 01a1b680: 1.09M → 138k |
-| 3 | Remove the working set and request injection | §4.5 | now |
-| 4 | Structured JSON results for every action; delivery manifests and liveness; claim/resume delivery | §3, §4.3 | later |
+| 3 | Remove the working set and request injection | §4.5 | done (interim: start/claim append the prose context until slice 4) |
+| 4 | Structured JSON results for every action; delivery manifests and liveness; claim/resume delivery | §3, §4.3 | next |
 | 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | later |
 | 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | later |
 | 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | later |
