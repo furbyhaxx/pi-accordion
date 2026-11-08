@@ -41,8 +41,8 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 | 2 | Legacy adoption from `nestedCalls` and prose; `/accordion tasks adopt [--dry-run]`; `tasks.adopt` | §14 | done (00ba073, 38fea61); replay 01a1b680: 1.09M → 138k |
 | 3 | Remove the working set and request injection | §4.5 | done (interim: start/claim append the prose context until slice 4) |
 | 4 | Structured JSON results for every action; delivery manifests and liveness; claim/resume delivery | §3, §4.3 | done |
-| 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | later |
-| 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | later |
+| 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | done (abd8560) |
+| 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | now |
 | 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | later |
 | 8 | Notices and user-message routing (classify, extract, apply, notify) | §4.4, §4.6 | later |
 | 9 | Views, dump, settings, docs; replay `01a1b680`, comprehension eval on real rendering, live run | §10, §12, §13 | later |
@@ -92,6 +92,35 @@ synthetic legacy session with codemode batches yields the same spans as the nati
 idempotent; dry run writes nothing; incomplete record falls back to list status. Done: the replay
 of `01a1b680` adopts and folds below its 272k budget.
 
+## Slice 6: eager JSON records and root history
+
+Current (`conductors/in-process/taskfold/taskfold.ts`): `record()` renders a `[task-record]` text
+block; `ageRecord`/`condenseChildren`/`ladder` shrink old records in three levels; `evaluate()` returns
+unless live tokens ≥ `high·budget`; `plan()` stops folding at `low·budget` and keeps
+`keepRecentTasks` (default 1) raw; `taskKeyOfSummary` and `taskTranscript.recordLevel` parse the text.
+A carrier's wire role is the role of its run's first message.
+
+Change, in order (each its own commit with tests on a real `Truth`):
+1. **JSON carrier.** `record()` returns an object; the carrier text is `{#<foldCode("t:<key>")> FOLDED} <one-line JSON>`
+   with the key order of §6.2. Children are nested objects with `recall` in place of the tag. A prior child
+   summary is reused verbatim (parsed, re-keyed), so an unchanged child never changes bytes. When the root
+   handle is not covered the group's own tag is used. `taskKeyOfSummary` parses `task`/`history`/`part`/`untracked`;
+   `taskTranscript.recordLevel` and the dump follow. `applyPlan` gives a Taskfold group carrier the role
+   `assistant` (new optional `Group.role`, default unchanged; snapshot/protocol bump).
+2. **Eager epoch.** `evaluate()` always plans records; `plan()` folds every finished unit regardless of
+   `low·budget`; `keepRecentTasks` default 0. A unit whose end still lies in the protected tail is
+   deferred, not folded partially, unless pressure ≥ `high` (then partial runs as today). Steps 2–6 of §9
+   stay behind the pressure check.
+3. **History.** A finished root compiles to `{"history":…}` (§6.3) with direct child codes and a truthful
+   `subtasks` count; under pressure ≥ `high` finished subtrees of an open root become history oldest
+   first. Delete `ageRecord`, `condenseChildren`, `ladder`, `taskfold.aging` (settings, defaults, docs).
+4. **Tests/gates.** Exact carrier JSON; assistant role even when the run starts at a tool result; eager
+   timing; a second request starts with every earlier byte; recall/unfold of root and child codes;
+   history `status` shows a failed descendant; settings sanitize without `aging`.
+
+Done when the replay of `01a1b680` and the synthetic fixtures fold at the next eligible request and the
+gates in "Rules" pass.
+
 ## Later slices
 
 - 3: delete `workingSet`/`placeWorkingSet`/`workingSetTarget`, the `context_with_system` suffix and
@@ -100,8 +129,6 @@ of `01a1b680` adopts and folds below its 272k budget.
   `details.delivered` manifests; liveness from unfolded Truth blocks via a callback the extension
   provides. Exact-JSON test per action.
 - 5: `taskSchema.ts` v3 + migration of v1/v2 with backup, store `ItemEdit`, skill examples, schema.
-- 6: records as `{#code FOLDED} {json}`, carriers forced to `assistant` in `applyPlan` for Taskfold
-  groups, handle id `t:<list>/<id>`, root history, `taskKeyOfSummary` JSON parse, aging removed.
 - 7: anchor resolution module `extension/taskAnchors.ts` (Markdown sections, tree-sitter symbols,
   W3C quote).
 - 8: notices through `pi.sendMessage`/`before_agent_start`; extractor through `models` with
