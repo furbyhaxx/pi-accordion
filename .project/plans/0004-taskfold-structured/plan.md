@@ -5,15 +5,15 @@ document:
   title: "Structured Taskfold: nested events, adoption, delivered-once results, eager JSON folds"
   description: "Slices, progress and acceptance for implementing SPEC-0002 r18 on branch feat/taskfold-structured, ordered so overflowed legacy sessions can continue first."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-08T13:16:40+01:00"
-  updated_at: "2026-11-08T13:16:40+01:00"
+  updated_at: "2026-11-08T13:38:07+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["slices 1-9 with files, tests and done criteria"]
+    - revision: 2
+      reason: "slices 1 and 2 delivered"
+      changes: ["progress: nested events and adoption done, slice 3 now"]
 ---
 
 # Structured Taskfold: plan
@@ -37,9 +37,9 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 
 | # | Slice | Spec | Status |
 |---|---|---|---|
-| 1 | Nested task events: queue by outer call, outer `details.taskEvents`, ingest, scan; stale spans | §5.3 | now |
-| 2 | Legacy adoption from `nestedCalls` and prose; `/accordion tasks adopt [--dry-run]`; `tasks.adopt` | §14 | next |
-| 3 | Remove the working set and request injection | §4.5 | later |
+| 1 | Nested task events: queue by outer call, outer `details.taskEvents`, ingest, scan; stale spans | §5.3 | done (3c5d0fb, 5dc3483, ba25f91) |
+| 2 | Legacy adoption from `nestedCalls` and prose; `/accordion tasks adopt [--dry-run]`; `tasks.adopt` | §14 | done (00ba073, 38fea61); replay 01a1b680: 1.09M → 138k |
+| 3 | Remove the working set and request injection | §4.5 | now |
 | 4 | Structured JSON results for every action; delivery manifests and liveness; claim/resume delivery | §3, §4.3 | later |
 | 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | later |
 | 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | later |

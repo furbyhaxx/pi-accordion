@@ -226,6 +226,12 @@ nothing was foldable, and the real context grew to 872k before the request abort
 | current code | 1.09M → 339k (span `3.11.1.3.3.2` alone holds 308k, done in the list since 00:57) |
 | nested calls visible (`EXPAND=1`) | 1.10M → 131k |
 
+| adopted (`ADOPT=<project>/.pig/tasks`, `extension/taskAdoption.ts`, 63 nested events, 2026-11-08) | 1.09M → 138k |
+
+The adopted replay uses only what pi persisted (`nestedCalls`) and the list file; the session file
+was read only (sha256 unchanged). Remaining raw tokens are finished tasks below the pressure line,
+which eager folding (PLAN-0004 slice 5) removes.
+
 Codemode's own call log truncates arguments at 200 characters, so it cannot be the source of task
 events; the `tasks` handler has to record them (SPEC-0002 §5.3).
 

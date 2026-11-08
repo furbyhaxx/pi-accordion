@@ -12,7 +12,21 @@ const lines = readFileSync(file, "utf8").trim().split("\n");
 const cut = Number(cutArg);
 const entries = parseSessionEntries(lines.slice(0, cut).join("\n")).filter((e: any) => e.type !== "session");
 const { expand } = await import("./expand.ts");
-const messages = process.env.EXPAND ? expand(buildSessionContext(entries).messages) : buildSessionContext(entries).messages;
+let messages = process.env.EXPAND ? expand(buildSessionContext(entries).messages) : buildSessionContext(entries).messages;
+// ADOPT=<tasks dir>: overlay the events `/accordion tasks adopt` derives (extension/taskAdoption.ts).
+if (process.env.ADOPT) {
+  const { deriveAdoption, applyAdoption } = await load("extension/taskAdoption.ts");
+  const { parseListFile } = await load("extension/taskSchema.ts");
+  const { readdirSync } = await import("node:fs");
+  const lists = new Map();
+  for (const f of readdirSync(process.env.ADOPT)) if (f.endsWith(".json")) {
+    const parsed = parseListFile(JSON.parse(readFileSync(resolve(process.env.ADOPT, f), "utf8")), f.slice(0, -5), { requireGoal: false });
+    if (parsed.ok) lists.set(parsed.list.slug, parsed.list.tasks);
+  }
+  const adoption = deriveAdoption(messages, lists);
+  console.log(JSON.stringify({ adoption: adoption.stats }));
+  messages = applyAdoption(messages, adoption);
+}
 const host = new TestHost({ meta: { format: "pi", title: "probe", cwd: "", model: "" }, blocks: linearize(messages).map(wireToBlock), lineCount: entries.length, skipped: 0 });
 host.setWireAttached?.(true); host.setBudget(Number(budgetArg ?? 272000)); host.setProtect(20000);
 const before = host.stats();
