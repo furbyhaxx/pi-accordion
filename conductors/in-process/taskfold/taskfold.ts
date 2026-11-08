@@ -722,6 +722,11 @@ export class TaskfoldConductor implements Conductor {
 			units.push(unit);
 			for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
 			projected -= unit.saved;
+			// A finished descendant whose work lies outside the carrier (it ran while the parent was not open) folds on its own.
+			for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) {
+				const outside = blocks.some((b, i) => child.intervals.some((r) => r.start <= i && i <= r.end) && !planned.has(b.id));
+				if (outside && !foldedKeys.has(child.key)) fold(child, eager);
+			}
 		};
 		for (const span of candidates) fold(span, !recompose);
 		if (!recompose && pressure) {
@@ -933,7 +938,14 @@ export class TaskfoldConductor implements Conductor {
 		const rootHandle = spanHandle(span);
 		const handles = [...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle), ...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] })))];
 		const unique = [...new Map(handles.map((h) => [h.id, h])).values()];
-		if (unique.some((h) => !covered(h))) return null;
+		// A handle the carrier cannot fully own is dropped, not a veto: its child keeps a record without a recall code, or none when the carrier holds none of it.
+		const usable = unique.filter(covered);
+		const reach = new Map<string, "full" | "partial" | "none">();
+		for (const child of children) {
+			if (!child.intervals.length) continue;
+			const h = spanHandle(child);
+			reach.set(child.key, covered(h) ? "full" : h.memberIds.some((id) => included.has(id)) ? "partial" : "none");
+		}
 		const prior = new Map<string, RecordObj | HistoryObj>();
 		for (const g of ours) {
 			const key = taskKeyOfSummary(g.summary);
@@ -943,14 +955,14 @@ export class TaskfoldConductor implements Conductor {
 		const rootCovered = covered(rootHandle);
 		const lastRun = viable[viable.length - 1];
 		const tag = rootCovered ? foldTag(`t:${span.key}`) : foldTag(`g:${lastRun[0].id}`);
-		const entry = this.record(span, blocks, children, prior, included);
+		const entry = this.record(span, blocks, children, prior, included, reach);
 		const isRoot = !span.id.includes(".");
 		let carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
 		let text = render(tag, carrier);
 		while (!isHistory(carrier) && host.countTokens(text) > this.k.recordTokens && shrinkDeepest(carrier)) text = render(tag, carrier);
 		if (host.countTokens(text) > this.k.recordTokens) return null;
 		const shown = visibleTags(text);
-		const visible = unique.filter((h) => shown.has(foldTag(h.id)));
+		const visible = usable.filter((h) => shown.has(foldTag(h.id)));
 		if (visible.some((h) => !covered(h))) return null;
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
 		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary, ...(g.role ? { role: g.role } : {}), ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) }) as Op);
@@ -968,7 +980,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** A span's record as an object, with descendant records kept intact. */
-	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>): RecordObj {
+	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>, reach?: ReadonlyMap<string, "full" | "partial" | "none">): RecordObj {
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
 		const own = blocks.filter((b, i) => (!included || included.has(b.id)) && inside(span, i) && !children.some((c) => inside(c, i)));
 		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
@@ -976,12 +988,16 @@ export class TaskfoldConductor implements Conductor {
 			const ids = b.kind === "user" ? this.verdicts.get(b.id)?.routed?.ids : undefined;
 			return ids?.length ? [{ said: oneLine(this.textOf(b), USER_SAID_CHARS), ids }] : [];
 		});
-		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)));
+		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)) && reach?.get(c.key) !== "none");
 		const entries = direct.map((child): RecordObj | HistoryObj => {
+			const recallable = !reach || (reach.get(child.key) ?? "full") === "full";
 			const existing = prior.get(child.key);
-			if (existing) return !existing.recall && child.intervals.length ? { ...existing, recall: foldTag(`t:${child.key}`) } : existing;
-			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included);
-			return child.intervals.length ? { task: full.task, title: full.title, status: full.status, recall: foldTag(`t:${child.key}`), ...rest(full) } : full;
+			if (existing) {
+				if (!recallable) return Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "recall")) as RecordObj | HistoryObj;
+				return !existing.recall && child.intervals.length ? { ...existing, recall: foldTag(`t:${child.key}`) } : existing;
+			}
+			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included, reach);
+			return child.intervals.length && recallable ? { task: full.task, title: full.title, status: full.status, recall: foldTag(`t:${child.key}`), ...rest(full) } : full;
 		});
 		const { outcome, decisions, open } = span.report;
 		return {

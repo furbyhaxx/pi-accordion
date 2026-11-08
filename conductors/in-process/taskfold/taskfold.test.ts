@@ -224,6 +224,33 @@ describe("taskfold", () => {
 		conductor.detach();
 	});
 
+	it("folds a finished parent whose paused child shares a message with a sibling that finished first", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Root");
+		s.start("1.1", "Parent");
+		s.start("1.1.1", "Paused child");
+		s.work(3, "before-pause");
+		const shared = s.batch([
+			["tasks", { action: "block", list: "work", id: "1.1.1", reason: "dependency", detail: "Needs the neighbour.", blockedBy: "1.2" }, "ok"],
+			["tasks", { action: "start", list: "work", id: "1.2" }, "ok"],
+		]);
+		s.work(3, "neighbour");
+		s.finish("1.2", { outcome: "Neighbour is done." });
+		s.start("1.1.1", "Paused child");
+		s.work(3, "after-pause");
+		s.finish("1.1.1", { outcome: "Child is done." });
+		s.finish("1.1", { outcome: "Parent is done." });
+		s.start("1.3", "Open");
+		s.work(6, "tail");
+		const host = setup(s, 0.4);
+		await attach(host);
+		expect(carrier(groupOf(host, shared.calls[0]))).toBeDefined();
+		const raw = host.blocks().filter((b) => b.kind === "tool_result" && b.text.startsWith("after-pause") && !host.groups().some((g) => g.memberIds.includes(b.id)));
+		expect(raw).toEqual([]);
+		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+	});
+
 	it("re-proposes a task after protected-tail growth prunes its group", async () => {
 		const { s, start } = oneTask();
 		const host = setup(s);
