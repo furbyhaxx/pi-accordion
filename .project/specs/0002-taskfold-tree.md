@@ -669,11 +669,10 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
 ### 6.3 History (H)
 
 ```
-{#e1fc37 FOLDED} {"history":"auth/1","title":"Design","status":"done","subtasks":{"done":9,"abandoned":1},"outcome":"…≤160","children":{"1.1":"#ucn7c8","1.2":"#v6m0f5"}}
+{#e1fc37 FOLDED} {"history":"auth/1","title":"Design","status":"done","subtasks":{"done":9,"abandoned":1},"outcome":"…≤160","children":{"1.1":{"title":"Add the interface","recall":"{#ucn7c8 FOLDED}"},"1.2":{"title":"Review it","recall":"{#v6m0f5 FOLDED}"}}}
 ```
 
-- One message per task; at most three lines when wrapped. `children` names the **direct** children's
-  codes so recall can target them (the eval recalled the root in 11 of 18 cases without them).
+- One message per task; at most three lines when wrapped. `children` names the **direct** children by id, a title of at most 60 characters and their codes, so the agent can find a task by what it was called and recall it (the eval recalled the root in 11 of 18 cases without codes, and on the real session fell back to `bash` when a deep task could not be found by title).
 - `status` is truthful about the subtree: a failed or abandoned descendant shows in `subtasks`.
 - Recalling the root code returns its full record (§6.2); recalling a child code returns that child's.
 

@@ -256,3 +256,17 @@ events; the `tasks` handler has to record them (SPEC-0002 §5.3).
 
 Removing the injected working set (SPEC-0002 §4.5) removes the first two rows; eager folding keeps
 epochs small.
+
+## 6. Comprehension on the implementation's real rendering
+
+`harness/real.ts` replays `01a1b680` through adoption and the shipped `TaskfoldConductor`, serializes the wire with `Truth.serializeWire`, builds the five probes from the real task spans and sends them to deepseek-flash with the same tools, emulated `recall` and `tasks status` as `harness/eval.py` (rep `REAL`). Six cuts (1500–3179), 20 probes per run, two runs each; raw numbers in `evidence/real-rendering.txt`. The session file was only read.
+
+| Rendering | current | status | recall | continue | place | mean | steps |
+|---|---|---|---|---|---|---|---|
+| offline S (synthetic + nukular, §3.3) | – | – | – | – | – | 0.978 | 1.30 |
+| real, history children = id → code | 1.00 (1) | 0.50 | 1.00 | 1.00 (1) | 0.83–1.00 | 0.80–0.85 | 1.60–1.75 |
+| real, history children carry a 60-char title | 1.00 (1) | 0.67–0.83 | 1.00 | 1.00 (1) | 0.83–0.92 | 0.85–0.93 | 1.50–1.65 |
+
+- **Recall by code works:** 12/12 recall probes used the task's own code on the first try; every fold and handle code in the rendered wire resolves through `resolveRecall` where the task is recoverable.
+- **Finding:** half the status probes about deep tasks fell back to `bash` or `tasks status` (which returns no outcomes) because a root history named only the ids of its direct children, so a task known by its title could not be found. History children now carry a title (≤60 chars) next to the code (SPEC-0002 §6.3). The mean rose from 0.80–0.85 to 0.85–0.93; with 6 status probes per run this is a trend, not a significant result.
+- **Limits:** at five of six cuts the replay finds no open task, so `current` and `continue` have one probe each; real status probes pick deep tasks from a session with 155 tasks, which is harder than the synthetic trees; one model; keyword scoring; the offline row is not the same probe mix.

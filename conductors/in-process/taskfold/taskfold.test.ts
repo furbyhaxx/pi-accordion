@@ -533,7 +533,7 @@ describe("taskfold", () => {
 		await host.commitTurn();
 		const parent = groupOf(host, parentStart)!;
 		expect(parent.memberIds).toEqual(expect.arrayContaining([childStart, childEnd, parentEnd]));
-		expect(carrier(parent)).toMatchObject({ history: "work/1", outcome: "Auth refactored.", subtasks: { done: 1 }, children: { "1.1": foldTag("t:work/1.1") } });
+		expect(carrier(parent)).toMatchObject({ history: "work/1", outcome: "Auth refactored.", subtasks: { done: 1 }, children: { "1.1": { title: expect.any(String), recall: foldTag("t:work/1.1") } } });
 		expect(groupOf(host, childStart)?.id).toBe(parent.id);
 		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
 		expect(recalled.missing).toEqual([]);
@@ -565,7 +565,7 @@ describe("taskfold", () => {
 		host.setBudget(Math.ceil(host.stats().liveTokens * 1.2));
 		await host.commitTurn();
 		expect(carrier(groupOf(host, parentStart))).toEqual({ part: "work/1", of: [1, 2] });
-		expect(carrier(groupOf(host, parentEnd))).toMatchObject({ history: "work/1", subtasks: { done: 1 }, children: { "1.1": foldTag("t:work/1.1") } });
+		expect(carrier(groupOf(host, parentEnd))).toMatchObject({ history: "work/1", subtasks: { done: 1 }, children: { "1.1": { title: expect.any(String), recall: foldTag("t:work/1.1") } } });
 		expect(groupOf(host, message)).toBeUndefined();
 		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
 		expect(recalled.missing).toEqual([]);
@@ -592,7 +592,7 @@ describe("taskfold", () => {
 		const host = setup(s);
 		await attach(host);
 		const entry = carrier(groupOf(host, parent))!;
-		expect(entry.children).toEqual({ "1.1": foldTag("t:work/1.1"), "1.2": foldTag("t:work/1.2"), "1.3": foldTag("t:work/1.3") });
+		expect(entry.children).toEqual({ "1.1": { title: expect.any(String), recall: foldTag("t:work/1.1") }, "1.2": { title: expect.any(String), recall: foldTag("t:work/1.2") }, "1.3": { title: expect.any(String), recall: foldTag("t:work/1.3") } });
 		expect(entry.subtasks).toEqual({ done: 4 });
 		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
 		expect(recalled.missing).toEqual([]);
@@ -1064,7 +1064,7 @@ describe("taskfold", () => {
 		const root: RecordObj = { task: "w/1", title: "Root", status: "done", outcome: "x".repeat(400), children: [mid] };
 		const h = toHistory(root);
 		expect(h.subtasks).toEqual({ done: 1, failed: 1, abandoned: 1 });
-		expect(h.children).toEqual({ "1.1": foldTag("t:w/1.1") });
+		expect(h.children).toEqual({ "1.1": { title: expect.any(String), recall: foldTag("t:w/1.1") } });
 		expect(h.outcome!.length).toBeLessThanOrEqual(160);
 		expect(h.pins).toEqual([{ kind: "rule", text: "r", source: "user" }]);
 		expect(shrinkDeepest(root)).toBe(true);

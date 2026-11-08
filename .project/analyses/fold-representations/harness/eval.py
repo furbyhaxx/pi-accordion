@@ -12,7 +12,7 @@ model's first reply only; tools are offered but never executed.
 """
 import argparse, concurrent.futures as cf, hashlib, json, os, random, re, sys, time
 
-REPS = ["S", "B", "T", "BS", "HR", "HP"]
+REPS = ["S", "B", "T", "BS", "HR", "HP", "REAL"]
 MODEL, URL = "deepseek-flash", "https://api.deepseek.com/chat/completions"
 
 def code(key):

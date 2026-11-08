@@ -1,0 +1,24 @@
+run A (before child titles)
+rep | n | current | status | recall | continue | place | mean | steps
+REAL | 20 | 1.00 (1) | 0.50 (6) | 1.00 (6) | 1.00 (1) | 0.83 (6) | 0.800 | 1.60
+
+reasons:
+REAL {"continue:ok": 1, "current:ok": 1, "place:looked-up": 2, "place:ok": 4, "recall:own-code": 6, "status:answered": 3, "status:redo": 3}
+run B (before child titles)
+rep | n | current | status | recall | continue | place | mean | steps
+REAL | 20 | 1.00 (1) | 0.50 (6) | 1.00 (6) | 1.00 (1) | 1.00 (6) | 0.850 | 1.75
+
+reasons:
+REAL {"continue:ok": 1, "current:ok": 1, "place:ok": 6, "recall:own-code": 6, "status:answered": 3, "status:redo": 3}
+run A (after child titles)
+rep | n | current | status | recall | continue | place | mean | steps
+REAL | 20 | 1.00 (1) | 0.67 (6) | 1.00 (6) | 1.00 (1) | 0.83 (6) | 0.850 | 1.65
+
+reasons:
+REAL {"continue:ok": 1, "current:ok": 1, "place:looked-up": 2, "place:ok": 4, "recall:own-code": 6, "status:answered": 4, "status:redo": 1, "status:wrong": 1}
+run B (after child titles)
+rep | n | current | status | recall | continue | place | mean | steps
+REAL | 20 | 1.00 (1) | 0.83 (6) | 1.00 (6) | 1.00 (1) | 0.92 (6) | 0.925 | 1.50
+
+reasons:
+REAL {"continue:ok": 1, "current:ok": 1, "place:looked-up": 1, "place:ok": 5, "recall:own-code": 6, "status:answered": 5, "status:redo": 1}

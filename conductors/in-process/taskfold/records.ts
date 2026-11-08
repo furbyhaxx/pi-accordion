@@ -38,12 +38,13 @@ export interface HistoryObj {
 	outcome?: string;
 	/** Verbatim pins of the task and its subtree: a constraint outlives its task. */
 	pins?: RecordObj["pins"];
-	/** Direct children: id without the list slug → fold tag. */
-	children?: Record<string, string>;
+	/** Direct children by id without the list slug: a short title to find them by, and the fold tag to recall. */
+	children?: Record<string, { title: string; recall: string }>;
 }
 
 const LEADING = /^(\{#[0-9a-z]{6} FOLDED\}) (\{.*\})$/s;
 const HISTORY_OUTCOME_CHARS = 160;
+const HISTORY_CHILD_TITLE_CHARS = 60;
 
 /** Collapse whitespace and cut to `max` characters. */
 export function oneLine(s: string, max: number): string {
@@ -127,7 +128,7 @@ function subtreePins(node: RecordObj | HistoryObj): NonNullable<RecordObj["pins"
 export function toHistory(node: RecordObj | HistoryObj): HistoryObj {
 	if (isHistory(node)) return node;
 	const counts = descendants(node);
-	const direct = Object.fromEntries((node.children ?? []).flatMap((c) => (c.recall ? [[localId(isHistory(c) ? c.history : c.task), c.recall] as const] : [])));
+	const direct = Object.fromEntries((node.children ?? []).flatMap((c) => (c.recall ? [[localId(isHistory(c) ? c.history : c.task), { title: oneLine(c.title, HISTORY_CHILD_TITLE_CHARS), recall: c.recall }] as const] : [])));
 	return {
 		history: node.task,
 		title: node.title,
