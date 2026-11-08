@@ -5,15 +5,15 @@ document:
   title: "Fold representations, fold timing and user-message routing: evaluation"
   description: "Offline cache/token simulation of folded-task representations and fold timing, plus the design of the live comprehension and user-message routing evaluations"
   status: "draft"
-  revision: 2
+  revision: 3
   created_at: "2026-11-08T11:26:48+01:00"
-  updated_at: "2026-11-08T12:56:31+01:00"
+  updated_at: "2026-11-08T15:22:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "measure the overflowed session 01a1b680"
-      changes: ["§5 overflow cause, replay and cache rebill breakdown"]
+    - revision: 3
+      reason: "check the shipped extractor live"
+      changes: ["§3.5 routing-live result: the implemented prompt, parser and store on deepseek-flash"]
 ---
 
 # Fold representations, timing and user-message routing
@@ -196,6 +196,16 @@ list reconstructed at that point), 2 repetitions, hand-labelled gold ops. Corpus
     gold only partly lists.
 
 Spend: 0.57M prompt (0.46M cached) + 0.09M completion tokens, about $0.15.
+
+### 3.5 Shipped extractor, live (`harness/routing-live.ts`, `evidence/routing-live.txt`)
+
+The implemented `EXTRACT_SYSTEM`, `parseExtraction` and `applyRoutedOps` against a real v3 store,
+41 synthetic messages × 2 runs on deepseek-flash: recall 0.89 (55/62), precision 0.90, 22/22 no-op
+messages left clean, 14/14 pins verbatim, 0 call errors; the store applied 61 operations and refused
+2 (a file the fixture lacks) plus 2 malformed ones dropped by shape. Misses are judgment calls:
+"skip the docs" produced no operation once, "split 2.3" chose the wrong parent twice. Roughly the
+earlier measurement for B (0.93 on a mixed corpus); the extractor prompt did not regress. Spend: 72k
+tokens, a few cents.
 
 ## 4. Recommendation
 

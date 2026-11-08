@@ -1,0 +1,11 @@
+# routing-live: shipped extractor (EXTRACT_SYSTEM + parseExtraction + applyRoutedOps on a real v3 store), deepseek-flash, 41 synthetic messages x 2 reps, 2026-11-08
+# harness/routing-live.ts, harness/routing_live_score.py; corpus from harness/routing_corpus.py
+runs 82 | recall 0.89 (55/62) | precision 0.90 | exact 0.93 | no-op clean 22/22 | pins verbatim 14/14 | errors 0
+store: applied 61, refused 2, malformed 2
+    2 Cannot read src/legacy/tokens.ts.
+    1 a task to drop needs its id as target
+    1 "+" needs a value
+usage: {"prompt_tokens": 62762, "completion_tokens": 9182, "total_tokens": 71944, "prompt_cache_hit_tokens": 39633, "prompt_cache_miss_tokens": 23129}
+
+# misses (message | gold | got), judgment calls, none harmful:
+# 'Skip the docs...' no op in 1/2 runs; 'Split 2.3...' wrong parent in 2/2; 'Before you finish 2.2, write the changelog' misplaced in 1/2 and missed in 1/2
