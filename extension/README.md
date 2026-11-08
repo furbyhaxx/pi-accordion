@@ -44,7 +44,9 @@ to write that projection to a file. Every actual carrier appears once, including
 and untracked groups; substituted results never print their original bodies. Inspection metadata
 includes goals, criteria, scoped pins, attachments and recovery handles. Task context
 (goal, criteria, pins, attachment content) reaches the agent once, in the result of `tasks start`
-or `claim`, and folds with the task's span; nothing is appended to outgoing requests, so each
+or `claim`, and folds with the task's span; it is sent again only once the model can no longer see
+it (folded, compacted or edited). Every `tasks` result is one-line JSON with only what the tool
+decided; refusals carry an error code. Nothing is appended to outgoing requests, so each
 request extends the previous one and the provider cache stays warm. Sessions recorded before task
 events are adopted on resume (`tasks.adopt`) or with `/accordion tasks adopt [--dry-run]`.
 Use `/accordion budget 200k` / `/accordion tail 20k` to set the
