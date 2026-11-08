@@ -5,15 +5,15 @@ document:
   title: "Fold representations, fold timing and user-message routing: evaluation"
   description: "Offline cache/token simulation of folded-task representations and fold timing, plus the design of the live comprehension and user-message routing evaluations"
   status: "draft"
-  revision: 1
+  revision: 2
   created_at: "2026-11-08T11:26:48+01:00"
-  updated_at: "2026-11-08T11:26:48+01:00"
+  updated_at: "2026-11-08T12:56:31+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["offline simulation results", "live evaluation design and cost"]
+    - revision: 2
+      reason: "measure the overflowed session 01a1b680"
+      changes: ["§5 overflow cause, replay and cache rebill breakdown"]
 ---
 
 # Fold representations, timing and user-message routing
@@ -209,3 +209,34 @@ Spend: 0.57M prompt (0.46M cached) + 0.09M completion tokens, about $0.15.
 - User messages: the extension applies extracted ops itself (B), with the existing verbatim check
   on pins and a "changed" notice to the agent; the agent can still undo. Proposing ops to the
   agent (A, C) loses 30–60 % of them. Tighten the extractor against one-off instructions.
+
+## 5. Overflowed session `01a1b680` (nukular-ai, 2026-11-07/08)
+
+Read-only measurement of the session file (2,814 messages, one user prompt, `gpt-6.1-sol`, budget
+272k). Replay: `harness/session-replay/probe.ts <session> <line> [budget]`, run from the repo root
+with `ROOT=$PWD`; `EXPAND=1` exposes `tasks` calls made inside codemode as direct calls (test only).
+
+**Overflow.** Folding worked until line ~1969 (epochs every ~217k, 20 drops). From line 1909 the
+agent batched `complete`/`start` through codemode (47 such calls). The span scan only reads direct
+`tasks` tool calls, so every span started that way never closed: by the end 42 tasks were "open",
+nothing was foldable, and the real context grew to 872k before the request aborted.
+
+| Replay at the last line | Live tokens before → after one epoch |
+|---|---|
+| current code | 1.09M → 339k (span `3.11.1.3.3.2` alone holds 308k, done in the list since 00:57) |
+| nested calls visible (`EXPAND=1`) | 1.10M → 131k |
+
+Codemode's own call log truncates arguments at 200 characters, so it cannot be the source of task
+events; the `tasks` handler has to record them (SPEC-0002 §5.3).
+
+**Cache rebills (114.6M uncached input tokens).**
+
+| Cause | Misses | Uncached tokens |
+|---|---|---|
+| Working set moved every step (before `26be536`) | 472 | 63.5M |
+| Working set changed by a `tasks` call (after `26be536`) | 140 | 43.5M |
+| Fold epochs | 17 | 3.0M |
+| Other (idle expiry, retry) | 10 | 4.7M |
+
+Removing the injected working set (SPEC-0002 §4.5) removes the first two rows; eager folding keeps
+epochs small.

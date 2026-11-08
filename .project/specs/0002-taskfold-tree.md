@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v2 (nested tree, goal, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 16
+  revision: 17
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T12:48:24+01:00"
+  updated_at: "2026-11-08T12:56:10+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 16
-      reason: "adopt the fold-representation, timing and user-message routing evaluation (ANA-fold-representations)"
-      changes: ["eager folding at the next request", "JSON records on assistant carriers; root history on completion with child codes; aging levels removed", "user messages fold with their span after their list changes are applied by a sidecar extractor", "pressure-only history inside open roots", "legacy session adoption"]
+    - revision: 17
+      reason: "nested tasks calls and legacy session adoption"
+      changes: ["§5.3 task events on the outer result for tasks calls inside codemode; stale spans", "§14 one-time adoption of legacy sessions (auto/ask/off, dry run, derived entry, no message rewrites)"]
 ---
 
 # Taskfold
@@ -575,6 +575,28 @@ A node is **finished** when its status is `done`, `failed` or `abandoned`. Posit
 longer implies ownership: a group of a non-descendant inside a span's range is a boundary, never a
 veto.
 
+### 5.3 Nested `tasks` calls
+
+`tasks` may run inside another tool, most often `codemode`. The scan must see those calls: a
+session that batched `complete` + `start` through codemode left every later span open and could no
+longer fold anything (ANA-fold-representations §5).
+
+- The `tasks` handler records every execution, direct or nested, as a structured **task event** on
+  the outermost tool result of the step: `details.taskEvents: {action, list, id, started, finished,
+  closed, cascaded, delivered}[]`, in execution order. A direct call puts one event on its own
+  result.
+- For a nested call the extension resolves the outer `toolCallId` (`parentToolCallId`) and appends
+  the event to that result's `details` in `tool_result`, before it is persisted.
+- The scan reads task events from any tool result. Interval boundaries for a nested event use the
+  outer call/result pair: `start` opens at the outer call, `complete` closes at the outer result.
+  Events in one outer call apply in order, so `complete A` then `start B` inside one script still
+  closes A before B opens.
+- The scan never parses tool output text or a host tool's own call log (codemode records arguments
+  truncated).
+- A span still open with no task event for `tasks.zombieSteps` (default 40) steps while other
+  tasks start and finish is reported in `status` and the widget as `stale` and is offered to the
+  agent in the next `tasks` result as `{"stale": ["3.11.1.3.3.2"]}`; it is not folded silently.
+
 ## 6. Records
 
 Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
@@ -861,6 +883,53 @@ applies. `low < high`. The extractor model resolves through `models` like other 
 | Tree, compile, diff, records, intervals | `bun test conductors/in-process/taskfold/*.test.ts` with real `Truth` (`TestHost`) |
 | Handles | `core/truth.test.ts`, `core/agentView` recall/unfold tests |
 | Regression scripts (synthetic, no private sessions) | Each must stay ≤ `low·budget` or end saturated with only unfoldable blocks, and every fold and handle code must round-trip through `recall`: blocked task with sibling work (S2 1.3.4); giant open leaf; prelude before the list; three-level tree folded in two epochs; tail-pruned group re-proposed |
+| Nested calls | codemode `complete`+`start` closes and opens the right spans; truncated host logs are never parsed; stale span reported, not folded |
+| Adoption | derive from a synthetic legacy session (prose results, codemode batches, v1 list): same spans as a native session, idempotent re-run, dry-run writes nothing |
 | Widget | `bun test extension/tui/*.test.ts`, plus a real terminal at 36/57/80/140 |
 | Gates | `npm --prefix extension run smoke`, `npm --prefix app run check`, `npm --prefix app test` |
 | Measurement | Isolated synthetic fixture comparison: five runs per fixture for A, K+, T and TF; four for TF-inline and TF-ref. Includes pass/constraint results, peak context, estimated cost and cache reads. See `PLAN-0002`'s `evidence/floor-comparison/README.md` for results and limitations. |
+
+## 14. Adopting legacy sessions
+
+A session recorded before this design (prose results, injected working set, list v1, tasks calls
+inside codemode without events) is converted once so it continues under the new mechanism.
+
+### 14.1 Trigger
+
+- On `session_start` with `reason` `resume`/`fork`/`startup` and Taskfold attached, the extension
+  checks for an `accordion.taskfold.adopted` entry. Without one it runs **detection**: any `tasks`
+  result without `details.taskEvents`, or a v1 list file, marks the session legacy.
+- `tasks.adopt` (`"auto"` default, `"ask"`, `"off"`): `auto` adopts silently; `ask` shows the
+  resume dialog with the measured effect; `off` leaves the session on the legacy scan.
+- Manual: `/accordion tasks adopt [--dry-run]` at any time. `--dry-run` prints the derived events
+  and the resulting fold plan without writing anything.
+
+### 14.2 What adoption derives
+
+Adoption never rewrites persisted messages. It writes one `accordion.taskfold.adopted` custom entry
+that holds everything the scan would otherwise read from `details`:
+
+| Derived | Source, in order of preference |
+|---|---|
+| Task events for direct calls | the call's arguments + result `details` (`started`, `closed`, `cascaded`) + prose fallback regexes |
+| Task events for nested calls | the outer tool's argument script (`core/codemode.ts` `codemodeScriptCalls`), matched by order to the result sections; the list file's `finishedAt`/`status` confirms each finish |
+| Titles, reports, criteria, pins | the list file at adoption time, by task id; renumbering from `move`/`add` results is replayed backwards |
+| Open spans the list says are finished | closed at the outer result where the list's `finishedAt` falls, else at the next `start` of a non-descendant |
+
+Entries are keyed by block id (`r:<callId>`), so the scan merges them exactly like `details`.
+
+### 14.3 Rules
+
+- **Idempotent:** the entry carries the scan version and a fingerprint of the branch it was built
+  for. Re-running produces the same entry; a newer scan version re-adopts and supersedes it.
+- **List file:** a v1 list is migrated by the normal write path (§2.2) with the original kept as
+  `<slug>.v1.json`. A list that fails validation is not touched; adoption stops with the error.
+- **Delivery ledger:** legacy sessions have no manifests, so nothing counts as delivered. The next
+  `start` or `claim` delivers the full context once.
+- **Working set:** no suffix is ever re-injected. The first request after adoption may differ from
+  the last legacy request; that one cache miss is the whole cost.
+- **Folding:** the next epoch folds every finished span eagerly (§8). Adoption reports the
+  projected live tokens before and after in the dialog and in the `adopted` entry.
+- **Failure:** any derivation error keeps the session on the legacy scan and shows one notice; a
+  partial entry is never written.
+
