@@ -1743,7 +1743,7 @@ export class Truth {
 		// ever told `applyPlan` to remove them. Unreachable from the UI (`setGroupSummary` normalizes
 		// an all-whitespace box to `null` before this ever runs); this closes the raw-wire-command path.
 		const summary = by === "you" && typeof op.summary === "string" ? stripFoldTags(op.summary).trim() : op.summary;
-		const g: Group = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...(by === "auto" ? { autoOrigin: true } : {}), ...(op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) };
+		const g: Group = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...(by === "auto" ? { autoOrigin: true } : {}), ...(by === "auto" && op.role ? { role: op.role } : {}), ...(op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) };
 		if (g.handles && (by !== "auto" || new Set(g.handles.map((h) => h.id)).size !== g.handles.length || g.handles.some((h) => !this.canRecallHandle(g, h)))) return this.clamp(op, "invalid-group", "invalid or inaccessible group handle");
 		if (this.classifyGroup(g).carrier === null) return this.clamp(op, "invalid-group", "nothing collapses (all stragglers)");
 		this.groupList = [...this.groupList, g];
@@ -1906,7 +1906,7 @@ export class Truth {
 			if (!memberIds.length) continue;
 			const summaryText: string | null = this.isDropGroup(g) ? null : this.groupSummary(g);
 			if (summaryText !== null && !summaryText.trim()) continue;
-			out.push({ id: g.id, memberIds, summaryText });
+			out.push({ id: g.id, memberIds, summaryText, ...(g.role ? { role: g.role } : {}) });
 		}
 		return out;
 	}

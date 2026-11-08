@@ -466,6 +466,26 @@ describe("Truth — serializeWire", () => {
 		}
 	});
 
+	it("emits a conductor group's carrier with the requested role, and ignores the role from a human", () => {
+		const messages: PiMessage[] = [
+			{ role: "user", content: "begin", timestamp: 1 },
+			{ role: "assistant", responseId: "one", content: [{ type: "text", text: "old work" }] },
+			{ role: "user", content: "later", timestamp: 3 },
+			{ role: "assistant", responseId: "two", content: [{ type: "text", text: "more work" }] },
+			{ role: "user", content: "continue", timestamp: 5 },
+		];
+		const carrierRole = (by: "auto" | "you") => {
+			const t = bulk(linearize(messages).map(wireToBlock));
+			t.wireAttached = true; t.setProtect(0);
+			expect(t.apply([{ kind: "group", ids: ["u:3", "a:two:p0"], summary: "{#abc123 FOLDED} {\"task\":\"l/1\"}", role: "assistant" }], by).results[0].applied).toBe(true);
+			const wire = t.serializeWire(messages);
+			expect(linearize(wire).map((b) => b.text)).toEqual(t.projectContext().filter((p) => p.text !== null).map((p) => p.text));
+			return wire.find((m) => JSON.stringify(m.content).includes("l/1"))?.role;
+		};
+		expect(carrierRole("auto")).toBe("assistant");
+		expect(carrierRole("you")).toBe("user");
+	});
+
 	it("projects real carriers, drops and stragglers with exact additive calibrated charges", () => {
 		const messages: PiMessage[] = [
 			{ role: "user", content: "begin", timestamp: 1 },

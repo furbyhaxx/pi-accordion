@@ -48,7 +48,7 @@ export type Op =
 	/** Collapse a contiguous run into ONE summary entry (snapped to whole messages).
 	 *  `summary` undefined/absent → the engine's default recap (tagged); `null`/`""` → DROP
 	 *  (no wire message); a non-empty string → that exact summary verbatim (no tag). */
-	| { kind: "group"; ids: string[]; summary?: string | null; handles?: GroupHandle[] }
+	| { kind: "group"; ids: string[]; summary?: string | null; handles?: GroupHandle[]; role?: "assistant" }
 	/** Delete a group (members return to their own fold state). */
 	| { kind: "ungroup"; groupId: string }
 	/** Collapse an existing (open) group. */
@@ -194,7 +194,7 @@ export function isValidOp(op: unknown): op is Op {
 		case "auto":
 			return isStringArray(o.ids);
 		case "group":
-			return isStringArray(o.ids) && (o.summary === undefined || o.summary === null || typeof o.summary === "string") && (o.handles === undefined || (Array.isArray(o.handles) && o.handles.every((h: unknown) => !!h && typeof h === "object" && typeof (h as Record<string, unknown>).id === "string" && isStringArray((h as Record<string, unknown>).memberIds))));
+			return isStringArray(o.ids) && (o.summary === undefined || o.summary === null || typeof o.summary === "string") && (o.role === undefined || o.role === "assistant") && (o.handles === undefined || (Array.isArray(o.handles) && o.handles.every((h: unknown) => !!h && typeof h === "object" && typeof (h as Record<string, unknown>).id === "string" && isStringArray((h as Record<string, unknown>).memberIds))));
 		case "replace":
 			return typeof o.id === "string" && typeof o.content === "string" && (o.recoverable === undefined || typeof o.recoverable === "boolean");
 		case "ungroup":

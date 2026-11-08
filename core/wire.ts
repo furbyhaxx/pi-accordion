@@ -743,7 +743,7 @@ export function applyPlan(messages: PiMessage[], ops: FoldOp[], groups: GroupOp[
 				// REPLACE (existing behavior), OR a DROP degraded by the role-validity floor:
 				// insert ONE synthetic message so the wire never starts non-"user" or welds two
 				// same-role survivors together.
-				const role = messages[i].role === "assistant" ? "assistant" : "user";
+				const role = g.role ?? (messages[i].role === "assistant" ? "assistant" : "user");
 				const text = g.summaryText !== null ? g.summaryText : roleFloorRecap(g.id, runLength);
 				out.push({ role, content: [{ type: "text", text }] } as PiMessage);
 				changed = true;

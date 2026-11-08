@@ -211,7 +211,7 @@ export class LiveConductorHost implements ConductorHost {
 	}
 	groups(): readonly GroupInfo[] {
 		const t = this.deps.truth();
-		return t ? t.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) })) : [];
+		return t ? t.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest, ...(g.role ? { role: g.role } : {}), ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) })) : [];
 	}
 	textOf(id: string): string | null {
 		return this.deps.truth()?.get(id)?.text ?? null;

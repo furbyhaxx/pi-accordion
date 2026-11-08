@@ -217,6 +217,8 @@ export interface GroupOp {
 	id: string;
 	memberIds: string[];
 	summaryText: string | null;
+	/** Forced role of every carrier this group emits; absent keeps each run's first message's role. */
+	role?: "assistant";
 }
 
 /** The client role declared at connect. `conductor` is carried through auth + tagged for Phase C. */

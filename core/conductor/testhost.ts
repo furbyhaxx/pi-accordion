@@ -52,7 +52,7 @@ export class TestHost implements ConductorHost {
 		return this.truth.blocks.map((b) => viewBlockOf(this.truth, b));
 	}
 	groups(): readonly GroupInfo[] {
-		return this.truth.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest, ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) }));
+		return this.truth.groups.map((g) => ({ id: g.id, memberIds: g.memberIds.slice(), folded: g.folded, by: g.by ?? null, summary: g.digest, ...(g.role ? { role: g.role } : {}), ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {}) }));
 	}
 	textOf(id: string): string | null {
 		return this.truth.get(id)?.text ?? null;

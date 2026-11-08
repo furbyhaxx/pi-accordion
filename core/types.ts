@@ -154,6 +154,8 @@ export interface Group {
 	handles?: GroupHandle[];
 	/** This group originated from a conductor, even if detach later freezes it. */
 	autoOrigin?: boolean;
+	/** The role of every carrier message this group emits; absent keeps the role of each run's first message. Conductor groups only. */
+	role?: "assistant";
 	/** Who created this group. Optional; the group op always sets it (default `"you"`). */
 	by?: Actor;
 	/**

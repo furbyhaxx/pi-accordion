@@ -111,6 +111,7 @@ export interface GroupInfo {
 	handles?: readonly { readonly id: string; readonly memberIds: readonly string[] }[];
 	by: Actor | null;
 	summary?: string | null;
+	role?: "assistant";
 }
 
 /**
