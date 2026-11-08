@@ -1,4 +1,4 @@
 # Next free number per id prefix. Deleted ids stay reserved; never lower a value.
 SPEC = 3
-PLAN = 4
+PLAN = 5
 B = 1

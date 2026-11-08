@@ -18,7 +18,7 @@ document:
 
 # Taskfold
 
-Implementation plan: `.project/plans/0002-taskfold-tree/plan.md`.
+Implementation plans: `.project/plans/0002-taskfold-tree/plan.md` (v2 tree), `.project/plans/0004-taskfold-structured/plan.md` (r15–r18).
 
 This spec amends SPEC-0001 §4.3, §4.4, §4.10, §4.11 and §4.15. Each slice that changes one of those
 behaviours updates SPEC-0001 in the same commit.
