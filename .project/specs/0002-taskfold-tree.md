@@ -551,7 +551,7 @@ the extension reaches 0.93.
   after `before_agent_start` and off the request path:
   1. **Classify** (existing classifier): `chat | answer | directive | correction | scope-change`.
      `chat` and `answer` produce nothing.
-  2. **Extract**: one structured model call (`models` setting type `taskfold.extract`) with the list,
+  2. **Extract**: one structured model call (a `chat` completion, resolved through `models` like other out-of-band calls) with the list,
      the `doing` branch, the agent's last turn and the message. Output: list operations
      `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, value, pinKind?}`,
      where `target` is the list, a task id, or an item id (`g2`, `c5`, `p3`, `a1`) for `-`/`~`.
@@ -561,8 +561,10 @@ the extension reaches 0.93.
      rules; a refused operation is dropped and logged.
   4. **Notify** the agent once with a §4.4 `changed` notice carrying `by: "user-message"` and the
      applied operations. The agent may revert any of them with `tasks`.
-- The message's block records `details.routed = {ops: [...ids], at}`. Only routed messages may join
-  a group. Extraction failure or timeout leaves the message raw for the session (today's behaviour).
+- The message's block records `details.routed = {ops: [...ids], at}`. A routed message joins
+  its span's group. An unrouted one (extraction failed, timed out, or no list was attached) falls
+  back to the classifier gate: it folds only below the loss threshold and otherwise stays raw and
+  ends the run, as before this design.
 - Records carry `"user": [{"said": "<first 120 chars>", "ids": ["p7", "c3"]}]` for the routed messages
   inside the task's own intervals, so the agent sees where each instruction went. History entries
   (§6.3) carry no `user` links: the pins they keep are the lasting part, and `recall` returns the
@@ -919,7 +921,7 @@ applies. `low < high`. The extractor model resolves through `models` like other 
 | Cache | consecutive requests are byte-identical prefixes across start, pin, attach, notices (`extension/smoke-context.mjs`) |
 | Records, history | exact carrier JSON, `assistant` role for every carrier, root history with direct child codes, truthful subtree status |
 | Eager timing | a finished task is folded at the next request; consecutive requests share every byte before the new fold |
-| User messages | routed messages fold inside spans, unrouted stay raw; verbatim pin check; `changed` notice once; extraction failure keeps the message raw |
+| User messages | routed messages fold inside spans, unrouted ones fall back to the classifier gate; verbatim pin check; `changed` notice once; extraction failure keeps the message raw |
 | Comprehension, routing | `.project/analyses/fold-representations/harness/eval.py`, `routing.py` against the implementation's real rendering |
 | Tree, compile, diff, records, intervals | `bun test conductors/in-process/taskfold/*.test.ts` with real `Truth` (`TestHost`) |
 | Handles | `core/truth.test.ts`, `core/agentView` recall/unfold tests |

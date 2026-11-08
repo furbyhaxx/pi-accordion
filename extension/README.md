@@ -109,10 +109,11 @@ attaches):
 }
 ```
 
-The newest completed work stays open when older work suffices; under pressure it can fold too.
-Aging advances older records during a folding epoch, preserving their recall handles. Setting
-`floor` to `true` additionally applies recoverable per-block folding inside long open tasks and
-untracked work, outside the protected tail; it is off by default.
+Finished tasks fold at the next request, a finished top-level task becomes a one-line history
+entry, and history inside an open root is only produced under pressure (`high`, `low`). History
+entries are never rewritten, so each fold costs the provider cache once. `keepRecentTasks` is for
+experiments: it delays folds. Setting `floor` to `true` additionally applies recoverable per-block
+folding inside long open tasks and untracked work, outside the protected tail; it is off by default.
 
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets
 output against the actual serialized prompt, including restored content. Stored usage and costs

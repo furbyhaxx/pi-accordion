@@ -1,10 +1,10 @@
 /*
- * taskPins.ts — pins and attachments on task lists and tasks, and the working set built from them.
+ * taskPins.ts — pins and attachments on task lists and tasks, and the context deliveries built from them.
  *
  * A pin is a verbatim quote (rule, convention, constraint, standard, fact) from a user message or a
- * file; an attachment is a file line range. Both live in the list file, on the list or on a task,
- * so they outlive the session. The working set shows the goal, list pins and the pins, attachments
- * and acceptance criteria of the branch in progress at the end of every request.
+ * file; an attachment names a part of a file by section, symbol or quote. Both live in the list
+ * file, on the list or on a task, so they outlive the session. A delivery is what one `tasks`
+ * result puts in front of the model; it is sent again only when the model can no longer see it.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
