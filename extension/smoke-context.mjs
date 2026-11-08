@@ -124,6 +124,40 @@ check("nested tasks calls put their span events on the outer tool result", async
 		assert.equal(again?.details, undefined, "events are delivered once");
 	} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
 });
+check("start delivers anchored attachments with their states and upgrades legacy line ranges", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-anchors-"));
+	const r = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: dir, sessionId: "anchors" });
+	const run = async (id, args) => JSON.parse((await r.tools.tasks.execute(id, args, undefined, undefined, r.ctx)).content[0].text);
+	try {
+		fs.writeFileSync(path.join(dir, "auth.md"), "# Auth\n\n## Interface\n\nget and set\n\n## Notes\n\nfirst\nsecond\n");
+		fs.writeFileSync(path.join(dir, "store.ts"), "export class TokenStore {\n\tget() { return 1; }\n}\n");
+		await run("c1", { action: "create", list: "w", title: "W", goals: ["Done"], tasks: [{ title: "A" }, { title: "B" }] });
+		const attached = await run("c2", { action: "attach", list: "w", id: "1", items: [{ path: "auth.md", section: "Auth > Interface" }, { path: "store.ts", symbol: "TokenStore.get" }, { path: "auth.md", quote: "second" }] });
+		assert.deepEqual(attached.attachments.map(a => a.ref), ["auth.md#Auth > Interface", "store.ts::TokenStore.get", "auth.md@q:a3"]);
+		// The file changes before the task starts: lines are added above, the quote moves, a section is rewritten elsewhere.
+		fs.writeFileSync(path.join(dir, "auth.md"), "intro\n\n# Auth\n\n## Interface\n\nget and set\n\n## Notes\n\nrewritten\nsecond\n");
+		fs.writeFileSync(path.join(dir, "store.ts"), "// header\nexport class TokenStore {\n\tget() { return 1; }\n}\n");
+		const started = await run("c3", { action: "start", list: "w", id: "1" });
+		const byRef = Object.fromEntries(started.started[0].attachments.map(a => [a.ref, a]));
+		assert.equal(byRef["auth.md#Auth > Interface"].content, "## Interface\n\nget and set");
+		assert.equal(byRef["auth.md#Auth > Interface"].state, undefined, "a section that still exists is not reported");
+		assert.equal(byRef["store.ts::TokenStore.get"].content, "get() { return 1; }");
+		assert.equal(byRef["auth.md@q:a3"].content, "second");
+		assert.equal(byRef["auth.md@q:a3"].state, "moved");
+		const stored = JSON.parse(fs.readFileSync(path.join(dir, ".pig", "tasks", "w.json"), "utf8"));
+		assert.equal(stored.tasks[0].attachments.find(a => a.id === "a3").anchor.quote.exact, "second");
+		// A legacy line range in a hand-written list is delivered by its lines and replaced by a quote.
+		fs.writeFileSync(path.join(dir, "spec.md"), "one\ntwo\nthree\n");
+		stored.tasks[1].attachments = [{ id: "a4", path: "spec.md", lines: "2-3" }];
+		fs.writeFileSync(path.join(dir, ".pig", "tasks", "w.json"), JSON.stringify(stored));
+		await run("c4", { action: "complete", list: "w", id: "1", report: { outcome: "Done." } });
+		const second = await run("c5", { action: "start", list: "w", id: "2" });
+		assert.deepEqual(second.started[0].attachments, [{ id: "a4", ref: "spec.md:2-3", content: "two\nthree" }]);
+		const upgraded = JSON.parse(fs.readFileSync(path.join(dir, ".pig", "tasks", "w.json"), "utf8")).tasks[1].attachments[0];
+		assert.equal(upgraded.lines, undefined);
+		assert.equal(upgraded.anchor.quote.exact, "two\nthree");
+	} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
 check("a legacy session is adopted once on resume and its nested finishes close spans", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-adopt-"));
 	fs.mkdirSync(path.join(dir, ".pig", "tasks"), { recursive: true });
@@ -224,7 +258,7 @@ check("task context rides in the start result and requests are never rewritten",
 		await run({ action: "attach", list: "w", id: "1", items: [{ path: "spec.md:1" }] });
 		assert.equal(await run({ action: "start", list: "w", id: "1" }), JSON.stringify({ ok: true,
 			list: { goals: [{ id: "g1", text: "Finish work" }], pins: [{ id: "p1", kind: "constraint", text: "Always use decimal.", source: "user" }] },
-			started: [{ id: "1", title: "Task", criteria: [{ id: "c1", text: "Decimal everywhere" }], attachments: [{ id: "a1", ref: "spec.md:1", content: "before" }] }] }));
+			started: [{ id: "1", title: "Task", criteria: [{ id: "c1", text: "Decimal everywhere" }], attachments: [{ id: "a1", ref: "spec.md@q:a1", content: "before" }] }] }));
 		assert.equal(await run({ action: "pin", list: "w", id: "1", items: [{ kind: "fact", text: "Always use decimal.", source: "user" }] }), '{"ok":true,"pins":["p2"]}', "pin acknowledges only");
 		assert.equal(await run({ action: "status", list: "w" }), '{"ok":true,"done":0,"total":2,"doing":["1"],"next":{"id":"2","title":"Next"}}', "status never repeats content");
 		const stable = [{ role: "user", content: "Go.", timestamp: 10 }];
