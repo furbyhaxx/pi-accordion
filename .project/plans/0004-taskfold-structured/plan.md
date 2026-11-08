@@ -44,7 +44,7 @@ worktree `.pi/worktrees/taskfold-structured`, merged into `feat/pi-native`.
 | 5 | List file v3: `goals[]`, `{id,text}` criteria, item ids, `ItemEdit`; skill and schema | §2 | done (abd8560) |
 | 6 | Eager lifecycle, JSON records on assistant carriers, one code per task, root history | §6, §8, §9 | done |
 | 7 | Content anchors (section, symbol, quote) and delivery-time states | §4.2 | done (taskAnchors.ts, taskSymbols.ts, 75e6be0, 603deb1) |
-| 8 | Notices and user-message routing (classify, extract, apply, notify) | §4.4, §4.6 | later |
+| 8 | Notices and user-message routing (classify, extract, apply, notify) | §4.4, §4.6 | now |
 | 9 | Views, dump, settings, docs; replay `01a1b680`, comprehension eval on real rendering, live run | §10, §12, §13 | later |
 
 Slices 1–2 let the overflowed session continue under the current record format. Slice 3 removes
@@ -121,6 +121,46 @@ Change, in order (each its own commit with tests on a real `Truth`):
 Done when the replay of `01a1b680` and the synthetic fixtures fold at the next eligible request and the
 gates in "Rules" pass.
 
+## Slice 8: notices and user-message routing
+
+Current: `TaskfoldConductor.classifyNew` runs one classifier call per user block (`USER_QUESTIONS`) and
+stores a `Verdict` (`loss`) through `VerdictLedger` (session entry `accordion.taskfold.verdict`); a
+message folds only when `loss < maxLoss`, so a high-loss message ends a run (`foreign()`/`makeRuns()`
+in `taskfold.ts`). `TaskSession` queues prose notices delivered by `before_agent_start`
+(`accordion.ts`, `NOTICE_MESSAGE`). `core/wire.ts` `linearize` drops `custom` messages, so notices are
+no Truth blocks.
+
+Design decisions (spec §4.4, §4.6 amended in the same commits):
+- **Port, not import.** The conductor cannot reach the store. The extension sets a process-wide
+  `taskfoldRouting` port (like `taskfoldVerdicts`): `snapshot()` returns the attached list and `doing`
+  branch with item ids, `apply(ops, said)` validates and writes through the store with
+  `source: "user"` and returns the applied item ids. Null while no list is attached.
+- **Extractor model = the conductor's chat model** (`host.complete`, `models.conductors.taskfold.chat`),
+  not a new model type. Privacy consent already covers Taskfold.
+- **Routed = a recorded extraction.** `Verdict.routed = {ids, at}` rides the existing verdict entry.
+  `folds(b)` = `routed` or classifier `loss < maxLoss`. Extraction failure or timeout leaves today's rule.
+  Skipped for harness and opening messages and when no list is attached.
+- **Extractor output uses item ids** (`{op,kind,target,id?,value?,pinKind?}`), so `-`/`~` never match by text.
+
+Order, each its own commit with tests on a real store/`Truth`:
+1. **Ops** `extension/taskRouting.ts` (pure): parse and validate extractor JSON; drop an operation that
+   fails the store's rules (started tasks stay frozen, caps, unknown id); a pin must occur verbatim in the
+   message; apply through the store; return `{applied, dropped}`.
+2. **Extractor** in the conductor after classification: context-aware prompt (list, `doing` branch, agent's
+   last turn, message), strict JSON, one retry-free call with a deadline; record `routed`; never blocks the
+   request path.
+3. **Folding and links**: routed messages join runs; records get `"user":[{"said","ids"}]`.
+4. **Notices**: one queue in the extension; kinds `changed`, `restored`, `waiting` as JSON; delivered with the
+   next prompt (`before_agent_start`) or `pi.sendMessage(..., {deliverAs: "steer"})` while a turn runs; each
+   persisted once, never moved. Routing posts `changed` with `by: "user-message"`. If `linearize` can carry
+   notices as grouped blocks safely, they count as delivery; otherwise they stay blockless and `restored`
+   is dropped from this slice.
+5. **Gates and live check**: exact-JSON tests, extraction-failure raw path, replay of the eval corpus
+   through the real port (`harness/routing.py` against the implementation), `deepseek/deepseek-flash` live run.
+
+Done when a user correction inside a span lands in the list, the message folds with its span, the agent sees
+one notice, and a failed extraction keeps the message raw.
+
 ## Later slices
 
 - 3: delete `workingSet`/`placeWorkingSet`/`workingSetTarget`, the `context_with_system` suffix and
@@ -131,6 +171,4 @@ gates in "Rules" pass.
 - 5: `taskSchema.ts` v3 + migration of v1/v2 with backup, store `ItemEdit`, skill examples, schema.
 - 7: anchor resolution module `extension/taskAnchors.ts` (Markdown sections, tree-sitter symbols,
   W3C quote).
-- 8: notices through `pi.sendMessage`/`before_agent_start`; extractor through `models` with
-  privacy consent.
 - 9: views/dump/README/SPEC-0001; evaluations listed in spec §13.
