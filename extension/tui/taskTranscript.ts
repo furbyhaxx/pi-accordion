@@ -6,6 +6,7 @@
 import type { Truth } from "../../core/truth";
 import type { BlockKind, ContextProjection, Group, GroupHandle } from "../../core/types";
 import { scanTaskSpans, taskKeyOfSummary, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
+import { recordForm } from "../../conductors/in-process/taskfold/records";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import type { TaskList } from "../tasks";
 
@@ -64,7 +65,7 @@ export type TNode =
 	| { type: "task"; span: TaskSpan; children: TNode[]; tokens: Tokens; folds: number; subtasks: { done: number; total: number } }
 	| { type: "user"; block: TBlock; verdict: Verdict | undefined; folded: boolean; why: string }
 	| { type: "untracked"; blocks: TBlock[]; calls: number; tokens: Tokens }
-	| { type: "fold"; group: TGroup; code: string | null; key: string | null; level: 0 | 1 | 2 | null; children: TNode[] }
+	| { type: "fold"; group: TGroup; code: string | null; key: string | null; form: "record" | "history" | null; children: TNode[] }
 	| { type: "step"; block: TBlock; result: TBlock | null; tokens: Tokens; folded: boolean }
 	| { type: "edge"; edge: "start" | "finish"; span: TaskSpan; block: TBlock };
 
@@ -158,13 +159,6 @@ export function userReason(verdict: Verdict | undefined, folded: boolean, thresh
 		return folded || below ? `loss ${fmtLoss(verdict.loss)}${t ? ` < ${t}` : ""}` : `loss ${fmtLoss(verdict.loss)}${t ? ` ≥ ${t}` : ""}`;
 	}
 	return "unclassified";
-}
-
-/** A record summary's aging level: 0 full, 1 one line, 2 archived stub; null for other summaries. */
-export function recordLevel(summary: string | null | undefined): 0 | 1 | 2 | null {
-	if (!taskKeyOfSummary(summary)) return null;
-	if (/^\{#[0-9a-z]{6} FOLDED\} \[task-archived\]/.test(summary!)) return 2;
-	return /^\{#[0-9a-z]{6} FOLDED\} \[task-record\]/.test(summary!) && (!summary!.includes("\n") || summary!.split("\n", 1)[0].includes(" · recall ")) ? 1 : 0;
 }
 
 function codeOf(summary: string | null | undefined): string | null {
@@ -382,7 +376,7 @@ export function spanTranscript(src: TranscriptSource, span: TaskSpan): TNode[] {
 		if (g?.folded) {
 			let fold = folds.get(g.id);
 			if (!fold) {
-				fold = { type: "fold", group: g, code: codeOf(g.summary), key: gKey, level: recordLevel(g.summary), children: [] };
+				fold = { type: "fold", group: g, code: codeOf(g.summary), key: gKey, form: recordForm(g.summary), children: [] };
 				folds.set(g.id, fold);
 				out.push(fold);
 			}

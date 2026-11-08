@@ -206,7 +206,7 @@ describe("task views", () => {
 
 	it("distinguishes stored records from outgoing text while folding is paused", () => {
 		const truth = truthOf(), bs = truth.blocks;
-		truth.apply([{ kind: "group", ids: [bs[3].id, bs.at(-1)!.id], summary: `${foldTag(`g:${bs[3].id}`)} [task-record] l/1 "Parent" status: done\noutcome: Built.` }], "auto");
+		truth.apply([{ kind: "group", ids: [bs[3].id, bs.at(-1)!.id], summary: `${foldTag(`g:${bs[3].id}`)} {"task":"l/1","title":"Parent","status":"done","outcome":"Built."}` }], "auto");
 		const host: TaskViewsHost = { truth: () => truth, folding: () => false, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
 		const view = new TaskViews({ requestRender() {} }, theme, { matches: (input, key) => input === "\r" && key === "tui.select.confirm" }, host, { kind: "list", slug: "l" }, () => {}, () => 40);
 		expect(view.render(140).join("\n")).toContain("folding paused");
@@ -232,7 +232,7 @@ describe("task views", () => {
 		const truth = truthOf(b);
 		const childIds = b.slice(5, 9).map((b) => b.id);
 		const handleId = "t:l/1.1";
-		const summary = `${foldTag(`g:${b[3].id}`)} [task-record] l/1 "Parent"  status: done\nchild l/1.1 ${foldTag(handleId)}`;
+		const summary = `${foldTag(`g:${b[3].id}`)} {"task":"l/1","title":"Parent","status":"done","children":[{"task":"l/1.1","recall":"${foldTag(handleId)}"}]}`;
 		expect(truth.apply([{ kind: "group", ids: [b[3].id, b.at(-1)!.id], summary, handles: [{ id: handleId, memberIds: childIds }] }], "auto").results[0].applied).toBe(true);
 		expect([...foldedTaskIds(list, foldedTaskTokens(list, truth))]).toEqual(["1", "1.1"]);
 		let allowed = false;
@@ -244,7 +244,7 @@ describe("task views", () => {
 		view.render(140); view.handleInput("\x1b[C"); view.handleInput("\x1b[B"); view.handleInput("\r");
 		expect(view.render(140).join("\n")).toContain(foldCode(handleId));
 		view.handleInput("v");
-		expect(view.render(140).join("\n")).toContain("child l/1.1");
+		expect(view.render(140).join("\n")).toContain(`"task":"l/1.1"`);
 		view.handleInput("v");
 		expect(view.render(140).join("\n")).toContain("src/a.ts");
 		view.handleInput("\x1b"); view.handleInput("u");
@@ -260,7 +260,7 @@ describe("task views", () => {
 	it("keeps whole-task folds reversible without treating them as selective recovery", async () => {
 		const b = blocks(), truth = truthOf(b);
 		const ids = b.slice(3).map((b) => b.id), handleId = "t:l/1";
-		const summary = `${foldTag(`g:${ids[0]}`)} [task-record] l/1 "Parent"  status: done\n${foldTag(handleId)}`;
+		const summary = `${foldTag(`g:${ids[0]}`)} {"task":"l/1","title":"Parent","status":"done","recall":"${foldTag(handleId)}"}`;
 		expect(truth.apply([{ kind: "group", ids, summary, handles: [{ id: handleId, memberIds: ids }] }], "auto").results[0].applied).toBe(true);
 		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => true,
 			apply: async (ops) => { const result = truth.apply(ops, "you"); expect(result.results.every((r) => r.applied)).toBe(true); return "Applied."; }, subscribe: () => () => {} };

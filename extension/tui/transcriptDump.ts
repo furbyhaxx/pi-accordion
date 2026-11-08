@@ -4,7 +4,7 @@
  * The projection is what `Truth.serializeWire` hands the model on the next `context` hook: every
  * block in order, except that a folded block rides as its digest and a folded group replaces its
  * whole run of messages with one summary. Taskfold's folded spans are groups whose summary is a
- * `[task-record]` line, so the document reads as the session's tasks with the folded ones standing
+ * `{"task":…}` JSON record, so the document reads as the session's tasks with the folded ones standing
  * for their whole span.
  *
  * Five renderings of the same model — `tree` (default, for reading), `yaml`, `xml`, `md` (for

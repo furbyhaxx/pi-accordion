@@ -14,7 +14,8 @@ import { blockLabel, type Task, type TaskList } from "../tasks";
 import type { PinHolder } from "../taskPins";
 import { formatCompactTokens } from "./map";
 import { frame, frameBodyRows } from "./taskLists";
-import { classifierInput, recordLevel, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
+import { recordForm } from "../../conductors/in-process/taskfold/records";
+import { classifierInput, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
 import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type FoldTokens, type WidgetTheme } from "./taskWidget";
 import { TreeState, type TreeNode } from "./treeView";
@@ -25,7 +26,6 @@ const firstLine = (text: string, max = 80) => {
 	return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 };
 const tok = (t: Tokens) => (t.full === t.live ? formatCompactTokens(t.full) : `${formatCompactTokens(t.full)} → ${formatCompactTokens(t.live)}`);
-const LEVEL = ["record", "one line", "stub"] as const;
 
 /** `09:58:12`, or `04.11. 09:58` for another day, local time. */
 export function formatClock(iso: string | undefined, now = Date.now()): string {
@@ -206,7 +206,7 @@ export function transcriptNodes(nodes: readonly TNode[], data: ViewData, keyBase
 				text: "untracked",
 			});
 		} else if (n.type === "fold") {
-			const level = n.level === null ? "fold" : LEVEL[n.level];
+			const level = n.form ?? "fold";
 			out.push({
 				key: `${keyBase}fold:${n.group.id}`,
 				label: `${t.fg("muted", "≡")} ${t.fg("accent", n.code ? `{#${n.code}}` : n.group.id)} ${level}`,
@@ -346,9 +346,9 @@ export function detailLines(list: TaskList, id: string, data: ViewData, groups: 
 	} else lines.push(...wrap("Span", t.fg("dim", neverRan(task) ? "none · never started" : "not run in this session")));
 	for (const g of groups) {
 		const code = g.handleId ? foldCode(g.handleId) : /^\{#([0-9a-z]{6}) FOLDED\}/.exec(g.summary ?? "")?.[1];
-		const level = recordLevel(g.summary);
+		const form = recordForm(g.summary);
 		const pct = g.full > 0 ? ` (−${Math.round(((g.full - g.live) / g.full) * 100)}%)` : "";
-		lines.push(...wrap("Fold", `${code ? `{#${code}}` : g.id} · ${level === null ? "fold" : LEVEL[level]} · ${g.members} blocks${g.handleId ? " · shared record" : ""} · ${formatCompactTokens(g.full)} → ${formatCompactTokens(g.live)}${pct}`));
+		lines.push(...wrap("Fold", `${code ? `{#${code}}` : g.id} · ${form ?? "fold"} · ${g.members} blocks${g.handleId ? " · shared record" : ""} · ${formatCompactTokens(g.full)} → ${formatCompactTokens(g.live)}${pct}`));
 	}
 	return lines;
 }

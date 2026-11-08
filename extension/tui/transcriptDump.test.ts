@@ -111,9 +111,9 @@ describe("transcript dump", () => {
 		log.finish("1.2", "Second done");
 		const finish = log.finish("1", "Done");
 		const groups: TGroup[] = [
-			{ ...folded(log, log.ids(log.before(outside.call), outside.result), `${foldTag("g:outside")} [untracked-work] untracked-export-marker`), id: "g:outside" },
-			{ ...folded(log, log.ids(log.before(start.call), log.before(keep)), `${foldTag("g:part")} [task-part] l/1 part-export-marker`), id: "g:part" },
-			{ ...folded(log, log.ids(log.before(child.call), finish.result), `${foldTag("g:composed")} [task-record] l/1 "Parent"  status: done\noutcome: shared-export-marker`), id: "g:composed" },
+			{ ...folded(log, log.ids(log.before(outside.call), outside.result), `${foldTag("g:outside")} {"untracked":"untracked-export-marker"}`), id: "g:outside" },
+			{ ...folded(log, log.ids(log.before(start.call), log.before(keep)), `${foldTag("g:part")} {"part":"l/1","of":[1,2],"note":"part-export-marker"}`), id: "g:part" },
+			{ ...folded(log, log.ids(log.before(child.call), finish.result), `${foldTag("g:composed")} {"task":"l/1","title":"Parent","status":"done","outcome":"shared-export-marker"}`), id: "g:composed" },
 		];
 		const snapshot = doc(source(log, groups));
 		const leaves = snapshot.wire;
@@ -141,7 +141,7 @@ describe("transcript dump", () => {
 	});
 	it("stands a folded span in as its record and counts the whole messages it removed", () => {
 		const { log, span } = oneTask();
-		const record = `${foldTag("g:span")} [task-record] l/1 "Parent"  status: done\noutcome: listed the files`;
+		const record = `${foldTag("g:span")} {"task":"l/1","title":"Parent","status":"done","outcome":"listed the files"}`;
 		// Taskfold snaps a span outward to whole messages, so the group also holds the thinking block
 		// that shares the `tasks start` call's message. That block is off the wire too.
 		const members = [log.before(span[0]), ...span];
@@ -190,7 +190,7 @@ describe("transcript dump", () => {
 		log.finish("2", "also done");
 		log.call("bash", { command: "true" }, "", 12);
 		const spanTwo = log.ids(second.call, log.blocks[log.blocks.length - 1].id);
-		const group: TGroup = { id: "g:two", memberIds: spanTwo, folded: true, summary: `${foldTag("g:two")} [task-record] l/2 "Two"  status: done`, full: 300, live: 18 };
+		const group: TGroup = { id: "g:two", memberIds: spanTwo, folded: true, summary: `${foldTag("g:two")} {"task":"l/2","title":"Two","status":"done"}`, full: 300, live: 18 };
 		const src = source(log, [group]);
 		const body = doc(src);
 		const inGroup = new Set(group.memberIds);
@@ -225,7 +225,7 @@ describe("transcript dump", () => {
 		const lists: TaskList[] = [{ slug: "l", title: "List", goal: "Deliver reliable exports", createdAt: pin.at, updatedAt: pin.at, claim: null,
 			pins: [pin], attachments: [attachment], tasks: [{ id: "1", title: "Parent", status: "doing", updatedAt: pin.at,
 				acceptanceCriteria: ["Every carrier exactly once"], pins: [{ ...pin, id: "p2" }], attachments: [{ ...attachment, id: "a2" }] }] }];
-		const group = folded(log, span, `${foldTag("g:span")} [task-record] l/1 "Parent"  status: done`);
+		const group = folded(log, span, `${foldTag("g:span")} {"task":"l/1","title":"Parent","status":"done"}`);
 		group.handles = [{ id: "t:l/1", memberIds: span }];
 		log.blocks.find((b) => b.id === span.at(-1))!.details = { task: lists[0].tasks[0] };
 		const src = source(log, [group]); src.lists = lists;
@@ -270,7 +270,7 @@ describe("transcript dump", () => {
 
 	it("prints one entry per wire block in flat order, with a folded span as one group row", () => {
 		const { log, span } = oneTask();
-		const record = `${foldTag("g:span")} [task-record] l/1 "Parent"  status: done`;
+		const record = `${foldTag("g:span")} {"task":"l/1","title":"Parent","status":"done"}`;
 		const flat = renderDump(doc(source(log, [folded(log, span, record)])), "flat");
 		const rows = flat.split("\n").filter((l) => /^\S/.test(l)).slice(1);
 		expect(rows[0]).toStartWith("system");

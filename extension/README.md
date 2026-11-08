@@ -90,15 +90,15 @@ limits in `~/.accordion/config.json`:
 
 `render` defaults to `inline`; `reference` sends only the locator and note.
 
-Taskfold's pressure and aging policy can also be set in the same file (read when the conductor
+Taskfold's pressure policy can also be set in the same file (read when the conductor
 attaches):
 
 ```json
 {
   "taskfold": {
     "high": 0.8, "low": 0.6,
-    "keepRecentTasks": 1, "recordTokens": 1500,
-    "aging": [3, 6, 11], "floor": false,
+    "keepRecentTasks": 0, "recordTokens": 1500,
+    "floor": false,
     "untracked": { "enabled": true, "minSteps": 8 }
   }
 }
