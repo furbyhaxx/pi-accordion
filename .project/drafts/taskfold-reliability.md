@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability: hold the budget and the task protocol by construction"
   description: "Proposal to make Taskfold keep sessions within budget and keep agents on the tasks protocol for any agent and provider, not only the analysed sessions"
   status: "draft"
-  revision: 7
+  revision: 8
   created_at: "2026-11-05T15:51:30+01:00"
-  updated_at: "2026-11-05T23:22:49+01:00"
+  updated_at: "2026-11-08T13:15:41+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["document creation"]
+    - revision: 8
+      reason: "align with SPEC-0002 r18: no request injection"
+      changes: ["§5.1 HUD replaced by result-borne state and appended notices", "§5.2 bootstrap note is append-only", "header points decided parts to SPEC-0002"]
     - revision: 2
       reason: "the task contract is sequential; misuse is fixed by planning and enforcement, not by loosening the contract"
       changes: ["dropped paused, switch-on-start, complete-from-blocked and interval spans", "added sequential order (§5.4): in-order start, no agent dependency reason, stop-on-block, add … before, scope repair", "planning instructions and required done criterion in the tool text (§6)", "planning metrics; concurrency deferred to subagents"]
@@ -35,6 +35,11 @@ document:
 ---
 
 # Taskfold reliability
+
+Decided parts moved to `.project/specs/0002-taskfold-tree.md`: structured tool results and
+delivered-once context (§3–4), nested `tasks` calls (§5.3), eager folding and history (§8), the
+floor (§9.2) and legacy adoption (§14). This draft keeps only what is still undecided: token truth
+(§3), sequential order and enforcement (§5.3–5.8), prompt engineering (§6) and its evaluation.
 
 Evidence: `.project/analyses/2026-11-05-taskfold-session-failures/analysis.md` (ANA). Token
 research: `host:/mnt/Projects/furbyhaxx/pi-auth-plus/.project/analyses/tokens/` and
@@ -85,7 +90,7 @@ particular session.
 | I1 | **Budget.** After any epoch, the projected live context is at or below `LOW · budget`, unless what remains is unfoldable by rule: protected tail, system and user blocks, held blocks. This holds whatever the agent does with `tasks`. | Replay property test over adversarial scripts (§7.1) |
 | I2 | **Accounting.** Folding decisions use a token measure in the model's real tokens. A receipt in unknown or implausible units never lowers the estimate. | Unit tests per provider shape, using the pi-auth-plus captures as fixtures |
 | I3 | **Availability.** Whenever Taskfold is the selected conductor, `tasks` is active from the first request, and the agent is told whenever its tool set changes. | Extension test: autoArm with consent pending |
-| I4 | **Order.** Exactly one leaf is in progress, and it is the first unfinished leaf in list order. Every non-exempt tool call runs inside it. Under `coach`, a call outside it puts the fix into the HUD on every request; under `gate`, the call is refused with the one call that fixes it. | Store tests, gate tests, protocol metrics (§7.2) |
+| I4 | **Order.** Exactly one leaf is in progress, and it is the first unfinished leaf in list order. Every non-exempt tool call runs inside it. Under `coach`, a call outside it gets the fix appended to that call's own result; under `gate`, the call is refused with the one call that fixes it. | Store tests, gate tests, protocol metrics (§7.2) |
 | I5 | **Orderable plans.** A list is built and kept so that it can be worked top to bottom. A dependency discovered mid-work is fixed by restructuring the list, never by jumping. | Planning eval (§7.2), store tests for `add … before` |
 | I6 | **Stop discipline.** A run never ends silently with work in progress or startable. | `agent_end` test |
 
@@ -167,7 +172,7 @@ therefore stays as it is.
    holds only deterministic facts from `recordFacts` (changed files, checks run) plus the first
    line of the assistant text.
 4. **Saturation is visible.** If an epoch still ends above budget, the status level becomes
-   `error`, and the agent gets the HUD line (§5.1) naming what is holding the space.
+   `error`, and the next `tasks` result names what is holding the space (§5.1).
 
 Order within an epoch:
 
@@ -184,25 +189,19 @@ transaction. Cache economics are unchanged: one break per epoch, at the oldest e
 The prompting layer (§6) asks. These mechanisms make the protocol hold for models that do not
 listen.
 
-### 5.1 Task HUD on every request
+### 5.1 Task state on the wire
 
-Through the existing `context_with_system` hook, append one line to the **last message of the
-outgoing wire only**. It is not persisted and not in the system prompt, so the cached prefix
-survives. Recency is the lever weak instruction-followers respond to. Examples:
-
-```
-[tasks] slice-1 · doing 4.1.3 "Register remaining kinds" · 38 calls, ~92k tok (34 % of budget) · next 4.2.1
-[tasks] slice-1 · nothing in progress · next 4.2.1 "Resource provider" → tasks start {list:"slice-1", id:"4.2.1"}
-[tasks] no list attached · tasks list, then claim or create one before further work
-```
-
-The HUD replaces the 3rd-and-every-8th tool-result reminder, which is persisted and was never
-seen in either session. It is shown only when it says something actionable or the span is large.
+Decided in SPEC-0002 §3–4: nothing is appended to the outgoing request. A per-request suffix moves
+the last cached message every step; the injected working set rebilled 107M tokens in session
+`01a1b680` (ANA-fold-representations §5). Task state reaches the agent only through `tasks` results
+(`start` delivers context once, `status` returns state) and appended notices (SPEC-0002 §4.4).
+What remains open here is the coaching content for a call outside the current leaf: it rides on
+that tool's own result (append-only), never on the request.
 
 ### 5.2 Bootstrap note
 
-On `before_agent_start`, when `tasks` is active and no list is attached, inject one custom
-message per session, using the existing `NOTICE_MESSAGE` path:
+On `before_agent_start`, when `tasks` is active and no list is attached, append one custom
+message per session, using the existing `NOTICE_MESSAGE` path (append-only, SPEC-0002 §4.4):
 
 > This session tracks work with the `tasks` tool. If this request needs more than one step, call
 > `tasks list` now, then `claim` an existing list or `create` one before any other tool.
@@ -220,7 +219,7 @@ non-exempt tool when:
   individually; or
 - a list is attached and no leaf is `doing`, after that many such calls.
 
-Under `coach`, the same conditions add the reminder line to the HUD (§5.1) on every request
+Under `coach`, the same conditions append the reminder to the offending tool's result (§5.1), once
 instead of refusing the call.
 
 The allowance covers the first exploration of a request. After that, exploration is a leaf
@@ -237,7 +236,7 @@ Blocked by Accordion: no task is in progress in "slice-1". Call tasks start {lis
 - **Fail-open:** after `tasks.gateFailOpenAfter` (default 3) consecutive refusals, the gate lets
   calls through for the rest of the run and notifies the user once. A broken model must not
   deadlock a session.
-- **Setting:** `tasks.enforce` = `"coach"` (default: HUD, bootstrap note and reminders), `"gate"`
+- **Setting:** `tasks.enforce` = `"coach"` (default: bootstrap note and result-borne reminders), `"gate"`
   (coach plus refusals) or `"off"`. It can be overridden per model in `modelDefaults`, so the gate
   can be turned on for models that ignore the coach. The eval (§7.2) shows which ones need it.
 
@@ -270,7 +269,7 @@ widget and tree view change together.
 ### 5.5 Span size
 
 When the innermost doing leaf passes `tasks.largeLeaf.budgetShare` (default 15 %) of the budget or
-`tasks.largeLeaf.toolResults` (default 25) tool results, the HUD adds:
+`tasks.largeLeaf.toolResults` (default 25) tool results, the next tool result gets, once:
 
 ```
 4.1.3 is larger than one step. If its acceptance criteria are met, complete it. Otherwise complete it with the part that is done and add the rest with tasks add {before:"<next id>", …}.
@@ -384,7 +383,7 @@ default applies. Fractions must lie in (0, 1], `low < high`, counts must be posi
    and housekeeping.
 4. Give the repair procedure in the same place as the rule: when the order turns out wrong,
    restructure the list, then continue in order.
-5. Put the live state where the model looks (HUD) and the fix where the error is (gate and
+5. Put the live state where the model looks (tool results) and the fix where the error is (gate and
    lifecycle errors). The system prompt holds the rules; the tail holds the state.
 6. Keep strictness in enforcement (§5), not in longer prose. Longer text does not make a
    non-compliant model compliant, and it costs every request.
@@ -479,7 +478,7 @@ tasks — required, ordered task list for multi-step work: plan it to be worked 
 
 | Text | Location | Draft |
 |---|---|---|
-| HUD | §5.1 | as shown there |
+| Result-borne state | §5.1 | as shown there |
 | Bootstrap note | §5.2 | as shown there |
 | Gate refusal | §5.3 | as shown there |
 | Lifecycle errors | §5.4 | each ends with `Do this: tasks …` |
@@ -547,7 +546,7 @@ Metrics, computed from session files (`tasks` calls, `accordion.tasks.idle` entr
 | 2 | Sequential order: in-order `start`, no agent `dependency`, stop-on-block, `add … before`, required `acceptanceCriteria`; waivable keep-recent | `tasks.ts`, `taskfold.ts`, tool text, views, SPEC-0001 §4.15 | I4, I5; the cause of S2's 147k |
 | 3 | Floor ladder (extracted keel-lite planner) and untracked records; saturation status | `taskfold.ts`, `keel-lite.ts` (extraction), Taskfold README | I1; S2's 180k and 76k |
 | 4 | Availability: consent gates the classifier only; tool-change notices | `selectConductor`, `syncConductorTools` | I3; S1 |
-| 5 | Enforcement: HUD, bootstrap, coach and gate with fail-open, stop follow-up, lifecycle errors, `tasks` and `taskfold` settings with Settings-screen editing | `taskCoach.ts`, `taskBinding.ts`, `accordion.ts`, `settings.ts` | I4, I6 |
+| 5 | Enforcement: result-borne reminders, bootstrap, coach and gate with fail-open, stop follow-up, lifecycle errors, `tasks` and `taskfold` settings with Settings-screen editing | `taskCoach.ts`, `taskBinding.ts`, `accordion.ts`, `settings.ts` | I4, I6 |
 | 6 | Prompt rewrite, audit script, eval suite and baselines | tool registration, `extension/audit-tasks.mjs` | measurement of §6 |
 
 Slices 1–3 make the budget hold whatever the agent does, so they come first. Slices 4–6 make the
@@ -564,7 +563,7 @@ All probes ran under pig with pi-auth-plus 0.5.5 (`55baab6`) on
 |---|---|---|---|
 | 1 | Accordion sees pi-auth-plus's corrected usage | **No.** A later extension's `message_end` and the persisted message both carry `cacheWrite == input`. Across the 7 most recent sessions, 1,552 of 1,774 Synthetic replies carry the duplicate; the other 222 were not examined further. The bus works: one reply reported 7,397 tokens, source `tokenizer`, where Pi counted 8,413. | §3: Accordion de-duplicates itself and takes recounts from the bus, under the anchor rule. |
 | 2 | PiG delivers `tool_call` blocks and `sendUserMessage` follow-ups to Node extensions | **Yes.** A blocked call became an error tool result whose text is exactly `reason`, and the model retried as instructed. A follow-up from `agent_end` started a new run and is persisted as a user message. | §5.3: the refusal text carries the whole fix. §5.6: the follow-up reads as an Accordion notice, because it appears as a user message. |
-| 3 | The HUD can ride the wire without being persisted | **Yes.** A text part appended in the `context` hook reached the model, which quoted it verbatim, and is absent from the stored message. | §5.1: Accordion appends the HUD inside its own `context` handler, after Truth ingestion and wire serialization, so Truth never sees it. Its cache cost (the previous tail loses its HUD) is not measured yet. |
+| 3 | The HUD can ride the wire without being persisted | **Yes.** A text part appended in the `context` hook reached the model, which quoted it verbatim, and is absent from the stored message. | §5.1: Accordion appends the HUD inside its own `context` handler, after Truth ingestion and wire serialization, so Truth never sees it. Measured since: a moving suffix rebilled 107M tokens in `01a1b680`, so request injection is rejected (SPEC-0002 §4.5). |
 | 4 | keel-lite's planner can be extracted | **Not cleanly**; composition works. | §4: compose like keel-note, plus one keel-lite option to disable R7. |
 | 5 | A record group can cover floor-folded blocks | **Yes.** In a real-Truth test, live tokens went 5,745 → 4,112 after the floor → 1,934 after the group, and ungrouping restored the floor's fold and replace. | §4: `unit()` savings must count current member cost. |
 
