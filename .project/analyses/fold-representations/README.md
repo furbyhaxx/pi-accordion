@@ -169,6 +169,34 @@ from the true list and the task's full record, everything else returns "unavaila
 Spend: ~55M prompt tokens (52.5M cache hits) + 0.27M completion across both runs, about
 $1.40 at the local pig price ($0.30 in / $0.006 cached / $1.20 out per M).
 
+## 3.4 User-message routing results (deepseek-flash)
+
+50 messages (41 synthetic against a fixed list, 9 real messages from the nukular session with the
+list reconstructed at that point), 2 repetitions, hand-labelled gold ops. Corpus and labels:
+`harness/routing_corpus.py`; harness: `harness/routing.py`; numbers: `evidence/routing.txt`.
+
+| Arm | recall | precision | exact items | no-op messages left alone | pins verbatim |
+|---|---|---|---|---|---|
+| A0 agent alone (today) | 0.68 | 0.82 | 0.70 | 30/30 | 2/14 |
+| A sidecar proposes, agent applies | 0.81 | 0.88 | 0.84 | 29/30 | 15/24 |
+| B sidecar applies everything | 0.93 | 0.82 | 0.90 | 29/30 | 25/30 |
+| C sidecar applies safe ops, proposes the rest | 0.89 | 0.86 | 0.89 | 29/30 | 26/29 |
+
+11. **Today's behaviour loses a third of durable instructions** (A0 recall 0.68), and none of the
+    real nukular corrections reached the list (real recall 0.00). The agent paraphrases pins (2/14
+    verbatim).
+12. **The sidecar extractor is the reliable part**: recall 0.93, 1.00 on the real messages; classifying
+    no-op messages (approvals, questions, "go on") is near perfect in every arm.
+13. **The agent is the unreliable part.** In A it applies 71 % of proposed ops; in C only 37 % —
+    once told some changes are "already recorded", it skips most of the rest (task additions
+    12/67). C's score comes almost entirely from what the sidecar applied itself.
+14. **B's errors are over-recording**: pins of one-off instructions ("you broke the build"), an
+    extra pin next to a task removal, two attachments for one reference. Precision on real
+    messages (0.67) is understated: restructuring requests legitimately produce many task ops the
+    gold only partly lists.
+
+Spend: 0.57M prompt (0.46M cached) + 0.09M completion tokens, about $0.15.
+
 ## 4. Recommendation
 
 - Fold eagerly: `keepRecentTasks` default 0, fold at the request after `complete`.
@@ -178,3 +206,6 @@ $1.40 at the local pig price ($0.30 in / $0.006 cached / $1.20 out per M).
 - Inside an open root: S or B→S (0.97–0.98). B scores the same but costs 1–58 % more; T is
   cheaper but places new tasks worse. HP rejected.
 - No pressure-time consolidation; one history message per root.
+- User messages: the extension applies extracted ops itself (B), with the existing verbatim check
+  on pins and a "changed" notice to the agent; the agent can still undo. Proposing ops to the
+  agent (A, C) loses 30–60 % of them. Tighten the extractor against one-off instructions.

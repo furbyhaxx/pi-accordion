@@ -1,0 +1,13 @@
+# User-message routing eval, deepseek-flash, 2026-11-08T12:17:50+01:00
+# 41 synthetic + 9 real nukular messages, 2 repetitions = 100 items per arm
+arm | items | recall | precision | exact items | no-op items kept clean | pins verbatim
+A0 | 100 | 0.68 (49/72) | 0.82 | 0.70 | 30/30 | 2/14
+A | 100 | 0.81 (58/72) | 0.88 | 0.84 | 29/30 | 15/24
+B | 100 | 0.93 (67/72) | 0.82 | 0.90 | 29/30 | 25/30
+C | 100 | 0.89 (64/72) | 0.86 | 0.89 | 29/30 | 26/29
+
+A: agent applied 110/155 proposed ops (0.71)
+usage: {"prompt_tokens":565014,"completion_tokens":94801,"total_tokens":659815,"prompt_cache_hit_tokens":463716,"prompt_cache_miss_tokens":101298}
+
+## proposals applied by the agent (A: all extracted ops proposed; C: only non-safe ops proposed)
+A 110/155 (0.71); C 45/121 (0.37); C task+ 12/67, pin+ 1/5
