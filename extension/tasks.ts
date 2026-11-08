@@ -633,7 +633,7 @@ export class TaskStore {
 	}
 
 	/** Add tasks; a task with `supersedes` replaces an earlier one, abandoning it if it is still open. */
-	add(slug: string, parent: string | undefined, tasks: unknown, position: { before?: unknown; after?: unknown } = {}, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): { added: Task[]; superseded: Task[]; renumbered: { from: string; to: string }[] } {
+	add(slug: string, parent: string | undefined, tasks: unknown, position: { before?: unknown; after?: unknown } = {}, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): { added: Task[]; reused: Task[]; order: Task[]; superseded: Task[]; renumbered: { from: string; to: string }[] } {
 		const list = this.planned(slug);
 		const roots = treeOf(list.tasks);
 		const at = now();
@@ -641,7 +641,18 @@ export class TaskStore {
 		if (spot.parent !== null && FINISHED.has(this.task(list, spot.parent).status))
 			throw new TaskError("invalid_transition", `Task ${spot.parent} is ${this.task(list, spot.parent).status}; add the new work at the top level or under an open task.`);
 		const links: [Task, string][] = [];
-		const nodes = nodesOf(tasks, at, links);
+		const requested = nodesOf(tasks, at, links);
+		// The user's message may have been routed into the list while the agent adds the same work: a bare
+		// repeat of an unstarted sibling reuses it instead of creating a twin.
+		const planned = new Set(links.map(([by]) => by));
+		const key = (title: string) => title.trim().replace(/\s+/g, " ").toLowerCase();
+		const twins = new Map<Node, Task>();
+		for (const n of requested) {
+			if (n.kids.length || planned.has(n.task)) continue;
+			const twin = spot.siblings.find((o) => o.task.status === "todo" && key(o.task.title) === key(n.task.title));
+			if (twin) twins.set(n, twin.task);
+		}
+		const nodes = requested.filter((n) => !twins.has(n));
 		const superseded: Task[] = [];
 		const pairs: [Task, Task][] = [];
 		for (const [by, old] of links) {
@@ -664,8 +675,18 @@ export class TaskStore {
 		const added: Task[] = [];
 		const collect = (ns: Node[]) => ns.forEach((n) => (added.push(n.task), collect(n.kids)));
 		collect(nodes);
+		const order: Task[] = [];
+		const inOrder = (n: Node): void => {
+			order.push(n.task);
+			n.kids.forEach(inOrder);
+		};
+		for (const n of requested) {
+			const twin = twins.get(n);
+			if (twin) order.push(twin);
+			else inOrder(n);
+		}
 		this.write(list);
-		return { added, superseded, renumbered };
+		return { added, reused: [...twins.values()], order, superseded, renumbered };
 	}
 
 	/** Move an unstarted task with its subtasks under another parent or next to a sibling. */
@@ -1100,7 +1121,7 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			store.release(need("list"));
 			return ok;
 		case "add": {
-			const { added, superseded, renumbered } = store.add(need("list"), args.parent, need("tasks"), { before: args.before, after: args.after }, userTexts, limits);
+			const { added, reused, order, superseded, renumbered } = store.add(need("list"), args.parent, need("tasks"), { before: args.before, after: args.after }, userTexts, limits);
 			track.renumbered = renumbered;
 			const abandoned = superseded.filter((t) => t.status === "abandoned").map((t) => t.id);
 			const kept = superseded.filter((t) => t.status !== "abandoned").map((t) => t.id);
@@ -1108,7 +1129,8 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			const goals = Object.fromEntries(added.filter((t) => t.goals?.length).map((t) => [t.id, t.goals!.map((g) => g.id)]));
 			return {
 				ok: true,
-				ids: added.map((t) => t.id),
+				ids: order.map((t) => t.id),
+				...(reused.length ? { existing: reused.map((t) => t.id) } : {}),
 				...(Object.keys(goals).length ? { goals } : {}),
 				...(Object.keys(criteria).length ? { criteria } : {}),
 				...(renumbered.length ? { renumbered: renumberMap(renumbered) } : {}),

@@ -23,6 +23,17 @@ describe("tasks", () => {
 		expect(Date.parse(tasks[1].createdAt!)).toBeGreaterThanOrEqual(Date.parse(tasks[0].createdAt!));
 	});
 
+	test("an add that repeats an unstarted sibling reuses it instead of creating a twin", () => {
+		const { s } = store();
+		run(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A" }, { title: "Final digest" }] });
+		expect(run(s, { action: "add", list: "w", tasks: [{ title: "  final   DIGEST " }, { title: "Extra" }] })).toEqual({ ok: true, ids: ["2", "3"], existing: ["2"] });
+		expect(s.read("w").tasks.map((t) => t.title)).toEqual(["A", "Final digest", "Extra"]);
+		// A started task or an explicit supersede is real new work, not a repeat.
+		run(s, { action: "start", list: "w", id: "1" });
+		expect(run(s, { action: "add", list: "w", tasks: [{ title: "A" }] })).toEqual({ ok: true, ids: ["4"] });
+		expect(run(s, { action: "add", list: "w", tasks: [{ title: "Extra", supersedes: "3" }] })).toEqual({ ok: true, ids: ["5"], abandoned: ["3"] });
+	});
+
 	test("reports filesystem errors instead of presenting unreadable lists as absent", () => {
 		const { dir, s } = store();
 		fs.mkdirSync(path.join(dir, ".pig", "tasks", "broken.json"), { recursive: true });

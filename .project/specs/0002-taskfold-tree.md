@@ -270,9 +270,13 @@ tasks({ action: "add", list: "auth", parent: "2", before: null, after: null,
 {"ok": true, "ids": ["2.1"], "criteria": {"2.1": ["c7"]}}
 {"ok": true, "ids": ["3"], "renumbered": {"3": "4"}}
 {"ok": true, "ids": ["2.3"], "abandoned": ["2.1"]}
+{"ok": true, "ids": ["3"], "existing": ["3"]}
 ```
 `renumbered` maps old → new for shifted `todo` tasks. `abandoned` lists tasks closed by
-`supersedes`. If the new task is a child of a `doing` task, nothing about it is delivered yet; its
+`supersedes`. `existing` lists requested tasks that were not created because an unstarted sibling
+already had the same title (compared ignoring case and spacing); `ids` holds that sibling's id in
+the request's position. This makes an `add` safe against the §4.6 extractor adding the same work
+concurrently. A request with subtasks or `supersedes` is never treated as a repeat. If the new task is a child of a `doing` task, nothing about it is delivered yet; its
 context arrives with its own `start`.
 
 #### move
