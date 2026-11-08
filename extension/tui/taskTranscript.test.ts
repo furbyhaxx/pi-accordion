@@ -149,6 +149,8 @@ describe("task transcript", () => {
 		expect(userReason(undefined, false, null)).toBe("unclassified");
 		expect(userReason({ loss: 0.1, source: "classifier" }, false, 0.3)).toBe("loss 0.1 < 0.30 · folds with its task");
 		expect(userReason({ loss: 0.1, source: "classifier" }, true, 0.3)).toBe("loss 0.1 < 0.30");
+		expect(userReason({ loss: 0.8, source: "classifier", routed: { ids: ["p1", "g2"], at: "t" } }, false, 0.3)).toBe("routed → p1, g2");
+		expect(userReason({ loss: 0.8, source: "classifier", routed: { ids: [], at: "t" } }, false, 0.3, false)).toBe("routed · no change · no task covers it");
 		expect(userReason({ loss: 0.1, source: "classifier" }, false, 0.3, false)).toBe("loss 0.1 < 0.30 · no task covers it");
 		expect(recordForm(`${foldTag("g:x")} {"task":"l/1","title":"T","status":"done","outcome":"x"}`)).toBe("record");
 		expect(recordForm(`${foldTag("g:x")} {"history":"l/1","title":"T","status":"done"}`)).toBe("history");

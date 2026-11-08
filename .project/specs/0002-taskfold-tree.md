@@ -851,7 +851,9 @@ then dropped); glyph and counts are never cut.
 - All dump formats consume Truth's authoritative carriers once, with calibrated additive charges.
   Split/composed/untracked groups, dropped carriers, stragglers and substitutions retain their actual
   outgoing form. Structured details, handles and task metadata remain available as non-wire metadata.
-  Delivery manifests and notices are exported with their blocks; there is no transient suffix.
+  Delivery manifests are exported with their blocks. Notices are not Truth blocks (§4.4), so they
+  are not in the dump; there is no transient suffix. A routed user message shows where its
+  instructions went (`routed → p7, c3`) in the transcript row and its detail view.
   YAML preserves arbitrary indentation, final newlines and carriage returns; terminal control
   characters and Unicode line separators use escaped scalars rather than invalid literal blocks.
 

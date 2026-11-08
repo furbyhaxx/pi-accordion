@@ -679,6 +679,7 @@ export class TaskViews {
 					`verdict: ${v.source}${v.loss != null ? ` · loss ${v.loss.toFixed(2)}${threshold != null ? ` (folds below ${threshold.toFixed(2)})` : ""}` : ""}${v.confidence != null ? ` · confidence ${v.confidence.toFixed(2)}` : ""}`,
 					...Object.entries(v.answers ?? {}).map(([q, p]) => `  ${q}: ${p.toFixed(2)} (probability of yes)`),
 					...(v.model ? [`model: ${v.model}${v.at ? ` · ${formatClock(v.at)}` : ""}`] : []),
+					...(v.routed ? [`routed: ${v.routed.ids.length ? `its instructions went into ${v.routed.ids.join(", ")}` : "nothing in it changed the list"} · ${formatClock(v.routed.at)}`] : []),
 				];
 		const input = classifierInput(data.src, id);
 		const shown = input ? ["", "classifier input:", ...Object.entries(input).flatMap(([k, val]) => [`  ${k}:`, ...(val ? val.split("\n").map((l) => `    ${l}`) : ["    (empty)"])])] : [];

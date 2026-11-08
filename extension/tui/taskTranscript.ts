@@ -149,6 +149,10 @@ const fmtLoss = (n: number) => n.toFixed(1);
 /** Why a user message was kept or folded, in the words the views show. */
 export function userReason(verdict: Verdict | undefined, folded: boolean, threshold: number | null, inTask = true): string {
 	const t = threshold == null ? "" : threshold.toFixed(2);
+	if (verdict?.routed) {
+		const where = verdict.routed.ids.length ? `routed → ${verdict.routed.ids.join(", ")}` : "routed · no change";
+		return !folded && !inTask ? `${where} · no task covers it` : where;
+	}
 	if (verdict?.source === "harness") return "harness pattern";
 	if (verdict?.source === "opening") return "opening message";
 	if (verdict?.source === "error") return "classifier failed";
