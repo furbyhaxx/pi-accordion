@@ -24,6 +24,7 @@ import type { WireBlock, FoldOp, GroupOp } from "./protocol";
 import type { Block } from "./types";
 import { estTokens, BLOCK_OVERHEAD } from "./tokens";
 import { foldTag } from "./digest";
+import { taskEventsIn } from "./taskEvents";
 
 // ── Minimal structural types for pi's in-memory AgentMessage ─────────────────
 // (We only model the fields we read; pi owns the real types.)
@@ -142,6 +143,18 @@ function textOf(content: unknown): string {
 const tokensFor = (text: string): number => estTokens(text) + BLOCK_OVERHEAD;
 
 /**
+ * The `details` a tool result contributes to its block: a `tasks` result keeps all of them; any
+ * other tool keeps only the span events of `tasks` calls it ran (SPEC-0002 §5.3), so a host tool's
+ * own large details never enter Truth.
+ */
+function spanDetails(m: { toolName?: string; details?: unknown }): { details?: unknown } {
+	if (m.details === undefined) return {};
+	if (m.toolName === "tasks") return { details: m.details };
+	const events = taskEventsIn(m.details);
+	return events.length ? { details: { taskEvents: events } } : {};
+}
+
+/**
  * Linearize pi's in-memory message array into wire blocks, mirroring the on-disk
  * parser (engine/parse.ts → parsePi) but operating on live messages. Deterministic:
  * same messages → same blocks/ids.
@@ -197,7 +210,7 @@ export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0):
 					toolName: m.toolName || "tool",
 					callId: m.toolCallId,
 					isError: !!m.isError,
-					...(m.toolName === "tasks" && m.details !== undefined ? { details: m.details } : {}),
+					...spanDetails(m),
 				});
 				break;
 			}
@@ -389,7 +402,10 @@ export function contentFingerprint(m: PiMessage): number {
 			h = fnvByte(h, 3);
 			h = fnvByte(h, m.isError ? 1 : 0); // metadata covered — sol P1 gap #3
 			if (typeof m.toolName === "string") h = fnvStr(h, m.toolName);
-			if (m.toolName === "tasks" && m.details !== undefined) h = fnvStr(h, JSON.stringify(m.details));
+			{
+				const d = spanDetails(m).details;
+				if (d !== undefined) h = fnvStr(h, JSON.stringify(d));
+			}
 			h = fnvContent(h, m.content);
 			break;
 		default:

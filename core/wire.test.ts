@@ -55,6 +55,13 @@ describe("core/wire — linearize", () => {
 		expect(contentFingerprint(m)).not.toBe(contentFingerprint({ ...m, details: { started: ["2"] } }));
 		expect(linearize([{ ...m, toolName: "read" }])[0].details).toBeUndefined();
 	});
+	it("keeps only the task events of nested tasks calls on another tool's result", () => {
+		const event = { action: "complete", list: "w", id: "1" };
+		const m: PiMessage = { role: "toolResult", toolCallId: "c2", toolName: "codemode", content: "ok", details: { calls: [{ big: "x".repeat(500) }], taskEvents: [event] } };
+		expect(linearize([m])[0].details).toEqual({ taskEvents: [event] });
+		expect(contentFingerprint(m)).not.toBe(contentFingerprint({ ...m, details: { taskEvents: [{ ...event, id: "2" }] } }));
+		expect(contentFingerprint(m)).toBe(contentFingerprint({ ...m, details: { calls: [], taskEvents: [event] } }));
+	});
 	it("wireToBlock produces a fresh, auto-controlled engine block", () => {
 		const w = linearize(session())[2];
 		const b = wireToBlock(w);
