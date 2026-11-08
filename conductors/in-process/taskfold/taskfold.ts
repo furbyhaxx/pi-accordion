@@ -361,6 +361,8 @@ export function staleSpans<B extends SpanBlock>(spans: readonly TaskSpan[], bloc
 	});
 }
 
+const USER_SAID_CHARS = 120;
+
 /** A record without its identity keys, for re-keying a child around `recall`. */
 function rest(r: RecordObj): Omit<RecordObj, "task" | "title" | "status" | "recall"> {
 	const { task: _t, title: _l, status: _s, recall: _r, ...tail } = r;
@@ -970,6 +972,10 @@ export class TaskfoldConductor implements Conductor {
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
 		const own = blocks.filter((b, i) => (!included || included.has(b.id)) && inside(span, i) && !children.some((c) => inside(c, i)));
 		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
+		const user = own.flatMap((b) => {
+			const ids = b.kind === "user" ? this.verdicts.get(b.id)?.routed?.ids : undefined;
+			return ids?.length ? [{ said: oneLine(this.textOf(b), USER_SAID_CHARS), ids }] : [];
+		});
 		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)));
 		const entries = direct.map((child): RecordObj | HistoryObj => {
 			const existing = prior.get(child.key);
@@ -987,6 +993,7 @@ export class TaskfoldConductor implements Conductor {
 			...(decisions?.length ? { decisions } : {}),
 			...(open?.length ? { open } : {}),
 			...(span.pins?.length ? { pins: span.pins } : {}),
+			...(user.length ? { user } : {}),
 			...(changed.length ? { changed: changed.length > 20 ? [...changed.slice(0, 20), `+${changed.length - 20} more`] : changed } : {}),
 			...(verified.length ? { verified: verified.slice(-5) } : {}),
 			...(entries.length ? { children: entries } : {}),

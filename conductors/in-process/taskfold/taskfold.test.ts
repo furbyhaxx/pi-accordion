@@ -387,6 +387,30 @@ describe("taskfold", () => {
 		expect(g.memberIds).toContain(end);
 	});
 
+	it("links a routed message to the items it created in the record of an open parent's child", async () => {
+		const s = new Session();
+		s.user("Build the store.");
+		s.start("1", "Store");
+		const start = s.start("1.1", "Draft").call;
+		s.work(2, "a");
+		s.user("Never touch vendor/ and keep the API stable.");
+		s.call("bash", { command: "npm test" }, "12 passed");
+		s.finish("1.1", { outcome: "Drafted." });
+		s.work(4, "next");
+		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("vendor"))!.id;
+		const ledger = new VerdictLedger();
+		ledger.route(userId, { ids: ["p1", "g2"], at: "2026-11-08T00:00:00.000Z" });
+		const host = new TestHost();
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 }, ledger);
+		c.attach(host);
+		host.appendBlocks(s.blocks);
+		host.setProtect(200);
+		await host.commitTurn();
+		const g = groupOf(host, start)!;
+		expect(g.memberIds).toContain(userId);
+		expect(g.summary).toContain('"user":[{"said":"Never touch vendor/ and keep the API stable.","ids":["p1","g2"]}]');
+	});
+
 	it("keeps the message raw when the extraction fails", async () => {
 		const { s, start, end } = oneTask((s) => s.user("Never touch vendor/."));
 		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("vendor"))!.id;

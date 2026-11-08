@@ -21,6 +21,8 @@ export interface RecordObj {
 	decisions?: string[];
 	open?: string[];
 	pins?: { kind: string; text: string; source: string }[];
+	/** User messages inside the task whose instructions went into the list: the opening words and where they landed. */
+	user?: { said: string; ids: string[] }[];
 	changed?: string[];
 	verified?: string[];
 	children?: (RecordObj | HistoryObj)[];

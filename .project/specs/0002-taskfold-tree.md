@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 22
+  revision: 23
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T15:16:00+01:00"
+  updated_at: "2026-11-08T15:20:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 22
-      reason: "details found while implementing notices (slice 8)"
-      changes: ["notices are JSON deltas against the state the agent last saw, sent after tool results and with the next prompt", "routed-message notice lists applied operations with their ids", "restored notice dropped: notices are not Truth blocks, start/claim re-deliver hidden context"]
+    - revision: 23
+      reason: "details found while implementing routed-message links (slice 8)"
+      changes: ["records link routed user messages to item ids; history entries do not", "notices are JSON deltas against the state the agent last saw, sent after tool results and with the next prompt", "restored notice dropped: notices are not Truth blocks, start/claim re-deliver hidden context"]
 ---
 
 # Taskfold
@@ -563,8 +563,10 @@ the extension reaches 0.93.
      applied operations. The agent may revert any of them with `tasks`.
 - The message's block records `details.routed = {ops: [...ids], at}`. Only routed messages may join
   a group. Extraction failure or timeout leaves the message raw for the session (today's behaviour).
-- Records carry `"user": [{"said": "<first 120 chars>", "ids": ["p7", "c3"]}]` so the agent sees
-  where each instruction went.
+- Records carry `"user": [{"said": "<first 120 chars>", "ids": ["p7", "c3"]}]` for the routed messages
+  inside the task's own intervals, so the agent sees where each instruction went. History entries
+  (§6.3) carry no `user` links: the pins they keep are the lasting part, and `recall` returns the
+  messages themselves.
 - The extractor sends session content to a model: Taskfold declares `privacy` and attaches through
   the consent gate.
 - Proposing the operations to the agent instead was measured and rejected: it applied 71 % of
