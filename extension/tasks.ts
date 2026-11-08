@@ -11,7 +11,8 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BLOCK_REASONS, checkTexts, compareIds, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, parentId, parseListFile, TASK_GOAL_MAX, TASK_GOALS_MAX, toListFile, type BlockReason, type FlatList, type Item, type ItemPrefix, type ItemSeq, type TaskStatus } from "./taskSchema";
-import { checkPinCap, makeAttachment, makePin, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
+import type { Anchor } from "./taskAnchors";
+import { attachmentRef, checkPinCap, makeAttachment, makePin, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
 
 export { BLOCK_REASONS, type BlockReason, type TaskStatus };
 
@@ -345,16 +346,27 @@ export class TaskStore {
 		return { session: this.session(), at: now(), ...(name ? { name } : {}) };
 	}
 
-	/** Records attachment hashes the model has now seen, so a later change is reported once (SPEC-0002 §4.2). */
-	recordSeen(slug: string, seen: Readonly<Record<string, string>>): void {
+	/**
+	 * Records what the model has now seen of each attachment, so a later change is reported once
+	 * (SPEC-0002 §4.2). A refreshed anchor replaces a legacy line range or a moved quote.
+	 */
+	recordSeen(slug: string, seen: Readonly<Record<string, { hash: string; anchor?: Anchor }>>): void {
 		const list = this.read(slug);
 		let changed = false;
 		for (const h of [list, ...list.tasks])
-			for (const a of h.attachments ?? [])
-				if (seen[a.id] && a.hash !== seen[a.id]) {
-					a.hash = seen[a.id];
+			for (const a of h.attachments ?? []) {
+				const now = seen[a.id];
+				if (!now) continue;
+				if (a.hash !== now.hash) {
+					a.hash = now.hash;
 					changed = true;
 				}
+				if (now.anchor) {
+					a.anchor = now.anchor;
+					delete a.lines;
+					changed = true;
+				}
+			}
 		if (changed) this.write(list);
 	}
 
@@ -1123,7 +1135,7 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			if (args.action === "attach") {
 				const list = store.read(need("list"));
 				const holder = args.id === undefined ? list : list.tasks.find((t) => t.id === args.id);
-				const attachments = (holder?.attachments ?? []).filter((a) => ids.includes(a.id)).map((a) => ({ id: a.id, ref: `${a.path}${a.lines ? `:${a.lines}` : ""}` }));
+				const attachments = (holder?.attachments ?? []).filter((a) => ids.includes(a.id)).map((a) => ({ id: a.id, ref: attachmentRef(a) }));
 				return { ok: true, attachments };
 			}
 			return ok;

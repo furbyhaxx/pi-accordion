@@ -9,6 +9,8 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { makeQuote, refOf, resolveQuote, resolveSection, type Anchor, type AnchorState, type Resolution } from "./taskAnchors";
+import { resolveSymbol, symbolLang } from "./taskSymbols";
 
 export const PIN_KINDS = ["rule", "convention", "constraint", "standard", "fact"] as const;
 export type PinKind = (typeof PIN_KINDS)[number];
@@ -28,10 +30,12 @@ export interface Attachment {
 	id: string;
 	/** Relative to the project directory. */
 	path: string;
-	/** `N` or `N-M`; absent means the whole (short) file. */
+	/** What part of the file: a section, a symbol or a quote. Absent means the whole (short) file. */
+	anchor?: Anchor;
+	/** Legacy line range `N` or `N-M`; turned into a quote anchor the next time the attachment is delivered. */
 	lines?: string;
 	note?: string;
-	/** sha256 prefix of the attached lines when attached; absent in a hand-written file. */
+	/** sha256 prefix of the content when it was last delivered or attached; absent in a hand-written file. */
 	hash?: string;
 	at?: string;
 }
@@ -145,36 +149,91 @@ export function makePin(req: unknown, ctx: PinContext, id: string, existing: rea
 	return { id, kind, text, source, at: ctx.now };
 }
 
+const textOf = (abs: string, shown: string): string => {
+	try {
+		return fs.readFileSync(abs, "utf8");
+	} catch {
+		throw new PinError("not_found", `Cannot read ${shown}.`);
+	}
+};
+
+/** Canonical name of what an attachment points at, e.g. `docs/auth.md#Token store > Interface`. */
+export function attachmentRef(a: Pick<Attachment, "id" | "path" | "anchor" | "lines">): string {
+	return a.anchor ? refOf(a.path, a.anchor, a.id) : `${a.path}${a.lines ? `:${a.lines}` : ""}`;
+}
+
+const ANCHOR_INPUTS = ["section", "symbol", "quote", "lines"] as const;
+
+/** Where `n` lines of `text` start and end as character offsets. */
+function lineSpan(text: string, first: number, last: number): { start: number; end: number } {
+	const all = text.split("\n");
+	const start = all.slice(0, first - 1).reduce((n, l) => n + l.length + 1, 0);
+	return { start, end: start + all.slice(first - 1, last).join("\n").length };
+}
+
+const sameTarget = (a: Pick<Attachment, "path" | "anchor" | "lines">, b: Pick<Attachment, "path" | "anchor" | "lines">) =>
+	a.path === b.path && (a.anchor && b.anchor ? ("quote" in a.anchor && "quote" in b.anchor ? a.anchor.quote.exact === b.anchor.quote.exact : JSON.stringify(a.anchor) === JSON.stringify(b.anchor)) : !a.anchor && !b.anchor && a.lines === b.lines);
+
 /** Check one attachment request against the file and build the attachment. */
 export function makeAttachment(req: unknown, ctx: PinContext, id: string, existing: readonly Attachment[]): Attachment {
 	const r = (req ?? {}) as Record<string, unknown>;
-	if (typeof r.path !== "string" || !r.path.trim()) throw new PinError("invalid_args", 'An attachment needs "path", e.g. "docs/spec.md", and usually "lines": "120-140".');
+	if (typeof r.path !== "string" || !r.path.trim()) throw new PinError("invalid_args", 'An attachment needs "path", e.g. "docs/spec.md", and usually a "section", "symbol" or "quote".');
 	const ref = r.path.trim();
-	const match = /^(.*):(\d+(?:-\d+)?)$/.exec(ref);
-	if (match && r.lines !== undefined) throw new PinError("invalid_args", 'Specify the line range in "path" or "lines", not both.');
-	const file = projectPath(ctx.projectDir, match ? match[1] : ref);
-	const all = readLines(file.abs, file.rel);
-	let lines: string | undefined;
-	let slice = all;
-	const requestedLines = match ? match[2] : r.lines;
-	if (requestedLines !== undefined) {
-		const range = typeof requestedLines === "string" ? parseLines(requestedLines) : typeof requestedLines === "number" ? parseLines(String(requestedLines)) : null;
+	const suffix = /^(.*):(\d+(?:-\d+)?)$/.exec(ref);
+	const given = ANCHOR_INPUTS.filter((k) => r[k] !== undefined && r[k] !== null);
+	if (suffix && given.length) throw new PinError("invalid_args", `Give the part of the file once: "${ANCHOR_INPUTS.join('", "')}" or a ":N-M" suffix on "path", not several.`);
+	if (given.length > 1) throw new PinError("invalid_args", `Give exactly one of "${ANCHOR_INPUTS.join('", "')}", or none for the whole file.`);
+	const file = projectPath(ctx.projectDir, suffix ? suffix[1] : ref);
+	const text = textOf(file.abs, file.rel);
+	const kind = suffix ? "lines" : given[0];
+	const value = suffix ? suffix[2] : kind ? r[kind] : undefined;
+	let anchor: Anchor | undefined;
+	let content = text;
+	if (kind === "section") {
+		if (typeof value !== "string" || !value.trim()) throw new PinError("invalid_args", '"section" is a Markdown heading path, e.g. "Token store > Interface".');
+		const section = value.split(">").map((x) => x.trim()).filter(Boolean).join(" > ");
+		const found = resolveSection(text, section);
+		if ("lost" in found) throw new PinError("not_found", `${file.rel} has no section "${section}" (or it is ambiguous).${found.candidates?.length ? ` Closest: ${found.candidates.join("; ")}.` : ""}`);
+		anchor = { section };
+		content = found.content;
+	} else if (kind === "symbol") {
+		if (typeof value !== "string" || !value.trim()) throw new PinError("invalid_args", '"symbol" is a declaration name, e.g. "TokenStore.get".');
+		if (!symbolLang(file.rel)) throw new PinError("invalid_args", `Symbols resolve in .ts, .tsx, .js, .py and .rs files; anchor ${file.rel} with "section" or "quote" instead.`);
+		const symbol = value.split(".").map((x) => x.trim()).filter(Boolean).join(".");
+		const found = resolveSymbol(file.rel, text, symbol);
+		if ("lost" in found) throw new PinError("not_found", `${file.rel} has no symbol "${symbol}".${found.candidates?.length ? ` Found here: ${found.candidates.join(", ")}.` : ""}`);
+		anchor = { symbol };
+		content = found.content;
+	} else if (kind === "quote") {
+		if (typeof value !== "string" || !value.trim()) throw new PinError("invalid_args", '"quote" is the exact text to attach, copied from the file.');
+		const at = text.indexOf(value);
+		if (at === -1) throw new PinError("quote_mismatch", `That text does not appear in ${file.rel}. Quote it exactly as written.`);
+		const more = text.indexOf(value, at + 1);
+		if (more !== -1) throw new PinError("invalid_args", `That text appears more than once in ${file.rel}; quote a longer, unique passage.`);
+		anchor = { quote: makeQuote(text, at, at + value.length) };
+		content = value;
+	} else if (kind === "lines") {
+		const range = typeof value === "string" ? parseLines(value) : typeof value === "number" ? parseLines(String(value)) : null;
 		if (!range) throw new PinError("invalid_args", `"lines" must be "N" or "N-M", e.g. "120-140".`);
-		if (range.end > all.length) throw new PinError("not_found", `${file.rel} has ${all.length} lines; ${range.start}-${range.end} is out of range.`);
-		slice = all.slice(range.start - 1, range.end);
-		lines = range.start === range.end ? String(range.start) : `${range.start}-${range.end}`;
+		const total = text.split("\n").length;
+		if (range.end > total) throw new PinError("not_found", `${file.rel} has ${total} lines; ${range.start}-${range.end} is out of range.`);
+		const span = lineSpan(text, range.start, range.end);
+		anchor = { quote: makeQuote(text, span.start, span.end) };
+		content = text.slice(span.start, span.end);
 	}
-	if (slice.length > ctx.limits.maxLines)
-		throw new PinError("cap_exceeded", `${file.rel}${lines ? `:${lines}` : ""} is ${slice.length} lines; attach at most ${ctx.limits.maxLines}. Attach the section the task needs, e.g. "lines": "120-140".`);
+	const size = content.split("\n").length;
+	if (size > ctx.limits.maxLines)
+		throw new PinError("cap_exceeded", `${file.rel} selects ${size} lines; attach at most ${ctx.limits.maxLines}. Anchor a smaller part: a "section", a "symbol" or a "quote".`);
 	let note: string | undefined;
-	if (r.note !== undefined) {
+	if (r.note !== undefined && r.note !== null) {
 		if (typeof r.note !== "string") throw new PinError("invalid_args", '"note" must be a string: why this is attached.');
 		note = norm(r.note) || undefined;
 		if (note && note.length > ctx.limits.noteChars) throw new PinError("invalid_args", `"note" is ${note.length} chars; keep it under ${ctx.limits.noteChars}.`);
 	}
-	const dup = existing.find((a) => a.path === file.rel && a.lines === lines);
-	if (dup) throw new PinError("invalid_transition", `${file.rel}${lines ? `:${lines}` : ""} is already attached as ${dup.id}.`);
-	return { id, path: file.rel, ...(lines ? { lines } : {}), ...(note ? { note } : {}), hash: hashOf(slice.join("\n")), at: ctx.now };
+	const candidate = { id, path: file.rel, ...(anchor ? { anchor } : {}) };
+	const dup = existing.find((a) => sameTarget(a, candidate));
+	if (dup) throw new PinError("invalid_transition", `${attachmentRef(dup)} is already attached as ${dup.id}.`);
+	return { ...candidate, ...(note ? { note } : {}), hash: hashOf(content), at: ctx.now };
 }
 
 /** Throws when `pins` exceed the holder's token cap. */
@@ -190,17 +249,37 @@ export function nextId(holders: readonly PinHolder[], prefix: "p" | "a"): (taken
 	return () => `${prefix}${++n}`;
 }
 
-/** An attachment's current text, or null when the file or range can no longer be read. */
-export function attachmentContent(projectDir: string, a: Attachment, maxLines = PIN_LIMITS.maxLines): string | null {
-	let all: string[];
+/** What an attachment resolves to now. `anchor` is set when the stored anchor should be replaced by it. */
+export type AttachmentRead = { content: string; state?: AnchorState; anchor?: Anchor } | { lost: true; tooLarge?: boolean; candidates?: string[] };
+
+/** The attachment's current content by its anchor, or why it cannot be read. Symbols need `warmSymbols` first. */
+export function readAttachment(projectDir: string, a: Attachment, maxLines = PIN_LIMITS.maxLines): AttachmentRead {
+	let text: string;
 	try {
-		all = fs.readFileSync(projectPath(projectDir, a.path).abs, "utf8").split("\n");
+		text = fs.readFileSync(projectPath(projectDir, a.path).abs, "utf8");
 	} catch {
-		return null;
+		return { lost: true };
 	}
-	const range = a.lines ? parseLines(a.lines) : { start: 1, end: all.length };
-	if (!range || range.end > all.length || range.end - range.start + 1 > maxLines) return null;
-	return all.slice(range.start - 1, range.end).join("\n");
+	let found: Resolution;
+	let refreshed: Anchor | undefined;
+	if (a.anchor && "section" in a.anchor) found = resolveSection(text, a.anchor.section);
+	else if (a.anchor && "symbol" in a.anchor) found = resolveSymbol(a.path, text, a.anchor.symbol);
+	else if (a.anchor) {
+		found = resolveQuote(text, a.anchor.quote);
+		if ("content" in found && found.state) {
+			const at = text.indexOf(found.content);
+			refreshed = { quote: makeQuote(text, at, at + found.content.length) };
+		}
+	} else if (a.lines) {
+		const range = parseLines(a.lines);
+		if (!range || range.end > text.split("\n").length) return { lost: true };
+		const span = lineSpan(text, range.start, range.end);
+		found = { content: text.slice(span.start, span.end) };
+		refreshed = { quote: makeQuote(text, span.start, span.end) };
+	} else found = { content: text };
+	if ("lost" in found) return found;
+	if (found.content.split("\n").length > maxLines) return { lost: true, tooLarge: true };
+	return { content: found.content, ...(found.state ? { state: found.state } : {}), ...(refreshed ? { anchor: refreshed } : {}) };
 }
 
 /** The pieces of a list task context is built from. */
@@ -223,7 +302,10 @@ export interface AttachmentOut {
 	ref: string;
 	note?: string;
 	content?: string;
-	state?: "changed" | "lost";
+	/** `moved`/`fuzzy`: the quote was found elsewhere or approximately; `changed`: edited since last delivered; `lost`: gone; `too_large`: grew past the attachment cap. */
+	state?: "changed" | "lost" | "moved" | "fuzzy" | "too_large";
+	/** For `lost`: what exists nearby. */
+	candidates?: string[];
 }
 /** List context: the goal and list-scoped facts. */
 export interface ListContext {
@@ -249,7 +331,8 @@ export const deliveryKey = {
 	/** A goal or criterion: list-unique id plus a hash of its current text. */
 	item: (item: ContextItem) => `item:${item.id}#${hashOf(item.text)}`,
 	pin: (id: string) => `pin:${id}`,
-	attachment: (id: string, content: string | null) => `att:${id}#${content === null ? "lost" : hashOf(content)}`,
+	/** By id only: edits the agent makes to an attached file during its task never re-send the attachment. */
+	attachment: (id: string) => `att:${id}`,
 };
 
 /**
@@ -271,8 +354,8 @@ export interface Delivery {
 	list?: ListContext;
 	tasks: TaskContext[];
 	delivered: string[];
-	/** Attachment id → content hash now in front of the model; the store records it so later changes are reported once. */
-	seen: Record<string, string>;
+	/** Attachment id → what is now in front of the model; the store records it so later changes are reported once. */
+	seen: Record<string, { hash: string; anchor?: Anchor }>;
 }
 
 /**
@@ -281,7 +364,7 @@ export interface Delivery {
  */
 export function deliverContext(list: ContextList, taskIds: readonly string[], withList: boolean, live: (key: string) => boolean, projectDir: string, render: AttachmentRender, maxLines = PIN_LIMITS.maxLines): Delivery {
 	const delivered: string[] = [];
-	const seen: Record<string, string> = {};
+	const seen: Record<string, { hash: string; anchor?: Anchor }> = {};
 	const pinsOf = (pins: readonly Pin[] | undefined) =>
 		(pins ?? []).flatMap((p) => {
 			const key = deliveryKey.pin(p.id);
@@ -291,20 +374,16 @@ export function deliverContext(list: ContextList, taskIds: readonly string[], wi
 		});
 	const attachmentsOf = (atts: readonly Attachment[] | undefined) =>
 		(atts ?? []).flatMap((a): AttachmentOut[] => {
-			const content = attachmentContent(projectDir, a, maxLines);
-			const key = deliveryKey.attachment(a.id, content);
+			const key = deliveryKey.attachment(a.id);
 			if (live(key)) return [];
 			delivered.push(key);
-			const hash = content === null ? null : hashOf(content);
-			if (hash) seen[a.id] = hash;
-			const state = content === null ? "lost" : a.hash && a.hash !== hash ? "changed" : undefined;
-			return [{
-				id: a.id,
-				ref: `${a.path}${a.lines ? `:${a.lines}` : ""}`,
-				...(a.note ? { note: a.note } : {}),
-				...(content !== null && render === "inline" ? { content } : {}),
-				...(state ? { state } : {}),
-			}];
+			const read = readAttachment(projectDir, a, maxLines);
+			const base = { id: a.id, ref: attachmentRef(a), ...(a.note ? { note: a.note } : {}) };
+			if ("lost" in read) return [{ ...base, state: read.tooLarge ? "too_large" : "lost", ...(read.candidates?.length ? { candidates: read.candidates } : {}) }];
+			const hash = hashOf(read.content);
+			seen[a.id] = { hash, ...(read.anchor ? { anchor: read.anchor } : {}) };
+			const state = read.state ?? (a.hash && a.hash !== hash ? "changed" : undefined);
+			return [{ ...base, ...(render === "inline" ? { content: read.content } : {}), ...(state ? { state } : {}) }];
 		});
 	const itemsOf = (items: readonly ContextItem[] | undefined) =>
 		(items ?? []).flatMap((x) => {

@@ -26,6 +26,17 @@ describe("task list v3 schema", () => {
 		expect([task.acceptanceCriteria.maxItems, schema.$defs.criterion.oneOf[0].maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
 	});
 
+	test("attachment anchors are exactly one of section, symbol or a complete quote", () => {
+		const quote = { exact: "get and set", prefix: "\n", suffix: "", start: 12 };
+		const withAnchor = (anchor: unknown) => errorsOf(v3([{ title: "A", attachments: [{ id: "a1", path: "auth.md", anchor }] }]));
+		expect(withAnchor({ section: "Token store > Interface" })).toEqual([]);
+		expect(withAnchor({ symbol: "TokenStore.get" })).toEqual([]);
+		expect(withAnchor({ quote })).toEqual([]);
+		for (const bad of [{}, { section: "" }, { section: "A", symbol: "B" }, { quote: { ...quote, exact: "" } }, { quote: { exact: "x", prefix: "", suffix: "" } }, { quote: { ...quote, start: -1 } }, "A > B"])
+			expect(withAnchor(bad)).toEqual([expect.stringContaining("invalid attachment")]);
+		expect(schema.$defs.anchor.oneOf.map((o: { required: string[] }) => o.required[0])).toEqual(["section", "symbol", "quote"]);
+	});
+
 	test("every list example in the bundled skill passes the validator", () => {
 		const skill = path.join(import.meta.dir, "skills/accordion-task-lists");
 		const files = [path.join(skill, "SKILL.md"), ...fs.readdirSync(path.join(skill, "references")).filter((f) => f.endsWith(".md")).map((f) => path.join(skill, "references", f))];

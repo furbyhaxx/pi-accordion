@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { warmSymbols } from "./taskSymbols";
 import { CLAIM_STALE_MS, TaskError, TaskStore, claimState, runTasks, slugFor, taskFingerprint, type TasksArgs } from "./tasks";
 
 function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-"))) {
@@ -177,7 +178,7 @@ describe("tasks", () => {
 		fs.writeFileSync(path.join(dir, "spec.md"), "one\ntwo");
 		const tasks = [{ title: "Parent", subtasks: [{ title: "Child", pins: [{ kind: "rule", text: "Never float", source: "user" }], attachments: [{ path: "spec.md:2" }] }] }];
 		s.create("w", "Work", ["Goal"], tasks, ["Never float"]);
-		expect(s.read("w").tasks[1]).toMatchObject({ pins: [{ id: "p1", text: "Never float" }], attachments: [{ id: "a1", path: "spec.md", lines: "2" }] });
+		expect(s.read("w").tasks[1]).toMatchObject({ pins: [{ id: "p1", text: "Never float" }], attachments: [{ id: "a1", path: "spec.md", anchor: { quote: { exact: "two" } } }] });
 		expect(() => s.add("w", undefined, [{ title: "Bad", attachments: [{ path: "missing" }] }])).toThrow();
 		expect(s.read("w").tasks).toHaveLength(2);
 	});
@@ -191,7 +192,7 @@ describe("tasks", () => {
 		expect(pin).toEqual(["p1"]);
 		expect(attachment).toEqual(["a1"]);
 		expect(s.read("w").pins?.[0].text).toBe("never float");
-		expect(s.read("w").tasks[0].attachments?.[0]).toMatchObject({ path: "spec.md", lines: "2-3" });
+		expect(s.read("w").tasks[0].attachments?.[0]).toMatchObject({ path: "spec.md", anchor: { quote: { exact: "two\nthree" } } });
 		expect(() => s.references("w", "1", "detach", ["a1", "a9"])).toThrow(/a9/);
 		expect(s.read("w").tasks[0].attachments).toHaveLength(1);
 		s.references("w", "1", "detach", ["a1"]);
@@ -339,12 +340,27 @@ describe("tasks", () => {
 		expect(fs.readFileSync(path.join(folder, "old.v2.json"), "utf8")).toBe(original);
 	});
 
+	test("attach stores section, symbol and quote anchors and returns their canonical refs", async () => {
+		const { dir, s } = store();
+		fs.writeFileSync(path.join(dir, "auth.md"), "# Auth\n\n## Interface\n\nget and set\n");
+		fs.writeFileSync(path.join(dir, "store.ts"), "export class TokenStore {\n\tget() { return 1; }\n}\n");
+		await warmSymbols(["store.ts"]);
+		run(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A" }] });
+		const result = run(s, { action: "attach", list: "w", id: "1", items: [{ path: "auth.md", section: "Auth > Interface", note: "contract" }, { path: "store.ts", symbol: "TokenStore.get" }, { path: "auth.md", quote: "get and set" }] });
+		expect(result).toEqual({ ok: true, attachments: [{ id: "a1", ref: "auth.md#Auth > Interface" }, { id: "a2", ref: "store.ts::TokenStore.get" }, { id: "a3", ref: "auth.md@q:a3" }] });
+		const stored = s.read("w").tasks[0].attachments!;
+		expect(stored.map((a) => a.anchor && Object.keys(a.anchor)[0])).toEqual(["section", "symbol", "quote"]);
+		expect(() => run(s, { action: "attach", list: "w", id: "1", items: [{ path: "auth.md", section: "Nope" }] })).toThrow(/no section/);
+		expect(() => run(s, { action: "attach", list: "w", id: "1", items: [{ path: "auth.md", section: "Auth", symbol: "x" }] })).toThrow(/exactly one/);
+		expect(s.read("w").tasks[0].attachments).toHaveLength(3);
+	});
+
 	test("pin, attach and their removals acknowledge without echoing what the agent wrote", () => {
 		const { dir, s } = store();
 		fs.writeFileSync(path.join(dir, "spec.md"), "one\ntwo\n");
 		run(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A" }] });
 		expect(run(s, { action: "pin", list: "w", items: [{ kind: "rule", text: "two", source: "spec.md" }] })).toEqual({ ok: true, pins: ["p1"] });
-		expect(run(s, { action: "attach", list: "w", id: "1", items: [{ path: "spec.md", lines: "1-2" }] })).toEqual({ ok: true, attachments: [{ id: "a1", ref: "spec.md:1-2" }] });
+		expect(run(s, { action: "attach", list: "w", id: "1", items: [{ path: "spec.md", lines: "1-2" }] })).toEqual({ ok: true, attachments: [{ id: "a1", ref: "spec.md@q:a1" }] });
 		expect(run(s, { action: "unpin", list: "w", pins: ["p1"] })).toEqual({ ok: true });
 		expect(run(s, { action: "detach", list: "w", id: "1", attachments: ["a1"] })).toEqual({ ok: true });
 	});

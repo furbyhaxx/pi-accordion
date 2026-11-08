@@ -11,7 +11,7 @@ import type { Truth } from "../../core/truth";
 import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import { blockLabel, type Task, type TaskList } from "../tasks";
-import type { PinHolder } from "../taskPins";
+import { attachmentRef, type PinHolder } from "../taskPins";
 import { formatCompactTokens } from "./map";
 import { frame, frameBodyRows } from "./taskLists";
 import { recordForm } from "../../conductors/in-process/taskfold/records";
@@ -271,7 +271,7 @@ function detailField(theme: WidgetTheme, key: string, value: string): string[] {
 function holderLines(holder: PinHolder, scope: string, theme: WidgetTheme): string[] {
 	return [
 		...(holder.pins ?? []).flatMap((pin) => detailField(theme, "Pins", `${scope} · ${pin.id} · ${pin.kind} · ${pin.source}\n${pin.text}`)),
-		...(holder.attachments ?? []).flatMap((a) => detailField(theme, "Files", `${scope} · ${a.id} · ${a.path}${a.lines ? `:${a.lines}` : ""}${a.note ? ` · ${a.note}` : ""}\nhash ${a.hash ?? "not recorded"} · attached ${formatClock(a.at)}`)),
+		...(holder.attachments ?? []).flatMap((a) => detailField(theme, "Files", `${scope} · ${a.id} · ${attachmentRef(a)}${a.note ? ` · ${a.note}` : ""}\nhash ${a.hash ?? "not recorded"} · attached ${formatClock(a.at)}`)),
 	];
 }
 

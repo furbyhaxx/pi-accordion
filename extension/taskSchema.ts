@@ -30,6 +30,18 @@ export interface Item {
 	id: string;
 	text: string;
 }
+const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
+
+/** An attachment anchor is exactly one of a section path, a symbol or a quote with its context. */
+function validAnchor(a: unknown): boolean {
+	if (!isObj(a)) return false;
+	const keys = Object.keys(a);
+	if (keys.length !== 1) return false;
+	if (keys[0] === "section" || keys[0] === "symbol") return isText(a[keys[0]]);
+	const q = a.quote;
+	return keys[0] === "quote" && isObj(q) && isText(q.exact) && typeof q.prefix === "string" && typeof q.suffix === "string" && typeof q.start === "number" && Number.isInteger(q.start) && q.start >= 0;
+}
+
 /** Item id prefixes: goals, criteria, pins, attachments. */
 export const ITEM_PREFIXES = ["g", "c", "p", "a"] as const;
 export type ItemPrefix = (typeof ITEM_PREFIXES)[number];
@@ -272,7 +284,7 @@ function checkReferences(node: Record<string, unknown>, where: string, errors: s
 	if (node.attachments !== undefined) {
 		if (!Array.isArray(node.attachments)) errors.push(`${where}.attachments: must be an array`);
 		else node.attachments.forEach((a: unknown, i: number) => {
-			if (!isObj(a) || typeof a.id !== "string" || !/^a[1-9]\d*$/.test(a.id) || typeof a.path !== "string" || !a.path.trim() || (a.lines !== undefined && (typeof a.lines !== "string" || !/^[1-9]\d*(?:-[1-9]\d*)?$/.test(a.lines))) || (a.note !== undefined && (typeof a.note !== "string" || a.note.length > 120)) || (a.hash !== undefined && typeof a.hash !== "string") || (a.at !== undefined && typeof a.at !== "string")) errors.push(`${where}.attachments[${i}]: invalid attachment`);
+			if (!isObj(a) || typeof a.id !== "string" || !/^a[1-9]\d*$/.test(a.id) || typeof a.path !== "string" || !a.path.trim() || (a.lines !== undefined && (typeof a.lines !== "string" || !/^[1-9]\d*(?:-[1-9]\d*)?$/.test(a.lines))) || (a.anchor !== undefined && !validAnchor(a.anchor)) || (a.note !== undefined && (typeof a.note !== "string" || a.note.length > 120)) || (a.hash !== undefined && typeof a.hash !== "string") || (a.at !== undefined && typeof a.at !== "string")) errors.push(`${where}.attachments[${i}]: invalid attachment`);
 		});
 	}
 }

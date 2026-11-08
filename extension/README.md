@@ -73,11 +73,16 @@ until you configure it:
 A conductor that sends session content to a model running off this machine asks once for consent
 before it attaches. Accepted notices are stored under `privacyConsent`.
 
-Every new Taskfold list has one to five goals (a task may add up to three of its own) and can hold scoped pins and file attachments. The list browser asks for the title and a goal when creating a list. Goals, criteria, pins and attachments carry list-unique ids (`g1`, `c1`, `p1`, `a1`) that are never reused; `tasks update` edits goals and criteria with `{add, remove, edit}`. Files from earlier versions are converted on their first write and the original is kept as `<slug>.v1.json` or `<slug>.v2.json`. Pins on the list and pins,
-acceptance criteria and attachments on the active task's branch are sent with requests. Attachments
-accept a path and optional lines (`spec.md:12` or `spec.md:12-20`); their contents are cached and
-refreshed between turns, so an external edit may briefly be stale. Configure their display and pin
-limits in `~/.accordion/config.json`:
+Every new Taskfold list has one to five goals (a task may add up to three of its own) and can hold scoped pins and file attachments. The list browser asks for the title and a goal when creating a list. Goals, criteria, pins and attachments carry list-unique ids (`g1`, `c1`, `p1`, `a1`) that are never reused; `tasks update` edits goals and criteria with `{add, remove, edit}`. Files from earlier versions are converted on their first write and the original is kept as `<slug>.v1.json` or `<slug>.v2.json`. Goals, criteria, pins and attachments reach
+the agent once, in the `tasks start` or `claim` result, and are never added to later requests.
+An attachment names a part of a file by what it is, not by line numbers: a Markdown `section`
+(`"Token store > Interface"`), a code `symbol` (`"TokenStore.get"`, in `.ts`, `.tsx`, `.js`, `.py`
+and `.rs` files) or an exact `quote`. A `lines` range (`spec.md:12-20`) is accepted as input and
+stored as a quote of those lines. A section or symbol keeps working when the file is edited around
+it; a quote is found again if it moves. When an attachment is delivered, the result says if it
+`moved`, matched `fuzzy`, `changed` since it was attached, is `lost` or grew `too_large`. Edits the
+agent makes while the task runs are never reported. Configure their display and limits in
+`~/.accordion/config.json`:
 
 ```json
 {

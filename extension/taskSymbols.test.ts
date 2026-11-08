@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { resolveSymbol, symbolLang, warmSymbols } from "./taskSymbols";
+import { resolveSymbol, symbolFiles, symbolLang, warmSymbols } from "./taskSymbols";
 
 beforeAll(async () => {
 	await warmSymbols(["a.ts", "a.py", "a.rs"]);
@@ -68,4 +68,14 @@ test("unsupported files are lost rather than guessed, and the language follows t
 
 test("resolving before the grammar is loaded is an error, not a silent loss", () => {
 	expect(() => resolveSymbol("a.js", "function a() {}", "a")).toThrow(/not loaded/);
+});
+
+test("a tasks call names the files whose grammars it needs, in every action that resolves anchors", () => {
+	const nested = [{ title: "A", attachments: [{ path: "a.ts", symbol: "A" }, { path: "n.md", section: "S" }], subtasks: [{ title: "B", attachments: [{ path: "b.py:3", symbol: "B" }] }] }];
+	expect(symbolFiles({ action: "attach", items: [{ path: "x.ts", symbol: "X" }, { path: "y.ts", quote: "q" }] }, null)).toEqual(["x.ts"]);
+	expect(symbolFiles({ action: "create", tasks: nested }, null)).toEqual(["a.ts", "b.py"]);
+	expect(symbolFiles({ action: "add", tasks: nested }, null)).toEqual(["a.ts", "b.py"]);
+	const list = { attachments: [{ path: "l.rs", anchor: { symbol: "L" } }], tasks: [{ attachments: [{ path: "m.ts", anchor: { section: "S" } }, { path: "t.ts", anchor: { symbol: "T" } }] }] };
+	expect(symbolFiles({ action: "start" }, list)).toEqual(["l.rs", "t.ts"]);
+	expect(symbolFiles({ action: "status" }, list)).toEqual([]);
 });

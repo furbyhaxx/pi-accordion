@@ -139,3 +139,22 @@ export function resolveSymbol(file: string, text: string, symbol: string): Resol
 	}
 	return { content: pieces.join("\n\n") };
 }
+
+interface SymbolCarrier {
+	attachments?: readonly { path: string; anchor?: unknown }[];
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
+const symbolPaths = (items: unknown): string[] =>
+	(Array.isArray(items) ? items : []).flatMap((i) => (isObject(i) && typeof i.symbol === "string" && typeof i.path === "string" ? [i.path.replace(/:\d+(?:-\d+)?$/, "")] : []));
+const treePaths = (nodes: unknown): string[] =>
+	(Array.isArray(nodes) ? nodes : []).flatMap((n) => (isObject(n) ? [...symbolPaths(n.attachments), ...treePaths(n.subtasks)] : []));
+
+/** Files whose symbol anchors one `tasks` call resolves; their grammars must be loaded before the synchronous action runs. */
+export function symbolFiles(args: { action?: string; items?: unknown; tasks?: unknown }, list: (SymbolCarrier & { tasks: readonly SymbolCarrier[] }) | null): string[] {
+	if (args.action === "attach") return symbolPaths(args.items);
+	if (args.action === "create" || args.action === "add") return treePaths(args.tasks);
+	if ((args.action === "start" || args.action === "claim") && list)
+		return [list, ...list.tasks].flatMap((h) => (h.attachments ?? []).flatMap((a) => (isObject(a.anchor) && "symbol" in a.anchor ? [a.path] : [])));
+	return [];
+}

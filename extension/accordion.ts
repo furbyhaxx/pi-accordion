@@ -58,6 +58,7 @@ import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens,
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { deliverContext, deliveryKey, liveDeliveryKeys, PIN_LIMITS, PinError } from "./taskPins";
+import { symbolFiles, warmSymbols } from "./taskSymbols";
 import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
@@ -3993,6 +3994,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// Phase B: resolved LOCALLY against the in-process Truth (no client needed). The unfolded
 	// block becomes standing-open (sticky, provenance "agent") and its content returns to the
 	// model on the NEXT `context` hook — it simply no longer appears in the fold serialization.
+
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
@@ -4044,7 +4046,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					{ description: "Tasks to create or add: [{ title, goals?, acceptanceCriteria?, subtasks?: [{ title, … }], supersedes? }]." },
 				),
 			),
-			items: Type.Optional(Type.Array(Type.Any(), { description: 'For pin: [{kind, text, source}]; attach: [{path, lines?, note?}]. Omit id for list scope.' })),
+			items: Type.Optional(Type.Array(Type.Any(), { description: 'For pin: [{kind, text, source}]; attach: [{path, section? | symbol? | quote? | lines?, note?}] (one anchor: a Markdown heading path "A > B", a declaration "Class.method", exact text, or a line range turned into a quote). Omit id for list scope.' })),
 			pins: Type.Optional(Type.Array(Type.String(), { description: "For unpin: pin ids to remove." })),
 			attachments: Type.Optional(Type.Array(Type.String(), { description: "For detach: attachment ids to remove." })),
 			parent: Type.Optional(Type.String({ description: "Parent task id for add or move, e.g. \"2\" or \"2.1\"." })),
@@ -4087,6 +4089,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					const ended = read()?.tasks.filter((t) => t.endedAt && t.id !== args.id && !t.id.startsWith(`${args.id}.`)).sort((a, b) => b.endedAt!.localeCompare(a.endedAt!))[0];
 					throw new TaskError("empty_span", emptySpanRefusal(args.list, args.id, ended?.id ?? null));
 				}
+				await warmSymbols(symbolFiles(args, read()));
 				const userTexts = ["pin", "create", "add"].includes(args.action) ? readSessionMessages(ctx).filter((m) => m.role === "user").map((m) => typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((p) => p.type === "text" ? p.text ?? "" : "").join("\n") : "") : [];
 				const run = runTasksTracked(store, args, userTexts, { ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines });
 				if (run.started.length && args.list) taskCoach.started(args.list, run.started);

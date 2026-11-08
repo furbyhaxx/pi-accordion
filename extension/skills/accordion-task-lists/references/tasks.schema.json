@@ -165,9 +165,13 @@
 					"type": "string",
 					"minLength": 1
 				},
+				"anchor": {
+					"$ref": "#/$defs/anchor"
+				},
 				"lines": {
 					"type": "string",
-					"pattern": "^[1-9][0-9]*(-[1-9][0-9]*)?$"
+					"pattern": "^[1-9][0-9]*(-[1-9][0-9]*)?$",
+					"description": "Legacy line range; replaced by a quote anchor when next delivered."
 				},
 				"note": {
 					"type": "string",
@@ -398,6 +402,74 @@
 							"type": "string",
 							"minLength": 1,
 							"maxLength": 120
+						}
+					}
+				}
+			]
+		},
+		"anchor": {
+			"description": "What part of the file an attachment points at.",
+			"oneOf": [
+				{
+					"type": "object",
+					"required": [
+						"section"
+					],
+					"additionalProperties": false,
+					"properties": {
+						"section": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Markdown heading path, \"A > B\"."
+						}
+					}
+				},
+				{
+					"type": "object",
+					"required": [
+						"symbol"
+					],
+					"additionalProperties": false,
+					"properties": {
+						"symbol": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Dotted declaration name."
+						}
+					}
+				},
+				{
+					"type": "object",
+					"required": [
+						"quote"
+					],
+					"additionalProperties": false,
+					"properties": {
+						"quote": {
+							"type": "object",
+							"required": [
+								"exact",
+								"prefix",
+								"suffix",
+								"start"
+							],
+							"additionalProperties": false,
+							"properties": {
+								"exact": {
+									"type": "string",
+									"minLength": 1
+								},
+								"prefix": {
+									"type": "string"
+								},
+								"suffix": {
+									"type": "string"
+								},
+								"start": {
+									"type": "integer",
+									"minimum": 0
+								}
+							}
 						}
 					}
 				}
