@@ -97,28 +97,45 @@ def record(msgs, t, compose):
     if compose and t["kids"]: r["children"] = [json.loads(record(msgs, k, True)) for k in t["kids"]]
     return json.dumps(r, separators=(",", ":"), ensure_ascii=False)
 
+def count(t):
+    n = {"done": 0, "failed": 0, "abandoned": 0}
+    for k in walk(t["kids"]): n[k.get("status") or "done"] = n.get(k.get("status") or "done", 0) + 1
+    return {k: v for k, v in n.items() if v}
+
 def history(t):
-    return json.dumps({"history": t["key"], "status": t.get("status"), "fold": "#" + t["key"][-6:]}, separators=(",", ":"))
+    """1-3 line history: identity, status, subtree counts, short outcome, one recall code."""
+    h = {"history": t["key"], "status": t.get("status"), "fold": "#" + t["key"][-6:]}
+    if t["kids"]: h["subtasks"] = count(t)
+    out = (t["report"] or {}).get("outcome")
+    if out: h["outcome"] = out[:160]
+    return json.dumps(h, separators=(",", ":"), ensure_ascii=False)
+
+def digest(keys):
+    """Pressure-time consolidation of many history entries into one message."""
+    return json.dumps({"history": "consolidated", "done": keys}, separators=(",", ":"))
 
 def M(role, text): return (role, text, max(1, len(text) // 4))
 
-def render(msgs, lo, hi, nodes, folded, hist, rep, out):
+def render(msgs, lo, hi, nodes, folded, hist, rep, out, merged=None):
     """Emit messages[lo:hi) with folded spans replaced according to representation `rep`."""
     i = lo
     for t in nodes:
         if t["s"] >= hi: break
         while i < min(t["s"], hi): out.append(M(msgs[i]["role"], msgs[i]["text"])); i += 1
+        if merged and t["e"] < hi and t["key"] in merged:
+            if t["key"] == merged[0]: out.append(M("assistant", digest(merged)))
+            i = t["e"] + 1; continue
         if t["e"] < hi and t["key"] in hist:
             out.append(M("assistant", history(t))); i = t["e"] + 1; continue
         if t["e"] < hi and t["key"] in folded:
             emit_folded(msgs, t, folded, hist, rep, out); i = t["e"] + 1; continue
-        render(msgs, i, min(t["e"] + 1, hi), t["kids"], folded, hist, rep, out); i = min(t["e"] + 1, hi)
+        render(msgs, i, min(t["e"] + 1, hi), t["kids"], folded, hist, rep, out, merged); i = min(t["e"] + 1, hi)
     while i < hi: out.append(M(msgs[i]["role"], msgs[i]["text"])); i += 1
 
 def emit_folded(msgs, t, folded, hist, rep, out):
     parent_rep = rep
     if rep == "BS": parent_rep = "S" if t["kids"] else "B"   # bracket a leaf, single once a parent folds
-    if parent_rep == "S":
+    if parent_rep in ("S", "HR", "HP", "HRC"):
         out.append(M("assistant", record(msgs, t, True)))
     elif parent_rep == "T":
         call = json.dumps({"action": "started-and-completed", "id": t["key"]}, separators=(",", ":"))
@@ -142,7 +159,8 @@ def walk(roots):
 
 def simulate(msgs, roots, rep, timing, budget, high=0.8, low=0.6):
     alltasks = list(walk(roots))
-    folded, hist, prev = set(), set(), []
+    folded, hist, prev, merged = set(), set(), [], []
+    base = rep
     tot = dict(input=0, read=0, write=0, rebill=0, requests=0, peak=0, folds=0, histed=0)
     live_series = []
     for a, m in enumerate(msgs):
@@ -152,18 +170,29 @@ def simulate(msgs, roots, rep, timing, budget, high=0.8, low=0.6):
             if timing == "eager":
                 for t in fin:
                     if t["key"] not in folded: folded.add(t["key"]); tot["folds"] += 1
-            wire = []; render(msgs, 0, a, roots, folded, hist, rep, wire)
+            if rep in ("HR", "HRC"):
+                for t in roots:
+                    if t["e"] < a: hist.add(t["key"])
+            if rep == "HP":
+                for t in fin:
+                    if t["kids"]: hist.add(t["key"])
+            R = lambda: (lambda w: (render(msgs, 0, a, roots, folded, hist, rep, w, merged), w)[1])([])
+            wire = R()
             live = sum(x[2] for x in wire)
             if timing == "lazy" and live > high * budget:
                 finroots = sorted([t for t in fin if t["key"] not in folded], key=lambda t: t["e"])
                 for t in finroots[:-1] if len(finroots) > 1 else []:
                     folded.add(t["key"]); tot["folds"] += 1
-                    wire = []; render(msgs, 0, a, roots, folded, hist, rep, wire); live = sum(x[2] for x in wire)
+                    wire = R(); live = sum(x[2] for x in wire)
                     if live <= low * budget: break
+            if rep == "HRC" and live > high * budget:   # consolidate all history entries once
+                old = [t["key"] for t in sorted(roots, key=lambda t: t["e"]) if t["e"] < a]
+                if len(old) > len(merged): merged[:] = old; tot["histed"] += 1
+                wire = R(); live = sum(x[2] for x in wire)
             if live > high * budget:   # hard pressure: completed roots -> one history message each, oldest first
                 for t in sorted([r for r in roots if r["e"] < a and r["key"] in folded and r["key"] not in hist], key=lambda t: t["e"]):
                     hist.add(t["key"]); tot["histed"] += 1
-                    wire = []; render(msgs, 0, a, roots, folded, hist, rep, wire); live = sum(x[2] for x in wire)
+                    wire = R(); live = sum(x[2] for x in wire)
                     if live <= low * budget: break
         else:
             wire = [M(x["role"], x["text"]) for x in msgs[:a]]
@@ -190,6 +219,8 @@ def main():
     rows = []
     for rep, timing in [("RAW", "-"), ("S", "lazy"), ("S", "eager"), ("B", "eager"), ("BS", "eager"), ("T", "eager"), ("B", "lazy"), ("T", "lazy")]:
         r = simulate(msgs, roots, rep, timing, args.budget); r.update(rep=rep, timing=timing); rows.append(r)
+    for rep in ("HR", "HP", "HRC"):
+        r = simulate(msgs, roots, rep, "eager", args.budget); r.update(rep=rep, timing="eager"); rows.append(r)
     hdr = ["rep", "timing", "input", "read", "write", "rebill", "cost", "peak", "mean", "final", "msgs_final", "histed"]
     print(" | ".join(hdr))
     for r in rows: print(" | ".join(str(r[h]) for h in hdr))

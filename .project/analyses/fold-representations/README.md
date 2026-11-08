@@ -31,6 +31,9 @@ root** (more cache friendly than one merged history message).
 | B→S | B for a leaf; once a parent folds, the parent becomes S |
 | T | one synthetic tool pair: `assistant` `toolCall tasks {action:"started-and-completed", id}` + `toolResult` record |
 | H | history (hard pressure): one `assistant` line per completed root, recall by one code |
+| HR | history on completion: children fold as S while their root is open; a root becomes its 1–3 line history (`{history, status, subtasks counts, outcome≤160, fold}`) the moment it completes |
+| HP | like HR, but every task **with children** becomes history when it completes; leaves fold as S |
+| HRC | HR, and under pressure all history entries are consolidated once into a single message |
 
 Timing: **eager** folds every finished task at the next request; **lazy** folds finished roots only
 when live > high·budget (current behaviour, keep-recent waived), down to low·budget.
@@ -66,6 +69,25 @@ Findings:
 4. Nukular's eager peak (183k) is set by the long-open root and two crossing spans, not by the
    representation; history (H) engaged at 60k–200k budgets on 5–11 roots.
 
+History on completion (same harness, eager):
+
+| Fixture, budget | S eager | HR | HP | HRC | rebill S → HR |
+|---|---|---|---|---|---|
+| nukular, 120k | 16,044 | 15,712 | 15,778 | 16,214 | 261k → 24k |
+| nukular, 200k | 16,241 | 15,712 | 15,848 | 15,876 | 289k → 24k |
+| synth 6×3×3, 40k | 620 | 534 | 520 | 534 | 12k → 8k |
+| synth 12×4 leaves, 40k | 213 | 171 | 171 | 171 | 6k → 3k |
+| synth 3×3×3 big, 40k | 1,230 | 1,189 | 1,174 | 1,189 | 8k → 5k |
+
+5. **History on completion is the cheapest overall.** HR rebills ~10× less than S on nukular,
+   because a completed root is written once in its final form and never touched again; aging and
+   pressure-time history no longer rewrite old positions (HR needed zero pressure-time history on
+   nukular at any budget). HP is within ~1 % of HR, slightly better on deep synthetic trees,
+   slightly worse on nukular, where nested parents finishing late cause extra rewrites.
+6. **Consolidating history under pressure does not pay.** Per-root history is already tiny; merging
+   rewrites everything from the first history entry onward and costs up to 3 % more (nukular 120k
+   rebill 24k → 491k). Keep per-root messages, as decided.
+
 Limits: chars/4 estimates; a perfectly warm cache (no TTL expiry, which would favour folding even
 more); folding decisions simplified (no protected tail, no held blocks, no keel-lite floor).
 
@@ -75,7 +97,7 @@ The offline numbers cannot say whether the model **understands** a representatio
 right code, does not redo finished work, places new work in the right task. That needs model
 calls.
 
-### 3.1 Comprehension (S, T, B→S, H)
+### 3.1 Comprehension (S, B, T, B→S, HR, HP)
 
 Fixtures: the nukular replay at 120k cut at 10 points, and the three synthetic shapes cut at 5
 points each, 25 contexts per representation. Per context, 6 probes, one per request:
@@ -114,8 +136,10 @@ Extraction: 50 messages × ~8k context ≈ 0.4M tokens per model. A/C agent runs
 ≈ 43M input tokens (≈ 70 % cache reads) and < 1M output for one model. Dollar cost depends on the
 model chosen and is quoted from current prices before running. Nothing has been run.
 
-## 4. Recommendation from offline data
+## 4. Recommendation from offline data (before live results)
 
 - Fold eagerly: `keepRecentTasks` default 0, fold at the request after `complete`.
-- Choose between S, T and B→S on comprehension (§3.1); cost does not separate them. Drop pure B.
-- H as decided: one message per completed root.
+- Leading candidate: HR (or HP) — completed roots become 1–3 line history immediately, open
+  roots' finished children fold as S/T/B→S. Choose the in-root form on comprehension (§3.1).
+- Pure B stays in the comprehension eval (user decision) despite its cost.
+- No pressure-time consolidation; one history message per root.
