@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { PIN_LIMITS } from "./taskPins";
-import { applyRoutedOps, extractionPrompt, parseExtraction, routingContext, type RoutedOp } from "./taskRouting";
+import { applyRoutedOps, createRouting, extractionPrompt, parseExtraction, routingContext, type RoutedOp } from "./taskRouting";
 import { TaskStore, runTasks } from "./tasks";
 
 function fixture() {
@@ -118,5 +118,36 @@ describe("extraction context", () => {
 		expect(ctx.tasks.find((t) => t.id === "1.1")).toEqual({ id: "1.1", title: "Draft", status: "done" });
 		expect(ctx.tasks.find((t) => t.id === "1")?.criteria).toEqual([{ id: "c1", text: "Reviewed" }]);
 		expect(JSON.parse(extractionPrompt(store.read("w"), "last turn", "hello"))).toMatchObject({ agentLastTurn: "last turn", userMessage: "hello" });
+	});
+});
+
+describe("createRouting", () => {
+	test("prepares a prompt only with a list attached and applies a reply through the store", async () => {
+		const { store } = fixture();
+		let attached = true;
+		const seen: string[] = [];
+		const port = createRouting({
+			attached: () => (attached ? { store, list: store.read("w") } : null),
+			limits: () => PIN_LIMITS,
+			applied: (slug, out) => seen.push(`${slug}:${out.applied.length}`),
+		});
+		const req = port.prepare("hello", "last turn");
+		expect(req?.system).toContain("persistent task list");
+		expect(JSON.parse(req!.prompt)).toMatchObject({ userMessage: "hello", agentLastTurn: "last turn" });
+		const result = await port.apply('{"ops":[{"op":"+","kind":"pin","target":"list","value":"keep it small","pinKind":"rule"},{"op":"+","kind":"pin","target":"list","value":"made up","pinKind":"rule"}]}', "Please keep it small.");
+		expect(result).toEqual({ ids: ["p1"], applied: 1, dropped: 1 });
+		expect(seen).toEqual(["w:1"]);
+		await expect(port.apply("not json", "x")).rejects.toThrow(/JSON/);
+		attached = false;
+		expect(port.prepare("hello", "")).toBeNull();
+	});
+
+	test("never ends a started task", async () => {
+		const { store } = fixture();
+		runTasks(store, { action: "start", list: "w", id: "2" });
+		const out = await apply(store, [{ op: "-", kind: "task", target: "2" }], "drop the build");
+		expect(out.applied).toEqual([]);
+		expect(out.dropped[0]!.reason).toMatch(/agent ends started tasks/);
+		expect(store.read("w").tasks.find((t) => t.id === "2")?.status).toBe("doing");
 	});
 });

@@ -7,6 +7,7 @@ import { foldedTaskIds, foldedTaskTokens } from "../../../extension/tui/taskWidg
 import { TaskfoldConductor, scanTaskSpans, staleSpans, taskKeyOfSummary } from "./taskfold";
 import { isHistoryCarrier, parseCarrier, shrinkDeepest, toHistory, type RecordObj } from "./records";
 import { TestHost } from "../../../core/conductor/testhost";
+import type { RoutingPort, TaskfoldRouting } from "./routing";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, VerdictLedger, unfoldStatesOf, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
@@ -360,6 +361,50 @@ describe("taskfold", () => {
 		const g = groupOf(host, start)!;
 		expect(g.memberIds).toContain(userId);
 		expect(g.memberIds).toContain(end);
+	});
+
+	it("routes a new user message into the list, then folds it with its span", async () => {
+		const { s, start, end } = oneTask((s) => s.user("Never touch vendor/."));
+		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("vendor"))!.id;
+		const applied: string[] = [];
+		const port: RoutingPort = { current: { prepare: (m, last) => ({ system: "extract", prompt: `${last}|${m}` }), apply: async (reply, m) => { applied.push(`${reply}|${m}`); return { ids: ["p1"], applied: 1, dropped: 0 }; } } as TaskfoldRouting };
+		const ledger = new VerdictLedger();
+		const host = new TestHost();
+		host.queueCompletion({ text: '{"ops":[]}', model: "test/x" });
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, port);
+		c.attach(host);
+		host.appendBlocks(s.blocks);
+		host.setProtect(200);
+		await new Promise((r) => setTimeout(r, 0));
+		expect(host.completeLog).toHaveLength(1);
+		expect(host.completeLog[0].system).toBe("extract");
+		expect(applied).toEqual(['{"ops":[]}|Never touch vendor/.']);
+		expect(ledger.get(userId)?.routed).toMatchObject({ ids: ["p1"] });
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		await host.commitTurn();
+		const g = groupOf(host, start)!;
+		expect(g.memberIds).toContain(userId);
+		expect(g.memberIds).toContain(end);
+	});
+
+	it("keeps the message raw when the extraction fails", async () => {
+		const { s, start, end } = oneTask((s) => s.user("Never touch vendor/."));
+		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("vendor"))!.id;
+		const port: RoutingPort = { current: { prepare: () => ({ system: "extract", prompt: "p" }), apply: async () => { throw new Error("the extractor did not return JSON"); } } };
+		const ledger = new VerdictLedger();
+		const host = new TestHost();
+		host.queueCompletion({ text: "sure", model: "test/x" });
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, port);
+		c.attach(host);
+		host.appendBlocks(s.blocks);
+		host.setProtect(200);
+		await new Promise((r) => setTimeout(r, 0));
+		expect(ledger.get(userId)?.routed).toBeUndefined();
+		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+		await host.commitTurn();
+		expect(groupOf(host, userId)).toBeUndefined();
+		expect(groupOf(host, start)!.id).not.toBe(groupOf(host, end)!.id);
+
 	});
 
 	it("records verdicts once and reuses a resumed session's verdicts without classifying again", async () => {

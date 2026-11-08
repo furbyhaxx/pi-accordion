@@ -64,6 +64,8 @@ import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
+import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
+import { createRouting } from "./taskRouting";
 import { TASK_SCREEN_OPTIONS } from "./tui/taskLists";
 import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource, transcriptSpans } from "./tui/taskTranscript";
@@ -3106,6 +3108,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskWidget.attach(ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
 		taskSession?.dispose();
 		taskSession = null;
+		taskfoldRouting.current = null;
 		taskCoach = new TaskCoach();
 		if (typeof ctx.sessionManager?.getSessionId === "function") {
 			taskSession = new TaskSession({
@@ -3116,6 +3119,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				changed: () => { taskWidget.reload(); notifyNative(); },
 			});
 			taskSession.start(ctx.sessionManager.getBranch(), (event as { reason?: StartReason }).reason ?? "startup", ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
+			// New user messages are extracted into the attached list while the Taskfold conductor runs (SPEC-0002 §4.6).
+			const routedSession = ctx.sessionManager.getSessionId();
+			taskfoldRouting.current = createRouting({
+				attached: () => {
+					if (!tasksToolActive() || latestCtx?.sessionManager.getSessionId() !== routedSession) return null;
+					const store = taskStoreFor(ctx);
+					const list = attachedList(store.claimedBySession());
+					return list ? { store, list } : null;
+				},
+				limits: () => ({ ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines }),
+				applied: () => { taskWidget.reload(); notifyNative(); },
+			});
 		}
 	});
 
@@ -3485,6 +3500,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		taskfoldRouting.current = null;
 		taskWidget.detach();
 		taskSession?.dispose();
 		taskSession = null;

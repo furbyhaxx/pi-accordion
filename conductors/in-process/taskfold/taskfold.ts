@@ -28,6 +28,7 @@ import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, Ho
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
+import { taskfoldRouting, type RoutingPort } from "./routing";
 import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { KeelLiteConductor } from "../keel-lite/keel-lite";
@@ -108,6 +109,9 @@ export const USER_QUESTIONS: Record<string, ClassifierQuestion> = {
 const MESSAGE_CHARS = 2000;
 const GOAL_CHARS = 1500;
 const NEIGHBOUR_CHARS = 600;
+/** An extraction that has not answered by now is abandoned and the message stays raw. */
+const ROUTE_TIMEOUT_MS = 45_000;
+const ROUTE_MAX_OUTPUT_TOKENS = 1500;
 /** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
 export const ZOMBIE_STEPS = 40;
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
@@ -437,10 +441,13 @@ export class TaskfoldConductor implements Conductor {
 	/** User block id → verdict; computed once and never recomputed, kept across resumes by the ledger. */
 	private readonly verdicts: VerdictLedger;
 	private readonly classifying = new Set<string>();
+	/** Messages routing was attempted for this process, and those whose extraction is in flight. */
+	private readonly routeTried = new Set<string>();
+	private readonly routing = new Set<string>();
 	private classifyFailures = 0;
 	private epochs = 0;
 
-	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger()) {
+	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger(), private readonly router: RoutingPort = taskfoldRouting) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
 		const k = this.k;
 		if (!Number.isFinite(k.high) || !Number.isFinite(k.low) || !(k.low > 0 && k.low < k.high && k.high <= 1)) throw new RangeError("taskfold: require 0 < low < high <= 1");
@@ -461,6 +468,8 @@ export class TaskfoldConductor implements Conductor {
 		this.host?.setStatus(null);
 		this.host = null;
 		this.classifying.clear();
+		this.routeTried.clear();
+		this.routing.clear();
 		this.busy = false;
 		this.pending = false;
 	}
@@ -551,6 +560,8 @@ export class TaskfoldConductor implements Conductor {
 				this.verdicts.set(b.id, { loss: null, source: "opening" });
 				continue;
 			}
+			// Only a message that has not reached the model yet is new; a resumed session's history is born sent.
+			if (!b.sent) void this.routeOne(b.id, text);
 			void this.classifyOne(b.id, state);
 		}
 	}
@@ -570,6 +581,43 @@ export class TaskfoldConductor implements Conductor {
 			assistant_last_reply: reply.slice(-NEIGHBOUR_CHARS),
 			message: text.slice(0, MESSAGE_CHARS),
 		};
+	}
+
+	/** The text of the assistant turn before block `id`, or "". */
+	private lastReply(id: string): string {
+		const all = this.host?.blocks() ?? [];
+		let j = all.findIndex((b) => b.id === id) - 1;
+		while (j >= 0 && all[j].kind !== "text") j--;
+		return j < 0 ? "" : all.filter((b) => b.kind === "text" && messageKey(b.id) === messageKey(all[j].id)).map((b) => this.textOf(b)).join("\n");
+	}
+
+	/**
+	 * Extract the message's durable content into the attached task list (SPEC-0002 §4.6). Runs off the
+	 * request path; any failure leaves the message raw, which is today's behaviour.
+	 */
+	private async routeOne(id: string, text: string): Promise<void> {
+		const host = this.host;
+		const port = this.router.current;
+		if (!host || !port || this.routeTried.has(id) || this.verdicts.get(id)?.routed) return;
+		const request = port.prepare(text.slice(0, MESSAGE_CHARS * 4), this.lastReply(id).slice(-NEIGHBOUR_CHARS * 2));
+		if (!request) return;
+		this.routeTried.add(id);
+		this.routing.add(id);
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), ROUTE_TIMEOUT_MS);
+		try {
+			const reply = await host.complete({ system: request.system, prompt: request.prompt, maxOutputTokens: ROUTE_MAX_OUTPUT_TOKENS, signal: controller.signal });
+			if (this.host !== host) return;
+			const result = await port.apply(reply.text, text);
+			this.verdicts.route(id, { ids: result.ids, at: new Date().toISOString() });
+		} catch (error) {
+			if (this.host === host) host.setStatus(`Taskfold could not route a message into the task list: ${error instanceof Error ? error.message : String(error)}`, { level: "warning" });
+		} finally {
+			clearTimeout(timer);
+			this.routing.delete(id);
+		}
+		// Either way the message's fate is settled: fold around it raw, or with its span.
+		if (this.host === host) void this.evaluate();
 	}
 
 	private async classifyOne(id: string, state: Record<string, string>): Promise<void> {
@@ -841,7 +889,7 @@ export class TaskfoldConductor implements Conductor {
 		if (blocks.slice(hi + 1, snapHi + 1).some((b, k) => b.protected && span.intervals.some((r) => r.start <= hi + 1 + k && hi + 1 + k <= r.end))) return null;
 		const members = blocks.slice(lo, hi + 1);
 		// A fold is never re-extended, so a user message still being classified must settle first; its verdict re-runs the epoch.
-		if (members.some((b) => b.kind === "user" && this.classifying.has(b.id))) return null;
+		if (members.some((b) => b.kind === "user" && (this.classifying.has(b.id) || this.routing.has(b.id)))) return null;
 		const allowed = new Set<number>();
 		for (const interval of span.intervals) {
 			let a = interval.start;

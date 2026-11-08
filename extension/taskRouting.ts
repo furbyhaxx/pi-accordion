@@ -6,6 +6,7 @@
  */
 import { PIN_KINDS, PinError, type PinKind, type PinLimits } from "./taskPins";
 import { symbolFiles, warmSymbols } from "./taskSymbols";
+import type { RoutingResult, TaskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { TaskError, runTasksTracked, type TaskList, type TaskStore, type TasksArgs } from "./tasks";
 
 export const ROUTED_KINDS = ["goal", "task", "criterion", "pin", "attach"] as const;
@@ -185,6 +186,8 @@ export async function applyRoutedOps(store: TaskStore, slug: string, ops: readon
 	const dropped: DroppedOp[] = [];
 	for (const op of ops) {
 		try {
+			// Ending a started task is the agent's tool call: spans open and close on those events.
+			if (op.kind === "task" && op.op === "-" && store.read(slug).tasks.find((t) => t.id === op.target)?.status !== "todo") throw new TaskError("invalid_transition", `Task ${op.target} is not a task that has not started; the agent ends started tasks.`);
 			const args = callFor(slug, op, said);
 			await warmSymbols(symbolFiles(args, null));
 			const run = runTasksTracked(store, args, [said], limits);
@@ -196,4 +199,32 @@ export async function applyRoutedOps(store: TaskStore, slug: string, ops: readon
 		}
 	}
 	return { applied, dropped };
+}
+
+export interface RoutingDeps {
+	/** The list the session works on, or null when the tasks tool is inactive or no list is attached. */
+	attached(): { store: TaskStore; list: TaskList } | null;
+	limits(): PinLimits;
+	/** Called after every extraction that changed the list. */
+	applied(slug: string, outcome: RoutingOutcome): void;
+}
+
+/** The port the Taskfold conductor calls for each new user message. */
+export function createRouting(deps: RoutingDeps): TaskfoldRouting {
+	return {
+		prepare(message, agentLastTurn) {
+			const a = deps.attached();
+			return a ? { system: EXTRACT_SYSTEM, prompt: extractionPrompt(a.list, agentLastTurn, message) } : null;
+		},
+		async apply(reply, message): Promise<RoutingResult> {
+			const extraction = parseExtraction(reply);
+			const a = deps.attached();
+			if (!a) throw new Error("no task list is attached any more");
+			const outcome = await applyRoutedOps(a.store, a.list.slug, extraction.ops, message, deps.limits());
+			outcome.dropped.push(...extraction.rejected);
+			if (outcome.applied.length) deps.applied(a.list.slug, outcome);
+			const ids = outcome.applied.map((o) => o.ref).filter((r): r is string => !!r);
+			return { ids, applied: outcome.applied.length, dropped: outcome.dropped.length };
+		},
+	};
 }
