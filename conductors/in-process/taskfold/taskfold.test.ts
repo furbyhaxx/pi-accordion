@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { foldedTaskIds, foldedTaskTokens } from "../../../extension/tui/taskWidget";
-import { TaskfoldConductor, ageRecord, condenseChildren, scanTaskSpans, taskKeyOfSummary } from "./taskfold";
+import { TaskfoldConductor, ageRecord, condenseChildren, scanTaskSpans, staleSpans, taskKeyOfSummary } from "./taskfold";
 import { TestHost } from "../../../core/conductor/testhost";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, VerdictLedger, unfoldStatesOf, verdictsOf, type Verdict } from "./verdicts";
 import { foldCode, foldTag } from "../../../core/digest";
@@ -28,12 +28,12 @@ class Session {
 	text(text: string): string {
 		return this.push({ id: `a:resp${++this.resp}:p0`, kind: "text", text });
 	}
-	call(tool: string, args: Record<string, unknown>, out: string, isError = false): { call: string; result: string } {
+	call(tool: string, args: Record<string, unknown>, out: string, isError = false, details?: unknown): { call: string; result: string } {
 		const r = ++this.resp;
 		const callId = `c${r}`;
 		this.push({ id: `a:resp${r}:p0`, kind: "thinking", text: "x".repeat(400) });
 		const call = this.push({ id: `a:resp${r}:p1`, kind: "tool_call", text: `${tool} ${JSON.stringify(args)}`, toolName: tool, callId });
-		const result = this.push({ id: `r:${callId}`, kind: "tool_result", text: out, toolName: tool, callId, isError });
+		const result = this.push({ id: `r:${callId}`, kind: "tool_result", text: out, toolName: tool, callId, isError, ...(details === undefined ? {} : { details }) });
 		return { call, result };
 	}
 	start(id: string, title: string) {
@@ -87,6 +87,52 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 }
 
 describe("taskfold", () => {
+	it("opens and closes spans from task events recorded on a codemode result", async () => {
+		const s = new Session();
+		s.user("Batch the bookkeeping.");
+		const t = (id: string, title: string, status: string, report?: object) => ({ id, title, status, ...(report ? { report } : {}) });
+		const startA = s.call("codemode", { code: "tasks start 1" }, "ok", false, { taskEvents: [{ action: "start", list: "work", id: "1", started: [t("1", "Task A", "doing")] }] }).call;
+		s.work(3, "a-work");
+		const handoff = s.call("codemode", { code: "tasks complete 1; tasks start 2" }, "ok", false, { taskEvents: [
+			{ action: "complete", list: "work", id: "1", task: t("1", "Task A", "done", { outcome: "A is finished." }) },
+			{ action: "start", list: "work", id: "2", started: [t("2", "Task B", "doing")] },
+		] });
+		s.work(3, "b-work");
+		const spans = scanTaskSpans(s.blocks, (b) => b.text);
+		const a = spans.find((x) => x.key === "work/1")!;
+		const bSpan = spans.find((x) => x.key === "work/2")!;
+		expect(a.status).toBe("done");
+		expect(a.report.outcome).toBe("A is finished.");
+		expect(s.blocks[a.end].id).toBe(handoff.result);
+		expect(bSpan.status).toBeNull();
+		expect(bSpan.start).toBe(a.end + 1);
+		expect(bSpan.title).toBe("Task B");
+		const host = setup(s, 0.5);
+		await attach(host);
+		expect(taskKeyOfSummary(groupOf(host, startA)?.summary)).toBe("work/1");
+		expect(groupOf(host, handoff.result)?.memberIds).toContain(startA);
+	});
+
+	it("reports an open span that other tasks left behind as stale", () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Forgotten");
+		s.work(2, "x");
+		s.start("2", "Sibling");
+		s.work(5, "y");
+		s.finish("2", { outcome: "ok" });
+		const spans = scanTaskSpans(s.blocks, (b) => b.text);
+		expect(staleSpans(spans, s.blocks, 5).map((x) => x.key)).toEqual(["work/1"]);
+		expect(staleSpans(spans, s.blocks, 50)).toEqual([]);
+		const parent = new Session();
+		parent.user("Go.");
+		parent.start("1", "Parent");
+		parent.start("1.1", "Child");
+		parent.work(6, "c");
+		parent.finish("1.1", { outcome: "ok" });
+		expect(staleSpans(scanTaskSpans(parent.blocks, (b) => b.text), parent.blocks, 3)).toEqual([]);
+	});
+
 	it("folds a finished span into a recallable task record once over HIGH", async () => {
 		const { s, start, end } = oneTask();
 		const host = setup(s);

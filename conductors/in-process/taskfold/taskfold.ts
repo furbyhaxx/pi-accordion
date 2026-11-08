@@ -27,6 +27,7 @@ import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, Ho
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
+import { taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { KeelLiteConductor } from "../keel-lite/keel-lite";
 
@@ -106,6 +107,8 @@ export const USER_QUESTIONS: Record<string, ClassifierQuestion> = {
 const MESSAGE_CHARS = 2000;
 const GOAL_CHARS = 1500;
 const NEIGHBOUR_CHARS = 600;
+/** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
+export const ZOMBIE_STEPS = 40;
 const RECORD_TAG = "[task-record]";
 const PART_TAG = "[task-part]";
 const ARCHIVE_TAG = "[task-archived]";
@@ -129,6 +132,8 @@ export interface TaskSpan {
 	end: number;
 	/** Inclusive periods belonging to this task, separated by blocks and resumes. */
 	intervals: { start: number; end: number }[];
+	/** Index of the call that last started, resumed or blocked this task. */
+	lastEvent: number;
 }
 
 /** One finished task span, as indices into `host.blocks()`. */
@@ -150,9 +155,9 @@ export interface SpanBlock {
 export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf: (b: B) => string): TaskSpan[] {
 	const resultIdx = new Map<string, number>();
 	blocks.forEach((b, i) => {
-		if (b.kind === "tool_result" && b.callId && b.toolName === "tasks") resultIdx.set(b.callId, i);
+		if (b.kind === "tool_result" && b.callId) resultIdx.set(b.callId, i);
 	});
-	type State = { key: string; list: string; id: string; title: string; start: number; active: number | null; waiting: boolean; intervals: { start: number; end: number }[]; acceptanceCriteria?: string[]; pins?: TaskSpan["pins"] };
+	type State = { key: string; list: string; id: string; title: string; start: number; active: number | null; waiting: boolean; intervals: { start: number; end: number }[]; lastEvent: number; acceptanceCriteria?: string[]; pins?: TaskSpan["pins"] };
 	const open = new Map<string, State>();
 	const out: TaskSpan[] = [];
 	const closeInterval = (s: State, end: number) => {
@@ -163,15 +168,79 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	const finish = (s: State, status: Span["status"], report: TaskSpan["report"], end: number) => {
 		closeInterval(s, end);
 		open.delete(s.key);
-		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end, intervals: s.intervals });
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end, intervals: s.intervals, lastEvent: s.lastEvent });
+	};
+	const metadata = (s: State, source: unknown) => {
+		if (!source || typeof source !== "object") return;
+		const data = source as Record<string, unknown>;
+		if (typeof data.title === "string" && data.title) s.title = data.title;
+		if (Array.isArray(data.acceptanceCriteria) && data.acceptanceCriteria.every((v) => typeof v === "string")) s.acceptanceCriteria = data.acceptanceCriteria;
+		if (Array.isArray(data.pins) && data.pins.every((v) => v && typeof v.kind === "string" && typeof v.text === "string" && typeof v.source === "string")) s.pins = data.pins;
+	};
+	// One recorded execution (SPEC-0002 §5.3). `at` is where a start opens, `end` where a finish
+	// closes: the call and result of the model-issued call that carried the event.
+	const applyEvent = (ev: TaskEvent, at: number, end: number) => {
+		const key = `${ev.list}/${ev.id}`;
+		if (ev.action === "start") {
+			for (const s of open.values()) if (s.waiting && !(key === s.key || key.startsWith(`${s.key}.`))) closeInterval(s, at - 1);
+			for (const c of ev.closed ?? []) {
+				const s = open.get(`${ev.list}/${c.id}`);
+				if (!s || (c.status !== "done" && c.status !== "failed")) continue;
+				metadata(s, c);
+				finish(s, c.status, c.report ?? { outcome: "Closed automatically after its subtasks." }, Math.max(s.start, at - 1));
+			}
+			for (const t of ev.started ?? (ev.task ? [ev.task] : [])) {
+				const skey = `${ev.list}/${t.id}`;
+				const existing = open.get(skey);
+				if (existing) {
+					if (existing.waiting) closeInterval(existing, at - 1);
+					if (existing.active === null) existing.active = at;
+					existing.lastEvent = at;
+					metadata(existing, t);
+				} else {
+					const state: State = { key: skey, list: ev.list, id: t.id, title: t.title, start: at, active: at, waiting: false, intervals: [], lastEvent: at };
+					metadata(state, t);
+					open.set(skey, state);
+				}
+			}
+		} else if (ev.action === "block") {
+			for (const s of open.values()) if (s.key === key || key.startsWith(`${s.key}.`)) {
+				s.waiting = true;
+				s.lastEvent = at;
+			}
+		} else {
+			for (const c of ev.cascaded ?? []) {
+				const childKey = `${ev.list}/${c.id}`;
+				const s = open.get(childKey);
+				const state: State = s ?? { key: childKey, list: ev.list, id: c.id, title: c.title, start: at, active: null, waiting: false, intervals: [], lastEvent: at };
+				metadata(state, c);
+				finish(state, "abandoned", c.report ?? {}, end);
+			}
+			const s = open.get(key);
+			if (!s) return;
+			metadata(s, ev.task);
+			finish(s, FINISH[ev.action], ev.task?.report ?? {}, end);
+		}
 	};
 	blocks.forEach((b, i) => {
 		if (b.kind === "user") {
 			for (const s of open.values()) if (s.waiting) closeInterval(s, i - 1);
 		}
-		if (b.kind !== "tool_call" || b.toolName !== "tasks" || !b.callId) return;
+		if (b.kind !== "tool_call" || !b.callId) return;
 		const ri = resultIdx.get(b.callId);
-		if (ri === undefined || blocks[ri].isError) return;
+		if (ri === undefined) return;
+		const events = taskEventsIn(blocks[ri].details);
+		if (events.length) {
+			// A start that follows a finish inside one call opens after that call, so the finished
+			// task keeps the call that ended it and the next one does not overlap it.
+			let at = i;
+			for (const ev of events) {
+				if (ev.action !== "start" && ev.action !== "block") at = ri + 1 < blocks.length ? ri + 1 : ri;
+				applyEvent(ev, ev.action === "start" ? at : i, ri);
+			}
+			return;
+		}
+		if (b.toolName !== "tasks" || blocks[ri].isError) return;
 		const args = parseCall(textOf(b));
 		const action = typeof args?.action === "string" ? args.action : "";
 		if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
@@ -215,12 +284,16 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 				if (existing) {
 					if (existing.waiting) closeInterval(existing, i - 1);
 					if (existing.active === null) existing.active = i;
-				} else open.set(skey, { key: skey, list, id: startedId, title: startedId === id ? title : parents.find((p) => p.id === startedId)?.title ?? "", start: i, active: i, waiting: false, intervals: [] });
+					existing.lastEvent = i;
+				} else open.set(skey, { key: skey, list, id: startedId, title: startedId === id ? title : parents.find((p) => p.id === startedId)?.title ?? "", start: i, active: i, waiting: false, intervals: [], lastEvent: i });
 			}
 			const startedTask = open.get(key);
 			if (startedTask) updateMetadata(startedTask);
 		} else if (action === "block") {
-			for (const s of open.values()) if (s.key === key || key.startsWith(`${s.key}.`)) s.waiting = true;
+			for (const s of open.values()) if (s.key === key || key.startsWith(`${s.key}.`)) {
+				s.waiting = true;
+				s.lastEvent = i;
+			}
 		} else if (FINISH[action]) {
 			const cascaded = Array.isArray(details?.cascaded) ? details.cascaded : textOf(blocks[ri]).split("\n").flatMap((line) => {
 				const m = /^Also abandoned its unfinished subtasks? ([\d., ]+)\.$/.exec(line);
@@ -236,7 +309,7 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 					updateMetadata(s, c);
 					finish(s, "abandoned", c.report ?? {}, ri);
 				} else if (typeof c.title === "string") {
-					const state: State = { key: childKey, list, id: c.id, title: c.title, start: i, active: null, waiting: false, intervals: [] };
+					const state: State = { key: childKey, list, id: c.id, title: c.title, start: i, active: null, waiting: false, intervals: [], lastEvent: i };
 					updateMetadata(state, c);
 					finish(state, "abandoned", c.report ?? {}, ri);
 				}
@@ -250,9 +323,25 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 	});
 	for (const s of open.values()) {
 		closeInterval(s, blocks.length - 1);
-		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status: null, report: {}, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end: blocks.length - 1, intervals: s.intervals });
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status: null, report: {}, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end: blocks.length - 1, intervals: s.intervals, lastEvent: s.lastEvent });
 	}
 	return out;
+}
+
+/**
+ * Open spans that look abandoned: at least `steps` tool calls ran after the task's own last event
+ * while other tasks started or finished. Such a span blocks folding of everything inside it, so it
+ * is reported instead of folded silently (SPEC-0002 §5.3).
+ */
+export function staleSpans<B extends SpanBlock>(spans: readonly TaskSpan[], blocks: readonly B[], steps: number): TaskSpan[] {
+	return spans.filter((s) => {
+		if (s.status !== null) return false;
+		const others = spans.filter((o) => o.list === s.list && o.key !== s.key && !o.key.startsWith(`${s.key}.`));
+		if (!others.some((o) => o.start > s.lastEvent || (o.status !== null && o.end > s.lastEvent))) return false;
+		let calls = 0;
+		for (let i = s.lastEvent + 1; i < blocks.length; i++) if (blocks[i].kind === "tool_call") calls++;
+		return calls >= steps;
+	});
 }
 
 type RetainedPin = { task: string; kind: string; text: string; source: string };
@@ -603,9 +692,11 @@ export class TaskfoldConductor implements Conductor {
 		const plan = this.plan(host);
 		if (!plan.length) {
 			const blocks = host.blocks();
-			const open = scanTaskSpans(blocks, (b) => this.textOf(b)).filter((s) => s.status === null).map((s) => ({ span: s, tokens: blocks.reduce((n, b, i) => n + (s.intervals.some((r) => r.start <= i && i <= r.end) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0) })).sort((a, b) => b.tokens - a.tokens)[0];
+			const scanned = scanTaskSpans(blocks, (b) => this.textOf(b));
+			const stale = staleSpans(scanned, blocks, ZOMBIE_STEPS).map((s) => s.key);
+			const open = scanned.filter((s) => s.status === null).map((s) => ({ span: s, tokens: blocks.reduce((n, b, i) => n + (s.intervals.some((r) => r.start <= i && i <= r.end) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0) })).sort((a, b) => b.tokens - a.tokens)[0];
 			const holder = open ? `open task ${open.span.key} (~${open.tokens} tokens)` : "protected, held or otherwise ineligible context";
-			host.setStatus(`Taskfold saturated: ${holder}; no safe fold is available.`, { epochs: this.epochs, groups: this.groupKeys(host).size, level: "error" });
+			host.setStatus(`Taskfold saturated: ${holder}; no safe fold is available.${stale.length ? ` Stale open task${stale.length > 1 ? "s" : ""}: ${stale.join(", ")}.` : ""}`, { epochs: this.epochs, groups: this.groupKeys(host).size, level: "error" });
 			return;
 		}
 		return this.commit(host, plan);
