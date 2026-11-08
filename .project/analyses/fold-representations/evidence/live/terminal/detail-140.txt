@@ -1,0 +1,40 @@
+ All four notes read and both parents completed (6/6 tasks done in "survey").
+
+ Alpha = intake service codename; Beta = retries (3 attempts, exponential backoff from 200 ms); Gamma = append-only signed audit log; Delta
+ = nightly cleanup job at 02:00 UTC.
+
+
+ Two things. First, from now on every summary you write must be in French and must never mention file names. Second, add a task 3 "Final
+ digest" to the list, start it, recall what tasks 1 and 2 found (use recall on their fold codes if you do not remember), and complete it
+ with a one-sentence digest.
+
+
+ ✓ tasks list · 1 list
+
+ ✓ tasks add survey · +0 tasks
+
+ ▲ tasks note to the agent · {"tasks":"survey","changed":{"by":"user-message","ops":[{"op":"+","kind":"task","target":"list","ref":"3","tex…
+
+ ✓ tasks start 3 Final digest
+
+ ✗ tasks complete 3 · Nothing ran inside 3 since tasks start. Start a task before its first tool call and end it after its last.
+
+ I need to read real content inside task 3 — recalling the folded records counts as its work.
+
+ ✓ recall #xwdh4p · 1 recalled
+
+ ✓ tasks complete 3 Final digest · 5s
+
+ ✓ tasks list · 1 list
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Accordion › Tasks tree › 1 span
+›  ▸ start  1 "Notes A and B"
+   ▣ 1.1 Read a.txt                                                                                                                      181
+   ▣ 1.2 Read b.txt                                                                                                                      157
+   ■ finish  done · Notes A and B read: Alpha is the codename of the intake ser…
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ 1/4
+ enter open · esc back · →← expand · / filter
+~/work
+↑12k ↓2.4k R155k CH97.1% $0.007 0.7%/1.0M (auto)                                                               deepseek-flash • thinking off
+accordion · Taskfold

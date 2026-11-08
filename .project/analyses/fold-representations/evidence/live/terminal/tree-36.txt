@@ -1,0 +1,34 @@
+ ✓ tasks start 3 Final digest
+
+ ✗ tasks complete 3 · Nothing ran i…
+
+ I need to read real content inside
+ task 3 — recalling the folded
+ records counts as its work.
+
+ ✓ recall #xwdh4p · 1 recalled
+
+ ✓ tasks complete 3 Final digest · …
+
+ ✓ tasks list · 1 list
+
+ Tâche 3 terminée ; la liste est
+ complète (7/7). Consensus : Alpha
+ est le service d'admission, Beta
+────────────────────────────────────
+ Accordion › Tasks tree
+›  ● U "Use the tasks tool for all …
+ ▶ ⋯ untracked · 1 call          198
+ ▶ ▣ 1 Notes A and B · 2/2       415
+ ▶ ▣ 2 Notes C and D · 2/2       368
+ ▶ ⋯ untracked · 1 call           94
+   ● U "Two things. First, from now…
+ ▶ ⋯ untracked · 2 calls         123
+   ▣ 3 Final digest              795
+ ▶ ⋯ untracked · 1 call          136
+────────────────────────────────────
+ 1/9
+ enter open · esc close · f fold · …
+~/work
+↑12k ↓2.4k R155k CH97.1% $0.007 0...
+accordion · Taskfold

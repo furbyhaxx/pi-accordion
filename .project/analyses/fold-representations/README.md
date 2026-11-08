@@ -292,3 +292,5 @@ Findings fixed from this run (both with regression tests):
 2. A finished root whose closing blocks were still in the protected tail was folded child by child, then again as a whole one request later: four rewrites of the same region. The planner now waits and folds the root once (4 breaks → 2).
 
 Limits: one provider and a trivial task; a 12k budget forces folds that real sessions meet at 272k; the extractor's own requests are excluded from the prefix comparison by tool presence.
+
+Native terminal pass: the same session resumed in a real pig TUI under tmux at 36, 57, 80 and 140 columns (`evidence/live/terminal/`, 12 captures, no line wider than its terminal). Verified: the resume dialog offers the finished list (7/7); the widget shows three folded roots (`▣·`, progress, duration); `/accordion tasks tree` lists the routed user message as `routed → 3, p1`, the three tasks, and untracked runs with their warning; opening a task shows its span (start, children, finish with the outcome). Controls stay visible at every width.

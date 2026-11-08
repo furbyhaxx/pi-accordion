@@ -1,0 +1,34 @@
+
+ ✓ tasks add survey · +0 tasks
+
+ ▲ tasks note to the agent · {"tasks":"survey","changed"…
+
+ ✓ tasks start 3 Final digest
+
+ ✗ tasks complete 3 · Nothing ran inside 3 since tasks s…
+
+ I need to read real content inside task 3 — recalling
+ the folded records counts as its work.
+
+ ✓ recall #xwdh4p · 1 recalled
+
+ ✓ tasks complete 3 Final digest · 5s
+
+ ✓ tasks list · 1 list
+─────────────────────────────────────────────────────────
+ Accordion › Tasks tree
+›  ● U "Use the tasks tool for all of this work. Create …
+ ▶ ⋯ untracked · 1 call · ▲ no task in progress       198
+ ▶ ▣ 1 Notes A and B · 2/2                            415
+ ▶ ▣ 2 Notes C and D · 2/2                            368
+ ▶ ⋯ untracked · 1 call · ▲ no task in progress        94
+   ● U "Two things. First, from now on every summary you…
+ ▶ ⋯ untracked · 2 calls · ▲ no task in progress      123
+   ▣ 3 Final digest                                   795
+ ▶ ⋯ untracked · 1 call · ▲ no task in progress       136
+─────────────────────────────────────────────────────────
+ 1/9
+ enter open · esc close · f fold · p pin · →← expand · /…
+~/work
+↑12k ↓2.4k R155k CH97.1% $0.007 0.7%/1.0M (auto)  deepsee
+accordion · Taskfold
