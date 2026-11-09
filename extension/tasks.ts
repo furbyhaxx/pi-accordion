@@ -123,6 +123,20 @@ const ITEMS_MAX = 8;
 /** A claim not refreshed for this long may be taken over without `force`. */
 export const CLAIM_STALE_MS = 30 * 60_000;
 
+/** A list file may be a symlink to a file kept elsewhere, e.g. next to its plan; writes replace the target, never the link. */
+function writeTarget(file: string): string {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		// A new list, or a link whose target does not exist yet.
+	}
+	try {
+		return path.resolve(path.dirname(file), fs.readlinkSync(file));
+	} catch {
+		return file;
+	}
+}
+
 export function tasksDir(projectDir: string): string {
 	return path.join(projectDir, ".pig", "tasks");
 }
@@ -404,6 +418,7 @@ export class TaskStore {
 		list.updatedAt ??= at;
 		list.claim ??= null;
 		for (const t of list.tasks) t.updatedAt ??= at;
+		for (const holder of [list, ...list.tasks]) for (const p of holder.pins ?? []) p.at ??= at;
 		if (parsed.migratedFrom) this.migratedFrom.set(file, parsed.migratedFrom);
 		return list as TaskList;
 	}
@@ -412,17 +427,18 @@ export class TaskStore {
 	private readonly migratedFrom = new Map<string, 1 | 2>();
 
 	private write(list: TaskList): void {
-		const file = this.file(list.slug);
+		const link = this.file(list.slug);
+		const file = writeTarget(link);
 		list.updatedAt = now();
 		const candidate = toListFile(list as unknown as FlatList);
 		const checked = parseListFile(candidate, list.slug, { requireGoal: false });
 		if (!checked.ok) throw new TaskError("invalid_file", `Cannot save task list "${list.slug}":\n${checked.errors.join("\n")}\nThe original file is unchanged.`);
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		const from = this.migratedFrom.get(file);
+		const from = this.migratedFrom.get(link);
 		if (from) {
-			const backup = file.replace(/\.json$/, `.v${from}.json`);
+			const backup = link.replace(/\.json$/, `.v${from}.json`);
 			if (!fs.existsSync(backup) && fs.existsSync(file)) fs.copyFileSync(file, backup);
-			this.migratedFrom.delete(file);
+			this.migratedFrom.delete(link);
 		}
 		const tmp = `${file}.${process.pid}.tmp`;
 		fs.writeFileSync(tmp, JSON.stringify(candidate, null, 2) + "\n");

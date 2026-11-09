@@ -86,6 +86,13 @@ test("a quote anchor reports moved text and a refreshed anchor, and is lost when
 	expect(() => makeAttachment({ path: "spec.md", quote: "same" }, ctx, "a2", [])).toThrow(/more than once/);
 });
 
+test("a hand-written quote with only exact text resolves without a state and gains its context", () => {
+	const projectDir = directory();
+	fs.writeFileSync(path.join(projectDir, "plan.md"), "# Do\n\n1. Producer kind\n2. Ledger\n");
+	const read = readAttachment(projectDir, { id: "a1", path: "plan.md", anchor: { quote: { exact: "2. Ledger" } } });
+	expect(read).toEqual({ content: "2. Ledger", anchor: { quote: { exact: "2. Ledger", prefix: "# Do\n\n1. Producer kind\n", suffix: "\n", start: 23 } } });
+});
+
 test("an anchor target larger than the cap is refused with a hint to anchor a smaller part", () => {
 	const projectDir = directory();
 	fs.writeFileSync(path.join(projectDir, "big.md"), `# Big\n\n${Array(70).fill("line").join("\n")}\n`);
@@ -109,6 +116,24 @@ test("attachments cannot use a symlink to escape the project, including after at
 	const ctx = { projectDir, userTexts: [], limits: PIN_LIMITS, now: "now" };
 	expect(() => makeAttachment({ path: "link/secret.txt" }, ctx, "a1", [])).toThrow();
 	expect(readAttachment(projectDir, { id: "a1", path: "link/secret.txt" })).toMatchObject({ lost: true });
+});
+
+test("files under a configured root can be attached and quoted by absolute path; others stay refused", () => {
+	const projectDir = directory();
+	const kb = directory();
+	const other = directory();
+	fs.writeFileSync(path.join(kb, "ARTICLE.md"), "# KB\n\n## Findings\n\nQueues must never drop frames silently.\n");
+	fs.writeFileSync(path.join(other, "secret.txt"), "secret");
+	const file = path.join(kb, "ARTICLE.md");
+	const ctx = { projectDir, userTexts: [], limits: { ...PIN_LIMITS, roots: [kb] }, now: "now" };
+	const a = makeAttachment({ path: file, section: "Findings" }, ctx, "a1", []);
+	expect(a.path).toBe(path.normalize(file));
+	expect(readAttachment(projectDir, a, 60, [kb])).toEqual({ content: "## Findings\n\nQueues must never drop frames silently." });
+	expect(readAttachment(projectDir, a)).toMatchObject({ lost: true });
+	expect(makePin({ kind: "fact", text: "Queues must never drop frames silently.", source: `${file}:5` }, ctx, "p1", []).source).toBe(`${file}:5`);
+	expect(() => makeAttachment({ path: path.join(other, "secret.txt") }, ctx, "a2", [])).toThrow(/outside the project/);
+	expect(() => makeAttachment({ path: path.join(kb, "..", path.basename(other), "secret.txt") }, ctx, "a2", [])).toThrow(/outside the project/);
+	expect(() => makeAttachment({ path: file }, { ...ctx, limits: PIN_LIMITS }, "a2", [])).toThrow(/tasks\.attachments\.roots/);
 });
 
 test("an attachment that grows beyond its limit is not delivered", () => {

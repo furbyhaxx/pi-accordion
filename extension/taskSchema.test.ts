@@ -26,15 +26,25 @@ describe("task list v3 schema", () => {
 		expect([task.acceptanceCriteria.maxItems, schema.$defs.criterion.oneOf[0].maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
 	});
 
-	test("attachment anchors are exactly one of section, symbol or a complete quote", () => {
+	test("attachment anchors are exactly one of section, symbol or a quote", () => {
 		const quote = { exact: "get and set", prefix: "\n", suffix: "", start: 12 };
 		const withAnchor = (anchor: unknown) => errorsOf(v3([{ title: "A", attachments: [{ id: "a1", path: "auth.md", anchor }] }]));
 		expect(withAnchor({ section: "Token store > Interface" })).toEqual([]);
 		expect(withAnchor({ symbol: "TokenStore.get" })).toEqual([]);
 		expect(withAnchor({ quote })).toEqual([]);
-		for (const bad of [{}, { section: "" }, { section: "A", symbol: "B" }, { quote: { ...quote, exact: "" } }, { quote: { exact: "x", prefix: "", suffix: "" } }, { quote: { ...quote, start: -1 } }, "A > B"])
-			expect(withAnchor(bad)).toEqual([expect.stringContaining("invalid attachment")]);
+		expect(withAnchor({ quote: { exact: "get and set" } })).toEqual([]);
+		for (const bad of [{}, { section: "" }, { section: "A", symbol: "B" }, { quote: { ...quote, exact: "" } }, { quote: { exact: "x", prefix: 1 } }, { quote: { ...quote, start: -1 } }, "A > B"])
+			expect(withAnchor(bad)).toEqual([expect.stringContaining("attachments[0].anchor")]);
 		expect(schema.$defs.anchor.oneOf.map((o: { required: string[] }) => o.required[0])).toEqual(["section", "symbol", "quote"]);
+	});
+
+	test("hand-written pins and attachments get ids after the explicit ones", () => {
+		const result = parseListFile(v3([{ title: "A", pins: [{ kind: "rule", text: "Never touch vendor/.", source: "AGENTS.md" }], attachments: [{ path: "plan.md", anchor: { section: "Do" } }, { id: "a1", path: "spec.md" }] }], { pins: [{ id: "p4", kind: "fact", text: "x", source: "user", at: "t" }] }), "auth", { requireGoal: true });
+		if (!result.ok) throw new Error(result.errors.join("\n"));
+		const task = result.list.tasks[0] as { pins: { id: string }[]; attachments: { id: string }[] };
+		expect(task.pins.map((p) => p.id)).toEqual(["p5"]);
+		expect(task.attachments.map((a) => a.id)).toEqual(["a2", "a1"]);
+		expect(errorsOf(v3([{ title: "A", pins: [{ kind: "note", text: "", source: "user" }] }]))).toEqual([expect.stringContaining("pins[0].kind"), expect.stringContaining("pins[0].text")]);
 	});
 
 	test("every list example in the bundled skill passes the validator", () => {
@@ -62,6 +72,30 @@ describe("task list v3 schema", () => {
 			expect(invalid.status).toBe(1);
 			expect(invalid.stderr).toContain("goals: required");
 			expect(invalid.stderr).toContain("does not match its position");
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	test("the bundled validator resolves references of a list linked into .pig/tasks", () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-refs-"));
+		const script = path.join(import.meta.dir, "skills/accordion-task-lists/scripts/validate.mjs");
+		const env = { ...process.env, ACCORDION_HOME: dir };
+		try {
+			fs.mkdirSync(path.join(dir, "plans"));
+			fs.mkdirSync(path.join(dir, ".pig", "tasks"), { recursive: true });
+			fs.writeFileSync(path.join(dir, "plans", "plan.md"), "# Auth\n\n## Do not\n\n- Never touch vendor/.\n");
+			const list = (section: string) => v3([{ title: "Store", attachments: [{ path: "plans/plan.md", anchor: { section } }] }], { pins: [{ kind: "constraint", text: "Never touch vendor/.", source: "plans/plan.md" }] });
+			fs.writeFileSync(path.join(dir, "plans", "tasks.json"), JSON.stringify(list("Do not")));
+			const link = path.join(dir, ".pig", "tasks", "auth.json");
+			fs.symlinkSync("../../plans/tasks.json", link);
+			const valid = spawnSync("node", [script, link], { encoding: "utf8", env });
+			expect(valid.stdout).toContain("1 pins, 1 attachments resolved");
+			expect(valid.status).toBe(0);
+			fs.writeFileSync(path.join(dir, "plans", "tasks.json"), JSON.stringify(list("Dont")));
+			const lost = spawnSync("node", [script, link], { encoding: "utf8", env });
+			expect(lost.status).toBe(1);
+			expect(lost.stderr).toContain('task 1 attachment a1 (plans/plan.md): plans/plan.md has no section "Dont"');
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
 		}

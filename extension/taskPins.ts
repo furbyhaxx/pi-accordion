@@ -12,7 +12,8 @@ import * as path from "node:path";
 import { makeQuote, refOf, resolveQuote, resolveSection, type Anchor, type AnchorState, type Resolution } from "./taskAnchors";
 import { resolveSymbol, symbolLang } from "./taskSymbols";
 
-export const PIN_KINDS = ["rule", "convention", "constraint", "standard", "fact"] as const;
+import { NOTE_MAX, PIN_KINDS, PIN_TEXT_MAX } from "./taskSchema";
+
 export type PinKind = (typeof PIN_KINDS)[number];
 
 export interface Pin {
@@ -57,17 +58,21 @@ export interface PinLimits {
 	maxLines: number;
 	/** Characters of an attachment note. */
 	noteChars: number;
+	/** Absolute directories outside the project whose files may be attached and quoted. */
+	roots: readonly string[];
 }
 
-export const PIN_LIMITS: Readonly<PinLimits> = { textChars: 300, listTokens: 2000, taskTokens: 1500, maxLines: 60, noteChars: 120 };
+export const PIN_LIMITS: Readonly<PinLimits> = { textChars: PIN_TEXT_MAX, listTokens: 2000, taskTokens: 1500, maxLines: 60, noteChars: NOTE_MAX, roots: [] };
 
 export type AttachmentRender = "inline" | "reference";
 
-/** A rejected pin or attachment: the message says what to do instead. */
 /** A refused pin or attachment; the store reports it as a `TaskError` with the same code. */
 export class PinError extends Error {
-	constructor(readonly code: "invalid_args" | "not_found" | "cap_exceeded" | "quote_mismatch" | "invalid_transition", message: string) {
+	// A plain field, not a parameter property: the skill's validator loads this file with Node's type stripping.
+	readonly code: "invalid_args" | "not_found" | "cap_exceeded" | "quote_mismatch" | "invalid_transition";
+	constructor(code: PinError["code"], message: string) {
 		super(message);
+		this.code = code;
 	}
 }
 
@@ -95,21 +100,38 @@ function readLines(abs: string, shown: string): string[] {
 	}
 }
 
-/** Inside the project, so a list never points at files outside it. */
-function projectPath(projectDir: string, p: string): { abs: string; rel: string } {
+const within = (root: string, abs: string) => {
+	const rel = path.relative(root, abs);
+	return !!rel && rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel);
+};
+
+/**
+ * Inside the project or a configured root, so a committed list cannot make the agent read and send
+ * arbitrary files. A relative path is project-relative; an absolute one is stored as written unless
+ * it lies in the project.
+ */
+function projectPath(projectDir: string, p: string, roots: readonly string[] = []): { abs: string; rel: string } {
 	const root = fs.realpathSync(projectDir);
 	const requested = path.resolve(root, p);
-	const rel = path.relative(root, requested);
-	if (!rel || rel === ".." || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw new PinError("invalid_args", `"${p}" is outside the project; attach and quote files inside it.`);
+	const inProject = within(root, requested);
+	const real = roots.flatMap((r) => {
+		try {
+			return [fs.realpathSync(r)];
+		} catch {
+			return [];
+		}
+	});
+	if (!inProject && !(path.isAbsolute(p) && [...roots, ...real].some((r) => within(r, requested))))
+		throw new PinError("invalid_args", `"${p}" is outside the project; attach files inside it${roots.length ? ` or under ${roots.join(", ")}` : `, or add its directory to tasks.attachments.roots in ~/.accordion/config.json`}.`);
 	let abs: string;
 	try {
 		abs = fs.realpathSync(requested);
 	} catch {
 		throw new PinError("not_found", `Cannot read ${p}.`);
 	}
-	const resolved = path.relative(root, abs);
-	if (!resolved || resolved === ".." || resolved.startsWith(`..${path.sep}`) || path.isAbsolute(resolved)) throw new PinError("invalid_args", `"${p}" resolves outside the project.`);
-	return { abs, rel: rel.split(path.sep).join("/") };
+	const allowed = inProject ? within(root, abs) : real.some((r) => within(r, abs));
+	if (!allowed) throw new PinError("invalid_args", `"${p}" resolves outside ${inProject ? "the project" : "its root"}.`);
+	return { abs, rel: inProject ? path.relative(root, requested).split(path.sep).join("/") : path.normalize(requested) };
 }
 
 export interface PinContext {
@@ -135,7 +157,7 @@ export function makePin(req: unknown, ctx: PinContext, id: string, existing: rea
 		if (!ctx.userTexts.some((u) => norm(u).includes(want))) throw new PinError("quote_mismatch", "That text does not appear in any user message of this session. Pin the user's exact words, not a paraphrase.");
 	} else {
 		const m = /^(.+?)(?::(\d+(?:-\d+)?))?$/.exec(source)!;
-		const file = projectPath(ctx.projectDir, m[1]);
+		const file = projectPath(ctx.projectDir, m[1], ctx.limits.roots);
 		let lines = readLines(file.abs, file.rel);
 		if (m[2]) {
 			const range = parseLines(m[2]);
@@ -183,7 +205,7 @@ export function makeAttachment(req: unknown, ctx: PinContext, id: string, existi
 	const given = ANCHOR_INPUTS.filter((k) => r[k] !== undefined && r[k] !== null);
 	if (suffix && given.length) throw new PinError("invalid_args", `Give the part of the file once: "${ANCHOR_INPUTS.join('", "')}" or a ":N-M" suffix on "path", not several.`);
 	if (given.length > 1) throw new PinError("invalid_args", `Give exactly one of "${ANCHOR_INPUTS.join('", "')}", or none for the whole file.`);
-	const file = projectPath(ctx.projectDir, suffix ? suffix[1] : ref);
+	const file = projectPath(ctx.projectDir, suffix ? suffix[1] : ref, ctx.limits.roots);
 	const text = textOf(file.abs, file.rel);
 	const kind = suffix ? "lines" : given[0];
 	const value = suffix ? suffix[2] : kind ? r[kind] : undefined;
@@ -253,10 +275,10 @@ export function nextId(holders: readonly PinHolder[], prefix: "p" | "a"): (taken
 export type AttachmentRead = { content: string; state?: AnchorState; anchor?: Anchor } | { lost: true; tooLarge?: boolean; candidates?: string[] };
 
 /** The attachment's current content by its anchor, or why it cannot be read. Symbols need `warmSymbols` first. */
-export function readAttachment(projectDir: string, a: Attachment, maxLines = PIN_LIMITS.maxLines): AttachmentRead {
+export function readAttachment(projectDir: string, a: Attachment, maxLines = PIN_LIMITS.maxLines, roots: readonly string[] = []): AttachmentRead {
 	let text: string;
 	try {
-		text = fs.readFileSync(projectPath(projectDir, a.path).abs, "utf8");
+		text = fs.readFileSync(projectPath(projectDir, a.path, roots).abs, "utf8");
 	} catch {
 		return { lost: true };
 	}
@@ -266,7 +288,7 @@ export function readAttachment(projectDir: string, a: Attachment, maxLines = PIN
 	else if (a.anchor && "symbol" in a.anchor) found = resolveSymbol(a.path, text, a.anchor.symbol);
 	else if (a.anchor) {
 		found = resolveQuote(text, a.anchor.quote);
-		if ("content" in found && found.state) {
+		if ("content" in found && (found.state || a.anchor.quote.start === undefined)) {
 			const at = text.indexOf(found.content);
 			refreshed = { quote: makeQuote(text, at, at + found.content.length) };
 		}
@@ -362,7 +384,7 @@ export interface Delivery {
  * The context of `taskIds` (outermost first) and of the list, minus what `live` says the model can
  * still see. List context is included only when `withList` is set.
  */
-export function deliverContext(list: ContextList, taskIds: readonly string[], withList: boolean, live: (key: string) => boolean, projectDir: string, render: AttachmentRender, maxLines = PIN_LIMITS.maxLines): Delivery {
+export function deliverContext(list: ContextList, taskIds: readonly string[], withList: boolean, live: (key: string) => boolean, projectDir: string, render: AttachmentRender, maxLines = PIN_LIMITS.maxLines, roots: readonly string[] = []): Delivery {
 	const delivered: string[] = [];
 	const seen: Record<string, { hash: string; anchor?: Anchor }> = {};
 	const pinsOf = (pins: readonly Pin[] | undefined) =>
@@ -377,7 +399,7 @@ export function deliverContext(list: ContextList, taskIds: readonly string[], wi
 			const key = deliveryKey.attachment(a.id);
 			if (live(key)) return [];
 			delivered.push(key);
-			const read = readAttachment(projectDir, a, maxLines);
+			const read = readAttachment(projectDir, a, maxLines, roots);
 			const base = { id: a.id, ref: attachmentRef(a), ...(a.note ? { note: a.note } : {}) };
 			if ("lost" in read) return [{ ...base, state: read.tooLarge ? "too_large" : "lost", ...(read.candidates?.length ? { candidates: read.candidates } : {}) }];
 			const hash = hashOf(read.content);

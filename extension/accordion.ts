@@ -3128,7 +3128,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					const list = attachedList(store.claimedBySession());
 					return list ? { store, list } : null;
 				},
-				limits: () => ({ ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines }),
+				limits: () => ({ ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines, roots: settings.tasks.attachments.roots }),
 				applied: (slug, outcome) => {
 					taskSession?.noteRouted(slug, outcome.applied);
 					taskWidget.reload();
@@ -4043,7 +4043,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
 			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
 			"Every list has 1–5 goals: together the end state the whole list delivers. A task may add up to 3 goals of its own. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
-			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. Goals, criteria, pins and attachments carry ids (g1, c1, p1, a1) that stay fixed; results return the ids they assign. start returns the list goals and each entering task's goals, criteria, pins and attachment content once; keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
+			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. Goals, criteria, pins and attachments carry ids (g1, c1, p1, a1) that stay fixed; results return the ids they assign. start returns the list goals and each entering task's goals, criteria, pins and attachment content once (parents: those of tasks already in progress above it that you can no longer see); keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
 			"Actions: create {list, title, goals: [texts], tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, goals?, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goals? (list without id, task with id), acceptanceCriteria? (task)} where goals/acceptanceCriteria take {add?: [texts], remove?: [ids], edit?: [{id, text}]}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
 		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
 		promptGuidelines: [
@@ -4126,7 +4126,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				}
 				await warmSymbols(symbolFiles(args, read()));
 				const userTexts = ["pin", "create", "add"].includes(args.action) ? readSessionMessages(ctx).filter((m) => m.role === "user").map((m) => typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((p) => p.type === "text" ? p.text ?? "" : "").join("\n") : "") : [];
-				const run = runTasksTracked(store, args, userTexts, { ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines });
+				const run = runTasksTracked(store, args, userTexts, { ...PIN_LIMITS, ...settings.tasks.pins, maxLines: settings.tasks.attachments.maxLines, roots: settings.tasks.attachments.roots });
 				if (run.started.length && args.list) taskCoach.started(args.list, run.started);
 				if (run.finished && args.list) taskCoach.finished(args.list, run.finished);
 				const list = read();
@@ -4136,10 +4136,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				// Keys are scoped by list: pin and attachment ids repeat across lists.
 				const scoped = (key: string) => `${args.list}/${key}`;
 				if (list && args.list && (args.action === "start" || args.action === "claim")) {
-					const entering = args.action === "start" ? run.started : list.tasks.filter((t) => t.status === "doing").map((t) => t.id);
+					// A doing ancestor's context applies to the task starting under it; resend it if folding hid it.
+					const parents = args.action === "start" ? [...new Set(run.started.flatMap((id) => id.split(".").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("."))))].filter((id) => !run.started.includes(id) && list.tasks.some((t) => t.id === id && t.status === "doing")) : [];
+					const entering = args.action === "start" ? [...parents, ...run.started] : list.tasks.filter((t) => t.status === "doing").map((t) => t.id);
 					const current = truth;
 					const live = current ? liveDeliveryKeys(current.blocks, (b) => foldingEnabled && current.isFolded(b as Block)) : new Set<string>();
-					const delivery = deliverContext(list, entering, true, (key) => live.has(scoped(key)), ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines);
+					const delivery = deliverContext(list, entering, true, (key) => live.has(scoped(key)), ctx.cwd, settings.tasks.attachments.render, settings.tasks.attachments.maxLines, settings.tasks.attachments.roots);
 					delivered = delivery.delivered.map(scoped);
 					if (Object.keys(delivery.seen).length) store.recordSeen(args.list, delivery.seen);
 					const byId = new Map(delivery.tasks.map((t) => [t.id, t]));
@@ -4153,6 +4155,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					} else {
 						if (run.result.started) result.started = run.result.started.map(withContext);
 						if (run.result.resumed) result.resumed = run.result.resumed.map(withContext);
+						const missing = parents.flatMap((id) => {
+							const c = byId.get(id);
+							return c && (c.goals || c.criteria || c.pins || c.attachments) ? [c] : [];
+						});
+						if (missing.length) {
+							const { ok: _ok, ...rest } = result;
+							for (const k of Object.keys(result)) delete result[k];
+							Object.assign(result, { ok: true, parents: missing }, rest);
+						}
 					}
 					if (delivery.list) {
 						const { ok: _ok, ...rest } = result;

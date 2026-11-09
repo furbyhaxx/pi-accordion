@@ -43,7 +43,7 @@ describe("accordion settings & memorable tokens", () => {
 
 			saveSettings(tmp, {
 				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 } },
-				tasks: { attachments: { render: "reference", maxLines: 40 }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
+				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
 				compactMode: "suppress",
@@ -59,7 +59,7 @@ describe("accordion settings & memorable tokens", () => {
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
 				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 } },
-				tasks: { attachments: { render: "reference", maxLines: 40 }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
+				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
 				compactMode: "suppress",

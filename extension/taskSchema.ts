@@ -24,6 +24,9 @@ export const TASK_GOAL_MAX = 300;
 export const TASK_GOALS_MAX = 3;
 export const CRITERIA_MAX = 8;
 export const CRITERION_MAX = 120;
+export const PIN_KINDS = ["rule", "convention", "constraint", "standard", "fact"] as const;
+export const PIN_TEXT_MAX = 300;
+export const NOTE_MAX = 120;
 
 /** A goal or acceptance criterion: text with a list-unique id the agent and records refer to. */
 export interface Item {
@@ -32,14 +35,17 @@ export interface Item {
 }
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
 
-/** An attachment anchor is exactly one of a section path, a symbol or a quote with its context. */
+/**
+ * An attachment anchor is exactly one of a section path, a symbol or a quote. A hand-written quote
+ * may give only `exact`; the store completes its context on the next delivery.
+ */
 function validAnchor(a: unknown): boolean {
 	if (!isObj(a)) return false;
 	const keys = Object.keys(a);
 	if (keys.length !== 1) return false;
 	if (keys[0] === "section" || keys[0] === "symbol") return isText(a[keys[0]]);
 	const q = a.quote;
-	return keys[0] === "quote" && isObj(q) && isText(q.exact) && typeof q.prefix === "string" && typeof q.suffix === "string" && typeof q.start === "number" && Number.isInteger(q.start) && q.start >= 0;
+	return keys[0] === "quote" && isObj(q) && isText(q.exact) && (q.prefix === undefined || typeof q.prefix === "string") && (q.suffix === undefined || typeof q.suffix === "string") && (q.start === undefined || (typeof q.start === "number" && Number.isInteger(q.start) && q.start >= 0));
 }
 
 /** Item id prefixes: goals, criteria, pins, attachments. */
@@ -125,7 +131,12 @@ export function parseListFile(raw: unknown, slug: string, options: { requireGoal
 	for (const [field, prefix] of [["pins", "p"], ["attachments", "a"]] as const)
 		for (const holder of [raw, ...tasks]) {
 			const entries = holder[field];
-			if (Array.isArray(entries)) for (const entry of entries) if (isObj(entry) && typeof entry.id === "string") ids.claim(prefix, entry.id, field);
+			if (Array.isArray(entries))
+				for (const entry of entries) {
+					if (!isObj(entry)) continue;
+					if (entry.id === undefined) ids.later(prefix, entry as unknown as Item);
+					else if (typeof entry.id === "string") ids.claim(prefix, entry.id, field);
+				}
 		}
 	ids.assign();
 	if (errors.length) return { ok: false, errors };
@@ -278,13 +289,28 @@ function checkReferences(node: Record<string, unknown>, where: string, errors: s
 	if (node.pins !== undefined) {
 		if (!Array.isArray(node.pins)) errors.push(`${where}.pins: must be an array`);
 		else node.pins.forEach((p: unknown, i: number) => {
-			if (!isObj(p) || typeof p.id !== "string" || !/^p[1-9]\d*$/.test(p.id) || !["rule", "convention", "constraint", "standard", "fact"].includes(String(p.kind)) || typeof p.text !== "string" || !p.text.trim() || p.text.length > 300 || typeof p.source !== "string" || !p.source.trim() || typeof p.at !== "string") errors.push(`${where}.pins[${i}]: invalid pin`);
+			const at = `${where}.pins[${i}]`;
+			if (!isObj(p)) return void errors.push(`${at}: must be { kind, text, source }`);
+			if (p.id !== undefined && (typeof p.id !== "string" || !/^p[1-9]\d*$/.test(p.id))) errors.push(`${at}.id: must look like p1, p2, …; omit it to let the store assign one`);
+			if (!(PIN_KINDS as readonly string[]).includes(String(p.kind))) errors.push(`${at}.kind: must be one of ${PIN_KINDS.join(", ")}`);
+			if (!isText(p.text) || p.text.length > PIN_TEXT_MAX) errors.push(`${at}.text: required, a verbatim quote of 1–${PIN_TEXT_MAX} chars`);
+			if (!isText(p.source)) errors.push(`${at}.source: required: "user", "path", "path:line" or "path:start-end"`);
+			if (p.at !== undefined && typeof p.at !== "string") errors.push(`${at}.at: must be a timestamp string; omit it when authoring`);
 		});
 	}
 	if (node.attachments !== undefined) {
 		if (!Array.isArray(node.attachments)) errors.push(`${where}.attachments: must be an array`);
 		else node.attachments.forEach((a: unknown, i: number) => {
-			if (!isObj(a) || typeof a.id !== "string" || !/^a[1-9]\d*$/.test(a.id) || typeof a.path !== "string" || !a.path.trim() || (a.lines !== undefined && (typeof a.lines !== "string" || !/^[1-9]\d*(?:-[1-9]\d*)?$/.test(a.lines))) || (a.anchor !== undefined && !validAnchor(a.anchor)) || (a.note !== undefined && (typeof a.note !== "string" || a.note.length > 120)) || (a.hash !== undefined && typeof a.hash !== "string") || (a.at !== undefined && typeof a.at !== "string")) errors.push(`${where}.attachments[${i}]: invalid attachment`);
+			const at = `${where}.attachments[${i}]`;
+			if (!isObj(a)) return void errors.push(`${at}: must be { path, anchor?, note? }`);
+			if (a.id !== undefined && (typeof a.id !== "string" || !/^a[1-9]\d*$/.test(a.id))) errors.push(`${at}.id: must look like a1, a2, …; omit it to let the store assign one`);
+			if (!isText(a.path)) errors.push(`${at}.path: required, a file path`);
+			if (a.lines !== undefined && (typeof a.lines !== "string" || !/^[1-9]\d*(?:-[1-9]\d*)?$/.test(a.lines))) errors.push(`${at}.lines: must be "N" or "N-M"; prefer an anchor`);
+			if (a.lines !== undefined && a.anchor !== undefined) errors.push(`${at}: give "anchor" or "lines", not both`);
+			if (a.anchor !== undefined && !validAnchor(a.anchor)) errors.push(`${at}.anchor: must be exactly one of {"section": "A > B"}, {"symbol": "Type.method"} or {"quote": {"exact": "…"}}`);
+			if (a.note !== undefined && (typeof a.note !== "string" || a.note.length > NOTE_MAX)) errors.push(`${at}.note: must be a string of at most ${NOTE_MAX} chars`);
+			if (a.hash !== undefined && typeof a.hash !== "string") errors.push(`${at}.hash: store bookkeeping; omit it when authoring`);
+			if (a.at !== undefined && typeof a.at !== "string") errors.push(`${at}.at: must be a timestamp string; omit it when authoring`);
 		});
 	}
 }

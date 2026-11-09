@@ -4,7 +4,8 @@
  * `applyRoutedOps` runs each operation through the same store actions the agent uses, so freezing,
  * caps and the verbatim-pin check apply unchanged. A refused operation is dropped, never retried.
  */
-import { PIN_KINDS, PinError, type PinKind, type PinLimits } from "./taskPins";
+import { PinError, type PinKind, type PinLimits } from "./taskPins";
+import { PIN_KINDS } from "./taskSchema";
 import { symbolFiles, warmSymbols } from "./taskSymbols";
 import type { RoutingResult, TaskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { TaskError, runTasksTracked, type TaskList, type TaskStore, type TasksArgs } from "./tasks";

@@ -3,10 +3,11 @@
 /** A W3C TextQuoteSelector with a TextPositionSelector hint. */
 export interface QuoteAnchor {
 	exact: string;
-	prefix: string;
-	suffix: string;
+	/** Context around `exact`; absent in a hand-written anchor until its first delivery. */
+	prefix?: string;
+	suffix?: string;
 	/** Character offset when the quote was taken; a hint only, never compared for equality. */
-	start: number;
+	start?: number;
 }
 
 export type Anchor = { section: string } | { symbol: string } | { quote: QuoteAnchor };
@@ -134,8 +135,8 @@ function occurrences(text: string, needle: string): number[] {
 /** Locate a quote: exact where it was, exact elsewhere (`moved`), the closest similar text (`fuzzy`), or lost. */
 export function resolveQuote(text: string, q: QuoteAnchor): Resolution {
 	if (!q.exact) return { lost: true };
-	if (text.startsWith(q.exact, q.start)) return { content: q.exact };
-	if (occurrences(text, q.exact).length) return { content: q.exact, state: "moved" };
+	if (q.start !== undefined && text.startsWith(q.exact, q.start)) return { content: q.exact };
+	if (occurrences(text, q.exact).length) return q.start === undefined ? { content: q.exact } : { content: q.exact, state: "moved" };
 	return fuzzy(text, q);
 }
 
@@ -145,7 +146,7 @@ function fuzzy(text: string, q: QuoteAnchor): Resolution {
 	const afterPrefix = q.prefix ? occurrences(text, q.prefix) : [];
 	const beforeSuffix = q.suffix ? occurrences(text, q.suffix) : [];
 	for (const p of afterPrefix) {
-		const from = p + q.prefix.length;
+		const from = p + (q.prefix ?? "").length;
 		const s = beforeSuffix.find((x) => x >= from && x - from <= room);
 		const hit = consider(s !== undefined ? text.slice(from, s) : text.slice(from, from + q.exact.length));
 		if (hit) return hit;

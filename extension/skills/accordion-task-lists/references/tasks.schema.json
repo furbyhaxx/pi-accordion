@@ -116,16 +116,15 @@
 		"pin": {
 			"type": "object",
 			"required": [
-				"id",
 				"kind",
 				"text",
-				"source",
-				"at"
+				"source"
 			],
 			"properties": {
 				"id": {
 					"type": "string",
-					"pattern": "^p[1-9][0-9]*$"
+					"pattern": "^p[1-9][0-9]*$",
+					"description": "Omit when authoring; the store assigns p<n>."
 				},
 				"kind": {
 					"enum": [
@@ -139,31 +138,35 @@
 				"text": {
 					"type": "string",
 					"minLength": 1,
-					"maxLength": 300
+					"maxLength": 300,
+					"description": "Verbatim quote from the source, never a paraphrase."
 				},
 				"source": {
 					"type": "string",
-					"minLength": 1
+					"minLength": 1,
+					"description": "\"user\" (a user message of the session), \"path\", \"path:line\" or \"path:start-end\"."
 				},
 				"at": {
-					"type": "string"
+					"type": "string",
+					"description": "Store bookkeeping; omit when authoring."
 				}
 			}
 		},
 		"attachment": {
 			"type": "object",
 			"required": [
-				"id",
 				"path"
 			],
 			"properties": {
 				"id": {
 					"type": "string",
-					"pattern": "^a[1-9][0-9]*$"
+					"pattern": "^a[1-9][0-9]*$",
+					"description": "Omit when authoring; the store assigns a<n>."
 				},
 				"path": {
 					"type": "string",
-					"minLength": 1
+					"minLength": 1,
+					"description": "Project-relative path, or an absolute path under a configured tasks.attachments.roots entry."
 				},
 				"anchor": {
 					"$ref": "#/$defs/anchor"
@@ -175,10 +178,12 @@
 				},
 				"note": {
 					"type": "string",
-					"maxLength": 120
+					"maxLength": 120,
+					"description": "Why this part matters to the task."
 				},
 				"hash": {
-					"type": "string"
+					"type": "string",
+					"description": "Store bookkeeping; omit when authoring."
 				},
 				"at": {
 					"type": "string"
@@ -448,10 +453,7 @@
 						"quote": {
 							"type": "object",
 							"required": [
-								"exact",
-								"prefix",
-								"suffix",
-								"start"
+								"exact"
 							],
 							"additionalProperties": false,
 							"properties": {
@@ -469,7 +471,8 @@
 									"type": "integer",
 									"minimum": 0
 								}
-							}
+							},
+							"description": "Exact text, unique in the file. prefix, suffix and start may be omitted when authoring; the store completes them."
 						}
 					}
 				}

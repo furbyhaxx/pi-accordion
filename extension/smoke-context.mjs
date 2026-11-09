@@ -330,6 +330,40 @@ check("start re-delivers task context only when the model can no longer see it",
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+check("start resends a doing parent's context once folding hid it", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-parents-"));
+	const messages = [{ role: "user", content: "Plan it.", timestamp: 1 }];
+	const r = runtime(messages, { cwd: dir, sessionId: "parents" });
+	let call = 0;
+	const run = async args => {
+		const id = `par-${++call}`;
+		const res = await r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
+		messages.push({ role: "assistant", responseId: id, timestamp: 2 * call, content: [{ type: "toolCall", id, name: "tasks", arguments: args }] },
+			{ role: "toolResult", toolCallId: id, toolName: "tasks", content: res.content, details: res.details, isError: false, timestamp: 2 * call + 1 });
+		await r.request(messages);
+		return JSON.parse(res.content[0].text);
+	};
+	try {
+		const host = await r.open();
+		await run({ action: "create", list: "w", title: "W", goals: ["Ship it"], tasks: [{ title: "A", acceptanceCriteria: ["a holds"], subtasks: [{ title: "A1" }, { title: "A2" }, { title: "A3" }] }] });
+		await run({ action: "start", list: "w", id: "1.1" });
+		await run({ action: "complete", list: "w", id: "1.1", report: { outcome: "x" } });
+		assert.deepEqual(await run({ action: "start", list: "w", id: "1.2" }), { ok: true, started: [{ id: "1.2", title: "A2" }] }, "a live parent delivery is not resent");
+		await run({ action: "complete", list: "w", id: "1.2", report: { outcome: "x" } });
+		const truth = host.truth();
+		const carrier = truth.blocks.find(b => b.details?.delivered?.some(k => k.startsWith("w/item:c1#")));
+		host.command({ kind: "setFolding", value: true });
+		host.command({ kind: "setProtect", value: 0 });
+		host.command({ kind: "ops", ops: [{ kind: "fold", ids: [carrier.id] }] });
+		assert.ok(truth.isFolded(carrier));
+		const third = await run({ action: "start", list: "w", id: "1.3" });
+		assert.deepEqual(third.parents, [{ id: "1", title: "A", criteria: [{ id: "c1", text: "a holds" }] }]);
+		assert.deepEqual(third.started, [{ id: "1.3", title: "A3" }]);
+	} finally {
+		r.close();
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 check("shutdown releases only this session's task claims across visited projects", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-claims-"));
 	const r = runtime([], { sessionId: "owner" });

@@ -5,6 +5,7 @@
  * Precedence: defaults < config.json < environment variables < CLI flags / runtime edits.
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { DOOR_PORT } from "../core/protocol";
@@ -40,7 +41,8 @@ export interface TaskWidgetSettings {
 }
 
 export interface TaskSettings {
-	attachments: { render: "inline" | "reference"; maxLines: number };
+	/** `roots`: absolute directories outside the project that attachments and pin sources may read. */
+	attachments: { render: "inline" | "reference"; maxLines: number; roots: string[] };
 	pins: { listTokens: number; taskTokens: number };
 	/** How a session recorded before task events is adopted on resume (SPEC-0002 §14). */
 	adopt: "auto" | "ask" | "off";
@@ -89,7 +91,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	models: { defaults: {}, conductors: {} },
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
-	tasks: { attachments: { render: "inline", maxLines: 60 }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
+	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked } },
 	modelDefaults: {},
 };
@@ -202,13 +204,20 @@ export function sanitizeTaskWidget(value: unknown): TaskWidgetSettings {
 	};
 }
 
+/** Absolute directories, `~/` expanded; anything else is dropped so a typo never widens access to the cwd. */
+function attachmentRoots(value: unknown): string[] {
+	if (!Array.isArray(value)) return [];
+	const roots = value.flatMap((v) => (typeof v === "string" && v.trim() ? [v.trim().replace(/^~(?=\/|$)/, os.homedir())] : []));
+	return [...new Set(roots.filter((r) => path.isAbsolute(r)).map((r) => path.resolve(r)))];
+}
+
 export function sanitizeTaskSettings(value: unknown): TaskSettings {
 	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 	const attachments = raw.attachments && typeof raw.attachments === "object" && !Array.isArray(raw.attachments) ? raw.attachments as Record<string, unknown> : {};
 	const pins = raw.pins && typeof raw.pins === "object" && !Array.isArray(raw.pins) ? raw.pins as Record<string, unknown> : {};
 	const integer = (v: unknown, fallback: number, max: number) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= max ? v : fallback;
 	return {
-		attachments: { render: attachments.render === "reference" ? "reference" : "inline", maxLines: integer(attachments.maxLines, 60, 1000) },
+		attachments: { render: attachments.render === "reference" ? "reference" : "inline", maxLines: integer(attachments.maxLines, 60, 1000), roots: attachmentRoots(attachments.roots) },
 		pins: { listTokens: integer(pins.listTokens, 2000, 100000), taskTokens: integer(pins.taskTokens, 1500, 100000) },
 		adopt: raw.adopt === "ask" || raw.adopt === "off" ? raw.adopt : "auto",
 	};

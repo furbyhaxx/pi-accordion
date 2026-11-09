@@ -34,6 +34,21 @@ describe("tasks", () => {
 		expect(run(s, { action: "add", list: "w", tasks: [{ title: "Extra", supersedes: "3" }] })).toEqual({ ok: true, ids: ["5"], abandoned: ["3"] });
 	});
 
+	test("a list symlinked from .pig/tasks is updated in place and stays a link", () => {
+		const { dir, s } = store();
+		const plan = path.join(dir, ".project", "plans", "0001-auth");
+		fs.mkdirSync(plan, { recursive: true });
+		fs.mkdirSync(path.join(dir, ".pig", "tasks"), { recursive: true });
+		fs.writeFileSync(path.join(plan, "tasks.json"), JSON.stringify({ version: 3, slug: "auth", title: "Auth", goals: ["G"], tasks: [{ title: "A" }] }));
+		const link = path.join(dir, ".pig", "tasks", "auth.json");
+		fs.symlinkSync(path.relative(path.dirname(link), path.join(plan, "tasks.json")), link);
+		run(s, { action: "claim", list: "auth" });
+		run(s, { action: "start", list: "auth", id: "1" });
+		expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+		expect(JSON.parse(fs.readFileSync(path.join(plan, "tasks.json"), "utf8")).tasks[0].status).toBe("doing");
+		expect(fs.readdirSync(path.join(dir, ".pig", "tasks"))).toEqual(["auth.json"]);
+	});
+
 	test("reports filesystem errors instead of presenting unreadable lists as absent", () => {
 		const { dir, s } = store();
 		fs.mkdirSync(path.join(dir, ".pig", "tasks", "broken.json"), { recursive: true });
