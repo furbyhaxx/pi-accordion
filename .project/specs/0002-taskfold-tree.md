@@ -5,12 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 25
+  revision: 26
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-08T17:47:03+01:00"
+  updated_at: "2026-11-09T14:33:19+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 26
+      reason: "lists converted from plans carried no pins or attachments: the skill never taught them, hand-written references needed store ids, knowledge-base files were unreachable, a symlinked list was replaced on write, and a parent's references were lost once its first child folded"
+      changes: ["hand-written pins and attachments omit ids and bookkeeping; a quote may give only exact", "tasks.attachments.roots allows absolute paths outside the project", "the store writes through a symlinked list file", "start resends missing context of doing ancestors as parents", "the skill's validator resolves every reference; skill gains references/context.md and a plan example"]
     - revision: 25
       reason: "a fold one request late and beyond the cache lookback re-billed the whole tail"
       changes: ["the first request after load waits for the epoch", "a fold beyond the cache lookback waits for a cold cache or pressure", "a deep fold never pays back in a few requests"]
@@ -52,7 +55,8 @@ commit `f04f39d`.
 
 ### 2.1 Format
 
-File: `<project>/.pig/tasks/<slug>.json`. JSON Schema shipped as
+File: `<project>/.pig/tasks/<slug>.json`, or a symlink there to a list kept elsewhere (next to its
+plan); writes replace the link's target atomically and keep the link. JSON Schema shipped as
 `extension/skills/accordion-task-lists/references/tasks.schema.json` (the package ships `skills/`),
 referenced by `$schema`.
 
@@ -89,7 +93,7 @@ referenced by `$schema`.
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
 | `acceptanceCriteria` | Optional, ≤8 items (1–3 recommended) `{id, text}` of ≤120 chars, checkable end-state statements. Authoring accepts plain strings and assigns ids |
 | `status` | Optional when authoring (`todo`). Other `Task` fields (`report`, timestamps, `blocks`, `supersededBy`, `autoClosed`) keep their v1 meaning |
-| `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files with `lines` are converted to a quote anchor on load |
+| `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files with `lines` are converted to a quote anchor on load. Authors omit ids, a pin's `at` and an attachment's `hash`/`at`; a hand-written quote may give only `exact`, and its first delivery resolves it without a `moved` state and stores the completed anchor |
 
 `id` stays a dotted path. Everything that keys on `<list>/<id>` (span keys, records, widget,
 verdicts, bindings) is unchanged.
@@ -361,7 +365,9 @@ Resume after its delivery folded, with a changed attachment:
 {"ok": true, "resumed": [{"id": "1.2", "title": "Review interface", "attachments": [{"id": "a3", "ref": "docs/auth.md#Interface", "state": "changed", "content": "…"}]}]}
 ```
 `started` / `resumed` hold `TaskContext` (or the bare id when nothing is missing), outermost first,
-for every task that enters `doing` with this call. `list` appears when list context is missing.
+for every task that enters `doing` with this call. `parents` holds the `TaskContext` of ancestors
+already `doing` whose goals, criteria, pins or attachments are no longer live (a fold hid the
+result that carried them), outermost first; absent when nothing is missing. `list` appears when list context is missing.
 Each item is included only if it is not live (§4.3). An attachment whose content changed since it
 was attached carries `state` (§4.2).
 
@@ -440,6 +446,10 @@ first:
 | quote | `quote: "interface TokenStore {"` or `lines: "40-60"` | `path@q:<id>` | a W3C TextQuoteSelector (`exact` + 32-char `prefix`/`suffix`) plus a TextPositionSelector hint |
 | file | path only | `path` | the whole file |
 
+- Paths are project-relative. An absolute path is accepted only under a directory listed in
+  `tasks.attachments.roots` (§12) and is stored as written; anything else, including a symlink that
+  resolves outside its root, is refused, so a committed list cannot make the agent read and send
+  arbitrary files.
 - `lines` is input sugar only: at attach time the range becomes a quote anchor over those lines
   (`exact` = their text). Line numbers are never stored and never compared.
 - Exactly one of `section`, `symbol`, `quote`, `lines` may be given. Content resolved from any
@@ -484,7 +494,8 @@ The tool must know what the model can still see. That is derived, not tracked:
   is live when a live manifest contains it with the current hash (goals and criteria by id + text hash,
   pins by id since pins are immutable, attachments by content hash; `null` never matches).
 - A `start`/resume/`claim` delivers exactly `required − live`, where `required` is the list context
-  plus the context of every task entering (or, for claim, in) `doing`.
+  plus the context of every task entering (or, for claim, in) `doing`, and for `start` that of its
+  ancestors already `doing`, whose pins and attachments apply to the new task too.
 - Keys are scoped by list (`<slug>/goal#…`, `<slug>/pin:p1`), since pin and attachment ids repeat
   across lists. While folding is disarmed nothing on the wire is folded, so every present
   delivery counts.
@@ -888,27 +899,37 @@ Location: `extension/skills/accordion-task-lists/`, shipped with the extension. 
 `host:/mnt/shared/knowledge-base/agent-skills/ARTICLE.md` §6–7.
 
 ```
-SKILL.md              router (<200 lines): when to author JSON vs use the tool; v2 template;
-                      planning rules (top-to-bottom order, leaf = 5–20 tool calls, 1–3
-                      acceptanceCriteria, one goal); pins vs attachments; validation loop;
-                      gotchas (started ids frozen, edit only unclaimed or own lists, ids optional)
-references/schema.md  field reference; read when validation fails
-scripts/validate.mjs  `node validate.mjs <file>`: the store's validator, exit 1 with fixes
+SKILL.md                  router (<200 lines): why tree and references; plan conversion
+                          procedure (source inventory, decompose, criteria, attach and pin,
+                          save, validate, compare); template with references; where the file
+                          lives (next to its plan, symlinked); changing a list; gotchas
+references/context.md     pins and attachments: delivery, pin vs attachment, which source part
+                          goes on which task, anchors, JSON form, roots, checklist
+references/decomposition.md, references/examples.md   sizing and worked translations
+references/schema.md      field reference; read when validation fails
+scripts/validate.mjs      `node validate.mjs [--project d] [--root d]… <file>`: the store's
+                          validator, then every pin and attachment resolved with the store's own
+                          functions; exit 1 with fixes; notes leaves with no reference
 ```
 
-Description: "Write or edit Accordion task lists as JSON files (.pig/tasks/*.json): turn an
-implementation plan into an ordered task tree with a goal, acceptance criteria, pins and file
-attachments. Use when drafting a plan as tasks, converting a plan document into a task list, or
-editing a list outside the tasks tool."
+Description: "Write, convert or repair Accordion task lists as JSON (.pig/tasks/*.json): turn an
+implementation plan, spec or research into a nested task tree with goals, acceptance criteria, pins
+of the rules that must hold, and anchored attachments of the plan, spec, research and code sections
+each task needs; then validate every reference. Use when drafting a plan as tasks, converting a plan
+document into a task list, adding pins or attachments, keeping a list next to its plan, or editing a
+list outside the tasks tool."
 
 The skill also encodes how to size, split and nest tasks (`references/decomposition.md`): why open
 tasks keep raw work in the request, orientation first, split by verifiable outcome, two to three
 levels as a minimum for broad work (no maximum), no count quotas; `references/examples.md` translates
-a feature, a bug, a migration, a phased plan and a research task into lists, and a test keeps every
-shipped example valid.
+a feature, a bug, a migration, a phased plan and a research task into lists, plus a plan with a
+spec, research and project rules into a list with its references, and a test keeps every shipped
+example valid.
 
 Eval: 3 prompts (convert a plan document, write from scratch, repair an invalid file), with and
-without the skill. Assertions: validator passes, list is ordered, every leaf has criteria.
+without the skill. Assertions: validator passes with every reference resolved, list is ordered,
+every leaf has criteria, every implementing leaf inherits or carries the plan step and spec section
+it depends on.
 Evidence lives in the plan's `evidence/`.
 
 ## 12. Settings (`~/.accordion/config.json`)
@@ -916,7 +937,7 @@ Evidence lives in the plan's `evidence/`.
 ```jsonc
 {
   "tasks": {
-    "attachments": { "render": "inline", "maxLines": 60 },
+    "attachments": { "render": "inline", "maxLines": 60, "roots": [] },
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
   },
   "taskfold": {
@@ -931,7 +952,7 @@ Evidence lives in the plan's `evidence/`.
 ```
 
 Sanitized like existing settings: an invalid value is reported and ignored, and the default
-applies. `low < high`. The extractor model resolves through `models` like other out-of-band calls.
+applies. `roots` keeps absolute paths (`~/` expanded) and drops anything else. `low < high`. The extractor model resolves through `models` like other out-of-band calls.
 
 ## 13. Verification
 

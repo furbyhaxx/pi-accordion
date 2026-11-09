@@ -87,13 +87,16 @@ agent makes while the task runs are never reported. Configure their display and 
 ```json
 {
   "tasks": {
-    "attachments": { "render": "reference", "maxLines": 60 },
+    "attachments": { "render": "reference", "maxLines": 60, "roots": ["/mnt/shared/knowledge-base"] },
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
   }
 }
 ```
 
-`render` defaults to `inline`; `reference` sends only the locator and note.
+`render` defaults to `inline`; `reference` sends only the locator and note. Attachments and pin
+sources must be files inside the project, or absolute paths under a directory in `roots` (default
+none), so a committed list cannot make the agent read arbitrary files. A list file in `.pig/tasks/`
+may be a symlink to a list kept next to its plan; the store writes through the link.
 
 Taskfold's pressure policy can also be set in the same file (read when the conductor
 attaches):

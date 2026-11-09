@@ -159,3 +159,5 @@ that produces a verifiable result. A pure reading step like the orientation chil
 - Does a parent have more than about seven children? Group them under intermediate parents.
 - Is there a final verification child for each parent whose integration needs its own check?
 - Is each split a real outcome rather than a step with no result of its own? Merge those.
+- Does every task that depends on a plan step, spec section, finding or rule carry it as a pin or
+  attachment? The tree decides what folds; the references decide what survives (`context.md`).

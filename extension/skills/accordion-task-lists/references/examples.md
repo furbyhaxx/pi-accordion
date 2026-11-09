@@ -2,8 +2,10 @@
 
 Each example shows the request, how it breaks into outcomes, and the resulting list. Every list
 starts with an orientation task, nests at least two to three levels where the work is broad, puts
-real outcomes in the leaves, and ends with a verification child where integration needs one. The
-JSON blocks pass `scripts/validate.mjs`; save each under `.pig/tasks/<slug>.json`.
+real outcomes in the leaves, and ends with a verification child where integration needs one.
+Examples 1–5 show the tree; example 6 shows the pins and attachments a real plan's list needs, which
+every list converted from documents must carry. The JSON blocks pass the structural checks of
+`scripts/validate.mjs`; their references resolve only in a project that has those files.
 
 ## The translation method
 
@@ -405,7 +407,8 @@ Rules of thumb for plans:
 - A row that lists N results becomes N leaves. Do not shorten it by summarising.
 - Keep verification the plan demands (live runs, widths, gates) as its own tasks, not as a
   criterion hidden in a leaf.
-- Keep the plan's constraints as list or task pins, and its source sections as attachments.
+- Carry the plan's constraints and source sections as pins and attachments on the tasks that need
+  them (example 6, `context.md`).
 
 ## 5. Research or review that ends in a report
 
@@ -429,6 +432,190 @@ The outcomes are answers, so split by question and candidate, and make the repor
 
 Each candidate leaf reports its findings in `outcome`, so the final comparison reads short records
 instead of three long research sessions.
+
+## 6. A plan with a spec, research and project rules
+
+Request: "Turn `.project/plans/0038-frame-delivery/plan.md` into a task list." The plan links a spec
+and builds on a knowledge-base article. The tree alone is not the list; the references are what each
+task needs once orientation has folded away.
+
+The sources, reduced to what matters here:
+
+```markdown
+# .project/plans/0038-frame-delivery/plan.md
+## Goal          Producers publish frames with durable receipts; nugent uses the same pipeline.
+## Current       crates/sdk/src/frame/frame.rs — `FrameDelivery`; hooks build frames directly.
+## Do            1. **Publish API** — `FrameService`, dedup, limits.
+                 2. **Ledger** — delivery state machine, coalescing, expiry; format bump.
+## Do not        - Let a producer claim `delivered`.  - Drop frames silently on overflow.
+## Tests         Spec §6 scenarios as SDK tests; migration of an old session.
+## Docs          SDK docs/frames.md (rewrite).
+## Done when     `just check` passes; live wake captured in evidence/.
+
+# .project/specs/0017-frame-delivery.md
+## 3. Publish   ### 3.1 Request and receipt   ### 3.2 Dedup and conflicts   ### 3.3 Limits
+## 4. Ledger    ### 4.1 State machine   ### 4.2 Coalescing   ### 4.3 Expiry
+## 6. Test scenarios
+
+# AGENTS.md:  "Run `just check` before every commit."
+# /srv/knowledge-base/agent-harness-internals/ARTICLE.md  ## 5. Frame queues  (backpressure findings)
+```
+
+Inventory → placement:
+
+| Source part | Placed on | As |
+|---|---|---|
+| Plan `Goal`, `Do not` | list | section attachments |
+| `AGENTS.md` check rule | list | `rule` pin |
+| Plan `Do`, step 1 / step 2 | slice tasks 2 / 3 | quote attachments of the bullet |
+| Spec §3 subsections | publish leaves | section attachments |
+| Spec §4 subsections | ledger leaves | section attachments |
+| `FrameDelivery` in `frame.rs` | the leaf that replaces it | symbol attachment |
+| Knowledge-base §5 | limits leaf | section attachment (root configured) |
+| Spec §6, plan `Tests` | slice verify leaves | section attachments |
+| Plan `Docs`, `Done when` | docs leaf, final gate | section attachment of the page / plan section |
+
+```
+                                            references
+1 Orientation …                             (none: it reads)
+2 Slice 1: publish API                      plan Do step 1 (quote)
+  2.1 Request and receipt types             spec 3.1 · frame.rs::FrameDelivery
+  2.2 Dedup and conflicts                   spec 3.2
+  2.3 Body and queue limits                 spec 3.3 · KB "5. Frame queues"
+  2.4 Slice 1 verify and commit             spec 6 (scenarios)
+3 Slice 2: ledger                           plan Do step 2 (quote)
+  3.1 Delivery state machine                spec 4.1
+  3.2 Coalescing                            spec 4.2
+  3.3 Expiry                                spec 4.3
+  3.4 Format bump and migration             plan Tests (quote)
+  3.5 Slice 2 verify and commit
+4 Docs, gate and merge
+  4.1 SDK docs/frames.md                    docs/frames.md (whole page section to rewrite)
+  4.2 just check and live wake evidence     plan "Done when"
+list: goal + "Do not" sections, rule pin "Run `just check` before every commit."
+```
+
+```json
+{
+  "version": 3,
+  "slug": "frame-delivery",
+  "title": "Frame delivery",
+  "goals": [
+    "Frames are published by registered producers with deduplicated, durable receipts and observable delivery state.",
+    "nugent's own frames use the same pipeline, and just check passes."
+  ],
+  "pins": [
+    { "kind": "rule", "text": "Run `just check` before every commit.", "source": "AGENTS.md" }
+  ],
+  "attachments": [
+    { "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "section": "Goal" } },
+    { "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "section": "Do not" }, "note": "limits for every slice" }
+  ],
+  "tasks": [
+    {
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "subtasks": [
+        { "title": "Read the plan, spec 0017 and the frame construction sites" },
+        { "title": "Create the worktree from current dev", "acceptanceCriteria": ["The worktree builds"] }
+      ]
+    },
+    {
+      "title": "Slice 1: publish API",
+      "attachments": [
+        { "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "quote": { "exact": "1. **Publish API** — `FrameService`, dedup, limits." } } }
+      ],
+      "subtasks": [
+        {
+          "title": "Request and receipt types",
+          "acceptanceCriteria": ["PublishRequest and PublishReceipt round-trip through serde"],
+          "attachments": [
+            { "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "3.1 Request and receipt" } },
+            { "path": "crates/sdk/src/frame/frame.rs", "anchor": { "symbol": "FrameDelivery" }, "note": "type the receipt replaces" }
+          ]
+        },
+        {
+          "title": "Dedup and conflicts",
+          "acceptanceCriteria": ["A repeated producer key returns the first receipt", "A changed body under the same key is a conflict"],
+          "attachments": [
+            { "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "3.2 Dedup and conflicts" } }
+          ]
+        },
+        {
+          "title": "Body and queue limits",
+          "acceptanceCriteria": ["Oversized bodies fail with LimitExceeded", "A full queue returns Busy instead of dropping"],
+          "attachments": [
+            { "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "3.3 Limits" } },
+            { "path": "/srv/knowledge-base/agent-harness-internals/ARTICLE.md", "anchor": { "section": "5. Frame queues" }, "note": "why backpressure, not drops" }
+          ]
+        },
+        {
+          "title": "Slice 1 verify and commit",
+          "acceptanceCriteria": ["Spec section 6 publish scenarios pass as SDK tests", "Committed with the plan's Progress updated"],
+          "attachments": [
+            { "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "6. Test scenarios" } }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Slice 2: ledger",
+      "attachments": [
+        { "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "quote": { "exact": "2. **Ledger** — delivery state machine, coalescing, expiry; format bump." } } }
+      ],
+      "subtasks": [
+        {
+          "title": "Delivery state machine",
+          "acceptanceCriteria": ["Every allowed transition is tested; others are rejected"],
+          "attachments": [{ "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "4.1 State machine" } }]
+        },
+        {
+          "title": "Coalescing",
+          "acceptanceCriteria": ["Two pending frames with one coalesce key deliver once"],
+          "attachments": [{ "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "4.2 Coalescing" } }]
+        },
+        {
+          "title": "Expiry",
+          "acceptanceCriteria": ["An expired frame is never delivered"],
+          "attachments": [{ "path": ".project/specs/0017-frame-delivery.md", "anchor": { "section": "4.3 Expiry" } }]
+        },
+        {
+          "title": "Format bump and migration",
+          "acceptanceCriteria": ["A session written before the bump loads with its frames"],
+          "attachments": [{ "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "section": "Tests" } }]
+        },
+        { "title": "Slice 2 verify and commit", "acceptanceCriteria": ["SDK tests and clippy pass", "Committed with the plan's Progress updated"] }
+      ]
+    },
+    {
+      "title": "Docs, gate and merge",
+      "subtasks": [
+        {
+          "title": "SDK docs/frames.md",
+          "acceptanceCriteria": ["The page describes producers, receipts and delivery states as merged"],
+          "attachments": [{ "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "section": "Docs" } }]
+        },
+        {
+          "title": "just check and live wake evidence",
+          "acceptanceCriteria": ["just check passes", "A live wake run is captured in evidence/"],
+          "attachments": [{ "path": ".project/plans/0038-frame-delivery/plan.md", "anchor": { "section": "Done when" } }]
+        }
+      ]
+    }
+  ]
+}
+```
+
+What to notice:
+
+- The list carries what holds everywhere (goal, "Do not", the commit rule); nothing repeats it below.
+- Each slice carries its own plan step, so the slice's leaves see why they exist.
+- Each leaf carries the one spec subsection it implements, not the whole spec: every attachment stays
+  under the 60-line cap and arrives exactly when its task starts.
+- The orientation task has none: it reads the sources. Everything it learned that later tasks need is
+  in their references, because its own span folds away.
+- The knowledge-base path is absolute and only resolves with `/srv/knowledge-base` in
+  `tasks.attachments.roots`.
+- "Slice 2 verify and commit" has no reference of its own; its parent's and the list's suffice.
 
 ## When a plan changes mid-way
 

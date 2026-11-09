@@ -1,48 +1,91 @@
 ---
 name: "accordion-task-lists"
-description: "Create, edit, or validate Accordion task-list JSON files in .pig/tasks: turn an implementation plan into a nested task tree of fine-grained, independently foldable subtasks with goals and acceptance criteria, or repair an invalid list. Use when a user asks to write a plan directly as tasks JSON or edit an existing task list outside the tasks tool."
+description: "Write, convert or repair Accordion task lists as JSON (.pig/tasks/*.json): turn an implementation plan, spec or research into a nested task tree with goals, acceptance criteria, pins of the rules that must hold, and anchored attachments of the plan, spec, research and code sections each task needs; then validate every reference. Use when drafting a plan as tasks, converting a plan document into a task list, adding pins or attachments, keeping a list next to its plan, or editing a list outside the tasks tool."
 ---
 
 # Author an Accordion task list
 
-Use the `tasks` tool for normal progress and for changes to a running list. Direct JSON authoring is useful for converting a detailed plan into a new list. The file is project state: inspect the existing list and its claim before editing; do not overwrite a list held by another session. Never edit task status, reports, claims, or started tasks by hand.
+A task list does two jobs. Its **tree** decides what Accordion can fold: a finished task collapses
+into a short record, so small tasks keep context small. Its **references** decide what survives the
+folding: pins and attachments are delivered with `tasks start` to the task that needs them, and
+delivered again when folding has hidden them. A list with a good tree and no references makes the
+agent work from titles once orientation has folded away. Both are required.
 
-## Create a plan
+Use the `tasks` tool for progress and for changes to a running list. Write JSON to convert a plan
+into a new list in one pass. A list file is project state: inspect it and its `claim` first, never
+overwrite a list another session holds, and never edit status, reports, claims or started tasks.
 
-1. Read the source plan and applicable project instructions. Write `goals` (one to five): together the end state the whole list delivers, not a list of activities.
-2. Decompose the work before writing JSON; the task tree is how Accordion folds context. A task folds into a short record only when it finishes, so an open task keeps all its raw work in the request, while small finished children fold individually and keep recoverable records. Open with an `Orientation, Analysis, Scope & Objective clarification` task, then split by independently verifiable outcome and nest by scale: broad features and plans need a minimum of two to three levels (area, feature, step; nest further when useful), and only a genuinely small change gets a flat list. Never put several features in one leaf (`Transcript row: branches, filters, previews, scrolling` becomes `Transcript row` with children `Branches`, `Filters`, `Previews`, `Scrolling`), and never split a step that has no result of its own. Order by dependency, finishing each child before the next. Read `references/decomposition.md` for the reasoning, a bad and good example, and a checklist, and `references/examples.md` for worked translations of a feature, a bug, a migration, a phased plan and a research task into task lists.
-3. Give each leaf 1–3 concise, checkable `acceptanceCriteria`. Preserve required verification and unresolved prerequisites. Do not invent a requirement that the source does not support.
-4. Save `.pig/tasks/<slug>.json`. Slugs use lowercase letters, digits and hyphens. The filename and `slug` must match. Omit task IDs when creating the list: the store derives dotted IDs from their positions. There is no fixed nesting-depth limit.
-5. Validate with Node 22.19 or later, using the script next to this skill:
+## Convert a plan into a list
+
+1. **Read every source and inventory it.** Read the plan, every spec, design, research or
+   knowledge-base article it links, the project's `AGENTS.md` files for the affected areas, and the
+   code its "Current" section names. Note for each source the sections, symbols and sentences the
+   work depends on, with their exact heading paths. This inventory becomes the references in step 4.
+2. **Decompose by outcome.** Open with `Orientation, Analysis, Scope & Objective clarification`, then
+   one task per independently verifiable result, nested area → feature → step (two to three levels
+   minimum for broad work, no maximum). Never bundle several features in one leaf; never split a step
+   with no result of its own. Read `references/decomposition.md` before the first list, and
+   `references/examples.md` for worked translations.
+3. **Write goals and criteria.** One to five list `goals`: the end state, not activities. One to
+   three observable `acceptanceCriteria` per leaf (a command that passes, a behavior that shows). Keep
+   the plan's required verification; do not invent requirements the sources do not support.
+4. **Attach and pin the sources.** Read `references/context.md` and place the inventory: the plan's
+   goal and "Do not" section and the project rules on the list; each plan step and the spec section it
+   implements on its area task; each spec subsection, research finding or code symbol on the leaf that
+   needs it. Pins are verbatim quotes of rules; attachments are anchored parts of files. A task's
+   references apply to its subtasks too.
+5. **Save it** (see "Where the file lives"). The filename and `slug` must match. Omit task ids, item
+   ids, `status`, `at` and `hash`; the store fills them in.
+6. **Validate and fix until it passes:**
 
    ```sh
    node <skill-directory>/scripts/validate.mjs .pig/tasks/<slug>.json
    ```
 
-   Resolve the reported errors and rerun it. A valid file is not proof that the plan is complete; compare it against the source plan. Then claim it with `tasks` before starting work.
+   It checks the structure, then resolves every reference: files exist, sections and symbols are
+   found, quotes are exact and unique, attached parts fit the line cap, pin quotes appear in their
+   source. `--project <dir>` sets the root for relative paths; `--root <dir>` allows a directory
+   outside the project. It also lists leaves with no reference of their own or from a parent: give
+   each one what it needs, or confirm its title and criteria are enough.
+7. **Compare against the sources.** Every plan step, test, docs page and "Done when" condition maps
+   to a task; every spec section the plan cites is attached where it is implemented. A valid file is
+   not proof of a complete list. Then claim it with `tasks` before starting work.
 
 ```json
 {
   "version": 3,
-  "slug": "transcript",
-  "title": "Transcript",
-  "goals": [
-    "The transcript displays branches and filters with regression coverage."
+  "slug": "token-store",
+  "title": "Token store",
+  "goals": ["All token access goes through TokenStore, and the project tests pass."],
+  "pins": [
+    { "kind": "rule", "text": "Run npm test before every commit.", "source": "AGENTS.md" }
+  ],
+  "attachments": [
+    { "path": "docs/plans/token-store.md", "anchor": { "section": "Do not" }, "note": "limits for the whole plan" }
   ],
   "tasks": [
     {
-      "title": "Transcript view",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "subtasks": [{ "title": "Read the plan, the auth spec and the token callers" }]
+    },
+    {
+      "title": "Token store",
+      "attachments": [
+        { "path": "docs/specs/auth.md", "anchor": { "section": "Token store" }, "note": "contract this area implements" }
+      ],
       "subtasks": [
         {
-          "title": "Show branches",
-          "acceptanceCriteria": [
-            "Branches are distinguishable in the view"
+          "title": "Interface",
+          "acceptanceCriteria": ["get and set round-trip in a unit test"],
+          "attachments": [
+            { "path": "docs/specs/auth.md", "anchor": { "section": "Token store > Interface" } }
           ]
         },
         {
-          "title": "Filter the transcript",
-          "acceptanceCriteria": [
-            "A filter narrows visible messages"
+          "title": "Callers migrated",
+          "acceptanceCriteria": ["No direct token map access remains"],
+          "attachments": [
+            { "path": "src/auth/session.ts", "anchor": { "symbol": "Session.token" }, "note": "first caller to move" }
           ]
         }
       ]
@@ -51,10 +94,52 @@ Use the `tasks` tool for normal progress and for changes to a running list. Dire
 }
 ```
 
+## Where the file lives
+
+The store reads `.pig/tasks/<slug>.json` in the project root. A list that belongs to a plan document
+lives next to the plan, committed with it, and `.pig/tasks/` holds a **relative symlink** to it:
+
+```sh
+ln -s ../../.project/plans/0038-frame-delivery/tasks.json .pig/tasks/frame-delivery.json
+```
+
+Never copy a plan's list into `.pig/tasks/`: the copy and the plan file diverge at the first
+`tasks` call. The store writes through the link, so status and reports land in the plan's file and
+are committed with the plan's progress. `.pig/` is usually ignored by git: create the link in each
+checkout or worktree that works on the plan, and validate through the link so the slug matches.
+
 ## Change an existing list
 
-Inspect its current structure and claim first. Use `tasks add` with `before` or `after`, or `tasks move`, for insertions and moves: only unstarted subtrees may be moved or renumbered, and started IDs are referenced by session history. Use `tasks update` for goals, the title, or criteria; goals and criteria are items with ids (`g1`, `c3`), edited with `{add, remove, edit}`. Do not rewrite a claimed list concurrently with its owner.
+Inspect its structure and claim first. Use `tasks add` with `before` or `after`, or `tasks move`, to
+insert and move tasks: only unstarted subtrees may be moved or renumbered, because session history
+refers to started ids. Use `tasks update` for the title, goals or criteria; goals and criteria are
+items with ids (`g1`, `c3`) edited with `{add, remove, edit}`. Use `tasks pin` and `tasks attach` to
+add references (`id` omitted for the list), `unpin` and `detach` to remove them; the tool checks each
+one immediately. Do not rewrite a claimed list concurrently with its owner.
 
-Use `tasks pin` for a durable rule or constraint and `tasks attach` for source material. Anchor a file reference to the part you need, not to line numbers: `section` (a Markdown heading path such as `Token store > Interface`), `symbol` (such as `TokenStore.get`, in ts/js/py/rs files) or an exact `quote`. A `lines` range is accepted and stored as a quote. The tool validates pins and attachments and handles IDs and hashes. List pins apply throughout the list; task pins apply to that task and its descendants. Do not fabricate a quoted constraint or a source location.
+## Gotchas
 
-For the complete field shapes and limits, read `references/schema.md`. For how to size, split and nest tasks, read `references/decomposition.md` and `references/examples.md`. The machine-readable schema is `references/tasks.schema.json`. The validator checks structure, not semantic completeness, file ownership, concurrent edits, or whether a plan is good.
+- Folding removes what was read inside a finished task. If a later task needs a section read during
+  orientation, attach it to that task; "the agent read it earlier" does not hold after folding.
+- A pin is read without its surroundings. A "Do not" bullet such as "Drop frames on overflow."
+  reads as an instruction once its heading is gone: attach the section instead.
+- `source: "user"` pins can only be made with the `tasks` tool in the session where the user said it.
+- An attachment resolves to at most 60 lines. Anchor a subsection or quote a passage, not a whole spec.
+- A quote delivers exactly its text. `"1. **Ledger**"` delivers those 12 characters, not the bullet:
+  quote the whole bullet or paragraph.
+- Section anchors are heading paths matched from the end and are case-sensitive; numbered headings
+  keep their numbers (`"4.2 Attachments and anchors"`). The validator lists the closest headings.
+- Files outside the project, such as a shared knowledge base, need their directory in
+  `tasks.attachments.roots` in `~/.accordion/config.json` and an absolute path in the list.
+- Item and task ids are positional and assigned by the store. An explicit id that disagrees with its
+  position or collides is a validation error.
+
+## Reference files
+
+| Read | When |
+|---|---|
+| `references/context.md` | Before writing pins or attachments: delivery, placement table, anchors, limits, checklist |
+| `references/decomposition.md` | Before splitting work into tasks: why, rules, bad and good trees |
+| `references/examples.md` | Translating a feature, bug, migration, phased plan with references, or research task |
+| `references/schema.md` | When validation fails or a field is unclear |
+| `references/tasks.schema.json` | Machine-readable schema for editors |
