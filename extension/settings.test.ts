@@ -42,7 +42,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.bindHost).toBe("127.0.0.1");
 
 			saveSettings(tmp, {
-				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 } },
+				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -58,7 +58,7 @@ describe("accordion settings & memorable tokens", () => {
 
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
-				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 } },
+				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -88,7 +88,7 @@ describe("accordion settings & memorable tokens", () => {
 	});
 
 	test("validates taskfold budget, age and untracked settings", () => {
-		expect(sanitizeTaskfoldSettings({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 } })).toEqual({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 } });
+		expect(sanitizeTaskfoldSettings({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } });
 		expect(sanitizeTaskfoldSettings({ high: 0.5, low: 0.7, untracked: { minSteps: 0 } })).toMatchObject({ high: 0.8, low: 0.6, untracked: { enabled: true, minSteps: 8 } });
 	});
 

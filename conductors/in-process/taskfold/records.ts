@@ -101,6 +101,17 @@ export function untrackedCarrier(tag: string, label: string, changed: readonly s
 	return render(tag, { untracked: label, ...(changed.length ? { changed: changed.slice(0, 20) } : {}), ...(verified.length ? { verified: verified.slice(-5) } : {}) });
 }
 
+/** A step carrier: finished steps of a task that is still open. */
+export function stepsCarrier(tag: string, key: string, label: string, steps: number, changed: readonly string[], verified: readonly string[]): string {
+	return render(tag, { steps: key, label, count: steps, ...(changed.length ? { changed: changed.slice(0, 20) } : {}), ...(verified.length ? { verified: verified.slice(-5) } : {}) });
+}
+
+/** The task key a step carrier belongs to; null for any other summary. */
+export function stepsKeyOfSummary(summary: string | null | undefined): string | null {
+	const steps = parseCarrier(summary)?.obj.steps;
+	return typeof steps === "string" ? steps : null;
+}
+
 /** Counts of finished descendants (not the node itself). */
 function descendants(node: RecordObj | HistoryObj): Partial<Record<FinishedStatus, number>> {
 	const out: Partial<Record<FinishedStatus, number>> = {};

@@ -110,7 +110,8 @@ attaches):
     "high": 0.8, "low": 0.6,
     "keepRecentTasks": 0, "recordTokens": 1500,
     "floor": false,
-    "untracked": { "enabled": true, "minSteps": 8 }
+    "untracked": { "enabled": true, "minSteps": 8 },
+    "steps": { "enabled": true, "minSteps": 4 }
   }
 }
 ```
@@ -122,7 +123,10 @@ protected-tail lock while attached, so folds land while the cache can still abso
 dial is locked meanwhile and still limits pressure folding. The first request after a session loads
 waits for that fold, and a fold that would change content far behind the provider's cache lookback
 waits until the cache is cold or the context is over budget. `keepRecentTasks` is for experiments: it
-delays folds. Setting `floor` to `true` additionally applies recoverable per-block folding inside
+delays folds. Under pressure, `steps` groups old finished steps of a still-open task into a
+recallable step carrier, so one long task cannot fill the context; the task's start message, user
+messages and your tail dial stay live, and the carriers merge into the task's record when it
+finishes. Setting `floor` to `true` additionally applies recoverable per-block folding inside
 long open tasks and untracked work, outside your tail dial; it is off by default.
 
 Armed folding invalidates historical token-usage anchors in outgoing requests so Pi budgets

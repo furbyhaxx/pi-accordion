@@ -32,7 +32,7 @@ import { taskfoldRouting, type RoutingPort } from "./routing";
 import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { KeelLiteConductor } from "../keel-lite/keel-lite";
-import { isHistory, oneLine, parseCarrier, partCarrier, priorEntry, render, shrinkDeepest, taskKeyOfSummary, toHistory, untrackedCarrier, visibleTags, type HistoryObj, type RecordObj } from "./records";
+import { isHistory, oneLine, parseCarrier, partCarrier, priorEntry, render, shrinkDeepest, stepsCarrier, stepsKeyOfSummary, taskKeyOfSummary, toHistory, untrackedCarrier, visibleTags, type HistoryObj, type RecordObj } from "./records";
 
 export { taskKeyOfSummary };
 
@@ -53,6 +53,8 @@ export interface TaskfoldOptions {
 	floor?: boolean;
 	/** Fold long runs outside task spans when pressure remains. */
 	untracked?: { enabled: boolean; minSteps: number };
+	/** Fold old finished steps inside still-open tasks when pressure remains, so one long task cannot fill the context. */
+	steps?: { enabled: boolean; minSteps: number };
 }
 
 export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
@@ -63,6 +65,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	recordTokens: 1500,
 	floor: false,
 	untracked: { enabled: true, minSteps: 8 },
+	steps: { enabled: true, minSteps: 4 },
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 
@@ -483,6 +486,7 @@ export class TaskfoldConductor implements Conductor {
 		if (!Number.isFinite(k.high) || !Number.isFinite(k.low) || !(k.low > 0 && k.low < k.high && k.high <= 1)) throw new RangeError("taskfold: require 0 < low < high <= 1");
 		if (!Number.isSafeInteger(k.keepRecentTasks) || k.keepRecentTasks < 0 || !Number.isSafeInteger(k.recordTokens) || k.recordTokens < 1) throw new RangeError("taskfold: invalid recent-task or record-token limit");
 		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
+		if (!Number.isSafeInteger(k.steps.minSteps) || k.steps.minSteps < 1 || typeof k.steps.enabled !== "boolean") throw new RangeError("taskfold: invalid open-task step settings");
 		this.verdicts = verdicts;
 	}
 
@@ -789,7 +793,12 @@ export class TaskfoldConductor implements Conductor {
 					projected -= floor.saved;
 				}
 			}
-			if (projected > target && this.k.untracked.enabled) units.push(...this.untracked(host, blocks, projected - target, planned));
+			if (projected > target && this.k.untracked.enabled) {
+				const outside = this.untracked(host, blocks, projected - target, planned);
+				units.push(...outside);
+				for (const u of outside) { projected -= u.saved; for (const op of u.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id); }
+			}
+			if (projected > target && this.k.steps.enabled) units.push(...this.steps(host, blocks, projected - target, planned));
 		}
 		return units;
 	}
@@ -850,8 +859,39 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private untracked(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
+		const coverage = taskCoverage(blocks.length, scanTaskSpans(blocks, (b) => this.textOf(b)));
+		return this.foldRuns(host, blocks, need, planned, this.k.untracked.minSteps, (i) => (!coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
+	}
+
+	/**
+	 * Old finished steps of still-open tasks, grouped per innermost open task. The task's start or
+	 * resume message, user messages, document reads and the user's tail dial stay live; finished
+	 * subtasks fold as their own records.
+	 */
+	private steps(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
 		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const open = spans.filter((s) => s.status === null).sort((a, b) => a.key.split(".").length - b.key.split(".").length || a.start - b.start);
+		if (!open.length) return [];
 		const coverage = taskCoverage(blocks.length, spans);
+		const owner = new Array<string | undefined>(blocks.length);
+		const anchors = new Set<string>();
+		for (const s of open) {
+			for (const r of s.intervals) for (let i = Math.max(0, r.start); i <= Math.min(blocks.length - 1, r.end); i++) owner[i] = s.key;
+			for (const i of [s.start, s.lastEvent]) if (blocks[i]) anchors.add(messageKey(blocks[i].id));
+		}
+		return this.foldRuns(host, blocks, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
+	}
+
+	/** Group maximal runs of whole messages sharing one non-null `ownerOf` key into recallable carriers, oldest first, until `need` is met. */
+	private foldRuns(
+		host: ConductorHost,
+		blocks: readonly ViewBlock[],
+		need: number,
+		planned: ReadonlySet<string>,
+		minSteps: number,
+		ownerOf: (i: number) => string | null,
+		carrierOf: (tag: string, key: string, members: ViewBlock[], label: string, facts: { changed: string[]; verified: string[] }) => string,
+	): Unit[] {
 		const occupied = new Set<string>(host.groups().flatMap((g) => [...g.memberIds]));
 		const documentCalls = new Set<string>();
 		for (const b of blocks) {
@@ -860,29 +900,32 @@ export class TaskfoldConductor implements Conductor {
 			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documentCalls.add(b.callId);
 		}
 		const userTail = Math.min(userTailFrom(blocks, host.stats().protectTokens), finalMessageFrom(blocks));
-		const eligible = (b: ViewBlock, i: number) => i < userTail && !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId)) && !coverage.open[i] && !coverage.finished[i];
-		const runs: ViewBlock[][] = [];
+		const eligible = (b: ViewBlock, i: number) => i < userTail && !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId));
+		const runs: { key: string; members: ViewBlock[] }[] = [];
 		let run: ViewBlock[] = [];
+		let runKey: string | null = null;
+		const flush = () => { if (run.length && runKey !== null) runs.push({ key: runKey, members: run }); run = []; runKey = null; };
 		for (let i = 0; i < blocks.length;) {
 			let end = i + 1;
 			while (end < blocks.length && messageKey(blocks[end].id) === messageKey(blocks[i].id)) end++;
-			if (blocks.slice(i, end).every((b, j) => eligible(b, i + j))) run.push(...blocks.slice(i, end));
-			else if (run.length) { runs.push(run); run = []; }
+			const key = ownerOf(i);
+			const ok = key !== null && blocks.slice(i, end).every((b, j) => eligible(b, i + j) && ownerOf(i + j) === key);
+			if (!ok || key !== runKey) flush();
+			if (ok) { run.push(...blocks.slice(i, end)); runKey = key; }
 			i = end;
 		}
-		if (run.length) runs.push(run);
+		flush();
 		const units: Unit[] = [];
 		let saved = 0;
-		for (const members of runs) {
+		for (const { key, members } of runs) {
 			if (saved >= need) break;
 			const steps = new Set(members.filter((b) => b.kind === "text" || b.kind === "thinking" || b.kind === "tool_call").map((b) => messageKey(b.id)));
-			if (steps.size < this.k.untracked.minSteps) continue;
+			if (steps.size < minSteps) continue;
 			const collapsible = collapsibleMessageKeys(members, true);
 			if (!collapsible.size) continue;
 			const firstText = members.find((b) => b.kind === "text");
-			const label = firstText ? oneLine(this.textOf(firstText), 120) : "Work outside tasks";
-			const facts = recordFacts(members, (b) => this.textOf(b));
-			const summary = untrackedCarrier(foldTag(`g:${members[0].id}`), label, facts.changed, facts.verified);
+			const label = firstText ? oneLine(this.textOf(firstText), 120) : key ? `Steps of ${key}` : "Work outside tasks";
+			const summary = carrierOf(foldTag(`g:${members[0].id}`), key, members, label, recordFacts(members, (b) => this.textOf(b)));
 			const current = members.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
 			const reclaimed = current - host.countTokens(summary);
 			if (reclaimed <= 0) continue;
@@ -898,12 +941,15 @@ export class TaskfoldConductor implements Conductor {
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
 		const groupKeys = this.groupKeys(host);
+		// Step carriers folded while this span or a descendant was open are absorbed into its record.
+		const stepsKeys = new Map(host.groups().flatMap((g) => { const k = g.by === "auto" ? stepsKeyOfSummary(g.summary) : null; return k ? [[g.id, k] as const] : []; }));
+		const owns = (gid: string) => childKey(groupKeys.get(gid)) || ((k) => !!k && (k === span.key || k.startsWith(`${span.key}.`)))(stepsKeys.get(gid));
 		const groupOf = new Map<string, string>();
 		for (const g of host.groups()) for (const id of g.memberIds) groupOf.set(id, g.id);
 		const foreign = (b: ViewBlock) => {
 			if (planned.has(b.id)) return true;
 			const gid = groupOf.get(b.id);
-			return !!gid && !childKey(groupKeys.get(gid));
+			return !!gid && !owns(gid);
 		};
 		if ([span, ...children].some((s) => {
 			const end = blocks[s.end];
@@ -974,7 +1020,7 @@ export class TaskfoldConductor implements Conductor {
 		};
 		let viable = makeRuns();
 		for (const g of host.groups()) {
-			if (!childKey(groupKeys.get(g.id))) continue;
+			if (!owns(g.id)) continue;
 			const matching = viable.filter((r) => r.some((b) => g.memberIds.includes(b.id)));
 			if (matching.length && (matching.length !== 1 || g.memberIds.some((id) => !matching[0].some((b) => b.id === id)))) excludedGroups.add(g.id);
 		}
@@ -982,7 +1028,7 @@ export class TaskfoldConductor implements Conductor {
 		if (!viable.length) return null;
 		const memberIds = new Set(viable.flatMap((r) => r.map((b) => b.id)));
 		const positions = new Map(blocks.map((b, i) => [b.id, i]));
-		const ours = host.groups().filter((g) => childKey(groupKeys.get(g.id)) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
+		const ours = host.groups().filter((g) => owns(g.id) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
 
 		const included = new Set(viable.flatMap((r) => r.map((b) => b.id)));
 		const spanHandle = (task: Span) => ({ id: `t:${task.key}`, memberIds: blocks.filter((_b, i) => task.intervals.some((r) => r.start <= i && i <= r.end)).map((b) => b.id) });

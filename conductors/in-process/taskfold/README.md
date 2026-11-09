@@ -29,6 +29,8 @@ breaks once per epoch, at the oldest span folded in it.
 | a non-root parent finishes | one record that composes its children's records |
 | a root finishes | one history line: title, status, subtask counts, a short outcome and the codes of its direct children |
 | pressure reaches 80% of the budget inside an open root | its folded records, oldest first, become history lines until the projection is back under 60% |
+| pressure remains inside a still-open task | runs of its old finished steps (at least `steps.minSteps`, default 4) become step carriers `{"steps":"<key>","label":…,"count":…}`, oldest first; its start message, user messages, document reads and the tail dial stay live |
+| a task with step carriers finishes | its record absorbs them |
 
 A history line is never rewritten, merged or shortened afterwards. Recalling a root's code returns
 its full record; recalling a child's code returns that child. A task that ended `failed` or whose

@@ -387,13 +387,53 @@ describe("taskfold", () => {
 		expect(s.blocks.slice(tailFrom).every((b) => !host.truth.isFolded(host.truth.get(b.id)!))).toBe(true);
 	});
 
-	it("reports the largest open task when no safe folding can relieve pressure", async () => {
+	it("folds old steps of a long open task under pressure instead of saturating", async () => {
+		const s = new Session();
+		const go = s.user("Go.");
+		const start = s.start("1", "Long task").call;
+		s.work(12, "open");
+		const newest = s.blocks.at(-1)!.id;
+		const host = setup(s, 0.3);
+		await attach(host);
+		const steps = host.groups().filter((g) => carrier(g)?.steps === "work/1");
+		expect(steps.length).toBeGreaterThan(0);
+		expect(groupOf(host, start)).toBeUndefined();
+		expect(groupOf(host, go)).toBeUndefined();
+		expect(groupOf(host, newest)).toBeUndefined();
+		expect(host.stats().liveTokens).toBeLessThanOrEqual(host.stats().budget);
+		expect(host.statusLog.some((e) => e.metrics?.level === "error")).toBe(false);
+		expect(resolveRecall(host.truth, [foldCode(steps[0].id)]).missing).toEqual([]);
+	});
+
+	it("absorbs an open task's step carriers into its record when it finishes", async () => {
 		const s = new Session();
 		s.user("Go.");
 		s.start("1", "Long task");
 		s.work(12, "open");
 		const host = setup(s, 0.3);
 		await attach(host);
+		expect(host.groups().some((g) => carrier(g)?.steps === "work/1")).toBe(true);
+		const more = new Session();
+		Object.assign(more, { order: s.blocks.length, resp: 100, turn: 5 });
+		more.finish("1", { outcome: "Long task done." });
+		more.work(1, "next");
+		host.appendBlocks(more.blocks);
+		await host.commitTurn();
+		expect(host.groups().some((g) => carrier(g)?.steps !== undefined)).toBe(false);
+		const records = host.groups().filter((g) => taskKeyOfSummary(g.summary) === "work/1");
+		expect(records.length).toBeGreaterThan(0);
+	});
+
+	it("reports the largest open task when step folding is off and nothing else can relieve pressure", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Long task");
+		s.work(12, "open");
+		const host = setup(s, 0.3);
+		const c = new TaskfoldConductor({ keepRecentTasks: 0, steps: { enabled: false, minSteps: 4 } });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		await host.commitTurn();
 		const last = host.statusLog.at(-1);
 		expect(last?.text).toContain("open task work/1");
 		expect(last?.metrics?.level).toBe("error");
