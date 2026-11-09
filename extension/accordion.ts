@@ -80,7 +80,8 @@ import { estTokens } from "../core/tokens";
 import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage } from "../core/wire";
 import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
-import { resolveUnfold, resolveRecall } from "../core/agentView";
+import { resolveUnfold } from "../core/agentView";
+import { recallView } from "../core/recallView";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
 import {
@@ -4225,10 +4226,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "unfold", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});
 
-	// ── recall tool: an UNBLOCKABLE READ of folded content (ADR 0011) ───────────
-	// recall is the agent's counterpart to the human's "peek": it returns a folded block's
-	// ORIGINAL full content AS a tool result THIS turn (like read_file) and does NOT change
-	// what is standing in the agent's context — no override is created, the block stays folded.
+	// ── recall tool: an UNBLOCKABLE, BOUNDED READ of folded content (ADR 0011) ──
+	// recall returns folded content AS a tool result THIS turn (like read_file) without changing
+	// what is standing in the agent's context. A fold too large for one call's budget comes back as
+	// an index of addressable entries (`code.N`) and subtask codes, never whole (`core/recallView.ts`).
 	// Phase B: resolved LOCALLY against the Truth (a pure read, never a mutation). Because it
 	// changes no state it is never lockable — the net that keeps a locked `unfold` from blinding
 	// the agent. A `recall` observation is broadcast so clients/conductors can see the read.
@@ -4236,19 +4237,21 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		name: "recall",
 		label: "Recall Folded Content",
 		description:
-			"Read folded context WITHOUT changing what's standing in your context. Accordion (the live context manager attached to this session) may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`. The original content is preserved, not lost. Call this tool with the short code(s) from those tags to get the FULL original content back AS THIS tool's result, immediately — like reading a file. Unlike `unfold`, recall does NOT force the block open: your standing context is unchanged (the block stays folded), so recall costs nothing beyond this one tool result. Use it when you need folded detail RIGHT NOW for the current step.",
-		promptSnippet: "recall(codes) — read folded content right now (returned as the tool result; does not change your standing context).",
+			"Read folded context WITHOUT changing what's standing in your context. Accordion may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`; the original is preserved. Pass codes from those tags. A small fold comes back whole. A large fold (e.g. a finished task) comes back as an INDEX: subtask codes and numbered entries with previews — read one entry with `code.N` (e.g. \"3f9a2c.12\"), search the fold with `query` (case-insensitive literal text, returns excerpts with entry addresses), and page long results with `page`. Each call returns at most ~8k tokens, so prefer `query` or a specific entry over paging through everything.",
+		promptSnippet: "recall(codes, query?, page?) — read folded content now, bounded: whole if small, else an index; `code.N` reads one entry, `query` searches.",
 		promptGuidelines: [
-			"When you see a `{#<code> FOLDED}` marker and need the full content for the current step, call `recall` with the code(s) — the full original content comes back as this tool's result immediately, and your standing context is left unchanged (the block stays folded). Prefer `recall` over `unfold` when you only need the detail once; use `unfold` when you want the block to stay open across future turns.",
+			"When you see a `{#<code> FOLDED}` marker and need its detail for the current step, call `recall`. Your standing context is unchanged. For a large fold, search it with `query` for the specific value you need, or read one entry via `code.N` from its index, instead of paging through the whole fold. Use `unfold` only when a small block must stay open across turns.",
 		],
 		parameters: Type.Object({
-			codes: Type.Array(Type.String({ description: 'A fold code copied verbatim from a {#<code> FOLDED} tag, e.g. "3f9a2c". Always a string (codes may have leading zeros).' }), {
-				description: "One or more fold codes whose full original content to read.",
+			codes: Type.Array(Type.String({ description: 'A fold code from a {#<code> FOLDED} tag, e.g. "3f9a2c", or an entry address from a recall index, e.g. "3f9a2c.12". Always a string (codes may have leading zeros).' }), {
+				description: "One or more fold codes or entry addresses to read.",
 			}),
+			query: Type.Optional(Type.String({ description: "Case-insensitive literal text to search for inside the recalled content; returns matching excerpts with entry addresses." })),
+			page: Type.Optional(Type.Integer({ minimum: 1, description: "1-based page of an index, entry or search result, as named in the previous result." })),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
 			const codes = Array.isArray(params.codes)
-				? params.codes.map((s) => String(s).trim()).filter((s) => s.length > 0)
+				? params.codes.map((s) => String(s).trim().replace(/^#/, "")).filter((s) => s.length > 0)
 				: [];
 			if (!codes.length) {
 				return { content: [{ type: "text", text: 'No fold codes given. Pass the code(s) from a {#<code> FOLDED} tag, e.g. recall({codes:["3f9a2c"]}).' }] };
@@ -4256,30 +4259,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (!truth) {
 				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
 			}
-			const res = resolveRecall(truth, codes); // LOCAL, pure read — never mutates fold state
-			// Surface the read so clients/conductors can observe it (no Truth state changed). The
-			// broadcast reaches conductor-role sockets too (a remote conductor derives its recall
-			// observation from it); an in-process conductor gets the derived HostEvent via dispatchRecall.
-			if (res.restored.length) {
-				const ids = res.restored.flatMap((r) => r.ids);
+			// LOCAL, pure read — never mutates fold state.
+			const view = recallView(truth, { codes, query: typeof params.query === "string" ? params.query : undefined, page: typeof params.page === "number" ? params.page : undefined });
+			const ids = view.items.flatMap((r) => r.ids);
+			if (ids.length) {
 				broadcast({ type: "recall", ids, by: "agent" });
 				liveHost.dispatchRecall(ids, "agent");
 			}
-			// The defining difference from `unfold`: echo the FULL original content back THIS turn,
-			// one text block per recalled item, each prefixed with its label + code so the agent
-			// knows what it is reading. A short note lists any codes that resolved to nothing.
-			const content: Array<{ type: "text"; text: string }> = [];
-			for (const r of res.restored) {
-				content.push({ type: "text", text: `[recalled ${r?.label ?? "block"} (#${r?.code ?? "?"})]\n${r?.text ?? ""}` });
-			}
-			if (res.missing.length) {
-				content.push({ type: "text", text: `No folded block for: ${res.missing.map((c) => "#" + c).join(", ")} (already full, or not in this session's context).` });
-			}
-			if (!content.length) {
-				// Defensive: every input code resolves to restored or missing, so this is unreachable.
-				content.push({ type: "text", text: "Nothing to recall." });
-			}
-			return { content, details: res };
+			// Details stay small: they are persisted with the tool result and must not duplicate the text.
+			const details = { restored: view.items.map(({ code, label, mode, ids: shown }) => ({ code, label, mode, ids: shown.length })), missing: view.missing, truncated: view.truncated };
+			return { content: [{ type: "text", text: view.text }], details };
 		},
 		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "recall", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});

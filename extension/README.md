@@ -209,8 +209,9 @@ This package registers three Pi skills:
 
 - **accordion-context-folding** — the `unfold` tool: restore a folded block into standing
   context (sticky, attributed to the agent).
-- **accordion-context-recall** — the `recall` tool: read a folded block's full content as
-  a tool result *without* mutating the view, like `read_file`. Never lockable.
+- **accordion-context-recall** — the `recall` tool: read folded content as a tool result
+  *without* mutating the view, like `read_file`. Bounded per call: a large fold comes back as an
+  index that can be searched (`query`) or read entry by entry (`code.N`). Never lockable.
 - **accordion-task-lists** — create and validate nested task-list JSON from an implementation plan;
   includes a Node validator and field reference.
 

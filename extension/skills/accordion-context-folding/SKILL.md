@@ -30,21 +30,22 @@ The tool returns a confirmation. The restored content appears in your context **
 
 ## Reading folded content right now (recall)
 
-If you need the full content of a folded block **for the current step** but do not want to change your standing context, call `recall` instead of `unfold`:
+If you need folded content **for the current step** but do not want to change your standing context, call `recall` instead of `unfold`:
 
 ```
 recall({codes: ["3f9a2c"]})
-recall({codes: ["3f9a2c", "00a2cd"]})
+recall({codes: ["3f9a2c"], query: "parseConfig"})
+recall({codes: ["3f9a2c.12"]})
 ```
 
-`recall` returns the block's full original content **as this tool's result, immediately** — like reading a file. It does **not** force the block open: your standing context is unchanged (the block stays folded), so it costs nothing beyond this one result.
+`recall` answers **as this tool's result, immediately**, and is bounded to ~8k tokens per call. A small fold comes back whole; a large one comes back as an index of subtask codes and numbered entries. Search it with `query` or read one entry with `code.N`. Your standing context is unchanged.
 
 Choose between them:
 
-- **recall** — read it once, now. Content comes back as the tool result this turn; your context is untouched.
+- **recall** — read it once, now, bounded. Content (or an index of a large fold) comes back as the tool result this turn; your context is untouched.
 - **unfold** — keep it open. The block returns to your context on your **next** turn and stays open until the human re-folds it.
 
-Prefer `recall` when you just need to glance at a value or quote; use `unfold` when you will keep referring to the block over several turns.
+Prefer `recall` when you just need to glance at a value or quote; use `unfold` only for a small block you will keep referring to over several turns. Never unfold a large finished task to read one detail: search it with `recall`.
 
 ## What to unfold
 

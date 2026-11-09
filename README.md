@@ -159,7 +159,8 @@ tight, finished tasks fold into fixed-shape records: outcome, decisions, files c
 open items. User messages stay verbatim unless a classifier model says losing them costs nothing,
 as with approvals, status checks and step steering. The newest finished task stays open, folding
 goes oldest first, and when that is not enough the oldest records shrink to one line and then to
-a stub; their fold codes still recall the full transcript. Starting a subtask starts its parents,
+a stub; their fold codes still reach the full transcript through `recall`, which returns a large
+fold as a searchable, addressable index rather than all at once. Starting a subtask starts its parents,
 and the agent is reminded when it works outside any task.
 
 While taskfold is attached, the task list sits above the editor. Collapsed it shows progress,
