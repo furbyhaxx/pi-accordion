@@ -71,13 +71,25 @@ export function makeChrome(theme: ChromeTheme, level: string | null): Chrome {
 	const mode = theme.getColorMode?.() ?? "256color";
 	const accent = theme.colors?.accent;
 	const activeOpen = accent ? `${foregroundAnsi(contrast(accent), mode)}${backgroundAnsi(accent, mode)}\x1b[1m` : "";
+	// Inactive chips: a real neutral background token, else the muted border color as background.
 	let grey = "";
-	try {
-		grey = theme.getBgAnsi?.("selectedBg") ?? "";
-	} catch {
-		grey = "";
+	let greyFg = "";
+	for (const token of ["toolPendingBg", "selectedBg"]) {
+		try {
+			const bg = theme.getBgAnsi?.(token) ?? "";
+			if (bg && bg !== "\x1b[49m") {
+				grey = bg;
+				break;
+			}
+		} catch {
+			// a theme without this token
+		}
 	}
-	if (grey === "\x1b[49m") grey = "";
+	const border = theme.colors?.borderMuted;
+	if (!grey && border) {
+		grey = backgroundAnsi(border, mode);
+		greyFg = foregroundAnsi(contrast(border), mode);
+	}
 	let paintRule: ((text: string) => string) | null = null;
 	if (level && theme.getThinkingBorderColor) {
 		try {
@@ -94,7 +106,8 @@ export function makeChrome(theme: ChromeTheme, level: string | null): Chrome {
 				if (activeOpen) return `${activeOpen}${label}\x1b[22m\x1b[39m\x1b[49m`;
 				return theme.bold(theme.inverse ? theme.inverse(label) : label);
 			}
-			return grey ? `${grey}${theme.fg("muted", label)}\x1b[49m` : theme.fg("muted", label);
+			if (!grey) return theme.fg("muted", label);
+			return greyFg ? `${greyFg}${grey}${label}\x1b[39m\x1b[49m` : `${grey}${theme.fg("muted", label)}\x1b[49m`;
 		},
 	};
 }

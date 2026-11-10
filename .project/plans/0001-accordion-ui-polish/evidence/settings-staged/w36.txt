@@ -17,7 +17,7 @@ LL.md (skipped)
   /compact behavi…  ‹ accordion ›
   Web UI address    127.0.0.1
   Web UI door port  0           user
-  Web access token  mutu3daq (gener…
+  Web access token  naqu2mer (gener…
 
 
 

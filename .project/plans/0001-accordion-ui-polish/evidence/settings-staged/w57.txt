@@ -17,7 +17,7 @@ shell/extension/skills/accordion-context-recall/SKILL.md
   /compact behavior     ‹ accordion ›             default
   Web UI address        127.0.0.1                 default
   Web UI door port      0                            user
-  Web access token      pudu7vux (generated)      default
+  Web access token      ruru6daq (generated)      default
 
 
 

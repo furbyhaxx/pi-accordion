@@ -17,7 +17,7 @@
   /compact behavior     ‹ accordion ›                                                                                                default
   Web UI address        127.0.0.1                                                                                                    default
   Web UI door port      0                                                                                                               user
-  Web access token      cefe3zab (generated)                                                                                         default
+  Web access token      deha6ker (generated)                                                                                         default
 
 
 
