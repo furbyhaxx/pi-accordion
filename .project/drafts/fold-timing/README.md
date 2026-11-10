@@ -5,21 +5,21 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Proposal from the audit of a nukular-ai docs-baseline session: selectable fold timing (eager, lazy, pressure), a cache anchor for eager folds, provider cache profiles, high hard report limits without cutting, fixes for row accounting and message routing, and a debug mode"
   status: "draft"
-  revision: 1
+  revision: 2
   created_at: "2026-11-10T09:45:42+01:00"
-  updated_at: "2026-11-10T09:45:42+01:00"
+  updated_at: "2026-11-10T09:59:03+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "audit of a 1,480-request Taskfold session showed that no task folded on completion"
-      changes: ["initial proposal with verified cache semantics and a validated timing simulation"]
+    - revision: 2
+      reason: "the user answered the four open questions"
+      changes: ["open questions replaced by decisions", "root history carries the whole outcome"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
 
 Amends `.project/specs/0002-taskfold-tree.md` §3.4 (report limits), §6.2 (record cap), §8 (fold
-lifecycle) and §12 (settings) once decided. It corrects §8 of
+lifecycle), §6.3 (history outcome) and §12 (settings). Decided (§6); next step is a plan. It corrects §8 of
 `.project/analyses/fold-representations/README.md`.
 
 ## 1. What the audit found
@@ -205,6 +205,7 @@ Hard caps stay, set high, and the store never cuts what the agent wrote.
 
 - The tool description and the JSON schema state each limit as a number (`maxLength`,
   `maxItems`).
+- Root history entries carry the whole outcome (SPEC-0002 §6.3 cuts it to 160 characters today).
 - A rejected call lists every violation with its length and the limit, not only the first.
 - `recordTokens` applies to a record's children only: over the cap, the deepest children become
   history entries. A task's own report never keeps it raw. The cap is measured on the raw
@@ -251,12 +252,11 @@ as a session entry). When on, the extension appends JSONL to
 5. Bracket tail (§4.2 step 1); re-run `timing_sim.py` against debug logs of real eager sessions.
 6. Frontier breakpoint for Anthropic, only if slice 5's logs still show misses at folds.
 
-## 6. Open questions
+## 6. Decisions (user, 2026-11-10)
 
-1. Root history cuts the outcome to 160 characters (SPEC-0002 §6.3). The full report stays
-   recallable. Keep the cut, or show the whole outcome in history too?
-2. Default mode: `eager` for every provider, or `lazy` for providers without a verified cache
-   profile?
-3. Proposed limit values in §4.4: high enough?
-4. Debug log location: `~/.accordion/debug/` (next to the existing config) or an XDG state
-   directory?
+| # | Decision |
+|---|---|
+| 1 | Root history shows the whole outcome; the 160-character cut of SPEC-0002 §6.3 is removed. |
+| 2 | `eager` is the default for every provider, verified cache profile or not. |
+| 3 | The limit values of §4.4 are accepted. |
+| 4 | The debug log lives in `~/.accordion/debug/`. |
