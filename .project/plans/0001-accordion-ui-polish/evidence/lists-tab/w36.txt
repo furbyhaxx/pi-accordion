@@ -1,0 +1,30 @@
+
+── Accordion › Lists ───────────────
+ …❱ Tasks ❱ Lists ❱ Conductors … 3/5
+ ⌕ Type to filter…
+
+   No task lists in this project ye…
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────
+ 0 task lists in this project.
+ f1 help · esc close
+────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Taskfold

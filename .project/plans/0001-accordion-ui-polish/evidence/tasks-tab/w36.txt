@@ -1,0 +1,30 @@
+
+── Accordion › Tasks ───────────────
+ ❱ Context ❱ Tasks ❱ Lists … 2/5
+ ⌕ Type to filter…
+
+   Nothing ran in this session yet.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────
+ 0/0 · This session's work by task.
+ f1 help · esc close
+────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Taskfold
