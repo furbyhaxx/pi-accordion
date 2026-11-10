@@ -1,0 +1,7 @@
+messages 3191 requests 1510 tasks 68 finished 68 crossing 0 leaves 60 | fit S=35693 k=1.926 (first fold at message 305)
+REAL  input 248.1M read 242.7M write 5.39M mean 164298
+
+== anthropic-1h (ttl 3600s, lookback 20) ==
+policy | frontier bp | bracket | fold events | mean input | peak | read M | write M | cost M (sonnet/opus 5.5) | cost M (standard)
+shipped | 0 | no | 30 | 156273 | 217551 | 231.5 | 4.45 | 20.48 | 32.06
+pressure | 0 | no | 23 | 155582 | 217307 | 230.5 | 4.45 | 20.43 | 31.95
