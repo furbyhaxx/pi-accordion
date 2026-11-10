@@ -66,8 +66,7 @@ import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdicts
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { createRouting } from "./taskRouting";
-import { TASK_SCREEN_OPTIONS } from "./tui/taskLists";
-import { TaskViews, refusalMessage, type TaskViewsHost } from "./tui/taskViews";
+import { refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource, transcriptSpans } from "./tui/taskTranscript";
 import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
@@ -3653,6 +3652,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			threshold: () => taskfoldVerdicts.threshold,
 			lists: () => current() && taskListSnapshot?.project === openedProject && taskListSnapshot.session === openedPiSession ? taskListSnapshot.lists : [],
 			invalid: () => current() ? taskListSnapshot?.invalid ?? [] : [],
+			rescan: () => void scanTaskLists(),
 			canSteer: () => {
 				refreshControllerNow();
 				return current() && holdsControl(surfaceId, openedSessionId);
@@ -3761,25 +3761,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
-	/** Run `body` with a claimed surface; the surface is released from this extension afterwards. */
-	async function withTaskViews(ctx: ExtensionCommandContext, body: (host: TaskViewsHost) => Promise<void>): Promise<void> {
-		const openedSessionId = sessionId;
-		const resumeWidget = taskWidget.suspend();
-		let surface: string | null = null;
-		try {
-			const control = await claimNativeControl(ctx, openedSessionId, "Changing folds from the task views");
-			if (!control) return;
-			surface = control.surfaceId;
-			await body(taskViewsHost(surface, openedSessionId));
-		} finally {
-			if (surface && nativeSurfaceId === surface) nativeSurfaceId = null;
-			resumeWidget();
-		}
-	}
-
 	// ── /accordion : open the native context panel ─────────────────────────────
-	const ACCORDION_USAGE = "[context | conductors | settings | sessions | compact | web | tasks | budget | tail]";
-	const PANEL_TAB_ALIASES: Record<string, PanelTabId | undefined> = { context: "context", blocks: "context", conductors: "conductors", conductor: "conductors", settings: "settings", config: "settings" };
+	const ACCORDION_USAGE = "[context | tasks tree | tasks lists | conductors | settings | sessions | compact | web | tasks | budget | tail]";
+	const PANEL_TAB_ALIASES: Record<string, PanelTabId | undefined> = { context: "context", blocks: "context", "tasks tree": "tasks", "tasks open": "tasks", "tasks lists": "lists", "tasks list": "lists", lists: "lists", conductors: "conductors", conductor: "conductors", settings: "settings", config: "settings" };
 	pi.registerCommand("accordion", {
 		description: `${ACCORDION_USAGE} — open the Accordion context panel`,
 		getArgumentCompletions: (text: string) => {
@@ -3857,26 +3841,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				await dumpTranscript(tasksDump[1], ctx);
 				return;
 			}
-			const tasksArg = /^tasks(?:\s+(\S+))?$/.exec(argument);
+			const tasksArg = PANEL_TAB_ALIASES[argument] ? null : /^tasks(?:\s+(\S+))?$/.exec(argument);
 			if (tasksArg) {
 				const verb = tasksArg[1] ?? "toggle";
-				if (verb === "lists" || verb === "list") {
-					if (ctx.mode !== "tui" || !ctx.hasUI || !taskSession) ctx.ui.notify("Task lists are browsed in the Pi terminal UI.", "info");
-					else {
-						const session = taskSession;
-						await withTaskViews(ctx, (viewsHost) =>
-							session
-								.browse(ctx.ui, "manage", (tui, theme, keys, slug, close) => new TaskViews(tui, theme, keys, viewsHost, { kind: "list", slug }, close, () => tui?.terminal?.rows ?? 30))
-								.then(() => undefined),
-						);
-					}
-					return;
-				}
-				if (verb === "tree") {
-					if (ctx.mode !== "tui" || !ctx.hasUI) ctx.ui.notify("The tasks tree opens in the Pi terminal UI.", "info");
-					else await withTaskViews(ctx, (viewsHost) => ctx.ui.custom<void>((tui, theme, keys, done) => new TaskViews(tui, theme, keys, viewsHost, { kind: "session" }, () => done(undefined), () => tui?.terminal?.rows ?? 30), TASK_SCREEN_OPTIONS));
-					return;
-				}
 				if (verb === "toggle") taskWidget.toggle();
 				else if (verb === "expand" || verb === "show") taskWidget.setExpanded(verb === "expand" || !!settings.taskWidget.expanded);
 				else if (verb === "collapse") taskWidget.setExpanded(false);
@@ -3897,6 +3864,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				ctx.ui.notify(`Accordion: ${truth?.blocks.length ?? 0} blocks · folding ${foldingEnabled ? "on" : "off"}. Open /accordion in the Pi TUI to manage context.`, "info");
+				return;
+			}
+			if (startTab === "lists" && !taskSession) {
+				ctx.ui.notify("Task lists need a conductor that provides the tasks tool (Taskfold). Attach it in /accordion conductors.", "info");
 				return;
 			}
 			const openedSessionId = sessionId;
@@ -3963,6 +3934,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				saveDialDefault: (kind, value) => saveDialDefault(kind, value),
 				compactNow: () => compactNow(),
 				listSessions: () => discoverNativeSessions(),
+				tasks: { views: taskViewsHost(surfaceId, openedSessionId), lists: taskSession?.listsHost() ?? null },
 				command: (command) => {
 					refreshControllerNow();
 					const lease = controllerLease;
@@ -3993,6 +3965,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						truth: () => sessionId === openedSessionId ? remoteHost.truth() : null,
 						sessionLabel: () => `${target?.title || "Pi session"} · ${target?.cwd || ""}`,
 						sessionId: () => target?.sessionId ?? "",
+						tasks: undefined,
 						canSteer: () => !!localHost.canSteer?.() && !!remoteHost.canSteer?.(),
 						controlMessage: () => localHost.controlMessage?.() ?? null,
 						thinkingLevel: () => localHost.thinkingLevel?.() ?? null,

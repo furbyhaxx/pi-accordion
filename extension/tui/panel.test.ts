@@ -8,6 +8,8 @@ import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { AccordionTuiHost } from "./host";
 import { CHROME_ROWS } from "./chrome";
 import { openAccordionPanel, type PanelTabId } from "./panel";
+import type { TaskTabsHost } from "./screens/tasks";
+import type { TaskList } from "../tasks";
 
 function block(id: string, order: number): Block {
 	return { id, order, kind: "text", turn: 1, text: `content ${id}`, tokens: 20, override: null, autoFolded: false, by: null };
@@ -17,7 +19,7 @@ const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.do
 const K = { up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
 const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
-function setup(delayed = false, start?: PanelTabId) {
+function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
 	let currentTruth: Truth | null = truth;
@@ -68,6 +70,7 @@ function setup(delayed = false, start?: PanelTabId) {
 			return delayed ? new Promise((resolve) => { resolveCommand = () => resolve(result); }) : result;
 		},
 		subscribe: (fn) => { listener = fn; return () => { disposed = true; }; },
+		...(tasks ? { tasks } : {}),
 	};
 	let component: { handleInput(data: string): void; render(width: number): string[]; dispose?(): void } | undefined;
 	let finish = () => {};
@@ -419,6 +422,51 @@ describe("accordion panel", () => {
 			expect(s.panel.render(100)[0].replace(/ · ▲.*$/, "")).toBe(rule.replace(/ · ▲.*$/, ""));
 			s.close(); await s.opening;
 		}
+	});
+
+	test("task tabs: printable keys never act, every line fits, the height stays fixed", async () => {
+		const at = new Date().toISOString();
+		const list: TaskList = { slug: "plan", title: "Plan", createdAt: at, updatedAt: at, claim: null, goals: [{ id: "g1", text: "Ship it" }],
+			tasks: [{ id: "1", title: "First", status: "done", createdAt: at, startedAt: at, endedAt: at, updatedAt: at, report: { outcome: "ok" } }, { id: "2", title: "Second", status: "todo", createdAt: at, updatedAt: at }] };
+		const acted: string[] = [];
+		const act = (name: string) => { acted.push(name); return { ok: false as const, message: name }; };
+		const tasks = (truth: () => Truth | null): TaskTabsHost => ({
+			views: { truth, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => true, apply: async () => { acted.push("apply"); return "Applied."; }, subscribe: () => () => {} },
+			lists: { lists: () => [list], session: () => "s1", attach: () => act("attach"), release: () => act("release"), create: () => act("create") },
+		});
+		const printable = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i));
+		const reach: Record<string, string[]> = { tasks: [K.tab], lists: [K.tab, K.tab], tree: [K.tab, K.tab, K.enter], details: [K.tab, K.tab, K.enter, K.enter], context: [K.tab, K.tab, K.alt("g")] };
+		for (const [name, path] of Object.entries(reach)) {
+			let truth: Truth | null = null;
+			const s = setup(false, undefined, tasks(() => truth));
+			truth = s.truth;
+			const height = s.panel.render(100).length;
+			for (const key of path) s.panel.handleInput(key);
+			expect([name, s.screen()]).toEqual([name, expect.stringContaining("❱ Tasks ❱ Lists ❱")]);
+			for (const width of [36, 57, 80, 140]) {
+				const lines = s.panel.render(width);
+				expect([name, width, lines.length]).toEqual([name, width, height]);
+				expect([name, width, lines.every((line) => visibleWidth(line) <= width)]).toEqual([name, width, true]);
+			}
+			const crumbs = s.panel.render(100)[0].split("──")[1];
+			for (const key of printable) s.panel.handleInput(key);
+			await tick();
+			expect([name, acted, s.commands]).toEqual([name, [], []]);
+			expect([name, s.panel.render(100)[0].split("──")[1]]).toEqual([name, crumbs]);
+			s.panel.handleInput(K.esc);
+			s.close(); await s.opening;
+		}
+		const s = setup(false, "lists", tasks(() => null));
+		expect(s.screen()).toContain("→ ○ plan");
+		s.panel.handleInput(K.alt("n"));
+		for (const key of "New one") s.panel.handleInput(key);
+		expect(s.screen()).toContain("Title: New one");
+		expect(acted).toEqual([]);
+		s.panel.handleInput(K.esc);
+		expect(s.screen()).toContain("→ ○ plan");
+		s.panel.handleInput(K.alt("t"));
+		expect(acted).toEqual(["attach"]);
+		s.close(); await s.opening;
 	});
 
 	test("global settings are staged, saved with ctrl+s, and a dirty close asks first", async () => {

@@ -4,11 +4,11 @@
  * attachment changed outside its own tool calls.
  */
 import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
-import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, releasedNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
+import { BINDING_ENTRY, holderLabel, agentNotice, attachedNotice, previousBinding, releasedNotice, resumeSituation, type AttachOutcome, type BindingRecord, type ResumeSituation } from "./taskBinding";
 import { changedNotice, listDelta, routedNotice, waitingNotice } from "./taskNotices";
 import type { AppliedOp } from "./taskRouting";
-import { TaskError, slugFor, taskFingerprint, type TaskList, type TaskStore } from "./tasks";
-import { ResumeDialog, TASK_SCREEN_OPTIONS, TaskListsBrowser, type ListDrillDown, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
+import { TaskError, claimState, slugFor, taskFingerprint, type TaskList, type TaskStore } from "./tasks";
+import { ResumeDialog, formatAge, type ResumeChoice, type TaskListsHost } from "./tui/taskLists";
 
 /** The custom message type that carries task list notes to the agent. */
 export const NOTICE_MESSAGE = "accordion.tasks.notice";
@@ -16,6 +16,8 @@ export const NOTICE_MESSAGE = "accordion.tasks.notice";
 /** The subset of Pi's UI the task list dialogs need. */
 export interface TaskSessionUi {
 	custom<T>(factory: (tui: any, theme: any, keys: any, done: (value: T) => void) => any, options?: Parameters<ExtensionUIContext["custom"]>[1]): Promise<T>;
+	select(title: string, options: string[]): Promise<string | undefined>;
+	input(title: string, placeholder?: string): Promise<string | undefined>;
 }
 
 export interface TaskSessionDeps {
@@ -82,7 +84,7 @@ export class TaskSession {
 			const choice = r?.choice ?? "without";
 			if (choice === "without") return this.settle(situation, { kind: "without" });
 			if (choice === "pick") {
-				const picked = await this.browse(ui, "pick");
+				const picked = await this.pick(ui);
 				if (picked) return this.settle(situation, picked);
 				continue;
 			}
@@ -100,19 +102,45 @@ export class TaskSession {
 		this.deps.changed();
 	}
 
-	/**
-	 * Open the list browser; in `pick` mode resolve with the list the user attached or created.
-	 * `openList` adds the drill-down screens behind Enter in `manage` mode.
-	 */
-	async browse(ui: TaskSessionUi, mode: "manage" | "pick", openList?: (tui: any, theme: any, keys: any, slug: string, close: () => void) => ListDrillDown): Promise<AttachOutcome | null> {
-		const host = mode === "manage" ? this.noticingHost() : this.host();
-		const outcome = await ui.custom<AttachOutcome | null>(
-			(tui, theme, keys, done) =>
-				new TaskListsBrowser(tui, theme, keys, host, mode, done, () => tui?.terminal?.rows ?? 30, mode === "manage" && openList ? (slug, close) => openList(tui, theme, keys, slug, close) : undefined),
-			TASK_SCREEN_OPTIONS,
-		);
-		this.deps.changed();
-		return outcome;
+	/** Ask which list to attach instead, or start a new one; null when the user backs out. */
+	private async pick(ui: TaskSessionUi): Promise<AttachOutcome | null> {
+		const host = this.host();
+		const lists = host.lists();
+		const now = Date.now();
+		const safe = (text: string) => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
+		const label = (l: TaskList) => {
+			const state = claimState(l, host.session(), now);
+			const done = l.tasks.filter((t) => t.status === "done").length;
+			return `${l.slug} · ${done}/${l.tasks.length} · ${state === "held" && l.claim ? `held by ${holderLabel(l.claim)}` : state} · ${formatAge(now - Date.parse(l.updatedAt))} · ${safe(l.title)}`;
+		};
+		const create = "Start a new list…";
+		const options = [...lists.map(label), create];
+		const chosen = await ui.select("Attach which task list?", options);
+		if (this.disposed || chosen === undefined) return null;
+		if (chosen === create) {
+			const title = (await ui.input("New task list: title"))?.trim();
+			if (this.disposed || !title) return null;
+			const goal = (await ui.input("New task list: goal (the end state it delivers)"))?.trim();
+			if (this.disposed || !goal) return null;
+			const r = this.create(title, goal);
+			return r.ok ? { kind: "created", list: r.list } : null;
+		}
+		const list = lists[options.indexOf(chosen)];
+		if (!list) return null;
+		let force = false;
+		if (claimState(list, host.session()) === "held" && list.claim) {
+			const keep = `Leave it with ${holderLabel(list.claim)}`;
+			const answer = await ui.select(`Take over "${list.slug}"? That session's agent can no longer change the list.`, [keep, `Take over "${list.slug}"`]);
+			if (this.disposed || answer === undefined || answer === keep) return null;
+			force = true;
+		}
+		const r = this.attach(list.slug, force);
+		return r.ok ? { kind: "replaced", list: r.list } : null;
+	}
+
+	/** Store actions for the Lists tab: every attachment change the user makes is also told to the agent. */
+	listsHost(): TaskListsHost {
+		return this.noticingHost();
 	}
 
 	/** Store actions for the dialogs; attaching releases this session's other lists. */

@@ -14,6 +14,8 @@ const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t, strike
 function fakeUi() {
 	let current: { render(w: number): string[]; handleInput(d: string): void } | null = null;
 	const opened: Array<() => void> = [];
+	const asked: { title: string; options: string[] }[] = [];
+	const answers: Array<(options: string[]) => string | undefined> = [];
 	const ui: TaskSessionUi = {
 		custom<T>(factory: (tui: unknown, theme: unknown, keys: unknown, done: (v: T) => void) => any) {
 			return new Promise<T>((resolve) => {
@@ -24,10 +26,19 @@ function fakeUi() {
 				opened.splice(0).forEach((f) => f());
 			});
 		},
+		async select(title: string, options: string[]) {
+			asked.push({ title, options });
+			return answers.shift()?.(options);
+		},
+		async input() {
+			return undefined;
+		},
 	};
 	const next = () => new Promise<void>((r) => (current ? r() : opened.push(r)));
 	return {
 		ui,
+		asked,
+		answers,
 		async screen() {
 			await next();
 			return current!.render(100).join("\n");
@@ -140,10 +151,11 @@ describe("task session", () => {
 		const ts = new TaskSession({ store: () => s.mine, session: () => "s1", enabled: () => true, appendEntry: () => {}, changed: () => {} });
 		const ui = fakeUi();
 		ts.start([{ type: "custom", customType: BINDING_ENTRY, timestamp: new Date().toISOString(), data: { slug: "a" } }], "resume", ui.ui);
+		ui.answers.push((options) => options.find((o) => o.startsWith("b ·")));
 		await ui.press("down", "enter");
-		const browser = await ui.screen();
-		expect(browser).toContain("Choose a task list");
-		await ui.press(...(browser.split("\n").find((l) => l.startsWith("›"))!.includes(" b ") ? [] : ["down"]), "enter");
+		await new Promise((r) => setTimeout(r, 0));
+		expect(ui.asked[0].title).toBe("Attach which task list?");
+		expect(ui.asked[0].options.at(-1)).toBe("Start a new list…");
 		const note = await ts.takeNotice();
 		expect(note).toStartWith('Your previous task list "a" is now claimed by session s2 "Other work"; you cannot change it from this session. The user attached task list "b"');
 		expect(s.mine.read("b").claim?.session).toBe("s1");

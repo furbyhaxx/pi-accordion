@@ -80,7 +80,7 @@ export function flattenTree<D>(roots: readonly TreeNode<D>[], open: ReadonlyMap<
 /** One rendered row: marker, connectors, expander, label, then meta and the right value as room allows. */
 export function treeRowLine(row: TreeRow, selected: boolean, width: number, mark: (s: string) => string, dim: (s: string) => string): string {
 	const expander = row.branch ? (row.open ? "▼ " : "▶ ") : "  ";
-	const head = `${selected ? mark("›") : " "}${dim(row.prefix)}${dim(expander)}${row.node.label}`;
+	const head = `${selected ? mark("→") : " "}${dim(row.prefix)}${dim(expander)}${row.node.label}`;
 	const meta = row.node.meta ?? [];
 	const right = row.node.right ?? "";
 	for (let n = meta.length; n >= 0; n--) {
@@ -97,7 +97,6 @@ export class TreeState<D = unknown> {
 	readonly open = new Map<string, boolean>();
 	selected: string | null = null;
 	query = "";
-	filtering = false;
 	private scroll = 0;
 	private last: TreeRow<D>[] = [];
 
@@ -149,6 +148,11 @@ export class TreeState<D = unknown> {
 		if (i >= this.scroll + height) this.scroll = i - height + 1;
 		this.scroll = Math.max(0, Math.min(this.scroll, Math.max(0, rows.length - height)));
 		return rows.slice(this.scroll, this.scroll + height).map((r) => treeRowLine(r, r.node.key === this.selected, width, mark, dim));
+	}
+
+	/** Rows above and below the window last rendered at `height`. */
+	hidden(height: number): { above: number; below: number } {
+		return { above: this.scroll, below: Math.max(0, this.last.length - this.scroll - height) };
 	}
 
 	/** `12/40` position text for the status line. */

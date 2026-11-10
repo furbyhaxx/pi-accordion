@@ -71,7 +71,7 @@ describe("dashboard chrome", () => {
 
 	test("body height is fixed per terminal size", () => {
 		expect(bodyRowsFor(16)).toBe(4);
-		expect(bodyRowsFor(50)).toBe(14);
+		expect(bodyRowsFor(50)).toBe(20);
 		expect(bodyRowsFor(8)).toBe(3);
 	});
 });

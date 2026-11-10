@@ -1,14 +1,33 @@
 import { describe, expect, it } from "bun:test";
-import { visibleWidth } from "@earendil-works/pi-tui";
 import { foldCode, foldTag } from "../../core/digest";
 import { foldedTaskIds, foldedTaskTokens } from "./taskWidget";
 import { Truth } from "../../core/truth";
 import type { TaskList } from "../tasks";
 import { sessionTranscript, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TranscriptSource } from "./taskTranscript";
-import { TaskViews, detailLines, listDetailLines, listNodes, transcriptNodes, type TaskViewsHost, type ViewData } from "./taskViews";
+import { TASK_LEGEND, TaskViews, detailLines, listDetailLines, listNodes, transcriptNodes, type TaskViewsHost, type TaskViewsStart, type ViewData } from "./taskViews";
 import { flattenTree, treeRowLine } from "./treeView";
 
 const theme = { fg: (_c: string, s: string) => s, bold: (s: string) => s, strikethrough: (s: string) => s };
+const BIND: Record<string, string> = { "tui.select.confirm": "\r", "tui.select.cancel": "\x1b", "tui.select.up": "\x1b[A", "tui.select.down": "\x1b[B" };
+const keys = { matches: (data: string, binding: string) => BIND[binding] === data, getKeys: () => [] };
+const alt = (key: string) => `\x1b${key}`;
+const RIGHT = "\x1b[C", DOWN = "\x1b[B", ENTER = "\r", ESC = "\x1b";
+
+/** The screens as the panel shell drives them: Esc goes back, everything else is a key. */
+function open(host: TaskViewsHost, start: TaskViewsStart) {
+	const said: string[] = [];
+	const v = new TaskViews({ theme: () => theme, keys: () => keys, say: (text) => void said.push(text), confirm() {}, update() {} }, host, start);
+	return {
+		v,
+		said,
+		press: (...input: string[]) => input.map((d) => (d === ESC ? v.back() : v.key(d))),
+		screen: (width = 140, rows = 30) => {
+			const view = v.view(width, rows);
+			return [view.crumbs.join(" › "), ...view.body, view.description].join("\n");
+		},
+	};
+}
+
 const at = (min: number) => new Date(Date.UTC(2026, 10, 5, 9, min, 0)).toISOString();
 
 const list: TaskList = {
@@ -78,14 +97,10 @@ describe("task views", () => {
 			expect(lines).toContain(text);
 		expect(listDetailLines(enriched, theme).join("\n")).toContain("Explicit list goal");
 		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [{ ...enriched, tasks: [] }], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
-		const v = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);
-		v.handleInput("g");
-		for (const width of [36, 57, 80, 140]) {
-			const shown = v.render(width);
-			expect(shown.join("\n")).toContain("Explicit list goal");
-			expect(shown.every((line) => visibleWidth(line) <= width)).toBe(true);
-		}
-		v.dispose();
+		const o = open(host, { kind: "list", slug: "l" });
+		o.press(alt("g"));
+		for (const width of [36, 57, 80, 140]) expect(o.screen(width)).toContain("Explicit list goal");
+		o.v.dispose();
 	});
 
 	it("lists plan time, wait, run, report and the recorded facts in the details", () => {
@@ -142,7 +157,7 @@ describe("task views", () => {
 		expect(steps.some((l) => l.startsWith("✓ edit  src/a.ts"))).toBe(true);
 	});
 
-	it("renders cached snapshots and refreshes metadata only outside rendering", () => {
+	it("renders cached snapshots and rebuilds them once per change", () => {
 		const truth = truthOf();
 		const project = truth.projectContext.bind(truth);
 		let projections = 0, reads = 0;
@@ -151,16 +166,18 @@ describe("task views", () => {
 		let changed = () => {};
 		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => { reads++; return lists; }, canSteer: () => false, apply: async () => "",
 			subscribe: (listener) => { changed = listener; return () => {}; } };
-		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);
+		const o = open(host, { kind: "list", slug: "l" });
+		o.screen();
 		const initialProjections = projections;
-		for (let i = 0; i < 3; i++) for (const width of [36, 57, 80, 140]) view.render(width);
+		for (let i = 0; i < 3; i++) for (const width of [36, 57, 80, 140]) o.screen(width);
 		expect(reads).toBe(1);
 		expect(projections).toBe(initialProjections);
-		lists = [{ ...list, goals: [{ id: "g1", text: "Updated goal" }] }]; changed(); view.handleInput("g");
+		lists = [{ ...list, goals: [{ id: "g1", text: "Updated goal" }] }]; changed(); o.press(alt("g"));
 		const afterRefresh = { reads, projections };
-		for (const width of [36, 57, 80, 140]) expect(view.render(width).join("\n")).toContain("Updated goal");
+		for (const width of [36, 57, 80, 140]) expect(o.screen(width)).toContain("Updated goal");
 		expect({ reads, projections }).toEqual(afterRefresh);
-		view.dispose();
+		expect(reads).toBe(2);
+		o.v.dispose();
 	});
 
 	it("does not reuse a different session's transcript at the same revision", () => {
@@ -168,63 +185,55 @@ describe("task views", () => {
 		let changed = () => {};
 		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => truth ? [list] : [], canSteer: () => !!truth, apply: async () => "",
 			subscribe: (listener) => { changed = listener; return () => {}; } };
-		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "session" }, () => {}, () => 40);
-		expect(view.render(140).join("\n")).toContain("Build the thing");
+		const o = open(host, { kind: "session" });
+		expect(o.screen()).toContain("Build the thing");
 		const next = truthOf(blocks().map((b, i) => i === 0 ? { ...b, text: "Replacement branch" } : b));
 		expect(next.rev).toBe(truth.rev);
 		truth = next; changed();
-		expect(view.render(140).join("\n")).toContain("Replacement branch");
+		expect(o.screen()).toContain("Replacement branch");
 		truth = null; changed();
-		expect(view.render(140).join("\n")).toContain("No session context yet");
-		view.dispose();
+		expect(o.screen()).toContain("No session context yet");
+		o.v.dispose();
 	});
 
-	it("keeps inspection controls inside a short terminal viewport", () => {
-		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [{ ...list, goal: "A long goal with enough context to wrap across several narrow terminal rows." }], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
-		const keys = { matches: (input: string, key: string) => input === ({ "tui.select.confirm": "\r", "tui.select.cancel": "\x1b" } as Record<string, string>)[key] };
-		const view = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "list", slug: "l" }, () => {}, () => 10);
-		for (const input of ["g", "\x1b", "\r", "\x1b", "?"]) {
-			view.handleInput(input);
+	it("keeps every screen's body inside the rows it was given", () => {
+		const host: TaskViewsHost = { truth: () => truthOf(), verdict: () => undefined, threshold: () => null, lists: () => [{ ...list, goals: [{ id: "g1", text: "A long goal with enough context to wrap across several narrow terminal rows." }] }], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+		const o = open(host, { kind: "list", slug: "l" });
+		for (const input of ["", alt("g"), ESC, ENTER, ENTER, ESC, ESC, alt("i")]) {
+			if (input) o.press(input);
 			for (const width of [36, 57, 80, 140]) {
-				const lines = view.render(width);
-				expect(lines.length).toBeLessThanOrEqual(6);
-				expect(lines.at(-1)).toContain("esc");
-				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+				const view = o.v.view(width, 3);
+				expect(view.body.length).toBeLessThanOrEqual(3);
+				expect(view.above).toBeGreaterThanOrEqual(0);
+				expect(view.below).toBeGreaterThanOrEqual(0);
 			}
 		}
-		view.dispose();
+		o.v.dispose();
 	});
 
 	it("labels invalid lists rather than claiming they are empty or missing", () => {
 		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [], invalid: () => ["l"], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
-		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 30);
-		expect(view.render(140).join("\n")).toContain("Invalid task list");
-		view.handleInput("g");
-		expect(view.render(140).join("\n")).toContain('"l" is invalid');
-		view.dispose();
+		const o = open(host, { kind: "list", slug: "l" });
+		expect(o.screen()).toContain("Invalid task list");
+		o.press(alt("g"));
+		expect(o.screen()).toContain('"l" is invalid');
+		o.v.dispose();
 	});
 
 	it("distinguishes stored records from outgoing text while folding is paused", () => {
 		const truth = truthOf(), bs = truth.blocks;
 		truth.apply([{ kind: "group", ids: [bs[3].id, bs.at(-1)!.id], summary: `${foldTag(`g:${bs[3].id}`)} {"task":"l/1","title":"Parent","status":"done","outcome":"Built."}` }], "auto");
 		const host: TaskViewsHost = { truth: () => truth, folding: () => false, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
-		const view = new TaskViews({ requestRender() {} }, theme, { matches: (input, key) => input === "\r" && key === "tui.select.confirm" }, host, { kind: "list", slug: "l" }, () => {}, () => 40);
-		expect(view.render(140).join("\n")).toContain("folding paused");
-		view.handleInput("\r"); view.handleInput("v");
-		const shown = view.render(140).join("\n");
+		const o = open(host, { kind: "list", slug: "l" });
+		o.screen(); o.press(ENTER, alt("v"));
+		const shown = o.screen();
 		expect(shown).toContain("Stored fold (folding paused)");
 		expect(shown).not.toContain("As the agent sees it");
-		view.dispose();
+		o.v.dispose();
 	});
 
-	it("opens the list legend with question mark", () => {
-		const host: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => 0.3, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
-		const keys = { matches: (d: string, k: string) => k === "tui.select.cancel" && d === "\x1b" };
-		const v = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "list", slug: "l" }, () => {}, () => 30);
-		v.handleInput("?");
-		expect(v.render(80).join("\n")).toContain("finished but raw");
-		v.handleInput("\x1b");
-		expect(v.render(80).join("\n")).toContain("Parent");
+	it("explains the glyphs in the help legend", () => {
+		expect(TASK_LEGEND.join("\n")).toContain("finished but raw");
 	});
 
 	it("inspects composed child handles and steers them through the lease instead of rejecting the child", async () => {
@@ -239,22 +248,21 @@ describe("task views", () => {
 		const applied: unknown[] = [];
 		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => allowed,
 			apply: async (ops) => { applied.push(...ops); truth.apply(ops, "you"); return "Applied."; }, subscribe: () => () => {} };
-		const keys = { matches: (input: string, key: string) => input === ({ "tui.select.down": "\x1b[B", "tui.select.confirm": "\r", "tui.select.cancel": "\x1b" } as Record<string, string>)[key] };
-		const view = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "list", slug: "l" }, () => {}, () => 40);
-		view.render(140); view.handleInput("\x1b[C"); view.handleInput("\x1b[B"); view.handleInput("\r");
-		expect(view.render(140).join("\n")).toContain(foldCode(handleId));
-		view.handleInput("v");
-		expect(view.render(140).join("\n")).toContain(`"task":"l/1.1"`);
-		view.handleInput("v");
-		expect(view.render(140).join("\n")).toContain("src/a.ts");
-		view.handleInput("\x1b"); view.handleInput("u");
+		const o = open(host, { kind: "list", slug: "l" });
+		o.screen(); o.press(RIGHT, DOWN, ENTER);
+		expect(o.screen()).toContain(foldCode(handleId));
+		o.press(alt("v"));
+		expect(o.screen()).toContain(`"task":"l/1.1"`);
+		o.press(alt("v"));
+		expect(o.screen()).toContain("src/a.ts");
+		o.press(ESC, alt("f"));
 		expect(applied).toEqual([]);
-		expect(view.render(140).join("\n")).toContain("Read-only");
-		allowed = true; view.handleInput("u"); await Promise.resolve();
+		expect(o.said.at(-1)).toContain("Read-only");
+		allowed = true; o.press(alt("f")); await Promise.resolve();
 		expect(truth.groups[0].folded).toBe(false);
 		expect(childIds.every((id) => truth.get(id)?.override === "unfolded" && truth.get(id)?.by === "you")).toBe(true);
 		expect(b.filter((b) => !childIds.includes(b.id)).every((b) => truth.get(b.id)?.override === null)).toBe(true);
-		view.dispose();
+		o.v.dispose();
 	});
 
 	it("keeps whole-task folds reversible without treating them as selective recovery", async () => {
@@ -264,17 +272,17 @@ describe("task views", () => {
 		expect(truth.apply([{ kind: "group", ids, summary, handles: [{ id: handleId, memberIds: ids }] }], "auto").results[0].applied).toBe(true);
 		const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => true,
 			apply: async (ops) => { const result = truth.apply(ops, "you"); expect(result.results.every((r) => r.applied)).toBe(true); return "Applied."; }, subscribe: () => () => {} };
-		const view = new TaskViews({ requestRender() {} }, theme, { matches: () => false }, host, { kind: "list", slug: "l" }, () => {}, () => 40);
-		view.render(140); view.handleInput("u"); await Promise.resolve();
+		const o = open(host, { kind: "list", slug: "l" });
+		o.screen(); o.press(alt("f")); await Promise.resolve();
 		expect(truth.groups[0].folded).toBe(false);
 		expect(ids.every((id) => truth.get(id)?.override === null)).toBe(true);
-		view.handleInput("u"); await Promise.resolve();
+		o.press(alt("f")); await Promise.resolve();
 		expect(truth.groups[0].folded).toBe(true);
 		expect(transcriptSource(truth, () => undefined, null).projection.some((p) => p.text === summary)).toBe(true);
-		view.dispose();
+		o.v.dispose();
 	});
 
-	it("refuses actions without control and stays inside the width", async () => {
+	it("refuses actions without control and ignores bare keys", async () => {
 		const applied: unknown[] = [];
 		const b = blocks();
 		const truth = new Truth({
@@ -294,18 +302,14 @@ describe("task views", () => {
 			},
 			subscribe: () => () => {},
 		};
-		let closed = false;
-		const keys = { matches: (d: string, k: string) => (k === "tui.select.down" && d === "\x1b[B") || (k === "tui.select.cancel" && d === "\x1b") || (k === "tui.select.confirm" && d === "\r") };
-		const v = new TaskViews({ requestRender() {} }, theme, keys, host, { kind: "session" }, () => (closed = true), () => 30);
-		for (const w of [36, 57, 80]) for (const line of v.render(w)) expect(visibleWidth(line)).toBeLessThanOrEqual(w);
-		v.handleInput("\x1b[B");
-		v.handleInput("\x1b[C");
-		v.handleInput("\x1b[B");
-		expect(v.render(80).join("\n")).toContain("› ");
-		v.handleInput("f");
+		const o = open(host, { kind: "session" });
+		o.press(DOWN, RIGHT, DOWN);
+		expect(o.screen(80)).toContain("→");
+		for (const key of ["f", "p", "u", "i", "d", "t", "g", "v", "?", "/", " "]) expect(o.v.key(key)).toBe(false);
+		o.press(alt("f"));
 		expect(applied).toEqual([]);
-		expect(v.render(80).join("\n")).toContain("Read-only");
-		v.handleInput("\x1b");
-		expect(closed).toBe(true);
+		expect(o.said.at(-1)).toContain("Read-only");
+		expect(o.v.back()).toBe(false);
+		o.v.dispose();
 	});
 });

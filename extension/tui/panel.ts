@@ -9,11 +9,12 @@ import { formatCompactTokens } from "./map";
 import { createConductorsTab } from "./screens/conductors";
 import { createContextTab } from "./screens/context";
 import { createSettingsTab } from "./screens/settings";
+import { createListsTab, createTasksTab } from "./screens/tasks";
 import type { ConfirmSpec, DigestAction, PanelTab, Shell } from "./screens/types";
 import { statusLevel } from "./status";
 
 /** The tabs of the panel, in bar order. */
-export type PanelTabId = "context" | "conductors" | "settings";
+export type PanelTabId = "context" | "tasks" | "lists" | "conductors" | "settings";
 
 type Level = "info" | "warning" | "error";
 interface Note {
@@ -112,7 +113,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		editDigest: (action) => leave(action),
 		update,
 	};
-	const tabs: PanelTab[] = [createContextTab(shell), createConductorsTab(shell), createSettingsTab(shell)];
+	const tabs: PanelTab[] = [createContextTab(shell), ...(host.tasks ? [createTasksTab(shell, host.tasks), ...(host.tasks.lists ? [createListsTab(shell, host.tasks)] : [])] : []), createConductorsTab(shell), createSettingsTab(shell)];
 	let active = Math.max(0, tabs.findIndex((tab) => tab.id === start));
 	const staged = () => tabs.reduce((n, tab) => n + tab.dirty(), 0);
 
@@ -244,6 +245,13 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		update();
 	};
 
+	try {
+		await loop();
+	} finally {
+		for (const tab of tabs) tab.dispose?.();
+	}
+
+	async function loop(): Promise<void> {
 	while (true) {
 		const action = await ctx.ui.custom<DigestAction | undefined>((tui, uiTheme, uiKeys, done) => {
 			theme = uiTheme as unknown as ChromeTheme;
@@ -319,4 +327,5 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 			note = failed("Command failed", error);
 		}
 	}
+}
 }

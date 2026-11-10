@@ -2,7 +2,8 @@ import { backgroundAnsi, type Color, colorToRgb, foregroundAnsi, rgbColor, trunc
 
 /** Lines of the dashboard frame around the body: three rules, tab bar, search, blank, description, hints. */
 export const CHROME_ROWS = 8;
-const MAX_BODY_ROWS = 14;
+// The task trees are the tallest content; shorter tabs are padded to the same height.
+const MAX_BODY_ROWS = 20;
 const MIN_BODY_ROWS = 3;
 // Rows Pi keeps around a panel that replaces the editor: a spacer above, footer and status below.
 const HOST_ROWS = 4;

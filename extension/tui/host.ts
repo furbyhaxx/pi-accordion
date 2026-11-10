@@ -4,6 +4,7 @@ import type { OpResult } from "../../core/ops";
 import type { SessionEntry } from "../../app/src/lib/live/registry";
 import type { AccordionSettings } from "../settings";
 import type { DialKind, ResolvedDials } from "../dials";
+import type { TaskTabsHost } from "./screens/tasks";
 
 export interface AccordionWebInfo {
 	url: string | null;
@@ -42,6 +43,8 @@ export interface AccordionTuiHost {
 	saveDialDefault?(kind: DialKind, value: number): string;
 	compactNow?(): { beforeTokens: number; afterTokens: number; message: string } | Promise<{ beforeTokens: number; afterTokens: number; message: string }>;
 	listSessions?(): Promise<SessionEntry[]>;
+	/** Task data for the Tasks and Lists tabs; absent for a remote session. */
+	tasks?: TaskTabsHost;
 	command(command: WireCommand): { results: OpResult[]; rev: number; refused?: "read-only" } | Promise<{ results: OpResult[]; rev: number; refused?: "read-only" }>;
 	subscribe(listener: () => void): () => void;
 }

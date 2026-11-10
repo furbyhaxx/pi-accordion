@@ -1,19 +1,22 @@
 /*
- * taskViews.ts — the task-centred inspection screens: a list's task tree, one task's details, one
- * span's transcript (folds, kept user messages, steps), the whole session by task, and a text viewer.
- * Node building is pure (`*Nodes`); `TaskViews` holds the screen stack and applies actions through
- * the host, which enforces the controller lease.
+ * taskViews.ts — the screens behind the panel's Tasks and Lists tabs: the project's lists, a list's
+ * task tree, one task's details, one span's transcript (folds, kept user messages, steps), the whole
+ * session by task, and a text viewer. Node building is pure (`*Nodes`); `TaskViews` holds the screen
+ * stack and applies actions through the host, which enforces the controller lease.
  */
-import { decodeKittyPrintable, matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { foldCode, wireFoldable } from "../../core/digest";
 import type { ClampReason, Op } from "../../core/ops";
 import type { Truth } from "../../core/truth";
 import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
-import { blockLabel, type Task, type TaskList } from "../tasks";
+import { blockLabel, claimState, type Task, type TaskList } from "../tasks";
+import { holderLabel } from "../taskBinding";
 import { attachmentRef, type PinHolder } from "../taskPins";
 import { formatCompactTokens } from "./map";
-import { frame, frameBodyRows } from "./taskLists";
+import { bindingHint, type ChromeKeys, type ChromeTheme, type Hint, rawHint } from "./chrome";
+import type { ConfirmSpec, TabView } from "./screens/types";
+import { claimText, editText, formatAge, listRowLine, progressText, type TaskListsHost } from "./taskLists";
 import { recordForm } from "../../conductors/in-process/taskfold/records";
 import { classifierInput, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
@@ -41,7 +44,7 @@ const REASONS: Partial<Record<ClampReason, string>> = {
 	"not-foldable": "this kind of block folds only inside a group",
 	bolted: "the system prompt never folds",
 	locked: "the attached conductor locks this control",
-	grouped: "part of a folded group; select the fold and press u",
+	grouped: "part of a folded group; select the fold and use alt+f",
 	"human-override": "a human override owns it",
 	"unknown-id": "no longer in the context",
 	"non-durable": "it has no durable id yet",
@@ -70,6 +73,8 @@ export interface TaskViewsHost {
 	lists(): TaskList[];
 	invalid?(): readonly string[];
 	folding?(): boolean;
+	/** Re-read the list files after this panel changed one. */
+	rescan?(): void;
 	/** Whether this panel may change the context; actions are refused otherwise. */
 	canSteer(): boolean;
 	/** Apply ops through the controller; resolves to a status message. */
@@ -362,20 +367,39 @@ function hang(line: string, width: number): string[] {
 	return [first, ...wrapTextWithAnsi(rest.join(" "), width - indent).map((l) => `${" ".repeat(indent)}${l}`)];
 }
 
-interface Keys {
-	matches(data: string, binding: string): boolean;
+/** What the screens need from the panel shell. */
+export interface TaskViewsUi {
+	theme(): WidgetTheme & ChromeTheme;
+	keys(): ChromeKeys;
+	/** Show a refusal (default) or a result until the next key. */
+	say(text: string, level?: "info" | "warning" | "error"): void;
+	confirm(spec: ConfirmSpec): void;
+	update(): void;
 }
 
 type TreeScreen = { kind: "list"; slug: string; tree: TreeState<ViewRef> } | { kind: "span"; key: string; tree: TreeState<ViewRef> } | { kind: "session"; tree: TreeState<ViewRef>; show: "all" | "tasks" | "untracked" };
-type Screen = TreeScreen | { kind: "details"; slug: string; id: string; scroll: number } | { kind: "list-details"; slug: string; scroll: number } | { kind: "text"; title: string; main: string[]; alt: string[] | null; altLabel: string; showAlt: boolean; scroll: number };
+type ListsScreen = { kind: "lists"; slug: string | null; query: string; create: { title: string | null; input: { text: string } } | null };
+type ScrollScreen = { kind: "details"; slug: string; id: string; scroll: number } | { kind: "list-details"; slug: string; scroll: number } | { kind: "text"; title: string; main: string[]; alt: string[] | null; altLabel: string; showAlt: boolean; scroll: number };
+type Screen = TreeScreen | ListsScreen | ScrollScreen;
 
-/** Where the screens open. */
-export type TaskViewsStart = { kind: "list"; slug: string } | { kind: "session" };
+/** Where the screens open: the project's lists, one list, or this session by task. */
+export type TaskViewsStart = { kind: "lists" } | { kind: "list"; slug: string } | { kind: "session" };
 
-/** The task inspection screens; Esc on the first screen calls `done`. */
+/** Legend lines for the help screen. */
+export const TASK_LEGEND = [
+	"▣ done    ☒ failed    ⊘ abandoned    ◐ partly done    ▶ doing    ⧗ blocked    ☐ todo",
+	"≡ folded    · finished but raw    ! unfinished descendants",
+	"Lists: ● attached to this session, ○ not. alt+t attaches, releases or takes over the selected list.",
+	"alt+g shows a list's goals, claim, scoped pins and attachments.",
+	"alt+p pins transcript blocks; scoped facts use the tasks tool's pin and unpin.",
+	"A call folds through its result; user messages fold only inside a task record.",
+];
+
+/** The task screens as one stack; the panel shell draws the frame and routes keys. */
 export class TaskViews {
 	private stack: Screen[];
-	private message = "";
+	private stale = true;
+	private rows = 10;
 	private cache: { truth: Truth; rev: number; folding: boolean; data: { src: TranscriptSource; spans: TaskSpan[] } } | null = null;
 	private listsSnapshot: TaskList[] = [];
 	private invalidLists: readonly string[] = [];
@@ -385,66 +409,62 @@ export class TaskViews {
 	private readonly unsubscribe: () => void;
 
 	constructor(
-		private readonly tui: { requestRender(): void },
-		private readonly theme: WidgetTheme,
-		private readonly keys: Keys,
+		private readonly ui: TaskViewsUi,
 		private readonly host: TaskViewsHost,
 		start: TaskViewsStart,
-		private readonly done: () => void,
-		private readonly rows: () => number,
+		/** Store actions for the lists screen; without it lists are read-only. */
+		private readonly listsHost: TaskListsHost | null = null,
 	) {
-		this.stack = [start.kind === "list" ? { kind: "list", slug: start.slug, tree: new TreeState() } : { kind: "session", tree: new TreeState(), show: "all" }];
-		this.refresh();
-		this.unsubscribe = host.subscribe(() => this.requestRender());
-	}
-
-	/** True while only the first screen is open (the list browser handles its own keys then). */
-	get atRoot(): boolean {
-		return this.stack.length === 1 && !this.filtering;
+		this.stack = [start.kind === "lists" ? { kind: "lists", slug: null, query: "", create: null } : start.kind === "list" ? { kind: "list", slug: start.slug, tree: new TreeState() } : { kind: "session", tree: new TreeState(), show: "all" }];
+		this.unsubscribe = host.subscribe(() => {
+			this.stale = true;
+		});
 	}
 
 	private get top(): Screen {
 		return this.stack[this.stack.length - 1];
 	}
 
-	private get filtering(): boolean {
-		const s = this.top;
-		return "tree" in s && s.tree.filtering;
+	/** Rebuild the cached transcript and list data once per change, never per frame. */
+	private ensure(): void {
+		if (this.stale) {
+			this.stale = false;
+			const lists = this.host.lists(), previousLists = this.listsSnapshot;
+			this.listsSnapshot = lists;
+			this.invalidLists = this.host.invalid?.() ?? [];
+			const truth = this.host.truth();
+			const folding = this.host.folding?.() ?? true;
+			const changed = !truth || this.cache?.truth !== truth || this.cache.rev !== truth.rev || this.cache.folding !== folding;
+			if (!truth) {
+				this.cache = null;
+				this.byBlock.clear();
+			} else if (changed) {
+				const src = transcriptSource(truth, (id) => this.host.verdict(id), this.host.threshold(), { folding, lists, listIssues: this.invalidLists });
+				this.cache = { truth, rev: truth.rev, folding, data: { src, spans: transcriptSpans(src) } };
+				this.byBlock = new Map(src.blocks.map((b) => [b.id, b]));
+			}
+			if (changed || lists !== previousLists) {
+				this.foldCache.clear();
+				this.recordCache.clear();
+			}
+		}
+		const truth = this.cache?.truth;
+		for (const s of this.stack) {
+			if (s.kind === "list" && truth && !this.foldCache.has(s.slug)) {
+				const list = this.list(s.slug);
+				if (list) this.foldCache.set(s.slug, foldedTaskTokens(list, truth));
+			}
+			if (s.kind === "details") {
+				const key = `${s.slug}/${s.id}`;
+				if (!this.recordCache.has(key)) this.recordCache.set(key, this.computeGroups(key));
+			}
+		}
 	}
-
-	private refresh(): void {
-		const lists = this.host.lists(), previousLists = this.listsSnapshot;
-		this.listsSnapshot = lists;
-		this.invalidLists = this.host.invalid?.() ?? [];
-		const truth = this.host.truth();
-		const folding = this.host.folding?.() ?? true;
-		const changed = !truth || this.cache?.truth !== truth || this.cache.rev !== truth.rev || this.cache.folding !== folding;
-		if (!truth) { this.cache = null; this.byBlock.clear(); }
-		else if (changed) {
-			const src = transcriptSource(truth, (id) => this.host.verdict(id), this.host.threshold(), { folding, lists, listIssues: this.invalidLists });
-			this.cache = { truth, rev: truth.rev, folding, data: { src, spans: transcriptSpans(src) } };
-			this.byBlock = new Map(src.blocks.map((b) => [b.id, b]));
-		}
-		if (changed || lists !== previousLists) {
-			this.foldCache.clear();
-			this.recordCache.clear();
-			const root = this.stack[0];
-			const list = root.kind === "list" ? this.list(root.slug) : undefined;
-			if (list && truth) this.foldCache.set(list.slug, foldedTaskTokens(list, truth));
-		}
-		const top = this.top;
-		if (top.kind === "details") {
-			const key = `${top.slug}/${top.id}`;
-			if (!this.recordCache.has(key)) this.recordCache.set(key, this.computeGroups(key));
-		}
-	}
-
-	private requestRender(): void { this.refresh(); this.tui.requestRender(); }
 
 	private data(): ViewData {
 		const src = this.cache ? { ...this.cache.data.src, lists: this.listsSnapshot, listIssues: this.invalidLists,
 			verdict: (id: string) => this.host.verdict(id), threshold: this.host.threshold() } : null;
-		return { src, spans: this.cache?.data.spans ?? [], theme: this.theme, now: Date.now() };
+		return { src, spans: this.cache?.data.spans ?? [], theme: this.ui.theme(), now: Date.now() };
 	}
 
 	private list(slug: string): TaskList | undefined {
@@ -462,8 +482,7 @@ export class TaskViews {
 			return span ? transcriptNodes(spanTranscript(data.src, span), data) : [];
 		}
 		const all = transcriptNodes(sessionTranscript(data.src), data);
-		const kinds = all.filter((n) => n.data && (s.show === "all" || (s.show === "tasks" ? n.data.type === "task" : n.data.type === "untracked" && !n.data.answer)));
-		return kinds;
+		return all.filter((n) => n.data && (s.show === "all" || (s.show === "tasks" ? n.data.type === "task" : n.data.type === "untracked" && !n.data.answer)));
 	}
 
 	private computeGroups(key: string): { id: string; summary: string | null | undefined; full: number; live: number; members: number; handleId?: string }[] {
@@ -478,113 +497,248 @@ export class TaskViews {
 
 	private groupsOf(key: string): ReturnType<TaskViews["computeGroups"]> { return this.recordCache.get(key) ?? []; }
 
-	private bodyRows(): number {
-		return frameBodyRows(this.rows(), 30);
+	/** The lists a filter keeps, and the selected one among them. */
+	private shownLists(s: ListsScreen): { lists: TaskList[]; index: number } {
+		const q = s.query.trim().toLowerCase();
+		const lists = q ? this.listsSnapshot.filter((l) => `${l.slug} ${l.title}`.toLowerCase().includes(q)) : this.listsSnapshot;
+		const at = lists.findIndex((l) => l.slug === s.slug);
+		const index = Math.max(0, at);
+		s.slug = lists[index]?.slug ?? null;
+		return { lists, index };
 	}
 
-	render(width: number): string[] {
-		const t = this.theme;
+	private crumb(s: Screen): string[] {
+		switch (s.kind) {
+			case "lists": return s.create ? ["New list"] : [];
+			case "session": return [];
+			case "list": return [s.slug];
+			case "span": return [`${s.key.split("/").pop()} span`];
+			case "details": return [s.id];
+			case "list-details": return ["context"];
+			case "text": return [s.title];
+		}
+	}
+
+	/** The current screen for the frame's body of `rows` lines. */
+	view(width: number, rows: number): TabView {
+		this.ensure();
+		this.rows = rows;
+		const t = this.ui.theme();
+		const keys = this.ui.keys();
 		const data = this.data();
-		const height = this.bodyRows();
 		const s = this.top;
-		const crumbs = this.stack.map((x) => (x.kind === "list" ? x.slug : x.kind === "span" ? `${x.key.split("/").pop()} span` : x.kind === "session" ? "Tasks tree" : x.kind === "details" ? x.id : x.kind === "list-details" ? "list context" : x.title));
-		const title = `Accordion${this.cache?.folding === false ? " (folding paused)" : ""} › ${this.stack[0].kind === "list" ? "Task lists › " : ""}${crumbs.join(" › ")}`;
+		// The root screen is the tab itself; a list opened directly still names itself.
+		const crumbs = this.stack.flatMap((x, i) => (i === 0 && x.kind === "list" ? [x.slug] : this.crumb(x)));
+		const enter = (action: string, priority = 1) => bindingHint(t, keys, "tui.select.confirm", "enter", action, priority);
+		if (s.kind === "lists") return { ...this.listsView(s, width, rows, enter), crumbs };
 		if (s.kind === "details" || s.kind === "list-details") {
 			const list = this.list(s.slug);
 			const lines = list ? (s.kind === "list-details" ? listDetailLines(list, t) : detailLines(list, s.id, data, this.groupsOf(`${s.slug}/${s.id}`))).flatMap((l) => hang(l, width)) : [t.fg("warning", this.invalidLists.includes(s.slug) ? ` "${s.slug}" is invalid; use tasks status for validation errors.` : ` "${s.slug}" no longer exists.`)];
-			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - height));
-			const span = s.kind === "details" && data.src ? spanOf(data, `${s.slug}/${s.id}`) : undefined;
-			const hints = [span ? "enter span" : "", "esc back", s.kind === "details" && this.groupsOf(`${s.slug}/${s.id}`).length ? "v record · u unfold" : "", s.kind === "details" ? "g list context" : "", "↑↓ scroll"].filter(Boolean).join(" · ");
-			return frame(title, lines.slice(s.scroll, s.scroll + height), this.message, hints, width, t);
+			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - rows));
+			const hints: Hint[] = [];
+			if (s.kind === "details") {
+				if (data.src && spanOf(data, `${s.slug}/${s.id}`)) hints.push(enter("span"));
+				if (this.groupsOf(`${s.slug}/${s.id}`).length) hints.push(rawHint(t, "alt+v", "record", 2), rawHint(t, "alt+f", "unfold", 3));
+				hints.push(rawHint(t, "alt+g", "list context", 5));
+			}
+			hints.push(rawHint(t, "↑↓", "scroll", 6));
+			return { body: lines.slice(s.scroll, s.scroll + rows), crumbs, description: s.kind === "details" ? "Lifecycle, report and recorded facts of this task." : "The list's goals, claim, scoped pins and attachments.", hints, above: s.scroll, below: Math.max(0, lines.length - s.scroll - rows) };
 		}
 		if (s.kind === "text") {
 			const src = s.showAlt && s.alt ? s.alt : s.main;
 			const lines = src.flatMap((l) => wrapTextWithAnsi(clean(l), Math.max(1, width - 1)).map((x) => ` ${x}`));
-			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - height));
-			const pos = `${Math.min(lines.length, s.scroll + 1)}-${Math.min(lines.length, s.scroll + height)}/${lines.length}`;
-			const hints = ["esc back", s.alt ? `v ${s.showAlt ? "back" : s.altLabel}` : "", "↑↓ pgup/pgdn scroll", pos].filter(Boolean).join(" · ");
-			return frame(title, lines.slice(s.scroll, s.scroll + height), this.message, hints, width, t);
+			s.scroll = Math.max(0, Math.min(s.scroll, lines.length - rows));
+			const hints = [...(s.alt ? [rawHint(t, "alt+v", s.showAlt ? "record" : s.altLabel, 2)] : []), rawHint(t, "↑↓", "scroll", 6)];
+			return { body: lines.slice(s.scroll, s.scroll + rows), crumbs, description: s.alt ? `Showing ${s.showAlt ? `the ${s.altLabel}` : "the record"}; read-only.` : "Read-only text.", hints, above: s.scroll, below: Math.max(0, lines.length - s.scroll - rows) };
 		}
 		const nodes = this.nodes(s, data);
-		const body = s.tree.render(nodes, width, height, (x) => t.fg("accent", x), (x) => t.fg("dim", x));
-		if (!nodes.length) body.push(t.fg("dim", s.kind === "list" ? this.invalidLists.includes(s.slug) ? "   Invalid task list; use tasks status for validation errors." : this.list(s.slug) ? "   This list has no tasks." : "   This task list no longer exists." : data.src ? "   Nothing ran in this session yet." : "   No session context yet."));
-		const filter = s.tree.filtering || s.tree.query ? ` ⌕ ${s.tree.query}${s.tree.filtering ? "█" : ""}` : "";
-		const show = s.kind === "session" && s.show !== "all" ? ` · showing ${s.show}` : "";
-		const status = this.message || `${s.tree.position()}${show}${filter}`;
-		return frame(title, body, status, this.hints(s, width), width, t);
-	}
-
-	private hints(s: TreeScreen, width: number): string {
-		if (s.kind === "list" && width < 60 && !s.tree.filtering) return "enter details · g context · ? · esc";
-		if (s.tree.filtering) return "type to filter · enter keep · esc clear";
+		const body = s.tree.render(nodes, width, rows, (x) => t.fg("accent", x), (x) => t.fg("dim", x));
+		if (!nodes.length) body.push(t.fg("dim", s.tree.query ? "   Nothing matches the filter." : s.kind === "list" ? this.invalidLists.includes(s.slug) ? "   Invalid task list; use tasks status for validation errors." : this.list(s.slug) ? "   This list has no tasks." : "   This task list no longer exists." : data.src ? "   Nothing ran in this session yet." : "   No session context yet."));
 		const ref = s.tree.current?.node.data;
-		const act = ref?.type === "fold" ? "u unfold/fold" : ref?.type === "step" || ref?.type === "user" ? "f fold · p pin" : ref?.type === "task" ? "u unfold/fold" : "";
-		const enter = ref?.type === "task" ? (s.kind === "list" ? "enter details · i span" : "enter span") : ref?.type === "untracked" ? "→ expand" : ref ? "enter open" : "";
-		const esc = this.stack.length > 1 || s.kind === "list" ? "esc back" : "esc close";
-		// Most needed first: narrow widths cut from the end.
-		return [enter, esc, act, "→← expand", "/ filter", s.kind === "list" ? "g list context · ? legend" : "", s.kind === "session" ? "t show" : ""].filter(Boolean).join(" · ");
+		const show = s.kind === "session" && s.show !== "all" ? ` · showing ${s.show}` : "";
+		return { body, crumbs, description: `${s.tree.position()}${show} · ${this.describe(s, ref)}`, hints: this.treeHints(s, ref, enter), ...s.tree.hidden(rows) };
 	}
 
-	handleInput(input: string): void {
-		const k = this.keys;
-		const cancel = k.matches(input, "tui.select.cancel") || matchesKey(input, "ctrl+c");
+	private describe(s: TreeScreen, ref: ViewRef | undefined): string {
+		if (!ref) return s.kind === "session" ? "This session's work by task." : "The tasks of this list.";
+		switch (ref.type) {
+			case "task": return s.kind === "list" ? "A task: its lifecycle, report and span." : "A task span: the work done while it was in progress.";
+			case "fold": return "A folded record; open it to see what the agent sees.";
+			case "user": return "A user message; open it for its verdict and text.";
+			case "step": return "A step: a tool call with its result, or one assistant block.";
+			case "untracked": return ref.answer ? "An assistant reply between tasks." : "Tool calls made while no task was in progress.";
+			case "edge": return ref.edge === "start" ? "The call that started this task." : "The call that ended this task, with its report.";
+		}
+	}
+
+	private treeHints(s: TreeScreen, ref: ViewRef | undefined, enter: (action: string, priority?: number) => Hint): Hint[] {
+		const t = this.ui.theme();
+		const hints: Hint[] = [];
+		if (ref?.type === "task") hints.push(enter(s.kind === "list" ? "details" : "span"), rawHint(t, "alt+i", s.kind === "list" ? "span" : "details", 3), rawHint(t, "alt+f", "unfold/fold", 4));
+		else if (ref?.type === "untracked") hints.push(enter("expand"));
+		else if (ref?.type === "fold") hints.push(enter("record"), rawHint(t, "alt+f", "unfold/fold", 3));
+		else if (ref?.type === "step" || ref?.type === "user") hints.push(enter("open"), rawHint(t, "alt+f", "fold", 3), rawHint(t, "alt+p", "pin", 4));
+		else if (ref) hints.push(enter("open"));
+		hints.push(rawHint(t, "←→", "collapse/expand", 7));
+		if (s.kind === "list") hints.push(rawHint(t, "alt+g", "list context", 6));
+		if (s.kind === "session") hints.push(rawHint(t, "alt+v", s.show === "all" ? "tasks only" : s.show === "tasks" ? "untracked only" : "show all", 6));
+		return hints;
+	}
+
+	private listsView(s: ListsScreen, width: number, rows: number, enter: (action: string, priority?: number) => Hint): Omit<TabView, "crumbs"> {
+		const t = this.ui.theme();
+		const now = Date.now();
+		if (s.create) {
+			const body = [s.create.title === null ? `  Title: ${clean(s.create.input.text)}${t.fg("accent", "▏")}` : `  Goal: ${clean(s.create.input.text)}${t.fg("accent", "▏")}`, t.fg("dim", s.create.title === null ? "  The slug is derived from the title." : `  Title: ${clean(s.create.title)}`)];
+			return { body, description: s.create.title === null ? "Name the new task list; it is attached to this session." : "One sentence: the end state the whole list delivers.", hints: [enter(s.create.title === null ? "next" : "create")], above: 0, below: 0 };
+		}
+		const session = this.listsHost?.session() ?? "";
+		const { lists, index } = this.shownLists(s);
+		const warning = this.invalidLists.length ? `▲ Invalid lists: ${this.invalidLists.map(clean).join(", ")} · tasks status <slug> shows why` : "";
+		const listRows = Math.max(1, rows - (warning ? 1 : 0));
+		const start = Math.max(0, Math.min(index - Math.floor(listRows / 2), lists.length - listRows));
+		const slugWidth = Math.max(0, ...lists.map((l) => l.slug.length));
+		const body = lists.length
+			? lists.slice(start, start + listRows).map((l, i) => listRowLine(l, session, start + i === index, width, t, now, slugWidth))
+			: [t.fg("dim", s.query ? "   No list matches the filter." : this.invalidLists.length ? "   No readable task lists." : "   No task lists in this project yet; alt+n starts one.")];
+		if (warning) body.push(t.fg("warning", ` ${warning}`));
+		const sel = lists[index];
+		const state = sel ? claimState(sel, session, now) : null;
+		const hints: Hint[] = [];
+		if (sel) hints.push(enter("open"), rawHint(t, "alt+t", state === "mine" ? "release" : state === "held" ? "take over" : "attach", 2), rawHint(t, "alt+g", "context", 5));
+		hints.push(rawHint(t, "alt+n", "new list", 3));
+		const description = sel ? `${clean(sel.title)} · ${progressText(sel, t, true)} · ${claimText(sel, state!, t, now)}` : `${this.listsSnapshot.length} task list${this.listsSnapshot.length === 1 ? "" : "s"} in this project.`;
+		return { body, description, hints, above: start, below: Math.max(0, lists.length - start - listRows) };
+	}
+
+	/** True while the new-list input is open: printable keys belong to it. */
+	typing(): boolean {
+		const s = this.top;
+		return s.kind === "lists" && !!s.create;
+	}
+
+	/** The current filter, or null when the screen has none. */
+	query(): string | null {
+		const s = this.top;
+		if (s.kind === "lists") return s.create ? null : s.query;
+		return "tree" in s ? s.tree.query : null;
+	}
+
+	setFilter(query: string): void {
+		const s = this.top;
+		if (s.kind === "lists") s.query = query;
+		else if ("tree" in s) s.tree.query = query;
+	}
+
+	/** Leave one level; false at the root. */
+	back(): boolean {
+		const s = this.top;
+		if (s.kind === "lists" && s.create) {
+			s.create = null;
+			return true;
+		}
+		if (this.stack.length <= 1) return false;
+		this.stack.pop();
+		return true;
+	}
+
+	/** Handle a key the frame did not take; report whether it was used. */
+	key(input: string): boolean {
+		this.ensure();
+		const used = this.route(input);
+		this.ensure();
+		return used;
+	}
+
+	private route(input: string): boolean {
+		const k = this.ui.keys();
 		const confirm = k.matches(input, "tui.select.confirm");
 		const up = k.matches(input, "tui.select.up");
 		const down = k.matches(input, "tui.select.down");
-		const key = decodeKittyPrintable(input) ?? input;
+		const chord = (key: string) => matchesKey(input, `alt+${key}` as Parameters<typeof matchesKey>[1]);
 		const s = this.top;
-		if (matchesKey(input, "ctrl+c")) return this.done();
-		if ("tree" in s && s.tree.filtering) {
-			if (cancel) {
-				s.tree.query = "";
-				s.tree.filtering = false;
-			} else if (confirm) s.tree.filtering = false;
-			else if (matchesKey(input, "backspace")) s.tree.query = s.tree.query.slice(0, -1);
-			else if (up) s.tree.move(-1);
-			else if (down) s.tree.move(1);
-			else if (key.length === 1 && key >= " " && key !== "\x7f") s.tree.query += key;
-			return this.requestRender();
-		}
-		this.message = "";
-		if (cancel) {
-			if ("tree" in s && s.tree.query) s.tree.query = "";
-			else if (this.stack.length > 1) this.stack.pop();
-			else return this.done();
-			return this.requestRender();
-		}
-		const page = Math.max(1, this.bodyRows() - 1);
-		const scroll = (d: number) => {
-			if (s.kind === "details" || s.kind === "list-details" || s.kind === "text") s.scroll = Math.max(0, s.scroll + d);
-		};
+		const page = Math.max(1, this.rows - 1);
+		const step = up ? -1 : down ? 1 : matchesKey(input, "pageUp") ? -page : matchesKey(input, "pageDown") ? page : 0;
+		if (s.kind === "lists") return this.listsKey(s, input, confirm, step, chord);
 		if (s.kind === "details" || s.kind === "list-details" || s.kind === "text") {
-			if (up) scroll(-1);
-			else if (down) scroll(1);
-			else if (matchesKey(input, "pageUp")) scroll(-page);
-			else if (matchesKey(input, "pageDown")) scroll(page);
-			else if (s.kind === "text" && key === "v" && s.alt) {
+			if (step) s.scroll = Math.max(0, s.scroll + step);
+			else if (s.kind === "text" && chord("v") && s.alt) {
 				s.showAlt = !s.showAlt;
 				s.scroll = 0;
-			} else if (s.kind === "details") this.detailsKey(s, key, confirm);
-			return this.requestRender();
+			} else if (s.kind === "details") return this.detailsKey(s, confirm, chord);
+			else return false;
+			return true;
 		}
 		const tree = s.tree;
 		// Rows change with every open/close; rebuild them so a key never acts on a stale layout.
 		tree.rows(this.nodes(s, this.data()));
-		if (up) tree.move(-1);
-		else if (down) tree.move(1);
-		else if (matchesKey(input, "pageUp")) tree.move(-page);
-		else if (matchesKey(input, "pageDown")) tree.move(page);
+		if (step) tree.move(step);
 		else if (matchesKey(input, "right")) tree.right();
 		else if (matchesKey(input, "left")) tree.left();
-		else if (key === "/") tree.filtering = true;
-		else if (key === "g" && s.kind === "list") this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
-		else if (key === "?" && s.kind === "list") this.stack.push({ kind: "text", title: "task legend", main: ["▣ done    ☒ failed    ⊘ abandoned", "◐ partly done    ▶ doing    ⧗ blocked    ☐ todo", "≡ folded    · finished but raw    ! unfinished descendants", "g list context: goal, scoped pins and attachments", "p pins transcript blocks; scoped facts use tasks pin/unpin"], alt: null, altLabel: "", showAlt: false, scroll: 0 });
-		else if (key === "t" && s.kind === "session") s.show = s.show === "all" ? "tasks" : s.show === "tasks" ? "untracked" : "all";
+		else if (chord("g") && s.kind === "list") this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
+		else if (chord("v") && s.kind === "session") s.show = s.show === "all" ? "tasks" : s.show === "tasks" ? "untracked" : "all";
 		else {
 			const ref = tree.current?.node.data;
-			if (ref) this.nodeKey(s, ref, key, confirm);
+			return !!ref && this.nodeKey(s, ref, confirm, chord);
 		}
-		this.requestRender();
+		return true;
+	}
+
+	private listsKey(s: ListsScreen, input: string, confirm: boolean, step: number, chord: (key: string) => boolean): boolean {
+		const host = this.listsHost;
+		if (s.create) {
+			const text = s.create.input.text.trim();
+			if (!confirm) return editText(s.create.input, input);
+			if (!text) return true;
+			if (s.create.title === null) s.create = { title: text, input: { text: "" } };
+			else if (host) {
+				const r = host.create(s.create.title, text);
+				this.ui.say(r.message, r.ok ? "info" : "warning");
+				if (r.ok) {
+					s.create = null;
+					s.query = "";
+					this.reload(s, r.list.slug);
+				}
+			}
+			return true;
+		}
+		const { lists, index } = this.shownLists(s);
+		const sel = lists[index];
+		if (step) s.slug = lists[Math.max(0, Math.min(lists.length - 1, index + step))]?.slug ?? null;
+		else if (confirm && sel) this.stack.push({ kind: "list", slug: sel.slug, tree: new TreeState() });
+		else if (chord("g") && sel) this.stack.push({ kind: "list-details", slug: sel.slug, scroll: 0 });
+		else if (chord("n") || chord("t")) {
+			if (!host) this.ui.say("Task lists change only while a conductor provides the tasks tool (Taskfold).");
+			else if (chord("n")) s.create = { title: null, input: { text: "" } };
+			else if (sel) this.toggleClaim(s, sel, host);
+		} else return false;
+		return true;
+	}
+
+	private toggleClaim(s: ListsScreen, list: TaskList, host: TaskListsHost): void {
+		const state = claimState(list, host.session());
+		const done = (r: { ok: boolean; message: string }) => {
+			this.ui.say(r.message, r.ok ? "info" : "warning");
+			this.reload(s, list.slug);
+		};
+		if (state === "mine") return done(host.release(list.slug));
+		if (state !== "held" || !list.claim) return done(host.attach(list.slug, false));
+		this.ui.confirm({
+			crumb: "Take over",
+			title: `Take over "${list.slug}"?\nIt is claimed by ${holderLabel(list.claim)}, active ${formatAge(Date.now() - Date.parse(list.claim.at))} ago.\nThat session loses the claim: its agent can no longer change the list.`,
+			options: [`Leave it with ${holderLabel(list.claim)}`, `Take over "${list.slug}"`],
+			then: (choice) => {
+				if (choice === 1) done(host.attach(list.slug, true));
+			},
+		});
+	}
+
+	/** Re-read the lists after this screen changed one, keeping `slug` selected. */
+	private reload(s: ListsScreen, slug: string): void {
+		this.host.rescan?.();
+		this.stale = true;
+		s.slug = slug;
+		this.ui.update();
 	}
 
 	private noSpan(slug: string, id: string): string {
@@ -592,53 +746,62 @@ export class TaskViews {
 		return task && neverRan(task) ? "This task was never started, so it has no span." : "This task did not run in this session.";
 	}
 
-	private detailsKey(s: Extract<Screen, { kind: "details" }>, key: string, confirm: boolean): void {
+	private detailsKey(s: Extract<Screen, { kind: "details" }>, confirm: boolean, chord: (key: string) => boolean): boolean {
 		const data = this.data();
 		const taskKey = `${s.slug}/${s.id}`;
 		if (confirm) {
 			if (data.src && spanOf(data, taskKey)) this.stack.push({ kind: "span", key: taskKey, tree: new TreeState() });
-			else this.message = this.noSpan(s.slug, s.id);
-		} else if (key === "v") {
+			else this.ui.say(this.noSpan(s.slug, s.id));
+		} else if (chord("v")) {
 			const groups = this.groupsOf(taskKey);
-			if (!groups.length) this.message = "This task is not folded.";
+			if (!groups.length) this.ui.say("This task is not folded.");
 			else this.pushTaskRecord(taskKey);
-		} else if (key === "g") this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
-		else if (key === "u" || key === "f") this.toggleTask(taskKey);
+		} else if (chord("g")) this.stack.push({ kind: "list-details", slug: s.slug, scroll: 0 });
+		else if (chord("f")) this.toggleTask(taskKey);
+		else return false;
+		return true;
 	}
 
-	private nodeKey(s: TreeScreen, ref: ViewRef, key: string, confirm: boolean): void {
+	private nodeKey(s: TreeScreen, ref: ViewRef, confirm: boolean, chord: (key: string) => boolean): boolean {
 		const data = this.data();
+		const fold = chord("f");
+		const openSpan = (key: string, slug: string, id: string) => {
+			if (data.src && spanOf(data, key)) this.stack.push({ kind: "span", key, tree: new TreeState() });
+			else this.ui.say(this.noSpan(slug, id));
+		};
 		if (ref.type === "task") {
-			if (confirm && s.kind === "list") this.stack.push({ kind: "details", slug: ref.slug, id: ref.id, scroll: 0 });
-			else if ((confirm && s.kind !== "list") || key === "i") {
-				if (data.src && spanOf(data, ref.key)) this.stack.push({ kind: "span", key: ref.key, tree: new TreeState() });
-				else this.message = this.noSpan(ref.slug, ref.id);
-			} else if (key === "d") this.stack.push({ kind: "details", slug: ref.slug, id: ref.id, scroll: 0 });
-			else if (key === "u") this.toggleTask(ref.key);
-			return;
+			const details = () => this.stack.push({ kind: "details", slug: ref.slug, id: ref.id, scroll: 0 });
+			if (confirm) s.kind === "list" ? details() : openSpan(ref.key, ref.slug, ref.id);
+			else if (chord("i")) s.kind === "list" ? openSpan(ref.key, ref.slug, ref.id) : details();
+			else if (fold) this.toggleTask(ref.key);
+			else return false;
+			return true;
 		}
 		if (ref.type === "untracked") {
 			if (confirm) s.tree.toggle();
-			return;
+			return confirm;
 		}
 		if (ref.type === "fold") {
 			if (confirm) this.pushRecord([ref.groupId]);
-			else if (key === "u") this.toggleGroups([ref.groupId]);
-			return;
+			else if (fold) this.toggleGroups([ref.groupId]);
+			else return false;
+			return true;
 		}
 		if (ref.type === "edge") {
-			if (confirm && ref.edge === "finish") {
-				const span = spanOf(data, ref.key);
-				const r = span?.report;
+			if (!confirm) return false;
+			if (ref.edge === "finish") {
+				const r = spanOf(data, ref.key)?.report;
 				this.stack.push({ kind: "text", title: "report", main: [`outcome: ${r?.outcome ?? "–"}`, ...(r?.decisions ?? []).map((d) => `decision: ${d}`), ...(r?.open ?? []).map((o) => `open: ${o}`)], alt: null, altLabel: "", showAlt: false, scroll: 0 });
-			} else if (confirm) this.message = "The span starts with this call.";
-			return;
+			} else this.ui.say("The span starts with this call.", "info");
+			return true;
 		}
 		const ids = ref.type === "step" ? [ref.id, ...(ref.resultId ? [ref.resultId] : [])] : [ref.id];
 		if (confirm) {
 			if (ref.type === "user") this.pushUser(ref.id, data);
 			else this.pushBlocks(ids, data);
-		} else if (key === "f" || key === "p") this.toggleBlocks(ids, key);
+		} else if (fold || chord("p")) this.toggleBlocks(ids, fold ? "f" : "p");
+		else return false;
+		return true;
 	}
 
 	private pushTaskRecord(key: string): void {
@@ -688,20 +851,14 @@ export class TaskViews {
 
 	private apply(ops: Op[]): void {
 		if (!ops.length) return;
-		if (!this.host.canSteer()) {
-			this.message = "Read-only: another surface controls Accordion.";
-			return;
-		}
-		this.message = "Applying…";
+		if (!this.host.canSteer()) return this.ui.say("Read-only: another surface controls Accordion.");
+		this.ui.say("Applying…", "info");
 		void this.host.apply(ops).then(
 			(m) => {
-				this.message = m;
-				this.requestRender();
+				this.stale = true;
+				this.ui.say(m, m === "Applied." ? "info" : "warning");
 			},
-			(e) => {
-				this.message = `Failed: ${e instanceof Error ? e.message : String(e)}`;
-				this.requestRender();
-			},
+			(e) => this.ui.say(`Failed: ${e instanceof Error ? e.message : String(e)}`, "error"),
 		);
 	}
 
@@ -715,10 +872,7 @@ export class TaskViews {
 	private toggleTask(key: string): void {
 		const truth = this.host.truth();
 		const refs = truth ? taskFoldRefs(truth, key) : [];
-		if (!refs.length) {
-			this.message = "This task has no fold yet; Taskfold folds it when the budget needs room.";
-			return;
-		}
+		if (!refs.length) return this.ui.say("This task has no fold yet; Taskfold folds it when the budget needs room.");
 		const unfold = refs.some((r) => r.group.folded);
 		const selected = refs.filter((r) => r.group.folded === unfold);
 		const selective = unfold && selected.some((r) => r.memberIds.length < r.group.memberIds.length);
@@ -738,21 +892,13 @@ export class TaskViews {
 			return this.apply([{ kind: pinned ? "unpin" : "pin", ids }]);
 		}
 		const group = blocks.map((b) => truth.groupOf(b)).find((g) => g?.folded);
-		if (group) {
-			this.message = "Part of a fold: select the fold and press u.";
-			return;
-		}
+		if (group) return this.ui.say("Part of a fold: select the fold and use alt+f.");
 		// A call folds through its result; user messages fold only inside a task record.
 		const foldable = blocks.filter((b) => wireFoldable(b));
-		if (!foldable.length) {
-			this.message = blocks.some((b) => b.kind === "user") ? "User messages fold only inside a task record." : "Nothing here folds on its own.";
-			return;
-		}
+		if (!foldable.length) return this.ui.say(blocks.some((b) => b.kind === "user") ? "User messages fold only inside a task record." : "Nothing here folds on its own.");
 		const folded = foldable.every((b) => truth.isFolded(b));
 		this.apply([{ kind: folded ? "unfold" : "fold", ids: foldable.map((b) => b.id) }]);
 	}
-
-	invalidate(): void {}
 
 	dispose(): void {
 		this.unsubscribe();

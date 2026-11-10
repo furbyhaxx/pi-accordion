@@ -1,14 +1,12 @@
 /*
- * taskLists.ts — the interactive task list surfaces: the project's list browser
- * (`/accordion tasks lists`) and the dialog that offers a resumed session its previous list back.
- * Rendering is pure; the components only hold selection and input state and call the host.
+ * taskLists.ts — task list rows for the panel's Lists tab, and the dialog that offers a resumed
+ * session its previous list back. Rendering is pure; the dialog only holds selection and input state.
  */
-import type { ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { decodeKittyPrintable, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { claimState, type ClaimState, type TaskList } from "../tasks";
-import { holderLabel, type AttachOutcome, type ResumeSituation } from "../taskBinding";
+import { holderLabel, type ResumeSituation } from "../taskBinding";
 import { buildTaskTree, summarizeTasks } from "./taskTree";
-import { formatDuration, renderTaskWidget, type WidgetTheme } from "./taskWidget";
+import { formatDuration, type WidgetTheme } from "./taskWidget";
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 const ELLIPSIS = "…";
@@ -46,7 +44,7 @@ export function formatAge(ms: number): string {
 }
 
 /** `▣ 5/20 · ▶ 3.4.1 Title`, `✓ 20/20`, `☐ 0/3` — progress and the task in progress. */
-function progressText(list: TaskList, theme: WidgetTheme, withCurrent: boolean): string {
+export function progressText(list: TaskList, theme: WidgetTheme, withCurrent: boolean): string {
 	const sum = summarizeTasks(buildTaskTree(list.tasks), new Set(), Date.now());
 	if (!sum.total) return theme.fg("dim", "empty");
 	const count = `${sum.done}/${sum.total}`;
@@ -57,7 +55,7 @@ function progressText(list: TaskList, theme: WidgetTheme, withCurrent: boolean):
 }
 
 /** `this session`, `free`, `held · session 01a1aa4a "x" · 3m`, `stale · …` */
-function claimText(list: TaskList, state: ClaimState, theme: WidgetTheme, now: number): string {
+export function claimText(list: TaskList, state: ClaimState, theme: WidgetTheme, now: number): string {
 	if (state === "mine") return theme.fg("accent", "this session");
 	if (state === "free" || !list.claim) return theme.fg("dim", "free");
 	const who = `${holderLabel(list.claim)} · ${formatAge(now - Date.parse(list.claim.at))}`;
@@ -76,7 +74,7 @@ function cell(text: string, w: number): string {
  */
 export function listRowLine(list: TaskList, session: string, selected: boolean, width: number, theme: WidgetTheme, now: number, slugWidth = list.slug.length): string {
 	const state = claimState(list, session, now);
-	const mark = selected ? theme.fg("accent", "›") : " ";
+	const mark = selected ? theme.fg("accent", "→") : " ";
 	const dot = state === "mine" ? theme.fg("accent", "●") : theme.fg("dim", "○");
 	const slugW = Math.min(28, slugWidth);
 	const slug = selected ? theme.bold(cell(list.slug, slugW)) : cell(list.slug, slugW);
@@ -87,14 +85,6 @@ export function listRowLine(list: TaskList, session: string, selected: boolean, 
 	const short = state === "mine" ? theme.fg("accent", "yours") : state === "held" ? theme.fg("warning", "held") : theme.fg("dim", state);
 	for (const tail of [claim + age + title, claim + age, claim, short]) if (visibleWidth(head + tail) <= width) return head + tail;
 	return truncateToWidth(head + short, width, ELLIPSIS);
-}
-
-/** Modal focus keeps fullscreen paging in the inspector while leaving Pi's footer visible. */
-export const TASK_SCREEN_OPTIONS = { overlay: true, overlayOptions: { anchor: "bottom-left", width: "100%", margin: { bottom: 3 } } } satisfies NonNullable<Parameters<ExtensionUIContext["custom"]>[1]>;
-
-/** Rows left after the frame, Pi's spacer and its three footer rows. */
-export function frameBodyRows(rows: number, limit: number): number {
-	return Math.max(1, Math.min(limit, rows - 9));
 }
 
 /** Frame lines around a body: rule, title, body, rule, status, hints. */
@@ -111,7 +101,7 @@ export function frame(title: string, body: string[], status: string, hints: stri
 }
 
 /** Line-editing for a short text field; returns true when the key was consumed. */
-function editText(state: { text: string }, data: string, max = 120): boolean {
+export function editText(state: { text: string }, data: string, max = 120): boolean {
 	if (matchesKey(data, "backspace")) {
 		state.text = state.text.slice(0, -1);
 		return true;
@@ -122,186 +112,6 @@ function editText(state: { text: string }, data: string, max = 120): boolean {
 		return true;
 	}
 	return false;
-}
-
-type BrowserMode = "manage" | "pick";
-
-/** A drill-down opened from the browser; `close` returns to the list. */
-export interface ListDrillDown {
-	render(width: number): string[];
-	handleInput(data: string): void;
-	dispose(): void;
-}
-
-/**
- * The project's task lists. In `manage` mode the user browses, opens, attaches, releases and creates
- * lists until Esc. In `pick` mode attaching or creating a list closes the browser with that outcome.
- */
-export class TaskListsBrowser {
-	private lists: TaskList[] = [];
-	private invalid: readonly string[] = [];
-	private index = 0;
-	private screen: "list" | "detail" | "confirm" | "create" = "list";
-	private createTitle = "";
-	private scroll = 0;
-	private input = { text: "" };
-	private message = "";
-	private drill: ListDrillDown | null = null;
-
-	constructor(
-		private readonly tui: Tui,
-		private readonly theme: WidgetTheme,
-		private readonly keys: Keys,
-		private readonly host: TaskListsHost,
-		private readonly mode: BrowserMode,
-		private readonly done: Done<AttachOutcome | null>,
-		private readonly rows: () => number,
-		/** Opens a list's inspection screens; without it Enter shows the plain task tree. */
-		private readonly openList?: (slug: string, close: () => void) => ListDrillDown,
-	) {
-		this.reload();
-	}
-
-	dispose(): void {
-		this.drill?.dispose();
-		this.drill = null;
-	}
-
-	private reload(): void {
-		const slug = this.lists[this.index]?.slug;
-		this.lists = this.host.lists();
-		this.invalid = this.host.invalid?.() ?? [];
-		const at = slug ? this.lists.findIndex((l) => l.slug === slug) : -1;
-		this.index = Math.max(0, Math.min(at >= 0 ? at : this.index, this.lists.length - 1));
-	}
-
-	private get selected(): TaskList | undefined {
-		return this.lists[this.index];
-	}
-
-	render(width: number): string[] {
-		if (this.drill) return this.drill.render(width);
-		const t = this.theme;
-		const now = Date.now();
-		const session = this.host.session();
-		const bodyRows = frameBodyRows(this.rows(), 18);
-		const sel = this.selected;
-		if (this.screen === "create") {
-			const prompt = this.createTitle ? ` Goal: ${clean(this.input.text)}█` : ` Title: ${clean(this.input.text)}█`;
-			return frame("Accordion › Task lists › New list", [prompt, t.fg("dim", this.createTitle ? ` Title: ${clean(this.createTitle)}` : " The slug is derived from the title.")].slice(0, bodyRows), this.message, this.createTitle ? "type goal · enter create · esc back" : "type title · enter next · esc back", width, t);
-		}
-		if (this.screen === "confirm" && sel?.claim) {
-			const body = [
-				` ${t.fg("warning", "▲")} "${sel.slug}" is claimed by ${holderLabel(sel.claim)}, active ${formatAge(now - Date.parse(sel.claim.at))} ago.`,
-				" Taking it over makes that session lose the claim: its agent can no longer change the list.",
-			];
-			return frame("Accordion › Task lists › Take over", body.slice(0, bodyRows), this.message, "enter take over · esc back", width, t);
-		}
-		if (this.screen === "detail" && sel) {
-			const tree = renderTaskWidget({ list: sel, folded: new Set(), tokens: null }, { expanded: true, maxRows: 500, toggles: new Map(), revealed: new Set() }, width, t, now, true).lines.slice(1);
-			const head = [` ${clean(sel.title)}`, ` ${progressText(sel, t, true)} · ${claimText(sel, claimState(sel, session, now), t, now)}`].slice(0, bodyRows - 1);
-			const room = Math.max(1, bodyRows - head.length);
-			this.scroll = Math.max(0, Math.min(this.scroll, tree.length - room));
-			const body = [...head, ...tree.slice(this.scroll, this.scroll + room)];
-			return frame(`Accordion › Task lists › ${sel.slug}`, body, this.message, `↑↓ scroll · ${this.actionHints(sel)} · esc back`, width, t);
-		}
-		const warning = this.invalid.length ? `▲ Invalid lists: ${this.invalid.map(clean).join(", ")}` : "";
-		const listRows = Math.max(1, bodyRows - (warning ? 1 : 0));
-		const start = Math.max(0, Math.min(this.index - Math.floor(listRows / 2), this.lists.length - listRows));
-		const slugWidth = Math.max(0, ...this.lists.map((l) => l.slug.length));
-		const body = this.lists.length
-			? this.lists.slice(start, start + listRows).map((l, i) => listRowLine(l, session, start + i === this.index, width, t, now, slugWidth))
-			: [t.fg("dim", this.invalid.length ? "   No readable task lists." : "   No task lists in this project yet. Press n to start one.")];
-		if (warning && bodyRows > 1) body.push(t.fg("warning", ` ${warning}`));
-		const count = `${this.lists.length} list${this.lists.length === 1 ? "" : "s"}`;
-		const title = this.mode === "pick" ? "Accordion › Choose a task list" : "Accordion › Task lists";
-		const hints = sel ? `enter ${this.mode === "pick" ? "attach" : "open"} · esc ${this.mode === "pick" ? "back" : "close"} · ↑↓ select · ${this.actionHints(sel)} · n new` : "n new · esc close";
-		const status = this.message || (warning ? bodyRows > 1 ? "tasks status <slug>: validation errors" : warning : "");
-		return frame(`${title} · ${count}`, body, status, hints, width, t);
-	}
-
-	private actionHints(list: TaskList): string {
-		const state = claimState(list, this.host.session());
-		return state === "mine" ? "r release" : state === "held" ? "c take over" : "c attach";
-	}
-
-	handleInput(data: string): void {
-		if (this.drill) return this.drill.handleInput(data);
-		const k = this.keys;
-		const cancel = k.matches(data, "tui.select.cancel") || matchesKey(data, "ctrl+c");
-		const confirm = k.matches(data, "tui.select.confirm");
-		const up = k.matches(data, "tui.select.up");
-		const down = k.matches(data, "tui.select.down");
-		const key = decodeKittyPrintable(data) ?? data;
-		if (this.screen === "create") {
-			if (cancel) this.screen = "list";
-			else if (confirm && !this.createTitle) {
-				if (this.input.text.trim()) { this.createTitle = this.input.text.trim(); this.input.text = ""; }
-			} else if (confirm) {
-				const r = this.host.create(this.createTitle, this.input.text.trim());
-				this.message = r.message;
-				if (r.ok) {
-					if (this.mode === "pick") return this.done({ kind: "created", list: r.list });
-					this.reload();
-					this.index = Math.max(0, this.lists.findIndex((l) => l.slug === r.list.slug));
-					this.screen = "list";
-				}
-			} else editText(this.input, data);
-			return this.tui.requestRender();
-		}
-		if (this.screen === "confirm") {
-			if (cancel) this.screen = "list";
-			else if (confirm) this.attach(true);
-			return this.tui.requestRender();
-		}
-		this.message = "";
-		const sel = this.selected;
-		if (cancel) {
-			if (this.screen === "detail") this.screen = "list";
-			else return this.done(null);
-		} else if (up) {
-			if (this.screen === "detail") this.scroll = Math.max(0, this.scroll - 1);
-			else this.index = Math.max(0, this.index - 1);
-		} else if (down) {
-			if (this.screen === "detail") this.scroll++;
-			else this.index = Math.min(this.lists.length - 1, this.index + 1);
-		} else if (key === "n") {
-			this.createTitle = "";
-			this.input = { text: "" };
-			this.screen = "create";
-		} else if (sel && (key === "c" || (confirm && this.mode === "pick" && this.screen === "list"))) {
-			if (claimState(sel, this.host.session()) === "held") this.screen = "confirm";
-			else this.attach(false);
-		} else if (sel && key === "r") {
-			const r = this.host.release(sel.slug);
-			this.message = r.message;
-			this.reload();
-		} else if (sel && confirm && this.screen === "list" && this.openList) {
-			const close = () => {
-				this.drill?.dispose();
-				this.drill = null;
-				this.reload();
-				this.tui.requestRender();
-			};
-			this.drill = this.openList(sel.slug, close);
-		} else if (sel && confirm && this.screen === "list") {
-			this.scroll = 0;
-			this.screen = "detail";
-		}
-		this.tui.requestRender();
-	}
-
-	private attach(force: boolean): void {
-		const sel = this.selected;
-		if (!sel) return;
-		const r = this.host.attach(sel.slug, force);
-		this.message = r.message;
-		if (r.ok && this.mode === "pick") return this.done({ kind: "replaced", list: r.list });
-		this.screen = this.screen === "confirm" ? "list" : this.screen;
-		this.reload();
-	}
-
-	invalidate(): void {}
 }
 
 /** The resume dialog's choices for a situation, in display order. */
@@ -346,6 +156,7 @@ export function resumeInfo(situation: ResumeSituation, theme: WidgetTheme, now: 
 export class ResumeDialog {
 	private index = 0;
 	private confirming = false;
+	private confirmIndex = 0;
 	private creating = false;
 	private createTitle = "";
 	private input = { text: "" };
@@ -368,14 +179,15 @@ export class ResumeDialog {
 		const title = "Accordion › This session's task list";
 		if (this.creating) return frame(`${title} › New list`, [this.createTitle ? ` Goal: ${clean(this.input.text)}█` : ` Title: ${clean(this.input.text)}█`], this.message, this.createTitle ? "type goal · enter create · esc back" : "type title · enter next · esc back", width, t);
 		if (this.confirming && this.situation.kind === "held" && this.situation.holder) {
-			const body = [` Take over "${this.situation.slug}" from ${holderLabel(this.situation.holder)}?`, " That session loses its claim; its agent can no longer change the list."];
-			return frame(`${title} › Take over`, body, this.message, "enter take over · esc back", width, t);
+			const options = [`Leave it with ${holderLabel(this.situation.holder)}`, `Take over "${this.situation.slug}"`];
+			const body = [` Take over "${this.situation.slug}" from ${holderLabel(this.situation.holder)}?`, " That session loses its claim; its agent can no longer change the list.", "", ...options.map((o, i) => (i === this.confirmIndex ? `${t.fg("accent", "→")} ${t.bold(o)}` : `  ${o}`))];
+			return frame(`${title} › Take over`, body, this.message, "↑↓ select · enter choose · esc back", width, t);
 		}
 		const body = [
 			` ${this.situation.kind === "missing" ? "The task list this session used is gone." : "Reattach the task list this session used before?"}`,
 			...resumeInfo(this.situation, t, Date.now()),
 			"",
-			...this.choices.map((c, i) => (i === this.index ? `${t.fg("accent", "›")} ${t.bold(choiceLabel(c, this.situation))}` : `  ${choiceLabel(c, this.situation)}`)),
+			...this.choices.map((c, i) => (i === this.index ? `${t.fg("accent", "→")} ${t.bold(choiceLabel(c, this.situation))}` : `  ${choiceLabel(c, this.situation)}`)),
 		];
 		return frame(title, body, this.message, "↑↓ select · enter choose · esc continue without", width, t);
 	}
@@ -392,8 +204,9 @@ export class ResumeDialog {
 			return this.tui.requestRender();
 		}
 		if (this.confirming) {
-			if (cancel) this.confirming = false;
+			if (cancel || (confirm && this.confirmIndex === 0)) this.confirming = false;
 			else if (confirm) return this.done({ choice: "reclaim" });
+			else if (k.matches(data, "tui.select.up") || k.matches(data, "tui.select.down")) this.confirmIndex = 1 - this.confirmIndex;
 			return this.tui.requestRender();
 		}
 		if (cancel) return this.done({ choice: "without" });
@@ -401,7 +214,10 @@ export class ResumeDialog {
 		else if (k.matches(data, "tui.select.down")) this.index = Math.min(this.choices.length - 1, this.index + 1);
 		else if (confirm) {
 			const choice = this.choices[this.index];
-			if (choice === "reclaim" && this.situation.kind === "held") this.confirming = true;
+			if (choice === "reclaim" && this.situation.kind === "held") {
+				this.confirming = true;
+				this.confirmIndex = 0;
+			}
 			else if (choice === "create") {
 				this.createTitle = "";
 				this.input = { text: "" };

@@ -4,12 +4,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { TaskStore, runTasks, slugFor } from "../tasks";
-import { resumeSituation, type AttachOutcome } from "../taskBinding";
-import { ResumeDialog, TaskListsBrowser, listRowLine, type TaskListsHost } from "./taskLists";
+import { resumeSituation } from "../taskBinding";
+import type { ConfirmSpec } from "./screens/types";
+import { ResumeDialog, listRowLine, type TaskListsHost } from "./taskLists";
+import { TaskViews, type TaskViewsHost } from "./taskViews";
 
 const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t, strikethrough: (t: string) => t };
 const KEY: Record<string, string> = { up: "\x1b[A", down: "\x1b[B", enter: "\r", esc: "\x1b" };
 const keys = {
+	getKeys: () => [],
 	matches(data: string, binding: string) {
 		return (
 			(binding === "tui.select.up" && data === KEY.up) ||
@@ -51,35 +54,41 @@ const type = (c: { handleInput(d: string): void }, ...input: string[]) => {
 	for (const d of input) for (const ch of KEY[d] ? [KEY[d]] : [...d]) c.handleInput(ch);
 };
 
-describe("task list browser", () => {
+function open(host: TaskListsHost, extra: Partial<TaskViewsHost> = {}) {
+	const said: string[] = [];
+	let modal: ConfirmSpec | null = null;
+	const views: TaskViewsHost = { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => host.lists(), canSteer: () => true, apply: async () => "", subscribe: () => () => {}, ...extra };
+	const v = new TaskViews({ theme: () => theme, keys: () => keys, say: (t) => void said.push(t), confirm: (spec) => void (modal = spec), update() {} }, views, { kind: "lists" }, host);
+	const press = (...input: string[]) => {
+		for (const d of input) for (const ch of KEY[d] ? [KEY[d]] : d.startsWith("alt+") ? [`\x1b${d.slice(4)}`] : [...d]) ch === KEY.esc ? v.back() : v.key(ch);
+	};
+	return { v, said, press, modal: () => modal, body: (width = 100, rows = 12) => v.view(width, rows).body };
+}
+
+describe("lists tab", () => {
 	test("invalid files stay visible and scanning happens only on reload", () => {
 		const { host } = project();
 		let scans = 0;
-		host.invalid = () => { scans++; return ["broken"]; };
-		const b = new TaskListsBrowser(tui, theme, keys, host, "manage", () => {}, () => 30);
+		const l = open(host, { invalid: () => { scans++; return ["broken"]; } });
 		for (const width of [36, 57, 80, 140]) {
-			const lines = b.render(width);
-			expect(lines.join("\n")).toContain("Invalid lists: broken");
-			expect(lines.join("\n")).not.toContain("No task lists in this project yet");
-			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			const text = l.body(width).join("\n");
+			expect(text).toContain("Invalid lists: broken");
+			expect(text).not.toContain("No task lists in this project yet");
 		}
 		expect(scans).toBe(1);
-		b.dispose();
+		l.v.dispose();
 	});
 
-	test("keeps selection, diagnostics and close controls visible at short height", () => {
+	test("the body never exceeds its rows and the selection stays visible", () => {
 		const { mine, host } = project();
-		for (let i = 0; i < 5; i++) mine.create(`list-${i}`, `List ${i}`, ["Short terminal goal"], []);
-		host.invalid = () => ["broken"];
-		const browser = new TaskListsBrowser(tui, theme, keys, host, "manage", () => {}, () => 10);
-		for (const width of [36, 57, 80, 140]) {
-			const lines = browser.render(width);
-			expect(lines.length).toBeLessThanOrEqual(6);
-			expect(lines.join("\n")).toContain("Invalid lists: broken");
-			expect(lines.at(-1)).toContain("esc close");
-			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-		}
-		browser.dispose();
+		for (let i = 0; i < 9; i++) mine.create(`list-${i}`, `List ${i}`, ["Short terminal goal"], []);
+		const l = open(host, { invalid: () => ["broken"] });
+		for (let i = 0; i < 6; i++) l.press("down");
+		const view = l.v.view(80, 4);
+		expect(view.body.length).toBeLessThanOrEqual(4);
+		expect(view.body.some((line) => line.startsWith("→"))).toBe(true);
+		expect(view.above + view.below).toBe(9 - 3);
+		l.v.dispose();
 	});
 
 	test("rows keep slug, progress and claim at every width", () => {
@@ -94,46 +103,54 @@ describe("task list browser", () => {
 		expect(listRowLine(list, "s1", false, 140, theme, Date.now())).toContain('held · session s2 "Other work"');
 	});
 
-	test("manage mode attaches, takes over after confirmation, releases and creates", () => {
+	test("attaches, takes over only after choosing it, releases and creates", () => {
 		const { mine, other, host } = project();
 		runTasks(other, { action: "create", list: "held", title: "Held", goals: ["G"], tasks: [{ title: "A" }] });
 		mine.create("free", "Free", ["G"], []);
 		mine.release("free");
-		let closed: AttachOutcome | null | undefined;
-		const b = new TaskListsBrowser(tui, theme, keys, host, "manage", (v) => (closed = v), () => 30);
+		const l = open(host);
 		const select = (slug: string) => {
-			for (let i = 0; i < 5; i++) type(b, "up");
-			for (let i = 0; i < 5 && !b.render(100).some((l) => l.startsWith("›") && l.includes(` ${slug} `)); i++) type(b, "down");
+			for (let i = 0; i < 5; i++) l.press("up");
+			for (let i = 0; i < 5 && !l.body().some((row) => row.startsWith("→") && row.includes(` ${slug} `)); i++) l.press("down");
 		};
 		select("free");
-		type(b, "c");
+		l.press("alt+t");
 		expect(mine.read("free").claim?.session).toBe("s1");
 		select("held");
-		type(b, "c");
-		expect(b.render(100).join("\n")).toContain("Taking it over makes that session lose the claim");
-		type(b, "enter");
+		l.press("alt+t");
+		expect(mine.read("held").claim?.session).toBe("s2");
+		expect(l.modal()?.options[0]).toStartWith("Leave it with");
+		expect(l.modal()?.title).toContain("That session loses the claim");
+		l.modal()!.then(0);
+		expect(mine.read("held").claim?.session).toBe("s2");
+		l.modal()!.then(1);
 		expect(mine.read("held").claim?.session).toBe("s1");
-		type(b, "r");
+		l.press("alt+t");
 		expect(mine.read("held").claim).toBeNull();
-		type(b, "n", "My new list", "enter");
-		expect(b.render(80).join("\n")).toContain("Goal:");
-		type(b, "Deliver changes", "enter");
+		l.press("alt+n");
+		expect(l.v.typing()).toBe(true);
+		l.press("My new list", "enter");
+		expect(l.body().join("\n")).toContain("Goal:");
+		l.press("Deliver changes", "enter");
+		expect(l.v.typing()).toBe(false);
 		expect(mine.read("my-new-list").claim?.session).toBe("s1");
 		expect(mine.read("my-new-list").goals).toEqual([{ id: "g1", text: "Deliver changes" }]);
-		expect(closed).toBeUndefined();
-		type(b, "esc");
-		expect(closed).toBeNull();
+		expect(l.body().some((row) => row.startsWith("→") && row.includes(" my-new-list "))).toBe(true);
+		l.v.dispose();
 	});
 
-	test("pick mode closes with the attached or created list", () => {
+	test("typing filters the lists and enter opens the selected one", () => {
 		const { mine, host } = project();
-		mine.create("other", "Other", ["G"], []);
-		mine.release("other");
-		let picked: AttachOutcome | null | undefined;
-		type(new TaskListsBrowser(tui, theme, keys, host, "pick", (v) => (picked = v), () => 30), "enter");
-		expect(picked).toMatchObject({ kind: "replaced", list: { slug: "other" } });
-		type(new TaskListsBrowser(tui, theme, keys, host, "pick", (v) => (picked = v), () => 30), "n", "Fresh", "enter", "Finish work", "enter");
-		expect(picked).toMatchObject({ kind: "created", list: { slug: "fresh" } });
+		mine.create("alpha", "Alpha", ["G"], []);
+		mine.create("beta", "Beta", ["G"], []);
+		const l = open(host);
+		l.v.setFilter("bet");
+		expect(l.body().join("\n")).not.toContain("alpha");
+		l.press("enter");
+		expect(l.v.view(100, 12).crumbs).toEqual(["beta"]);
+		expect(l.v.back()).toBe(true);
+		expect(l.v.back()).toBe(false);
+		l.v.dispose();
 	});
 });
 
@@ -147,10 +164,13 @@ describe("resume dialog", () => {
 		const d = new ResumeDialog(tui, theme, keys, s, (v) => (chosen = v));
 		const text = d.render(120).join("\n");
 		expect(text).toContain('currently claimed by session s2 "Other work"');
-		expect(text).toContain('› Take over "a" from session s2 "Other work"');
+		expect(text).toContain('→ Take over "a" from session s2 "Other work"');
 		type(d, "enter");
 		expect(chosen).toBeUndefined();
+		expect(d.render(120).join("\n")).toContain('→ Leave it with session s2 "Other work"');
 		type(d, "enter");
+		expect(chosen).toBeUndefined();
+		type(d, "enter", "down", "enter");
 		expect(chosen).toEqual({ choice: "reclaim" });
 		const d2 = new ResumeDialog(tui, theme, keys, s, (v) => (chosen = v));
 		type(d2, "esc");

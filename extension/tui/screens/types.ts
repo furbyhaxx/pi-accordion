@@ -71,4 +71,6 @@ export interface PanelTab {
 	discard(): void;
 	/** Extra help lines below the key list. */
 	legend(): string[];
+	/** Release subscriptions when the panel closes for good. */
+	dispose?(): void;
 }
