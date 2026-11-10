@@ -27,7 +27,8 @@ implementation must deviate, update the spec in the same change.
 ```
 done  S0  Taskfold visibility unit and task tooling (§4)  feat/taskfold-widget  8c2fb44…HEAD (pushed)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)  feat/panel-shell (not merged)
-next  S1b Task views on the standard (§11 item 0); footer (§8)
+now   S1b Task views inside the panel (§11 item 0)
+later S1c Footer (§8)
 later S2  Settings store, sync, schema (§6.1, §6.3)
 later S3  Settings screen (§6.2)
 later S4  Compaction (§7)
@@ -120,6 +121,35 @@ pre-existing panel action still works.
 Result: delivered on `feat/panel-shell`. 217 bun tests, smoke and the tsc baseline of 7 hold.
 `evidence/` holds 48 live PiG captures (12 screens at 36/57/80/140 columns, two at 16 rows), each
 taken with its own `ACCORDION_HOME` so no run meets the previous one's controller lease.
+
+## S1b: task views inside the panel
+
+Current: `/accordion tasks lists` and `/accordion tasks tree` open their own overlay
+(`TaskListsBrowser`, `TaskViews`) with a six-line frame and bare-key actions
+(`n c r g ? t u f i d p v /`). The resume flow reuses the browser in `pick` mode.
+
+Change: one dashboard. Tab order `Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings`.
+
+- **Tasks** = this session's transcript by task (the former tree). **Lists** = the project's task
+  lists; Enter drills list → task details → span → block text. Both are `PanelTab`s built by
+  `screens/tasks.ts` over one screen stack (`TaskViews` in `taskViews.ts`); the list rows move into
+  it and `TaskListsBrowser` is deleted.
+- The tabs exist when the host provides `tasks` (local session only; a remote session panel has
+  none). Lists needs the `tasks` tool's conductor (`TaskSession`), else the tab says so.
+- `/accordion tasks tree` and `/accordion tasks lists` open the panel on that tab.
+- Keys: typing filters; `alt+f` fold or unfold (step, fold, task record); `alt+p` pin; `alt+i` the
+  other view of a task (span from a list, details from a tree); `alt+g` list goals and context;
+  `alt+v` record ↔ original, and all/tasks/untracked on the session tree; `alt+t` attach, release
+  or take over a list (take-over asks, keep first); `alt+n` new list (inline title, then goal).
+  The legend moves to `F1`.
+- Panel body cap rises from 14 to 20 rows: the tree tabs are the tallest content.
+- Resume flow: "Choose another list" becomes host `select`/`input` dialogs; the resume dialog keeps
+  arrows and Enter, and its take-over confirm lists keeping first.
+
+Do not: read list files while rendering; keep a second frame for the task views.
+
+Tests: `taskViews.test.ts` and `taskLists.test.ts` move to the chords; both tabs join the
+printable-key sweep in `panel.test.ts`.
 
 ## S2: settings store, sync and schema
 
