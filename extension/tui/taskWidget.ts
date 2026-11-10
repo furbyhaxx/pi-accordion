@@ -9,6 +9,7 @@ import type { Truth } from "../../core/truth";
 import { scanTaskSpans } from "../../conductors/in-process/taskfold/taskfold";
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
+import { fitSegments } from "./chrome";
 import { formatCompactTokens } from "./map";
 import { spanContains, taskFoldRefs } from "./taskTranscript";
 import { buildTaskTree, isFinished, layoutTaskTree, summarizeTasks, taskDuration, type TaskGlyphState, type TaskNode, type TaskRow } from "./taskTree";
@@ -60,16 +61,6 @@ export function formatDuration(ms: number): string {
 	const m = Math.floor(s / 60);
 	if (m < 60) return `${m}m ${s % 60}s`;
 	return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
-}
-
-/** Keep leading segments that fit `width`; the first one is always kept, truncated if it must be. */
-function fitSegments(segments: string[], width: number): string {
-	let out = segments[0] ?? "";
-	for (const seg of segments.slice(1)) {
-		if (visibleWidth(out + seg) > width) break;
-		out += seg;
-	}
-	return truncateToWidth(out, Math.max(0, width), ELLIPSIS);
 }
 
 function headerLine(model: TaskWidgetModel, view: TaskWidgetView, width: number, theme: WidgetTheme, now: number, glyph: string): string {
