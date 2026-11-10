@@ -4,15 +4,20 @@ import { Truth } from "../../core/truth";
 import { foldTag } from "../../core/digest";
 import type { Block } from "../../core/types";
 import type { ActiveConductorMeta, WireCommand } from "../../core/protocol";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
 import type { AccordionTuiHost } from "./host";
-import { openAccordionPanel } from "./panel";
+import { CHROME_ROWS } from "./chrome";
+import { openAccordionPanel, type PanelTabId } from "./panel";
 
 function block(id: string, order: number): Block {
 	return { id, order, kind: "text", turn: 1, text: `content ${id}`, tokens: 20, override: null, autoFolded: false, by: null };
 }
 
-function setup(delayed = false) {
+const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "escape", "tui.select.confirm": "enter", "tui.select.pageUp": "pageUp", "tui.select.pageDown": "pageDown" };
+const K = { up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
+const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
+
+function setup(delayed = false, start?: PanelTabId) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
 	let currentTruth: Truth | null = truth;
@@ -73,11 +78,11 @@ function setup(delayed = false) {
 	let confirmations: string[] = [];
 	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
 		finish = () => { component?.dispose?.(); resolve(undefined); };
-		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value, strikethrough: (value: string) => value }, { matches: (data: string, action: string) => ({ "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "esc", "tui.select.confirm": "enter" } as Record<string, string>)[action] === data }, (value: unknown) => { component?.dispose?.(); resolve(value); });
+		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value, inverse: (value: string) => value }, { matches: (data: string, action: string) => matchesKey(data, BINDINGS[action] as Parameters<typeof matchesKey>[1]), getKeys: (action: string) => [BINDINGS[action]] }, (value: unknown) => { component?.dispose?.(); resolve(value); });
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
-	const opening = openAccordionPanel(ctx, host);
+	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
-	return { truth, conductor, commands, get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 describe("accordion panel", () => {
@@ -85,33 +90,33 @@ describe("accordion panel", () => {
 		const s = setup();
 		s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["b"] }], "you");
-		s.panel.handleInput("down");
-		s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.panel.handleInput(K.alt("v")); s.panel.handleInput(K.down); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.editorPrefill()).toContain("FOLDED");
 		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "fold", ids: ["b"], digest: "edited digest" }], baseRev: expect.any(Number) }]);
-		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
+		expect(s.cursor()).toContain(" b ");
 		s.close(); await s.opening;
 	});
+
 	test("cancel leaves the digest untouched and keeps selection", async () => {
 		const s = setup(); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["b"] }], "you");
-		s.setEditor(undefined); s.panel.handleInput("down"); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.setEditor(undefined); s.panel.handleInput(K.alt("v")); s.panel.handleInput(K.down); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.commands).toEqual([]);
-		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
+		expect(s.cursor()).toContain(" b ");
 		s.close(); await s.opening;
 	});
 
 	test("refuses an edit when truth changes while the editor is open", async () => {
 		const s = setup(); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
-		s.onEditor(() => s.truth.setBudget(1234)); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.onEditor(() => s.truth.setBudget(1234)); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.commands).toEqual([]);
-		expect(s.panel.render(100).join("\n")).toContain("changed while editing; retry");
-		s.onEditor(() => {}); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		expect(s.screen()).toContain("changed while editing; retry");
+		s.onEditor(() => {}); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.editorPrefill()).toBe("edited digest");
 		s.close(); await s.opening;
 	});
@@ -119,31 +124,31 @@ describe("accordion panel", () => {
 	test("refuses an edit when the session disappears during editing", async () => {
 		const s = setup(); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
-		s.onEditor(s.changeSession); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.onEditor(s.changeSession); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.commands).toEqual([]);
-		expect(s.panel.render(100).join("\n")).toContain("changed while editing; retry");
+		expect(s.screen()).toContain("changed while editing; retry");
 		s.close(); await s.opening;
 	});
 
 	test("does not author an unchanged generated digest", async () => {
 		const s = setup(); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
-		s.setEditor(s.truth.digestOf(s.truth.blocks[0])); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.setEditor(s.truth.digestOf(s.truth.blocks[0])); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.commands).toEqual([]);
-		expect(s.panel.render(100).join("\n")).toContain("No changes");
+		expect(s.screen()).toContain("No changes");
 		s.close(); await s.opening;
 	});
 
 	test("uses the empty digest sentinel and restores the block default", async () => {
 		const s = setup(); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
-		s.setEditor("  "); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.setEditor("  "); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"], digest: "{empty}" }], baseRev: expect.any(Number) });
-		s.panel.handleInput("D");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.panel.handleInput(K.alt("r"));
+		await tick();
 		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["a"] }], baseRev: expect.any(Number) });
 		expect(s.truth.digestOf(s.truth.blocks[0])).toContain("FOLDED");
 		s.close(); await s.opening;
@@ -154,16 +159,16 @@ describe("accordion panel", () => {
 		s.truth.apply([{ kind: "group", ids: ["a", "b"] }], "you");
 		const group = s.truth.groups[0];
 		s.setEditor(foldTag(group.id));
-		s.setConfirm(false); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.setConfirm(false); s.panel.handleInput(K.alt("e"));
+		await tick();
 		expect(s.confirmations()[0]).toContain("removes group messages");
 		expect(s.commands).toEqual([]);
-		s.setConfirm(true); s.panel.handleInput("e");
-		for (let i = 0; i < 6; i++) await Promise.resolve();
+		s.setConfirm(true); s.panel.handleInput(K.alt("e"));
+		await tick(6);
 		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"], summary: null }], baseRev: expect.any(Number) });
 		expect(s.truth.groups[0].digest).toBeNull();
-		s.panel.handleInput("D");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
+		s.panel.handleInput(K.alt("r"));
+		await tick();
 		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId: group.id }, { kind: "group", ids: ["a", "b"] }], baseRev: expect.any(Number) });
 		expect(s.truth.groupSummary(s.truth.groups[0])).toContain("FOLDED");
 		s.close(); await s.opening;
@@ -172,69 +177,79 @@ describe("accordion panel", () => {
 	test("awaits an asynchronous digest command and reports refusal", async () => {
 		const s = setup(true); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
-		s.setRefuse(); s.panel.handleInput("e");
-		for (let i = 0; i < 3; i++) await Promise.resolve();
+		s.setRefuse(); s.panel.handleInput(K.alt("e"));
+		await tick(3);
 		expect(s.commands).toHaveLength(1);
 		s.resolveCommand();
-		for (let i = 0; i < 5; i++) await Promise.resolve();
-		expect(s.panel.render(100).join("\n")).toContain("read-only");
+		await tick();
+		expect(s.screen()).toContain("read-only");
 		s.close(); await s.opening;
 	});
 
 	test("surfaces a lock clamp on a digest edit", async () => {
 		const s = setup(); s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "auto");
-		s.truth.setLocks(["human-steering"], "conductor"); s.panel.handleInput("e");
-		for (let i = 0; i < 5; i++) await Promise.resolve();
-		expect(s.panel.render(100).join("\n")).toContain("locked");
+		s.truth.setLocks(["human-steering"], "conductor"); s.panel.handleInput(K.alt("e"));
+		await tick();
+		expect(s.screen()).toContain("locked");
 		s.close(); await s.opening;
 	});
 
 	test("navigates the context map and switches to the list", async () => {
 		const s = setup();
-		expect(s.panel.render(36).join("\n")).toContain("[A1P]");
-		s.panel.handleInput("\u001b[C");
-		expect(s.panel.render(36).join("\n")).toContain("[A1P]");
-		s.panel.handleInput("f");
-		await Promise.resolve();
+		expect(s.screen(36)).toContain("[A1P]");
+		s.panel.handleInput(K.right);
+		expect(s.screen(36)).toContain("[A1P]");
+		s.panel.handleInput(K.alt("f"));
+		await tick(1);
 		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["b"] }] });
-		s.panel.handleInput("m");
-		expect(s.panel.render(100).find((line) => line.startsWith("❯"))).toContain("b");
+		s.panel.handleInput(K.alt("v"));
+		expect(s.cursor()).toContain(" b ");
 		s.close(); await s.opening;
 	});
 
 	test("targets selected block and displays protected refusal", async () => {
 		const s = setup();
-		s.panel.handleInput("down");
-		s.panel.handleInput("\u001b[102;1u");
-		await Promise.resolve();
+		s.panel.handleInput(K.alt("v")); s.panel.handleInput(K.down);
+		s.panel.handleInput(K.alt("f"));
+		await tick(1);
 		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "fold", ids: ["b"] }] }]);
-		expect(s.panel.render(100).join("\n")).toContain("Refused: b: protected");
+		expect(s.screen()).toContain("▲ Refused: b: protected");
 		s.close(); await s.opening;
 		expect(s.disposed()).toBe(true);
 	});
 
-	test("requires explicit consent naming exclusive locks", async () => {
+	test("requires explicit consent naming exclusive locks, with the safe choice first", async () => {
 		const s = setup();
-		s.panel.handleInput("c");
-		s.panel.handleInput("down");
-		s.panel.handleInput("enter");
+		s.panel.handleInput(K.tab); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		expect(s.commands).toEqual([]);
-		expect(s.panel.render(100).join("\n")).toContain("human-steering");
-		s.panel.handleInput("enter");
+		expect(s.screen()).toContain("human-steering");
+		expect(s.cursor()).toContain("Cancel");
+		s.panel.handleInput(K.enter);
+		expect(s.commands).toEqual([]);
+		s.panel.handleInput(K.enter); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		expect(s.commands).toEqual([{ kind: "selectConductor", id: "exclusive" }]);
 		s.close(); await s.opening;
 	});
 
-	test("creates a group from the selected contiguous range", async () => {
+	test("creates a group from the selected range and asks before deleting it", async () => {
 		const s = setup();
 		s.truth.setProtect(0);
-		s.panel.handleInput("r"); s.panel.handleInput("down"); s.panel.handleInput("g");
-		await Promise.resolve();
+		s.panel.handleInput(K.alt("v")); s.panel.handleInput(K.alt("m")); s.panel.handleInput(K.down); s.panel.handleInput(K.alt("n"));
+		await tick(1);
 		expect(s.commands).toEqual([{ kind: "ops", ops: [{ kind: "group", ids: ["a", "b"] }] }]);
 		expect(s.truth.groups).toHaveLength(1);
-		s.panel.handleInput("x");
-		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "unfoldGroup", groupId: s.truth.groups[0].id }] });
+		const groupId = s.truth.groups[0].id;
+		s.panel.handleInput(K.alt("g"));
+		await tick(1);
+		expect(s.commands[1]).toEqual({ kind: "ops", ops: [{ kind: "unfoldGroup", groupId }] });
+		s.panel.handleInput(K.alt("d"));
+		expect(s.cursor()).toContain("Keep group");
+		s.panel.handleInput(K.enter);
+		expect(s.commands).toHaveLength(2);
+		s.panel.handleInput(K.alt("d")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
+		await tick(1);
+		expect(s.commands[2]).toEqual({ kind: "ops", ops: [{ kind: "ungroup", groupId }] });
 		s.close(); await s.opening;
 	});
 
@@ -242,10 +257,13 @@ describe("accordion panel", () => {
 		const s = setup();
 		s.truth.setProtect(0);
 		s.truth.apply([{ kind: "fold", ids: ["a"] }], "you");
-		s.panel.handleInput("enter");
-		expect(s.panel.render(100).join("\n")).toContain("content a");
-		s.panel.handleInput("v");
-		expect(s.panel.render(100).join("\n")).toContain("FOLDED");
+		s.panel.handleInput(K.enter);
+		expect(s.screen()).toContain("content a");
+		expect(s.screen()).toContain("Context › Inspector");
+		s.panel.handleInput(K.alt("v"));
+		expect(s.screen()).toContain("FOLDED");
+		s.panel.handleInput(K.esc);
+		expect(s.screen()).not.toContain("Inspector");
 		s.close(); await s.opening;
 	});
 
@@ -253,30 +271,42 @@ describe("accordion panel", () => {
 		const s = setup();
 		s.truth.setProtect(0);
 		s.truth.apply([{ kind: "group", ids: ["a", "b"], summary: "group summary" }], "you");
-		s.panel.handleInput("enter"); s.panel.handleInput("v");
-		expect(s.panel.render(100).join("\n")).toContain("Group summary: group summary");
+		s.panel.handleInput(K.enter); s.panel.handleInput(K.alt("v"));
+		expect(s.screen()).toContain("Group summary: group summary");
 		s.close(); await s.opening;
 	});
 
 	test("does not attach when the requested locks change after consent is shown", async () => {
-		const s = setup();
-		s.panel.handleInput("c"); s.panel.handleInput("down"); s.panel.handleInput("enter");
+		const s = setup(false, "conductors");
+		s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		s.conductor.locks.push("tail-size");
-		s.panel.handleInput("enter");
+		s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		expect(s.commands).toEqual([]);
-		expect(s.panel.render(100).join("\n")).toContain("locks changed");
+		expect(s.screen()).toContain("locks changed");
 		s.close(); await s.opening;
 	});
 
-	test("renders bounded and sanitized text and responds to host updates", async () => {
+	test("every screen keeps one height and fits every width, with sanitized text", async () => {
 		const s = setup();
 		s.truth.blocks[0].text = "wide 界 \u001b]0;unsafe\u0007 text";
-		for (const width of [20, 36, 57, 80, 140]) {
-			const lines = s.panel.render(width);
-			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-			expect(lines.join("")).not.toContain("\u001b]");
-			expect(lines.join("")).not.toContain("\u0007");
+		const height = s.panel.render(80).length;
+		expect(height).toBe(13 + CHROME_ROWS);
+		const check = () => {
+			for (const width of [20, 36, 57, 80, 140]) {
+				const lines = s.panel.render(width);
+				expect(lines).toHaveLength(height);
+				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+				expect(lines.join("")).not.toContain("\u001b]");
+				expect(lines.join("")).not.toContain("\u0007");
+			}
+		};
+		// map, list, filtered list, inspector, help, conductors, consent, settings, editor, staged
+		for (const key of [K.alt("v"), "w", K.enter, K.f1, K.f1, K.esc, K.esc, K.tab, K.down, K.enter, K.esc, K.tab, K.down, K.enter, "272k", K.esc, K.down, K.down, K.enter]) {
+			check();
+			s.panel.handleInput(key);
 		}
+		check();
+		expect(s.screen()).toContain("▲ 1 staged");
 		const before = s.renders(); s.update();
 		expect(s.renders()).toBe(before + 1);
 		s.close(); await s.opening;
@@ -294,20 +324,20 @@ describe("accordion panel", () => {
 	test("awaits asynchronous command results and blocks concurrent mutations", async () => {
 		const s = setup(true);
 		s.setRefuse();
-		s.panel.handleInput("o"); s.panel.handleInput("o");
+		s.panel.handleInput(K.alt("o")); s.panel.handleInput(K.alt("o"));
 		expect(s.commands).toHaveLength(1);
-		expect(s.panel.render(100).join("\n")).toContain("pending");
-		s.resolveCommand(); await Promise.resolve();
-		expect(s.panel.render(100).join("\n")).toContain("read-only");
+		expect(s.screen()).toContain("pending");
+		s.resolveCommand(); await tick(1);
+		expect(s.screen()).toContain("read-only");
 		s.close(); await s.opening;
 	});
 
 	test("ignores a delayed response after disposal", async () => {
 		const s = setup(true);
-		s.panel.handleInput("o");
+		s.panel.handleInput(K.alt("o"));
 		s.close(); await s.opening;
 		const before = s.renders();
-		s.resolveCommand(); await Promise.resolve();
+		s.resolveCommand(); await tick(1);
 		expect(s.renders()).toBe(before);
 		expect(s.disposed()).toBe(true);
 	});
@@ -315,51 +345,148 @@ describe("accordion panel", () => {
 	test("reports loss of controller ownership before another command", async () => {
 		const s = setup();
 		s.loseControl();
-		expect(s.panel.render(100).join("\n")).toContain("READ-ONLY");
+		expect(s.screen()).toContain("READ-ONLY");
 		expect(s.commands).toEqual([]);
 		s.close(); await s.opening;
 	});
 
 	test("surfaces loss of control for non-op commands", async () => {
 		const s = setup(); s.setRefuse();
-		s.panel.handleInput("o");
-		await Promise.resolve();
-		expect(s.panel.render(120).join("\n")).toContain("read-only");
-		expect(s.panel.render(120).join("\n")).toContain("reopen /accordion");
-		s.panel.handleInput("down");
-		expect(s.panel.render(36).join("\n")).toContain("reopen /accordion");
+		s.panel.handleInput(K.alt("o"));
+		await tick(1);
+		expect(s.screen(120)).toContain("read-only");
+		expect(s.screen(120)).toContain("reopen /accordion");
+		s.panel.handleInput(K.down);
+		expect(s.screen(36)).toContain("reopen /accordion");
 		s.close(); await s.opening;
 	});
 
-	test("runs manual compaction pass with C and edits web settings & token in Settings tab", async () => {
+	test("compacts with a chord", async () => {
 		const s = setup();
-		s.panel.handleInput("C");
-		await Promise.resolve();
-		expect(s.panel.render(100).join("\n")).toContain("Accordion compacted context: 40 → 20 tok");
-
-		s.panel.handleInput("s");
-		const settingsRender = s.panel.render(110).join("\n");
-		expect(settingsRender).toContain("Web UI Bind Address");
-		expect(settingsRender).toContain("kave4ton");
-
-		s.panel.handleInput("h");
-		await Promise.resolve();
-		expect(s.panel.render(110).join("\n")).toContain("0.0.0.0");
-
-		s.panel.handleInput("g");
-		expect(s.panel.render(110).join("\n")).toContain("mira7pex");
-
+		s.panel.handleInput(K.alt("c"));
+		await tick(2);
+		expect(s.screen()).toContain("Accordion compacted context: 40 → 20 tok");
 		s.close(); await s.opening;
 	});
 
-	test("filters blocks with / search in list view", async () => {
+	test("typing filters the block list and esc clears the filter before closing", async () => {
 		const s = setup();
-		s.panel.handleInput("/");
-		s.panel.handleInput("b");
-		s.panel.handleInput("enter");
-		const lines = s.panel.render(100).join("\n");
-		expect(lines).toContain("(1/2)");
-		expect(lines).toContain("content b");
+		for (const ch of "content b") s.panel.handleInput(ch);
+		expect(s.screen()).toContain("⌕ content b");
+		expect(s.cursor()).toContain(" b ");
+		expect(s.screen()).not.toContain("content a");
+		s.panel.handleInput(K.backspace);
+		expect(s.screen()).toContain("content a");
+		s.panel.handleInput(K.esc);
+		expect(s.screen()).toContain("Type to filter");
+		let closed = false;
+		void s.opening.then(() => { closed = true; });
+		s.panel.handleInput(K.esc);
+		await tick();
+		expect(closed).toBe(true);
+	});
+
+	test("tab and shift+tab switch tabs; left and right too outside the map", async () => {
+		const s = setup();
+		const crumb = () => s.panel.render(100)[0];
+		expect(crumb()).toContain("Accordion › Context");
+		s.panel.handleInput(K.tab);
+		expect(crumb()).toContain("Accordion › Conductors");
+		s.panel.handleInput(K.right);
+		expect(crumb()).toContain("Accordion › Settings");
+		s.panel.handleInput(K.shiftTab); s.panel.handleInput(K.left);
+		expect(crumb()).toContain("Accordion › Context");
+		s.close(); await s.opening;
+	});
+
+	test("a printable key never acts on any screen", async () => {
+		const printable = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i));
+		const reach: Record<string, string[]> = {
+			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1],
+			conductors: [K.tab], consent: [K.tab, K.down, K.enter],
+			settings: [K.tab, K.tab], confirm: [K.tab, K.tab, K.down, K.down, K.down, K.down, K.down, K.down, K.down, K.down, K.alt("r")],
+		};
+		for (const [name, path] of Object.entries(reach)) {
+			const s = setup();
+			s.truth.setProtect(0);
+			for (const key of path) s.panel.handleInput(key);
+			const rule = s.panel.render(100)[0];
+			for (const key of printable) s.panel.handleInput(key);
+			await tick();
+			expect([name, s.commands]).toEqual([name, []]);
+			expect([name, s.settings()]).toEqual([name, { autoArm: true, defaultConductor: "keel-lite", compactMode: "accordion", bindHost: "127.0.0.1", doorPort: 24317, customToken: null }]);
+			expect([name, s.truth.groups.length, s.truth.blocks.some((b) => b.override)]).toEqual([name, 0, false]);
+			expect(s.panel.render(100)[0].replace(/ · ▲.*$/, "")).toBe(rule.replace(/ · ▲.*$/, ""));
+			s.close(); await s.opening;
+		}
+	});
+
+	test("global settings are staged, saved with ctrl+s, and a dirty close asks first", async () => {
+		const s = setup(false, "settings");
+		for (const key of [K.down, K.down, K.down, K.enter]) s.panel.handleInput(key);
+		expect(s.settings().autoArm).toBe(true);
+		expect(s.cursor()).toContain("[ ] off");
+		expect(s.cursor()).toContain("▲ staged");
+		s.panel.handleInput(K.down); s.panel.handleInput(K.right);
+		expect(s.cursor()).toContain("‹ exclusive ›");
+		expect(s.screen()).toContain("▲ 2 staged");
+		s.panel.handleInput(K.esc);
+		expect(s.cursor()).toContain("Keep editing");
+		s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.ctrlS);
+		await tick();
+		expect(s.settings()).toMatchObject({ autoArm: false, defaultConductor: "exclusive" });
+		expect(s.screen()).toContain("Saved 2 settings");
+		expect(s.screen()).not.toContain("▲");
+		s.panel.handleInput(K.alt("u"));
+		expect(s.cursor()).toContain("‹ keel-lite ›");
+		s.panel.handleInput(K.esc); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
+		await s.opening;
+		expect(s.settings().defaultConductor).toBe("exclusive");
+	});
+
+	test("typed settings are validated before they are staged", async () => {
+		const s = setup(false, "settings");
+		for (let i = 0; i < 6; i++) s.panel.handleInput(K.down);
+		s.panel.handleInput(K.enter);
+		expect(s.panel.render(100)[0]).toContain("Settings › Web UI address");
+		for (let i = 0; i < 9; i++) s.panel.handleInput(K.backspace);
+		for (const ch of "bad host") s.panel.handleInput(ch);
+		expect(s.screen()).toContain("✗ not a host name or address");
+		s.panel.handleInput(K.enter);
+		expect(s.panel.render(100)[0]).toContain("Web UI address");
+		for (let i = 0; i < 8; i++) s.panel.handleInput(K.backspace);
+		for (const ch of "0.0.0.0") s.panel.handleInput(ch);
+		s.panel.handleInput(K.enter);
+		expect(s.cursor()).toContain("0.0.0.0");
+		expect(s.settings().bindHost).toBe("127.0.0.1");
+		s.panel.handleInput(K.ctrlS);
+		await tick();
+		expect(s.settings().bindHost).toBe("0.0.0.0");
+		s.close(); await s.opening;
+	});
+
+	test("a new token is generated only after confirming", async () => {
+		const s = setup(false, "settings");
+		for (let i = 0; i < 8; i++) s.panel.handleInput(K.down);
+		expect(s.cursor()).toContain("kave4ton");
+		s.panel.handleInput(K.alt("r"));
+		expect(s.cursor()).toContain("Keep token");
+		s.panel.handleInput(K.enter);
+		expect(s.cursor()).toContain("kave4ton");
+		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
+		expect(s.cursor()).toContain("mira7pex");
+		s.close(); await s.opening;
+	});
+
+	test("a budget applies to the session at once", async () => {
+		const s = setup(false, "settings");
+		s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
+		for (const ch of "1234") s.panel.handleInput(ch);
+		expect(s.screen()).toContain("= 1,234 tokens");
+		s.panel.handleInput(K.enter);
+		await tick(1);
+		expect(s.commands).toEqual([{ kind: "setBudget", value: 1234 }]);
 		s.close(); await s.opening;
 	});
 });

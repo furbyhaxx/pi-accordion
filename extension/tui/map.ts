@@ -115,7 +115,7 @@ export function buildContextBreakdown(truth: Truth): ContextBreakdown {
 }
 
 /** Render a Claude Code `/context`-inspired proportional Spectrum bar + category legend. */
-export function renderCategoryBar(truth: Truth, width: number): string[] {
+export function renderCategoryBar(truth: Truth, width: number, paintFree: (text: string) => string = (text) => `\x1b[38;5;240m${text}\x1b[39m`): string[] {
 	const available = Math.max(0, Math.floor(width));
 	if (available < 10) return [];
 	const bd = buildContextBreakdown(truth);
@@ -136,7 +136,7 @@ export function renderCategoryBar(truth: Truth, width: number): string[] {
 	}
 	const freeCells = Math.max(0, barCells - usedCells);
 	if (freeCells > 0) {
-		segments.push(`\x1b[38;5;240m${"░".repeat(freeCells)}\x1b[39m`);
+		segments.push(paintFree("░".repeat(freeCells)));
 	}
 	const barLine = truncateToWidth(`  ▕${segments.join("")}▏${statsSuffix}`, available);
 
@@ -146,7 +146,7 @@ export function renderCategoryBar(truth: Truth, width: number): string[] {
 		const dot = fgRgb(KIND_RGB[cat.kind], cat.foldedBlocks > 0 ? "▣" : "■");
 		parts.push(`${dot} ${cat.label} ${formatCompactTokens(cat.liveTokens)}`);
 	}
-	parts.push(`\x1b[38;5;240m░\x1b[39m Free ${formatCompactTokens(bd.freeTokens)}`);
+	parts.push(`${paintFree("░")} Free ${formatCompactTokens(bd.freeTokens)}`);
 	const legendLine = truncateToWidth(`  ${parts.join(" · ")}`, available);
 	return [barLine, legendLine];
 }

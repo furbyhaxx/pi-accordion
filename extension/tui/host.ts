@@ -30,6 +30,8 @@ export interface AccordionTuiHost {
 	canSteer?(): boolean;
 	controlMessage?(): string | null;
 	supportsConditionalOps?(): boolean;
+	/** The session's thinking level; the panel's rules take the editor border color for it. */
+	thinkingLevel?(): string | null;
 	webInfo?(): AccordionWebInfo;
 	settings?(): AccordionSettings;
 	updateSettings?(patch: Partial<AccordionSettings>): AccordionSettings | Promise<AccordionSettings>;

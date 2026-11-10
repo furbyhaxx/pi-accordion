@@ -209,6 +209,7 @@ export interface FrameSpec {
 	description: string;
 	/** A transient result or warning; replaces the description while set. */
 	message: string;
+	messageLevel: "info" | "warning" | "error";
 	hints: Hint[];
 }
 
@@ -221,7 +222,8 @@ export function renderFrame(spec: FrameSpec): string[] {
 	const state = spec.state.length ? fitSegments(spec.state.map((s, i) => (i ? dim(" · ") : "") + s), Math.max(0, w - visibleWidth(crumbs) - 10)) : "";
 	const body = spec.body.slice(0, spec.bodyRows).map((line) => truncateToWidth(line, w, ELLIPSIS));
 	while (body.length < spec.bodyRows) body.push("");
-	const info = spec.message ? theme.fg("warning", `▲ ${clean(spec.message)}`) : dim(clean(spec.description));
+	const text = clean(spec.message);
+	const info = !spec.message ? dim(clean(spec.description)) : spec.messageLevel === "info" ? text : theme.fg(spec.messageLevel, `${spec.messageLevel === "error" ? "✗" : "▲"} ${text}`);
 	return [
 		ruleLine(w, chrome.rule, crumbs, spec.above > 0 ? dim(`↑ ${spec.above} more`) : "", state),
 		tabBar(chrome, theme, w, spec.tabs, spec.active),

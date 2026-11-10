@@ -11,7 +11,7 @@ function frame(width: number, over: Partial<Parameters<typeof renderFrame>[0]> =
 	return renderFrame({
 		width, theme, chrome, crumbs: ["Accordion", "Context", "Inspector"], state: ["READ-ONLY", "105.1k/372.0k tok", "● folding", "Taskfold ✓"], above: 3, below: 12,
 		tabs: ["Context", "Conductors", "Settings"], active: 1, query: "", filterable: true, body: ["x".repeat(200), "row"], bodyRows: 6,
-		description: "d".repeat(200), message: "", hints, ...over,
+		description: "d".repeat(200), message: "", messageLevel: "warning", hints, ...over,
 	});
 }
 
