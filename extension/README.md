@@ -30,9 +30,12 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` to manage the current session in Pi's terminal (`1–4` / `Tab` switches
-between the Claude Code `/context` Overview + Spectrum grid, searchable Blocks list, Conductors,
-and Settings), `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
+Run `/accordion` to manage the current session in Pi's terminal. The panel has three tabs,
+Context (map and block list, `alt+v` switches), Conductors and Settings; `Tab` switches tabs,
+typing filters the block list, `F1` lists the keys of the current tab. Every action is a modifier
+chord (`alt+f` fold, `alt+p` pin, `alt+e` edit digest, `alt+c` compact, …); settings for all
+sessions are staged and saved with `ctrl+s`. `/accordion context|conductors|settings` opens a tab
+directly. Use `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
 collapse the taskfold task list above the editor (also `alt+t`), `/accordion tasks lists` to browse
 and attach the project's task lists (tasks show as ☐ todo, ▶/◐ in progress, ⧗ blocked with its
 reason, ▣ done, ☒ failed, ⊘ abandoned) and drill into a task's details and folds. In the expanded

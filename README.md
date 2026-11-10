@@ -263,20 +263,22 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` in the session to open its context panel (with tabs `1–4` / `Tab`:
-**Context Map**, **Blocks**, **Conductors**, and **Settings**). The Context view shows a
+Run `/accordion` in the session to open its context panel (tabs **Context**, **Conductors** and
+**Settings**; `Tab` switches, `F1` lists the keys of the current tab). The Context view shows a
 Claude Code `/context`-style proportional category bar, token savings, and a 2D Spectrum-colored
 Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system).
 
-- `m` switches between the colored 2D context map and the searchable block list (`/` filters blocks).
-- `C` or `/accordion compact` runs an immediate Accordion compression pass.
+- `alt+v` switches between the colored 2D context map and the block list; typing filters the blocks.
+- Every action is a modifier chord, e.g. `alt+f` fold, `alt+p` pin, `alt+e` edit digest; plain keys only type.
+- `alt+c` or `/accordion compact` runs an immediate Accordion compression pass.
+- `/accordion context`, `/accordion conductors` and `/accordion settings` open the panel on that tab.
 - Folding auto-arms with the `keel-lite` conductor by default (configurable in `~/.accordion/config.json`
-  or the `s` Settings tab), replacing Pi's native `/compact` and threshold auto-compaction with
+  or the Settings tab, where values for all sessions are staged and saved with `ctrl+s`), replacing Pi's native `/compact` and threshold auto-compaction with
   reversible folding while falling back to native compaction only if a hard overflow is already saturated.
 - `/accordion sessions` selects another live Pi session on the same machine.
-- Budget and protected tail (`b`/`t` in the panel, or `/accordion budget 200k`, `/accordion tail 20k`)
-  accept `200k`, `1M`, `0.5M` or `85%` of the context window. Enter applies them to the session, which
-  remembers them per model across resumes; `ctrl+s` (or `--default`) also saves them as the model's
+- Budget and protected tail (rows in the Settings tab, or `/accordion budget 200k`, `/accordion tail 20k`)
+  accept `200k`, `1M`, `0.5M` or `85%` of the context window. They apply to the session, which
+  remembers them per model across resumes; the panel's scope prompt (or `--default`) also saves them as the model's
   default under `modelDefaults` in `~/.accordion/config.json`, keyed by `provider/model`,
   `provider/*` or `*`: `{ "anthropic/claude-opus-5-5": { "budget": "200k" }, "openai-codex/*": { "budget": "272k" } }`.
 - `/accordion tasks [lists | expand | collapse | hide | show]` browses task lists and controls the taskfold task list above the editor.

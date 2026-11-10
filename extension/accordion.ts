@@ -99,7 +99,7 @@ import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHos
 import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
 import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
-import { openAccordionPanel } from "./tui/panel";
+import { openAccordionPanel, type PanelTabId } from "./tui/panel";
 import { AlertGate, footerText, statusLevel } from "./tui/status";
 import type { AccordionTuiHost } from "./tui/host";
 import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
@@ -3353,6 +3353,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// `/model` fires `model_select` immediately, carrying the NEW model. Adopt its context window
 	// into the Truth right away (emits a `config` event to every client) so the budget tracks the
 	// swap without waiting for the next model call.
+	pi.on("thinking_level_select", () => notifyNative());
+
 	pi.on("model_select", (event) => {
 		applyModel(event?.model as { id?: string; contextWindow?: number } | undefined);
 		if (truth && contextWindow != null) {
@@ -3776,11 +3778,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	// ── /accordion : open the native context panel ─────────────────────────────
+	const ACCORDION_USAGE = "[context | conductors | settings | sessions | compact | web | tasks | budget | tail]";
+	const PANEL_TAB_ALIASES: Record<string, PanelTabId | undefined> = { context: "context", blocks: "context", conductors: "conductors", conductor: "conductors", settings: "settings", config: "settings" };
 	pi.registerCommand("accordion", {
-		description: "[sessions | compact | web | tasks | budget | tail] — open the Accordion context panel",
+		description: `${ACCORDION_USAGE} — open the Accordion context panel`,
 		getArgumentCompletions: (text: string) => {
 			const q = text.trim().toLowerCase();
 			const items = [
+				{ value: "context", label: "context", description: "Open the panel on the Context tab: map and block list" },
+				{ value: "conductors", label: "conductors", description: "Open the panel on the Conductors tab" },
+				{ value: "settings", label: "settings", description: "Open the panel on the Settings tab" },
 				{ value: "sessions", label: "sessions", description: "Choose a live Pi session to inspect/steer" },
 				{ value: "compact", label: "compact", description: "Run an immediate Accordion compression pass" },
 				{ value: "web", label: "web", description: "Show the Browser URL and focus the desktop app" },
@@ -3883,16 +3890,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (why && verb !== "hide") ctx.ui.notify(`Task list not shown: ${why}.`, "info");
 				return;
 			}
+			const startTab = PANEL_TAB_ALIASES[argument];
+			if (argument && argument !== "sessions" && !startTab) {
+				ctx.ui.notify(`Usage: /accordion ${ACCORDION_USAGE}`, "warning");
+				return;
+			}
 			if (ctx.mode !== "tui" || !ctx.hasUI) {
 				ctx.ui.notify(`Accordion: ${truth?.blocks.length ?? 0} blocks · folding ${foldingEnabled ? "on" : "off"}. Open /accordion in the Pi TUI to manage context.`, "info");
 				return;
 			}
 			const openedSessionId = sessionId;
 			let target: SessionEntry | undefined;
-			if (argument && argument !== "sessions") {
-				ctx.ui.notify("Usage: /accordion [sessions | compact | web | tasks | budget | tail]", "warning");
-				return;
-			}
+
 			if (argument === "sessions") {
 				let entries: SessionEntry[];
 				try { entries = await discoverNativeSessions(); }
@@ -3924,6 +3933,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				canSteer: () => holdsControl(surfaceId, openedSessionId),
 				controlMessage: () => controlError,
 				supportsConditionalOps: () => true,
+				thinkingLevel: () => pi.getThinkingLevel(),
 				webInfo: () => ({
 					url: currentWebUrl(),
 					bindHost: displayWebHost(),
@@ -3985,6 +3995,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						sessionId: () => target?.sessionId ?? "",
 						canSteer: () => !!localHost.canSteer?.() && !!remoteHost.canSteer?.(),
 						controlMessage: () => localHost.controlMessage?.() ?? null,
+						thinkingLevel: () => localHost.thinkingLevel?.() ?? null,
 						webInfo: () => localHost.webInfo!(),
 						settings: () => localHost.settings!(),
 						updateSettings: (patch) => localHost.updateSettings!(patch),
@@ -4002,7 +4013,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						},
 					};
 				}
-				await (dependencies.openPanel ?? openAccordionPanel)(ctx, host);
+				await (dependencies.openPanel ?? openAccordionPanel)(ctx, host, startTab);
 			} catch (error) {
 				ctx.ui.notify(`Accordion session unavailable: ${error instanceof Error ? error.message : String(error)}`, "error");
 			} finally {
