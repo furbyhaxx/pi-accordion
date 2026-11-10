@@ -1,0 +1,30 @@
+/.pi/worktrees/panel-shell/extension
+/skills/accordion-context-recall/SKI
+LL.md (skipped)
+
+
+── … › Settings ────── ▲ 2 staged ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+  Folding           [x] armed
+  Token budget      425k
+  Protected tail    20k     built-in
+ All sessions · ~/.accordion/config…
+  Arm on startup    [ ] off
+→ Default conduct…  ‹ keel-note ›
+  /compact behavi…  ‹ accordion ›
+  Web UI address    127.0.0.1
+  Web UI door port  0           user
+  Web access token  mutu3daq (gener…
+
+
+
+────────────────────────────────────
+ Conductor attached when a session …
+ ctrl+s save · f1 help · esc close
+────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Keel-lite

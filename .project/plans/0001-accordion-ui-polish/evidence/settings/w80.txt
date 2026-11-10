@@ -1,0 +1,30 @@
+    ✗
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/panel-shell/extension/skills/
+accordion-context-recall/SKILL.md (skipped)
+
+
+── Accordion › Settings ─────────── 8.1k/425.0k tok · ● folding · Keel-lite ✓ ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+→ Folding               [x] armed                                        session
+  Token budget          425k                                        model window
+  Protected tail        20k                                             built-in
+ All sessions · ~/.accordion/config.json · staged until saved
+  Arm on startup        [x] on                                           default
+  Default conductor     ‹ keel-lite ›                                    default
+  /compact behavior     ‹ accordion ›                                    default
+  Web UI address        127.0.0.1                                        default
+  Web UI door port      0                                                   user
+  Web access token      tasu2kat (generated)                             default
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ Armed: Accordion rewrites the outgoing context. Off: messages pass through unt…
+ enter toggle · tab next tab · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)                   (openai-codex) gpt-6.1-sol • low
+accordion · Keel-lite

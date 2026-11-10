@@ -1,0 +1,30 @@
+/.pi/worktrees/panel-shell/extension
+/skills/accordion-context-recall/SKI
+LL.md (skipped)
+
+
+── … › Conductors ──────────────────
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+→ ◯ None · raw context, no strategy
+  ◯ Naive compaction · ● ready
+  ◯ Handoff (fresh start) · ● ready
+  ◯ Doorman · ● ready · locks: none
+  ◉ Keel-lite · attached · ● ready
+  ◯ Keel-note · ● ready
+  ◯ Taskfold · ● ready
+  ◯ Thermocline · ● ready
+  ◯ Triptych · ● ready
+
+
+
+
+
+────────────────────────────────────
+ Detach the conductor: folds it mad…
+ enter detach · f1 help · esc close
+────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Keel-lite

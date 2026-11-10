@@ -1,0 +1,16 @@
+
+── Accordion › Context ─── 8.1k/425.0k tok · ● folding ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕ Type to filter…
+
+→ ⛨ system sys:0 · live bolted · 8110 tok
+[S5!]
+
+
+─────────────────────────────────────────────────────────
+ S system · U user · A answer · H thinking · C call · R …
+ enter inspect · alt+f fold · f1 help · esc close
+─────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)           gpt-6.1-sol • low
+accordion · Keel-lite

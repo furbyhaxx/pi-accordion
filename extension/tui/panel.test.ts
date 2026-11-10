@@ -290,7 +290,7 @@ describe("accordion panel", () => {
 		const s = setup();
 		s.truth.blocks[0].text = "wide 界 \u001b]0;unsafe\u0007 text";
 		const height = s.panel.render(80).length;
-		expect(height).toBe(13 + CHROME_ROWS);
+		expect(height).toBe(12 + CHROME_ROWS);
 		const check = () => {
 			for (const width of [20, 36, 57, 80, 140]) {
 				const lines = s.panel.render(width);

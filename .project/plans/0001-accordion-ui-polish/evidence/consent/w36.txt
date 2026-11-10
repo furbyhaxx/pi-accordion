@@ -1,0 +1,30 @@
+/.pi/worktrees/panel-shell/extension
+/skills/accordion-context-recall/SKI
+LL.md (skipped)
+
+
+── … › Consent ── 8.1k/425.0k tok ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+  Attach Naive compaction?
+  It takes over: human-steering, ag…
+  Those controls are the conductor'…
+  Observation, budget, agent recall…
+
+ → Cancel
+   Attach Naive compaction
+
+
+
+
+
+
+
+────────────────────────────────────
+ The first choice is the safe one.
+ ↑↓ move · enter choose · esc cancel
+────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Keel-lite

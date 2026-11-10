@@ -1,0 +1,16 @@
+
+── … › Context ── 8.1k/425.0k tok ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕ Type to filter…
+
+→ ⛨ system sys:0 · live bolted
+[S5!]
+
+
+────────────────────────────────────
+ S system · U user · A answer · H t…
+ enter inspect · f1 help · esc close
+────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Keel-lite

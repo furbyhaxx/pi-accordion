@@ -4,8 +4,8 @@ import { backgroundAnsi, type Color, colorToRgb, foregroundAnsi, rgbColor, trunc
 export const CHROME_ROWS = 8;
 const MAX_BODY_ROWS = 14;
 const MIN_BODY_ROWS = 3;
-// Rows Pi keeps below a panel that replaces the editor (footer and status).
-const HOST_ROWS = 3;
+// Rows Pi keeps around a panel that replaces the editor: a spacer above, footer and status below.
+const HOST_ROWS = 4;
 const ELLIPSIS = "…";
 const TAB_SEPARATOR = "❱";
 
@@ -219,7 +219,9 @@ export function renderFrame(spec: FrameSpec): string[] {
 	const w = Math.max(0, Math.floor(spec.width));
 	const dim = (text: string) => theme.fg("dim", text);
 	const crumbs = crumbText(theme, spec.crumbs, Math.max(8, Math.floor(w / 2)));
-	const state = spec.state.length ? fitSegments(spec.state.map((s, i) => (i ? dim(" · ") : "") + s), Math.max(0, w - visibleWidth(crumbs) - 10)) : "";
+	const room = Math.max(0, w - visibleWidth(crumbs) - 10);
+	// A state segment is shown whole or not at all: a cut number or word would mislead.
+	const state = spec.state.length && visibleWidth(spec.state[0]) <= room ? fitSegments(spec.state.map((s, i) => (i ? dim(" · ") : "") + s), room) : "";
 	const body = spec.body.slice(0, spec.bodyRows).map((line) => truncateToWidth(line, w, ELLIPSIS));
 	while (body.length < spec.bodyRows) body.push("");
 	const text = clean(spec.message);

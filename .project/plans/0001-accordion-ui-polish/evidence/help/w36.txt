@@ -1,0 +1,30 @@
+/.pi/worktrees/panel-shell/extension
+/skills/accordion-context-recall/SKI
+LL.md (skipped)
+
+
+── … › Context › Help ──────────────
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+  enter inspect
+  alt+f fold
+  alt+p pin
+  alt+u auto
+  alt+v list
+  alt+e edit digest
+  alt+r engine digest
+  alt+m mark range
+  alt+o folding on/off
+  alt+c compact
+  tab next tab
+  type to filter
+  f1 help
+  esc close
+────────────────────────────────────
+ Keys and legend for this tab; stag…
+ ↑↓ scroll · f1 back · esc back
+──────────── ↓ 19 more ─────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)  gpt-6
+accordion · Keel-lite

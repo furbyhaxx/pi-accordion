@@ -1,0 +1,16 @@
+
+── Accordion › Context ──────────────────────────────────────────────────────────────────────── 8.1k/425.0k tok · ● folding · Keel-lite ✓ ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕ Type to filter…
+
+→ ⛨ system sys:0 · live bolted · 8110 tok
+[S5!]
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ S system · U user · A answer · H thinking · C call · R result · lowercase folded · ! bolted · * pin · P tail · G group
+ enter inspect · alt+f fold · alt+p pin · alt+u auto · alt+v list · alt+e edit digest · alt+m mark range · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)                                                                               (openai-codex) gpt-6.1-sol • low
+accordion · Keel-lite

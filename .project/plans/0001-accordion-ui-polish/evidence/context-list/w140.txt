@@ -1,0 +1,30 @@
+  "accordion-context-recall" collision:
+    ✓ git:https://github.com/furbyhaxx/pi-accordion@feat/pi-native (user) extension/skills/accordion-context-recall/SKILL.md
+    ✗ /mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/panel-shell/extension/skills/accordion-context-recall/SKILL.md (skipped)
+
+
+── Accordion › Context ──────────────────────────────────────────────────────────────────────── 8.1k/425.0k tok · ● folding · Keel-lite ✓ ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕ Type to filter…
+
+→ ⛨ system sys:0 · live bolted · 8110 tok
+
+
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ system sys:0 · live bolted · 8110 tok
+ enter inspect · alt+f fold · alt+p pin · alt+u auto · alt+v map · alt+e edit digest · alt+m mark range · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)                                                                               (openai-codex) gpt-6.1-sol • low
+accordion · Keel-lite

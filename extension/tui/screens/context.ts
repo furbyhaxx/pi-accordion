@@ -142,7 +142,7 @@ export function createContextTab(shell: Shell): PanelTab {
 				const bar = rows >= 5 ? renderCategoryBar(truth, width, (text) => theme.fg("dim", text)) : [];
 				const map = buildContextMap(truth, selectedId, width, Math.max(1, rows - bar.length - 1), { colored: true });
 				mapColumns = map.columns;
-				return { body: [...bar, block ? row(block, true, width) : "  No blocks yet", ...map.lines], crumbs: [], description: describe(block), hints: hints(block), above: 0, below: 0 };
+				return { body: [...bar, block ? row(block, true, width) : "  No blocks yet", ...map.lines], crumbs: [], description: "S system · U user · A answer · H thinking · C call · R result · lowercase folded · ! bolted · * pin · P tail · G group", hints: hints(block), above: 0, below: 0 };
 			}
 			mapColumns = 1;
 			const at = Math.max(0, visible.findIndex((b) => b.id === selectedId));

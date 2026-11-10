@@ -1,0 +1,30 @@
+    ✗
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/panel-shell/extension/skills/
+accordion-context-recall/SKILL.md (skipped)
+
+
+── Accordion › Context ──────────── 8.1k/425.0k tok · ● folding · Keel-lite ✓ ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕ Type to filter…
+
+  ▕█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏ 8.1k/425.0k (2%)
+  ■ System 8.1k · ■ User 0 · ░ Free 416.9k
+→ ⛨ system sys:0 · live bolted · 8110 tok
+[S5!]
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────
+ S system · U user · A answer · H thinking · C call · R result · lowercase fold…
+ enter inspect · alt+f fold · alt+p pin · alt+u auto · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)                   (openai-codex) gpt-6.1-sol • low
+accordion · Keel-lite

@@ -1,0 +1,30 @@
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/panel-
+shell/extension/skills/accordion-context-recall/SKILL.md
+(skipped)
+
+
+── … › Settings › Token budget ─────── 8.1k/425.0k tok ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+  Token budget: 272k▏
+  = 272,000 tokens
+
+  now 425k · model window
+
+
+
+
+
+
+
+
+
+
+─────────────────────────────────────────────────────────
+ Size this session folds toward, e.g. 200k, 1M or 85%. A…
+ enter apply · tab next tab · f1 help · esc back
+─────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)           gpt-6.1-sol • low
+accordion · Keel-lite

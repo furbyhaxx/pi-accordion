@@ -1,0 +1,30 @@
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/panel-
+shell/extension/skills/accordion-context-recall/SKILL.md
+(skipped)
+
+
+── … › Settings › Discard ───────────────── ▲ 1 staged ──
+ ❱ Context ❱ Conductors ❱ Settings
+ ⌕
+
+  Discard 1 staged setting?
+  Staged values are lost; saved values are unchanged.
+
+ → Keep editing
+   Discard changes
+
+
+
+
+
+
+
+
+
+─────────────────────────────────────────────────────────
+ The first choice is the safe one.
+ ↑↓ move · enter choose · esc cancel
+─────────────────────────────────────────────────────────
+/tmp/acc-proj (dev)
+$0.000 (sub) 0.0%/425k (auto)           gpt-6.1-sol • low
+accordion · Keel-lite
