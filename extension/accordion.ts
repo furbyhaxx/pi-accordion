@@ -66,6 +66,7 @@ import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdicts
 import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { createRouting } from "./taskRouting";
+import { nativeCompletion, type CompletionFunction } from "./nativeCompletion";
 import { refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource, transcriptSpans } from "./tui/taskTranscript";
 import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
@@ -194,13 +195,8 @@ const CONTROLLER_POLL_MS = 1_000;
 // across every extension, so a single stable name survives a door takeover (the value stays valid).
 const DOOR_COOKIE = "accordion_door";
 
-/** Test seam mirroring dc037bc: production resolves pi-ai lazily through pi's package alias. */
-type CompletionFunction = (
-	model: any,
-	context: { systemPrompt?: string; messages: Array<{ role: "user"; content: string; timestamp: number }> },
-	options: { apiKey: string; headers?: Record<string, string>; signal?: AbortSignal; maxTokens?: number },
-) => Promise<any>;
 interface RuntimeDependencies {
+	/** Test seam mirroring dc037bc: production resolves pi-ai lazily through pi's package alias. */
 	complete?: CompletionFunction;
 	openPanel?: typeof openAccordionPanel;
 	beforeControllerHeartbeatWrite?: () => void;
@@ -982,7 +978,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			mForLog = m;
 			const auth = await Promise.race([(ctx as any).modelRegistry.getApiKeyAndHeaders(m), deadline]);
 			if (!auth?.ok) throw new Error(`could not resolve API key: ${auth?.error ?? "unknown"}`);
-			const complete: CompletionFunction = dependencies.complete ?? (await Promise.race([import("@earendil-works/pi-ai" as any), deadline])).complete;
+			const complete: CompletionFunction =
+				dependencies.complete ??
+				nativeCompletion((ctx as any).modelRegistry, m.provider) ??
+				(await Promise.race([import("@earendil-works/pi-ai" as any), deadline])).complete;
 			const context = {
 				...(typeof req.system === "string" ? { systemPrompt: req.system } : {}),
 				messages: [{ role: "user" as const, content: req.prompt, timestamp: Date.now() }],
