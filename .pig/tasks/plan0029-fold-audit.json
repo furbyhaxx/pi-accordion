@@ -1,0 +1,233 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 3,
+  "slug": "plan0029-fold-audit",
+  "title": "Investigate PLAN-0029 session task folding and zero-token rows",
+  "goals": [
+    {
+      "id": "g1",
+      "text": "Explain observed folding and token counts using session evidence and implementation, without changing code."
+    }
+  ],
+  "seq": {
+    "g": 1,
+    "c": 9
+  },
+  "createdAt": "2026-11-10T06:19:43.973Z",
+  "updatedAt": "2026-11-10T08:57:21.702Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-10T06:19:43.973Z",
+      "updatedAt": "2026-11-10T06:20:41.896Z",
+      "startedAt": "2026-11-10T06:19:47.987Z",
+      "report": {
+        "outcome": "Located 16 MiB session and 172 tasks calls; original list was deleted during its merge. Identified widget per-member projection accounting and installed extension checkout; consulted knowledge-base index.",
+        "open": [
+          "Need reconstruct fold projection from session and compare installed code."
+        ]
+      },
+      "endedAt": "2026-11-10T06:20:41.896Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c1",
+          "text": "Locate session, task list and relevant accounting implementation."
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Reconstruct task spans and explain zero-token accounting",
+      "status": "done",
+      "createdAt": "2026-11-10T06:20:47.646Z",
+      "updatedAt": "2026-11-10T06:24:26.449Z",
+      "startedAt": "2026-11-10T06:20:51.250Z",
+      "report": {
+        "outcome": "Replayed all 3,129 recorded messages through the installed-identical engine. Reproduced tasks 3 and 4 reporting zero live member charges while their groups cost 331 and 326 tokens: message-boundary snapping places summary carriers two blocks before each task handle starts, and the widget sums only handle members.",
+        "decisions": [
+          "Treat this as per-task attribution/display defect, not evidence of absent wire summaries — aggregate projection still charges the carrier.",
+          "Historical exact widget snapshot not reconstructed — replay used explicit 272k budget, no historical calibration/system prompt, and cannot reproduce original live state exactly."
+        ],
+        "open": [
+          "Audit cumulative usage and lifecycle health; original list deleted in merge."
+        ]
+      },
+      "endedAt": "2026-11-10T06:24:26.449Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c2",
+          "text": "Compare installed projection and widget implementation."
+        },
+        {
+          "id": "c3",
+          "text": "Reproduce row charges using recorded session messages and task lifecycle."
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Audit folding health and cumulative usage",
+      "status": "done",
+      "createdAt": "2026-11-10T06:20:47.646Z",
+      "updatedAt": "2026-11-10T06:25:40.424Z",
+      "startedAt": "2026-11-10T06:24:29.789Z",
+      "report": {
+        "outcome": "Verified all 68 recorded task completions, 30 rejected task calls, and exact session totals including one 210,367-token cache-warm call. Assertion-based replay confirmed zero row charges for tasks 3/4 despite positive 331/326-token summaries present in serialized wire; usage across 1,480 assistant calls averages 163,491 input tokens per call.",
+        "decisions": [
+          "Separate cumulative provider usage from current projected context — cached prefixes are billed/counted again each request.",
+          "Do not claim exact historical fold coverage — persisted session has no per-request Truth snapshots; replay lacks historical calibration, system prompt, settings and event timing."
+        ],
+        "open": [
+          "No implementation changes requested or made. Per-task carrier attribution needs regression coverage and a UI/accounting fix; exact historical 33-fold/77.7k snapshot remains unreconstructed."
+        ]
+      },
+      "endedAt": "2026-11-10T06:25:40.424Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c4",
+          "text": "Quantify folding coverage and usage timeline; distinguish observed results from unavailable live wire evidence."
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Ground improvement proposals in code",
+      "status": "done",
+      "createdAt": "2026-11-10T06:33:15.267Z",
+      "updatedAt": "2026-11-10T06:33:47.419Z",
+      "startedAt": "2026-11-10T06:33:15.275Z",
+      "report": {
+        "outcome": "Checked source for the proposals: calibration is one multiplier k = request input / estimated wire (accordion.ts:2851); report limits (600/240/120) are enforced one violation at a time in tasks.ts:166-173; routing parser (taskRouting.ts:122-131) accepts only a bare or fully fenced JSON reply, host complete() ignores stopReason, uses the session model when models config is empty, and the completion log is off unless ACCORDION_COMPLETION_LOG is set. Config confirms budget 272k for the audited model, so the 218k request peaks equal the 0.8 pressure threshold.",
+        "decisions": [
+          "No code changed - user asked for proposals only."
+        ],
+        "open": [
+          "Raw extractor reply for the routing warning was not captured, so its exact cause is unconfirmed.",
+          "Why roots 1, 2 and 5 stayed unfolded at root level and what fills the ~90k request floor are not yet explained."
+        ]
+      },
+      "endedAt": "2026-11-10T06:33:47.419Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c5",
+          "text": "Calibration formula and record-size/limit handling checked against source before proposing changes."
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Assess limits, architecture soundness and settings surface",
+      "status": "done",
+      "createdAt": "2026-11-10T06:50:18.865Z",
+      "updatedAt": "2026-11-10T06:54:16.976Z",
+      "startedAt": "2026-11-10T06:50:18.872Z",
+      "report": {
+        "outcome": "Limits, architecture and settings assessed. Main finding: the fold-timing rule assumes a just-finished task sits inside the 20-block cache lookback; real tasks (median 67 blocks) do not, so eager folding never ran in the audited session and every fold was a full rewrite at the pressure threshold.",
+        "open": [
+          "Cost estimates for eager folding are rough arithmetic on this one session, not a simulation.",
+          "No code or artifact written yet."
+        ]
+      },
+      "endedAt": "2026-11-10T06:54:16.976Z",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Report length limits: rationale and what consumes them",
+          "status": "done",
+          "createdAt": "2026-11-10T06:50:18.865Z",
+          "updatedAt": "2026-11-10T06:50:35.763Z",
+          "startedAt": "2026-11-10T06:50:18.872Z",
+          "report": {
+            "outcome": "Report limits (outcome 600, items 240, max 8 per list; tasks.ts:119-173) exist so one record fits taskfold.recordTokens (1,500): the worst-case report is ~4,440 chars, ~1,110 estimated tokens. Rejection is deliberate ('rejected, not cut'). The full report stays in the folded span and is recallable, and root histories already cut outcome to 160 chars at render time (records.ts:46,138), so cutting at render is an existing pattern.",
+            "decisions": [
+              "Limits are a derived budget, not arbitrary - but the per-item form is stricter than the budget needs."
+            ],
+            "open": [
+              "countTokens is calibrated, so recordTokens 1500 may be far tighter in practice than its char budget assumes; test in 5.3."
+            ]
+          },
+          "endedAt": "2026-11-10T06:50:35.763Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c6",
+              "text": "Know where report text flows and what breaks if limits are raised."
+            }
+          ]
+        },
+        {
+          "id": "5.2",
+          "title": "Read fold planning end to end",
+          "status": "done",
+          "createdAt": "2026-11-10T06:50:18.865Z",
+          "updatedAt": "2026-11-10T06:53:15.646Z",
+          "startedAt": "2026-11-10T06:50:35.770Z",
+          "report": {
+            "outcome": "Fold units are outermost finished spans (taskfold.ts:738). The deep rule (745) defers any span starting >20 blocks before the end while the cache is warm and there is no pressure. Only saturation sets a status; all other declines are silent. Session data: context shrank 25 times in 1,480 requests, each from ~217k (0.8 x 272k) with cacheRead 22,911 (system only) and 58k-143k rewritten, 2.44M cache-write tokens total; no eager fold ever landed.",
+            "decisions": [
+              "Roots 1, 2, 5 staying unfolded is the deep rule working as specified, not order-dependent corruption.",
+              "Silent declines in unit(): held/foreign boundary 915, empty range 935, protected tail 937, record ends request 942, user message pending 948, no viable run 982, record over cap in calibrated tokens 1015, uncovered handle 1018."
+            ],
+            "open": [
+              "Whether eager folds are cheap on Anthropic depends on which cache entries exist at the fold boundary."
+            ]
+          },
+          "endedAt": "2026-11-10T06:53:15.646Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c7",
+              "text": "Every path that silently declines a fold is listed."
+            }
+          ]
+        },
+        {
+          "id": "5.3",
+          "title": "Explain unfolded roots in replay",
+          "status": "done",
+          "createdAt": "2026-11-10T06:50:18.865Z",
+          "updatedAt": "2026-11-10T06:53:25.885Z",
+          "startedAt": "2026-11-10T06:53:15.651Z",
+          "report": {
+            "outcome": "Unfolded roots and the 218k sawtooth share one cause: nearly every real task is longer than the 20-block lookback at the moment it finishes, so 'eager' folding is skipped. Across 22 recent Taskfold sessions, 574 of 853 context shrinks re-read less than half the request from cache (Anthropic: 369 of 471; other providers: 205 of 382).",
+            "decisions": [
+              "Cause is the deep rule, not a compile failure: 52 of 60 finished leaves were longer than 18 blocks (median 67 blocks, ~18k estimated tokens), so they were deferred to pressure."
+            ],
+            "open": [
+              "Shrink events are a rough proxy: they also include model switches and cache expiry."
+            ]
+          },
+          "endedAt": "2026-11-10T06:53:25.885Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c8",
+              "text": "The declining path for root 5 in the incremental replay is identified or ruled unknown."
+            }
+          ]
+        },
+        {
+          "id": "5.4",
+          "title": "Existing settings for fold timing and diagnostics",
+          "status": "done",
+          "createdAt": "2026-11-10T06:50:18.865Z",
+          "updatedAt": "2026-11-10T06:54:16.973Z",
+          "startedAt": "2026-11-10T06:53:25.891Z",
+          "report": {
+            "outcome": "Existing knobs: taskfold.high/low/keepRecentTasks/recordTokens/floor/untracked in ~/.accordion/config.json (settings.ts:226-235), budget/protect per model with session overrides via /accordion budget|protect. No fold-timing mode and no debug mode exist; the only diagnostic is the env-gated ACCORDION_COMPLETION_LOG. The cache analysis (fold-representations README section 8) already simulated a 4th 'stable' breakpoint at the open task's start and rejected it, on the assumption that next-request folds land inside the lookback.",
+            "decisions": [
+              "A fold-timing mode fits the existing dials pattern (config default, per-model default, session entry, slash command)."
+            ]
+          },
+          "endedAt": "2026-11-10T06:54:16.973Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c9",
+              "text": "Know which knobs exist and how they reach the conductor."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

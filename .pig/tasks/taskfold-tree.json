@@ -1,0 +1,1175 @@
+{
+  "slug": "taskfold-tree",
+  "title": "Implement SPEC-0002 taskfold tree (PLAN-0002)",
+  "createdAt": "2026-11-06T14:03:41.780Z",
+  "updatedAt": "2026-11-06T21:51:58.297Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:04:05.319Z",
+      "startedAt": "2026-11-06T14:03:46.168Z",
+      "report": {
+        "outcome": "Slice 1 surface mapped: store is the single I/O point; flat in-memory model stays, nested tree only on disk."
+      },
+      "endedAt": "2026-11-06T14:04:05.319Z"
+    },
+    {
+      "id": "1.1",
+      "title": "Read tasks.ts store, tool registration and tests for slice 1",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:04:05.318Z",
+      "startedAt": "2026-11-06T14:03:46.168Z",
+      "report": {
+        "outcome": "All list I/O goes through TaskStore.read/write (extension/tasks.ts); no other module parses list files. Tool registration and handler at extension/accordion.ts ~3880–3965; TaskCoach (extension/taskCoach.ts) counts tool results per span; tests in extension/tasks.test.ts assert the flat on-disk shape and must change.",
+        "decisions": [
+          "keep the in-memory TaskList flat (tasks: Task[]) and convert to/from the nested v2 tree only at read/write — every view, coach and taskfold reader stays untouched",
+          "empty-span count lives in TaskCoach.work (already counts tool results per span key); extend with assistant text"
+        ]
+      },
+      "endedAt": "2026-11-06T14:04:05.318Z"
+    },
+    {
+      "id": "2",
+      "title": "Slice 1: list file v2, validator, migration, goal, update/add before|after/move, empty-span refusal",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:14:29.947Z",
+      "startedAt": "2026-11-06T14:04:05.321Z",
+      "report": {
+        "outcome": "Slice 1 delivered on feat/taskfold-tree: nested v2 list files with goal, acceptance criteria, schema + validator, v1 migration, update/add before|after/move with started ids frozen, empty-span refusal with text counting, tool texts and specs updated; all gates pass.",
+        "decisions": [
+          "flat in-memory model kept; tree only on disk — no view or conductor change needed",
+          "goalless lists load and gate new work instead of failing reads"
+        ],
+        "open": [
+          "live Pi check of the empty-span refusal"
+        ]
+      },
+      "endedAt": "2026-11-06T14:14:29.947Z"
+    },
+    {
+      "id": "2.1",
+      "title": "taskSchema.ts: v2 types, validator, v1 migration, tree<->flat, schema json + sync test",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:06:40.789Z",
+      "startedAt": "2026-11-06T14:04:05.321Z",
+      "report": {
+        "outcome": "extension/taskSchema.ts: v2 parse/validate with located fix messages, v1 migration (goal absent), flat↔tree conversion; JSON schema plus extension/taskSchema.test.ts (5 pass) keeping schema and validator in sync.",
+        "decisions": [
+          "schema JSON lives in extension/skills/accordion-task-lists/references/ (shipped via package files 'skills') instead of extension/ — the extension package only ships accordion.js, dist, skills; spec §2.1 to be updated in 2.5",
+          "taskSchema.ts imports nothing so the skill's node validator can load it"
+        ]
+      },
+      "endedAt": "2026-11-06T14:06:40.789Z"
+    },
+    {
+      "id": "2.2",
+      "title": "Store: read/write v2, goal required on create, update action, goal gate",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:09:14.480Z",
+      "startedAt": "2026-11-06T14:06:40.790Z",
+      "report": {
+        "outcome": "Store reads/writes v2 nested files through taskSchema, migrates v1, requires goal on tool create, adds update action and the goal gate; tests in extension/tasks.test.ts cover migration, gate, update and hand-written/invalid files (27 pass with schema tests).",
+        "decisions": [
+          "store loads goalless lists (requireGoal:false) and gates start/add/move instead of failing the read — a migrated list must still end its running task; authoring validation requires the goal",
+          "UI-created lists (taskSession/taskLists) have no goal; the agent is told on start",
+          "list action names invalid files instead of silently skipping them"
+        ]
+      },
+      "endedAt": "2026-11-06T14:09:14.480Z"
+    },
+    {
+      "id": "2.3",
+      "title": "Store: add before/after and move with renumbering and reference rewrite",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:09:35.830Z",
+      "startedAt": "2026-11-06T14:09:14.481Z",
+      "report": {
+        "outcome": "add {before|after} and move implemented over a sibling-ordered tree with renumbering of todo tasks only, blocks[].on/supersededBy rewritten, Renumbered: line in results; 3 new tests (25 pass).",
+        "decisions": [
+          "renumber() lays out the whole tree and refuses before mutating if any started task would change id — one rule covers insert-before-started, move and nesting depth instead of predicting each case",
+          "the anchor fixes the parent when 'parent' is omitted; moving to the top level uses before/after of a top-level task"
+        ]
+      },
+      "endedAt": "2026-11-06T14:09:35.830Z"
+    },
+    {
+      "id": "2.4",
+      "title": "Empty-span refusal with coach work count; cherry-pick f04f39d",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:11:13.535Z",
+      "startedAt": "2026-11-06T14:09:35.832Z",
+      "report": {
+        "outcome": "TaskCoach counts tool results and assistant text >40 chars per span (resumed/batched starts keep counts); complete/fail with a known empty span is refused in the tasks tool with block-before-reply and abandon-onto-previous guidance; coach tests updated (31 pass), smoke-context passes.",
+        "decisions": [
+          "refusal applies only while the tasks tool is active (taskfold attached) — otherwise the coach counts nothing and would refuse every finish",
+          "the old after-the-fact 'no tool work' note is removed; the refusal replaces it",
+          "f04f39d semantics merged into the same coach rewrite and committed with the slice, not as a separate cherry-pick (its test block targets an orientation describe that doesn't exist here)"
+        ]
+      },
+      "endedAt": "2026-11-06T14:11:13.535Z"
+    },
+    {
+      "id": "2.5",
+      "title": "Tool registration texts and parameters; SPEC-0001 updates",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:12:40.945Z",
+      "startedAt": "2026-11-06T14:11:13.537Z",
+      "report": {
+        "outcome": "tasks tool description/parameters gained goal, acceptanceCriteria, before/after, update, move; tool rows render move/update and renumbering; SPEC-0001 rev 6 and SPEC-0002 rev 2 record the slice and its implementation decisions.",
+        "decisions": [
+          "runTasksTracked returns renumbered so details and tool rows resolve a moved task by its new id",
+          "action list sourced from TASK_ACTIONS in tasks.ts for tool schema and store"
+        ]
+      },
+      "endedAt": "2026-11-06T14:12:40.945Z"
+    },
+    {
+      "id": "2.6",
+      "title": "Gates: tests, smoke, app check/test; commit",
+      "status": "done",
+      "createdAt": "2026-11-06T14:03:41.780Z",
+      "updatedAt": "2026-11-06T14:14:29.946Z",
+      "startedAt": "2026-11-06T14:12:40.946Z",
+      "report": {
+        "outcome": "All gates green: bun tests 163 pass, extension smoke exit 0, app check 0 errors, app tests 998 pass; ad-hoc tsc over the touched extension files shows only the 7 errors that already exist on the base. Slice 1 committed (24105a0, 8c16280, 22036f6, 7617ad8).",
+        "open": [
+          "empty-span refusal has unit coverage only; no smoke path attaches taskfold, so a live Pi check is still due"
+        ]
+      },
+      "endedAt": "2026-11-06T14:14:29.946Z"
+    },
+    {
+      "id": "3",
+      "title": "Slice 2: pins, attachments, working set",
+      "status": "done",
+      "createdAt": "2026-11-06T14:14:35.445Z",
+      "updatedAt": "2026-11-06T14:42:39.885Z",
+      "startedAt": "2026-11-06T14:14:35.449Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "subtask 3.1 is blocked",
+          "on": "3.1",
+          "at": "2026-11-06T14:18:40.758Z",
+          "resumedAt": "2026-11-06T14:19:59.650Z"
+        }
+      ],
+      "report": {
+        "outcome": "Scoped list/task pins and attachments, nested task creation support, safe file reference handling, configurable working-set rendering and an off-hook session-scoped cache are implemented and tested in d6f3ca9.",
+        "decisions": [
+          "Refresh attachments before agent starts, after task actions and at turn boundaries — preserves the no-I/O context-hook invariant with a brief external-edit staleness window."
+        ],
+        "open": [
+          "Taskfold record inclusion remains part of the tree-planner slice."
+        ]
+      },
+      "endedAt": "2026-11-06T14:42:39.885Z"
+    },
+    {
+      "id": "3.1",
+      "title": "Port pins.ts validation into list-file pins/attachments with pin/unpin/attach/detach store actions",
+      "status": "done",
+      "createdAt": "2026-11-06T14:14:35.445Z",
+      "updatedAt": "2026-11-06T14:38:08.605Z",
+      "startedAt": "2026-11-06T14:14:35.449Z",
+      "blocks": [
+        {
+          "reason": "user-decision",
+          "detail": "Choose cached attachment refresh outside the context hook (a narrow stale window), or permit per-request disk reads despite the upstream no-I/O invariant.",
+          "at": "2026-11-06T14:18:40.758Z",
+          "resumedAt": "2026-11-06T14:19:59.650Z"
+        }
+      ],
+      "report": {
+        "outcome": "Implemented list/task pin and attachment persistence, quote validation, caps, create/add support, tool actions and line references; focused tests and context smoke passed.",
+        "open": [
+          "Complete broader slice verification and final review under 3.3.",
+          "Task records must incorporate task pins in slice 3."
+        ]
+      },
+      "endedAt": "2026-11-06T14:38:08.605Z"
+    },
+    {
+      "id": "3.1.1",
+      "title": "Raise task block detail limit to 1,024 characters with boundary tests",
+      "status": "done",
+      "createdAt": "2026-11-06T14:20:29.474Z",
+      "updatedAt": "2026-11-06T14:22:02.927Z",
+      "startedAt": "2026-11-06T14:20:39.353Z",
+      "report": {
+        "outcome": "Raised block detail limit to 1,024 characters without changing report limits; regression test verifies boundary and unchanged state on rejection. Committed as 3bd4897; bun test extension/tasks.test.ts passed (26 tests).",
+        "open": [
+          "The running harness continues to use its currently loaded implementation until the updated extension is installed and reloaded."
+        ]
+      },
+      "endedAt": "2026-11-06T14:22:02.927Z"
+    },
+    {
+      "id": "3.2",
+      "title": "Working set built in context_with_system; tasks.* settings (render, caps)",
+      "status": "done",
+      "createdAt": "2026-11-06T14:14:35.445Z",
+      "updatedAt": "2026-11-06T14:39:50.121Z",
+      "startedAt": "2026-11-06T14:38:18.654Z",
+      "report": {
+        "outcome": "Implemented session-and-cwd-scoped working-set caching outside request hooks, refresh at turn and task events, inline/reference settings and caps, and documented configuration. Context smoke verified cached freshness, session isolation, tool-result output and no mutation of source messages.",
+        "open": [
+          "Run full slice gates and inspect the final diff in 3.3."
+        ]
+      },
+      "endedAt": "2026-11-06T14:39:50.121Z"
+    },
+    {
+      "id": "3.3",
+      "title": "Tests, smoke, gates, specs, commit",
+      "status": "done",
+      "createdAt": "2026-11-06T14:14:35.445Z",
+      "updatedAt": "2026-11-06T14:42:29.113Z",
+      "startedAt": "2026-11-06T14:40:00.181Z",
+      "report": {
+        "outcome": "Slice gates passed: 129 Bun tests, extension smoke, app check and 998 app tests; added duplicate-ID and session-isolation regression coverage and committed d6f3ca9.",
+        "open": [
+          "Extension smoke logs its pre-existing intentional context-hook error and skips absent app/build index assertion; app has 21 skipped triptych skeleton tests.",
+          "Ad-hoc TypeScript check reports the same seven pre-existing errors."
+        ]
+      },
+      "endedAt": "2026-11-06T14:42:29.113Z"
+    },
+    {
+      "id": "4",
+      "title": "Improve injected task planning guidance for granular, independently foldable work",
+      "status": "done",
+      "createdAt": "2026-11-06T14:40:53.881Z",
+      "updatedAt": "2026-11-06T14:47:56.406Z",
+      "startedAt": "2026-11-06T14:42:54.548Z",
+      "report": {
+        "outcome": "The active tasks tool now guides agents to split broad features into independently verifiable child tasks and to refine oversized leaves; Pi's default prompt builder is exercised by smoke coverage.",
+        "decisions": [
+          "No arbitrary task-count or time quota — granularity depends on independently finishable outcomes."
+        ],
+        "open": [
+          "Actual agent adherence remains to be evaluated."
+        ]
+      },
+      "endedAt": "2026-11-06T14:47:56.406Z"
+    },
+    {
+      "id": "4.1",
+      "title": "Inspect current injection paths and derive sizing guidance from the reported example",
+      "status": "done",
+      "createdAt": "2026-11-06T14:40:53.881Z",
+      "updatedAt": "2026-11-06T14:43:57.324Z",
+      "startedAt": "2026-11-06T14:42:54.548Z",
+      "report": {
+        "outcome": "Existing task guidance is contributed through the registered tasks tool's promptGuidelines; installed Pi documentation confirms active-tool guidelines appear in the default system prompt's rules section. It currently has no sizing or dynamic-splitting guidance.",
+        "decisions": [
+          "Describe independently finishable outcomes, split oversized scopes before work or as discovered, and avoid arbitrary time or tool-call quotas — task sizes differ."
+        ]
+      },
+      "endedAt": "2026-11-06T14:43:57.324Z"
+    },
+    {
+      "id": "4.2",
+      "title": "Implement and test planning guidance in the actual agent prompt surface",
+      "status": "done",
+      "createdAt": "2026-11-06T14:40:53.881Z",
+      "updatedAt": "2026-11-06T14:45:16.573Z",
+      "startedAt": "2026-11-06T14:44:09.083Z",
+      "report": {
+        "outcome": "Added task-sizing guidance to tasks promptGuidelines: independently verifiable child outcomes, split overlarge leaves as discovered, and avoid trivial busywork. A smoke test runs the registered guidance through Pi's actual default prompt builder and verifies active/inactive behavior.",
+        "open": [
+          "No live model evaluation yet; the smoke test proves injection, not agent compliance."
+        ]
+      },
+      "endedAt": "2026-11-06T14:45:16.573Z"
+    },
+    {
+      "id": "4.3",
+      "title": "Verify prompt behavior and update relevant product documentation",
+      "status": "done",
+      "createdAt": "2026-11-06T14:40:53.881Z",
+      "updatedAt": "2026-11-06T14:47:45.352Z",
+      "startedAt": "2026-11-06T14:45:26.610Z",
+      "report": {
+        "outcome": "Documented sizing guidance and custom-prompt caveat, updated SPEC-0002, ran extension smoke and 90 Bun UI/settings tests, and committed f73f15b.",
+        "open": [
+          "Prompt-builder smoke establishes injection; no live agent compliance evaluation has been run."
+        ]
+      },
+      "endedAt": "2026-11-06T14:47:45.352Z"
+    },
+    {
+      "id": "5",
+      "title": "Slice 3: structured span details, intervals, tree planner, composed records and untracked work",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T16:55:34.297Z",
+      "startedAt": "2026-11-06T14:48:23.337Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "subtask 5.3 is blocked",
+          "on": "5.3",
+          "at": "2026-11-06T15:01:57.683Z",
+          "resumedAt": "2026-11-06T15:49:33.522Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 5.4 is blocked",
+          "on": "5.4",
+          "at": "2026-11-06T15:49:50.464Z",
+          "resumedAt": "2026-11-06T15:49:58.159Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 5.5 is blocked",
+          "on": "5.5",
+          "at": "2026-11-06T15:50:13.376Z",
+          "resumedAt": "2026-11-06T16:20:17.016Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 5.5 is blocked",
+          "on": "5.5",
+          "at": "2026-11-06T16:50:40.104Z",
+          "resumedAt": "2026-11-06T16:50:48.213Z"
+        }
+      ],
+      "report": {
+        "outcome": "Implemented structured task metadata, disjoint span intervals, nested recoverable records, own-scope facts, selective unfold, safe rollback and pressure-triggered untracked records. Regression and project gates passed.",
+        "decisions": [
+          "Extend the existing planner around interval and key ownership rather than introducing separate tree/compiler files — the existing Truth-backed path can express the tested behavior without parallel abstractions."
+        ],
+        "open": [
+          "Task-age policy, record-size cap, floor ordering and configuration remain in slices 5 and 9; live Pi integration remains for final verification."
+        ]
+      },
+      "endedAt": "2026-11-06T16:55:34.297Z"
+    },
+    {
+      "id": "5.1",
+      "title": "Inspect span scanner, taskfold planner, Pi details persistence and Truth group constraints",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T14:49:43.069Z",
+      "startedAt": "2026-11-06T14:48:23.337Z",
+      "report": {
+        "outcome": "Mapped scanner, planner, wire blocks and snapshots. Installed Pi's agent loop stores tool result details in the result message and session-manager.appendMessage persists the whole message; legacy transcripts still require prose fallback.",
+        "decisions": [
+          "Preserve legacy start/end fields for current views while introducing interval data — multiple existing views use the span scanner."
+        ]
+      },
+      "endedAt": "2026-11-06T14:49:43.069Z"
+    },
+    {
+      "id": "5.2",
+      "title": "Implement interval-aware task span scanning and structured results",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T14:58:23.999Z",
+      "startedAt": "2026-11-06T14:49:51.949Z",
+      "report": {
+        "outcome": "Added task result metadata to session-derived blocks and conductor views, emitted structured start/auto-close/cascade details, and taught the span scanner to expose blocked/resumed intervals with legacy prose fallback.",
+        "decisions": [
+          "Retain bounding start/end alongside intervals for existing views; the planner must consume intervals before this fixes blocked-span folding.",
+          "Preserve metadata only for tasks results — unrelated tool details need not enter snapshots."
+        ],
+        "open": [
+          "The current planner still uses bounding spans; interval-aware compilation remains in 5.3."
+        ]
+      },
+      "endedAt": "2026-11-06T14:58:23.999Z"
+    },
+    {
+      "id": "5.3",
+      "title": "Implement tree planner, composed records, own-scope facts and safe group compilation",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T16:46:04.289Z",
+      "startedAt": "2026-11-06T14:58:34.576Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "Composed nested records must carry working descendant recall handles; implement the core handle contract before emitting them.",
+          "on": "6",
+          "at": "2026-11-06T15:01:57.683Z",
+          "resumedAt": "2026-11-06T16:20:17.016Z"
+        }
+      ],
+      "report": {
+        "outcome": "Implemented interval-aware task folding, recursively composed records, direct-only facts, preserved child and previous group handles, selective child unfold and rollback after partially rejected groups; group ownership now derives from Truth. Regression tests cover preserved user messages, blocked/resumed spans, three levels, aged children and re-proposal after tail pruning.",
+        "decisions": [
+          "Keep already-aged child records verbatim — absorbing a parent must not resurrect condensed details.",
+          "Recompute ownership from Truth — pruning cannot leave a stale conductor cache."
+        ],
+        "open": [
+          "Task-age policy, record-size cap and untracked-work fallback remain in later tasks; broad slice gates and additional integration coverage follow."
+        ]
+      },
+      "endedAt": "2026-11-06T16:46:04.289Z"
+    },
+    {
+      "id": "5.4",
+      "title": "Add regression coverage for nested records, resumed spans, and existing user steering",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T16:48:52.774Z",
+      "startedAt": "2026-11-06T15:49:33.522Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "Existing tests cover scanning and safe deferral; nested record and resumed-span folding assertions require the new compiler behavior.",
+          "on": "5.3",
+          "at": "2026-11-06T15:49:50.464Z",
+          "resumedAt": "2026-11-06T16:46:16.322Z"
+        }
+      ],
+      "report": {
+        "outcome": "Extended real-Truth regression coverage for nested records, resumed intervals, cross-group and legacy-code recall/unfold, rollback, metadata, protected-tail pruning and human-curated content. Fixed a discovered disclosure path by excluding human-dropped facts and refusing to reconstruct hidden task-boundary reports.",
+        "decisions": [
+          "Never reconstruct records from human-curated boundaries — an automatic summary must not undo deliberate curation."
+        ],
+        "open": [
+          "Real Pi user-facing folding still needs the final integration pass."
+        ]
+      },
+      "endedAt": "2026-11-06T16:48:52.774Z"
+    },
+    {
+      "id": "5.5",
+      "title": "Run slice verification and commit",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T16:55:17.009Z",
+      "startedAt": "2026-11-06T15:49:58.159Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "The final slice verification cannot cover the composed-record compiler until it exists.",
+          "on": "5.3",
+          "at": "2026-11-06T15:50:13.376Z",
+          "resumedAt": "2026-11-06T16:49:04.195Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "The current gates pass, but slice verification is not complete until untracked-work folding is implemented.",
+          "on": "5.6",
+          "at": "2026-11-06T16:50:40.104Z",
+          "resumedAt": "2026-11-06T16:54:33.705Z"
+        }
+      ],
+      "report": {
+        "outcome": "Verified and committed nested and untracked folding changes. The required native Bun tests, extension smoke, app check and full app suite pass (1,020 tests passed, 21 skipped); smoke skips its browser index assertion because app/build/index.html is absent.",
+        "open": [
+          "Live Pi nested-fold and folded-widget verification remain for the final integration task."
+        ]
+      },
+      "endedAt": "2026-11-06T16:55:17.009Z"
+    },
+    {
+      "id": "5.6",
+      "title": "Implement safe untracked-work records outside task spans",
+      "status": "done",
+      "createdAt": "2026-11-06T16:50:31.798Z",
+      "updatedAt": "2026-11-06T16:54:23.611Z",
+      "startedAt": "2026-11-06T16:50:48.213Z",
+      "report": {
+        "outcome": "Implemented recoverable pressure-triggered untracked-work groups in b205abf, preserving user messages, document reads, existing groups, held blocks, active task intervals and the protected tail. Added tests for minimum run size, disabled fallback, document preservation, open-task isolation and recall.",
+        "open": [
+          "Settings wiring and placement after the optional floor belong to later budget-policy work."
+        ]
+      },
+      "endedAt": "2026-11-06T16:54:23.611Z"
+    },
+    {
+      "id": "6",
+      "title": "Slice 4: recoverable child handles through parent folds",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T16:20:09.611Z",
+      "startedAt": "2026-11-06T15:02:09.277Z",
+      "blocks": [
+        {
+          "reason": "user-decision",
+          "detail": "Child tasks can cross groups split by kept user messages. Choose cross-group handles recalling the full child, or per-part handles recalling only grouped segments.",
+          "at": "2026-11-06T15:02:51.543Z",
+          "resumedAt": "2026-11-06T16:08:03.467Z"
+        }
+      ],
+      "report": {
+        "outcome": "Implemented core cross-group task handles in f51bd89: validated recall across tagged automatic groups and kept user messages, lock-respecting unfold, snapshot/replica transport and protocol v23; regenerated remote SDKs. Tests cover cross-group recall, hostile or stale references, lock behavior, freeze, and snapshot round-trip; all project gates passed.",
+        "decisions": [
+          "Revalidate every handle when used — later human curation must not become reachable through a stale handle.",
+          "Retain automatic origin across detach freeze — published child codes remain usable after ownership transfer."
+        ],
+        "open": [
+          "Taskfold must emit handle-bearing composed records and implement selective recompilation in 5.3."
+        ]
+      },
+      "endedAt": "2026-11-06T16:20:09.611Z"
+    },
+    {
+      "id": "7",
+      "title": "Slice 5: cache-aware task aging and budget policy",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T17:18:46.412Z",
+      "startedAt": "2026-11-06T15:48:31.241Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "Bottom-up aging needs composed task records and stable child handles from the tree compiler.",
+          "on": "5",
+          "at": "2026-11-06T15:48:50.068Z",
+          "resumedAt": "2026-11-06T16:55:43.802Z"
+        }
+      ],
+      "report": {
+        "outcome": "Implemented task-age and pressure-driven record condensation, bottom-up record-size control, finish-order keep-recent waiver, persisted agent-unfold state, saturation status and configurable Taskfold policy in 48ccb29. Project gates pass: 96 Bun tests, extension smoke, app check and 1,028 app tests (21 skipped).",
+        "decisions": [
+          "Preserve all emitted handle tags through aging — earlier recall codes must keep resolving.",
+          "Keep an oversized record raw if its own fields cannot fit — never silently truncate a report or pin."
+        ],
+        "open": [
+          "The floor setting and default depend on implementing and measuring the pressure floor in slice 9."
+        ]
+      },
+      "endedAt": "2026-11-06T17:18:46.412Z"
+    },
+    {
+      "id": "8",
+      "title": "Slice 6: task widget title and fold/progress legibility",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T15:22:08.214Z",
+      "startedAt": "2026-11-06T15:03:06.162Z",
+      "report": {
+        "outcome": "Implemented the list title, fold/raw indicator, leaf-status breakdown, hidden-row categories and legend; verified live Pi rendering at 36/57/80/140 columns and passed project gates in commit 3f68b30.",
+        "open": [
+          "The live fixture covered raw/active tasks but not a real folded group; folded rendering has unit coverage."
+        ]
+      },
+      "endedAt": "2026-11-06T15:22:08.214Z"
+    },
+    {
+      "id": "8.1",
+      "title": "Display task list title in width-fitted widget header",
+      "status": "done",
+      "createdAt": "2026-11-06T15:04:22.158Z",
+      "updatedAt": "2026-11-06T15:06:01.834Z",
+      "startedAt": "2026-11-06T15:04:33.350Z",
+      "report": {
+        "outcome": "Widget header now displays the list title, shortened to preserve progress counts and existing metadata; width tests pass at 36/57/80/140 columns.",
+        "open": [
+          "The title change is uncommitted pending the remaining widget work and live terminal verification."
+        ]
+      },
+      "endedAt": "2026-11-06T15:06:01.834Z"
+    },
+    {
+      "id": "8.2",
+      "title": "Add fold column, subtree status breakdown and split hidden runs",
+      "status": "done",
+      "createdAt": "2026-11-06T15:04:22.158Z",
+      "updatedAt": "2026-11-06T15:10:15.092Z",
+      "startedAt": "2026-11-06T15:06:13.540Z",
+      "report": {
+        "outcome": "Widget tree now shows distinct folded/raw markers, leaf-status breakdowns, warnings for inconsistent finished parents, and separately grouped hidden finished/upcoming siblings. Sixteen widget tests pass.",
+        "open": [
+          "The requested first-expansion legend and panel help remain to be implemented."
+        ]
+      },
+      "endedAt": "2026-11-06T15:10:15.092Z"
+    },
+    {
+      "id": "8.3",
+      "title": "Verify real Pi-Bolt widget at required terminal widths",
+      "status": "done",
+      "createdAt": "2026-11-06T15:04:22.158Z",
+      "updatedAt": "2026-11-06T15:19:18.924Z",
+      "startedAt": "2026-11-06T15:15:20.215Z",
+      "report": {
+        "outcome": "Exercised the widget in a real installed Pi terminal in an isolated tmux session at 36, 57, 80 and 140 columns; adjusted the legend so fold meaning remains visible at 36.",
+        "open": [
+          "The live fixture exercised raw and active tasks, not an actual folded group."
+        ]
+      },
+      "endedAt": "2026-11-06T15:19:18.924Z"
+    },
+    {
+      "id": "8.4",
+      "title": "Add first-expansion widget legend and Tasks panel help",
+      "status": "done",
+      "createdAt": "2026-11-06T15:10:28.989Z",
+      "updatedAt": "2026-11-06T15:15:07.401Z",
+      "startedAt": "2026-11-06T15:10:38.063Z",
+      "report": {
+        "outcome": "Added a first-expansion legend and a question-mark legend screen in the task list view. The focused widget and task-view tests pass.",
+        "open": [
+          "Legend and other UI changes still require live terminal checks and a final review."
+        ]
+      },
+      "endedAt": "2026-11-06T15:15:07.401Z"
+    },
+    {
+      "id": "8.5",
+      "title": "Review widget diff, update specification and run verification gates",
+      "status": "done",
+      "createdAt": "2026-11-06T15:19:33.819Z",
+      "updatedAt": "2026-11-06T15:21:57.718Z",
+      "startedAt": "2026-11-06T15:19:44.565Z",
+      "report": {
+        "outcome": "Reviewed and committed widget changes as 3f68b30, updated product documentation and SPEC-0001, and passed 95 Bun tests, extension smoke, app check and app tests (1,002 passed, 21 skipped).",
+        "open": [
+          "Extension smoke skipped the browser index 200 check because app/build/index.html was absent; its deliberate hook failure and port-conflict scenarios logged warnings."
+        ]
+      },
+      "endedAt": "2026-11-06T15:21:57.718Z"
+    },
+    {
+      "id": "9",
+      "title": "Slice 7: task protocol review-gate and resume instructions",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T15:27:37.200Z",
+      "startedAt": "2026-11-06T15:22:20.006Z",
+      "report": {
+        "outcome": "Implemented review-gate instructions and conditional resume reminders in fbd94a7; unrelated prompts no longer imply that a user-blocked task must resume.",
+        "decisions": [
+          "Conditional reminder — a new prompt does not necessarily answer every pending user decision."
+        ],
+        "open": [
+          "Agent adherence still needs live evaluation."
+        ]
+      },
+      "endedAt": "2026-11-06T15:27:37.200Z"
+    },
+    {
+      "id": "10",
+      "title": "Slice 8: bundled task-list authoring skill and evaluation",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T19:49:14.799Z",
+      "startedAt": "2026-11-06T15:33:55.970Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "subtask 10.2 is blocked",
+          "on": "10.2",
+          "at": "2026-11-06T15:46:54.327Z",
+          "resumedAt": "2026-11-06T19:45:31.541Z"
+        }
+      ],
+      "report": {
+        "outcome": "Bundled authoring skill with validator and schema reference shipped and evaluated in isolation; no validity gain, more compact lists."
+      },
+      "endedAt": "2026-11-06T19:49:14.799Z"
+    },
+    {
+      "id": "10.1",
+      "title": "Implement and package task-list JSON authoring skill and validator",
+      "status": "done",
+      "createdAt": "2026-11-06T15:37:35.256Z",
+      "updatedAt": "2026-11-06T15:39:09.484Z",
+      "startedAt": "2026-11-06T15:37:46.449Z",
+      "report": {
+        "outcome": "Implemented and committed the bundled authoring skill, schema reference and Node validator in 61501b4. Validator regression tests, 102 Bun tests, extension smoke, app checks and 1,002 app tests pass; npm pack dry run includes all skill files.",
+        "open": [
+          "The skill's agent comparison remains to be run."
+        ]
+      },
+      "endedAt": "2026-11-06T15:39:09.484Z"
+    },
+    {
+      "id": "10.2",
+      "title": "Evaluate the authoring skill against a no-skill baseline",
+      "status": "done",
+      "createdAt": "2026-11-06T15:37:35.256Z",
+      "updatedAt": "2026-11-06T19:49:12.660Z",
+      "startedAt": "2026-11-06T15:39:25.001Z",
+      "blocks": [
+        {
+          "reason": "user-decision",
+          "detail": "Baseline agents accessed repository files outside synthetic fixtures and sent results to the provider. Approve a rerun only with verified filesystem isolation, or choose no external skill eval.",
+          "at": "2026-11-06T15:46:54.327Z",
+          "resumedAt": "2026-11-06T19:45:31.541Z"
+        }
+      ],
+      "report": {
+        "outcome": "Isolation was verified with a mock before any provider call; 6 runs cost about $0.019. Both arms produced valid lists in 3/3 cases; the skill arm loaded the skill every time and wrote more compact lists. Evidence committed.",
+        "decisions": [
+          "Keep the skill — it ships the validator and schema reference, but the comparison shows no validity gain."
+        ]
+      },
+      "endedAt": "2026-11-06T19:49:12.660Z"
+    },
+    {
+      "id": "11",
+      "title": "Slice 9: pressure floor, measurements and default decision",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T19:08:54.171Z",
+      "startedAt": "2026-11-06T15:47:16.283Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2 is blocked",
+          "on": "11.2",
+          "at": "2026-11-06T15:48:16.173Z",
+          "resumedAt": "2026-11-06T17:18:56.391Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T17:47:08.949Z",
+          "resumedAt": "2026-11-06T18:10:39.429Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:12:34.477Z",
+          "resumedAt": "2026-11-06T18:25:02.659Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:35:07.955Z",
+          "resumedAt": "2026-11-06T18:47:16.063Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:54:51.107Z",
+          "resumedAt": "2026-11-06T18:58:47.687Z"
+        }
+      ],
+      "report": {
+        "outcome": "Shipped an opt-in pressure floor with protected-tail and document-read exclusions, and recorded the 56-run isolated comparison and default decisions. The floor does not promise a hard budget; inline attachments remain the default."
+      },
+      "endedAt": "2026-11-06T19:08:54.171Z"
+    },
+    {
+      "id": "11.1",
+      "title": "Inspect experiment floor and determine safe integration with the taskfold planner",
+      "status": "done",
+      "createdAt": "2026-11-06T15:47:08.577Z",
+      "updatedAt": "2026-11-06T15:47:58.885Z",
+      "startedAt": "2026-11-06T15:47:16.283Z",
+      "report": {
+        "outcome": "The experiment floor wraps an independent Keel-lite conductor and proposes separately. The approved one-proposal design requires extracting or exposing Keel-lite planning and reconciling its decisions only after Taskfold's combined transaction.",
+        "decisions": [
+          "Do not port the independent proxy unchanged — it would retain the extra cache break the measurement must test."
+        ],
+        "open": [
+          "Combined planning depends on the interval-aware taskfold planner and descendant handle semantics."
+        ]
+      },
+      "endedAt": "2026-11-06T15:47:58.885Z"
+    },
+    {
+      "id": "11.2",
+      "title": "Implement and evaluate the pressure floor",
+      "status": "done",
+      "createdAt": "2026-11-06T15:47:08.577Z",
+      "updatedAt": "2026-11-06T19:08:38.484Z",
+      "startedAt": "2026-11-06T15:48:08.648Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "A single combined floor transaction requires the interval-aware tree planner and its ownership boundaries to exist first.",
+          "on": "5",
+          "at": "2026-11-06T15:48:16.173Z",
+          "resumedAt": "2026-11-06T17:18:56.391Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T17:47:08.949Z",
+          "resumedAt": "2026-11-06T18:10:39.429Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:12:34.477Z",
+          "resumedAt": "2026-11-06T18:25:02.659Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:35:07.955Z",
+          "resumedAt": "2026-11-06T18:47:16.063Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 11.2.2 is blocked",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:54:51.107Z",
+          "resumedAt": "2026-11-06T18:58:47.687Z"
+        }
+      ],
+      "report": {
+        "outcome": "Implemented a recoverable, same-transaction Keel-lite pressure floor and evaluated it alongside attachment rendering. The measured floor remains opt-in because the seeded sample still exceeded budget and the matched floor arm cost more."
+      },
+      "endedAt": "2026-11-06T19:08:38.484Z"
+    },
+    {
+      "id": "11.2.1",
+      "title": "Verify a filesystem-isolated evaluation runner without exposing provider credentials",
+      "status": "done",
+      "createdAt": "2026-11-06T17:32:21.351Z",
+      "updatedAt": "2026-11-06T17:40:05.870Z",
+      "startedAt": "2026-11-06T17:32:30.918Z",
+      "report": {
+        "outcome": "Built and verified an isolated evaluation setup: Pi runs in a restricted mount namespace, its only shell tool runs in a second PID/mount/network namespace with fixture-only writable access, and a host-side proxy injects provider credentials without exposing them to the sandbox. A local mock confirmed Pi actually uses the restricted shell, and a synthetic one-word provider probe succeeded through the proxy.",
+        "decisions": [
+          "Disable built-in file tools for floor experiments — they run in Pi's outer namespace and could otherwise read the mounted extension source.",
+          "Enforce a conservative $5.80 proxy cap and restrict model output tokens — total authorized experiment spending must remain within $4–6."
+        ],
+        "open": [
+          "The secure runner's restricted tool set differs from the earlier baseline; compare floor-on and floor-off under the same isolation."
+        ]
+      },
+      "endedAt": "2026-11-06T17:40:05.870Z"
+    },
+    {
+      "id": "11.2.2",
+      "title": "Run the approved floor comparison and choose its default",
+      "status": "done",
+      "createdAt": "2026-11-06T17:32:21.351Z",
+      "updatedAt": "2026-11-06T19:08:22.807Z",
+      "startedAt": "2026-11-06T17:46:27.881Z",
+      "blocks": [
+        {
+          "reason": "third-party",
+          "detail": "The isolated 40-run model comparison is running and needs provider responses and fixture grading; results are under /tmp/accordion-secure-eval/results.",
+          "at": "2026-11-06T17:47:08.949Z",
+          "resumedAt": "2026-11-06T18:10:39.429Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "The first comparison loaded no config and is invalid. Fix the reproduced pin-loss regression before rerunning against the final implementation; verify effective settings first.",
+          "on": "12.5",
+          "at": "2026-11-06T18:12:34.477Z",
+          "resumedAt": "2026-11-06T18:25:02.659Z"
+        },
+        {
+          "reason": "third-party",
+          "detail": "The corrected isolated 40-run comparison is awaiting provider responses and fixture grading; results are under /tmp/accordion-secure-eval/results2.",
+          "at": "2026-11-06T18:35:07.955Z",
+          "resumedAt": "2026-11-06T18:47:16.063Z"
+        },
+        {
+          "reason": "third-party",
+          "detail": "The 40 floor runs completed; the separately approved attachment-render comparison is waiting for provider responses and fixture grading.",
+          "at": "2026-11-06T18:54:51.107Z",
+          "resumedAt": "2026-11-06T18:58:47.687Z"
+        }
+      ],
+      "report": {
+        "outcome": "Completed 40 isolated floor runs and 16 paired attachment runs. Kept the floor opt-in and inline attachments as the default; evidence, individual results, harness and limitations are committed in 1f6afaf.",
+        "decisions": [
+          "Floor off — unseeded TF stayed below 16k but 2/8 inline attachment runs exceeded it, and TF cost about 12% more than directly comparable T.",
+          "Inline default — 8/8 passed versus 4/8 for reference in this small fixture sample; do not infer causality."
+        ],
+        "open": [
+          "The separate skill comparison still requires the user's approval after the earlier disclosure."
+        ]
+      },
+      "endedAt": "2026-11-06T19:08:22.807Z"
+    },
+    {
+      "id": "12",
+      "title": "Final end-to-end verification and deliver",
+      "status": "done",
+      "createdAt": "2026-11-06T14:48:13.543Z",
+      "updatedAt": "2026-11-06T19:49:16.806Z",
+      "startedAt": "2026-11-06T15:49:03.812Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "Final verification requires the tree compiler, handle contract, aging policy and pressure floor to be implemented first.",
+          "on": "11",
+          "at": "2026-11-06T15:49:20.098Z",
+          "resumedAt": "2026-11-06T17:47:24.295Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 12.1 is blocked",
+          "on": "12.1",
+          "at": "2026-11-06T17:50:21.136Z",
+          "resumedAt": "2026-11-06T17:50:27.991Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 12.1 is blocked",
+          "on": "12.1",
+          "at": "2026-11-06T18:07:52.870Z",
+          "resumedAt": "2026-11-06T18:08:02.910Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 12.5 is blocked",
+          "on": "12.5",
+          "at": "2026-11-06T18:08:57.494Z",
+          "resumedAt": "2026-11-06T18:09:12.340Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 12.4 is blocked",
+          "on": "12.4",
+          "at": "2026-11-06T18:09:43.645Z",
+          "resumedAt": "2026-11-06T18:09:56.461Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 12.2 is blocked",
+          "on": "12.2",
+          "at": "2026-11-06T18:10:28.531Z",
+          "resumedAt": "2026-11-06T18:12:47.747Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 12.2 is blocked",
+          "on": "12.2",
+          "at": "2026-11-06T18:24:54.984Z",
+          "resumedAt": "2026-11-06T18:35:15.632Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "Final verification and delivery wait for the corrected floor comparison and default decision.",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:41:21.930Z",
+          "resumedAt": "2026-11-06T19:09:11.958Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "Full delivery remains pending the separately agreed skill evaluation and the user's consent to rerun it in the isolated sandbox.",
+          "on": "10.2",
+          "at": "2026-11-06T19:11:51.861Z",
+          "resumedAt": "2026-11-06T19:49:14.800Z"
+        }
+      ],
+      "report": {
+        "outcome": "All slices, measurements and gates complete; branch feat/taskfold-tree is committed and clean, not pushed.",
+        "open": [
+          "No PR opened or push made; awaits user authorization."
+        ]
+      },
+      "endedAt": "2026-11-06T19:49:16.806Z"
+    },
+    {
+      "id": "12.1",
+      "title": "Review final diff, taskfold safety invariants, documentation and packaging",
+      "status": "done",
+      "createdAt": "2026-11-06T17:47:18.067Z",
+      "updatedAt": "2026-11-06T18:22:47.974Z",
+      "startedAt": "2026-11-06T17:47:24.295Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "The production package currently includes copied .project experiment evidence; exclude it before finishing the final review.",
+          "on": "12.3",
+          "at": "2026-11-06T17:50:21.136Z",
+          "resumedAt": "2026-11-06T18:00:31.698Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "Review reproduced loss of task pins during child condensation and aging; resolve that regression before signing off.",
+          "on": "12.5",
+          "at": "2026-11-06T18:07:52.870Z",
+          "resumedAt": "2026-11-06T18:21:25.828Z"
+        }
+      ],
+      "report": {
+        "outcome": "Reviewed the branch, folding safety, package contents and task-store boundaries; fixed pin loss, masked filesystem errors and accidental shipment of development artifacts. Product diff whitespace check passes; copied experiment artifacts preserve their original whitespace.",
+        "open": [
+          "A fresh, correctly configured floor comparison and the isolated skill comparison remain outstanding.",
+          "Live terminal checks did not exercise an actual folded-group widget row."
+        ]
+      },
+      "endedAt": "2026-11-06T18:22:47.974Z"
+    },
+    {
+      "id": "12.2",
+      "title": "Run final project and live-path gates after evaluation",
+      "status": "done",
+      "createdAt": "2026-11-06T17:47:18.067Z",
+      "updatedAt": "2026-11-06T19:11:33.265Z",
+      "startedAt": "2026-11-06T18:09:56.461Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "Final gates must run after the reproduced pin-loss regression is fixed.",
+          "on": "12.5",
+          "at": "2026-11-06T18:10:28.531Z",
+          "resumedAt": "2026-11-06T18:24:40.592Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "Final gates must cover any default selected by the corrected floor comparison.",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:24:54.984Z",
+          "resumedAt": "2026-11-06T19:09:11.958Z"
+        }
+      ],
+      "report": {
+        "outcome": "Final gates passed: 158 Bun tests, extension smoke, app check and 1,030 app tests (21 skipped). A clean production tarball install served an authenticated index and JavaScript asset; real folded widget rows were checked at 36/57/80/140 columns. Product whitespace check passes; copied experiment fixtures preserve original whitespace.",
+        "decisions": [
+          "Smoke's logged context-hook TypeError is deliberately induced by the malformed-event regression test, not a failing check."
+        ]
+      },
+      "endedAt": "2026-11-06T19:11:33.265Z"
+    },
+    {
+      "id": "12.3",
+      "title": "Keep copied development artifacts out of the installable Pi package",
+      "status": "done",
+      "createdAt": "2026-11-06T17:50:05.987Z",
+      "updatedAt": "2026-11-06T18:00:19.412Z",
+      "startedAt": "2026-11-06T17:50:27.991Z",
+      "report": {
+        "outcome": "Excluded project evidence, local task state, worktrees and nested node_modules from the root package in 722d36d, with a pack-content smoke test. A clean tarball production install contained all 54 built browser assets and passed authenticated index and JavaScript asset requests; project checks also passed.",
+        "decisions": [
+          "Explicit package allowlist with dependency exclusions — .npmignore alone would stop inheriting .gitignore and risk bundling other local state."
+        ],
+        "open": [
+          "Copied branch artifacts retain their original whitespace, so the full branch-wide git diff --check reports whitespace in those verbatim fixtures."
+        ]
+      },
+      "endedAt": "2026-11-06T18:00:19.412Z"
+    },
+    {
+      "id": "12.4",
+      "title": "Fix task-store filesystem errors being misreported as missing lists",
+      "status": "done",
+      "createdAt": "2026-11-06T18:06:22.700Z",
+      "updatedAt": "2026-11-06T18:21:15.211Z",
+      "startedAt": "2026-11-06T18:09:12.340Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "A regression test reproduces the misleading error; defer the runtime fix until the running benchmark no longer reads this worktree.",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:09:43.645Z",
+          "resumedAt": "2026-11-06T18:19:25.113Z"
+        }
+      ],
+      "report": {
+        "outcome": "Task-store reads now distinguish missing files from filesystem errors, and directory scan errors no longer appear as an empty list. Reproduction and regression pass; all project gates pass in 3aef51e."
+      },
+      "endedAt": "2026-11-06T18:21:15.211Z"
+    },
+    {
+      "id": "12.5",
+      "title": "Preserve task-scoped pinned constraints when records are condensed or aged",
+      "status": "done",
+      "createdAt": "2026-11-06T18:07:10.820Z",
+      "updatedAt": "2026-11-06T18:19:12.860Z",
+      "startedAt": "2026-11-06T18:08:02.910Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "A failing regression test is in the worktree. Wait for the running comparison before modifying taskfold runtime code so all 40 runs use the same implementation.",
+          "on": "11.2.2",
+          "at": "2026-11-06T18:08:57.494Z",
+          "resumedAt": "2026-11-06T18:12:47.747Z"
+        }
+      ],
+      "report": {
+        "outcome": "Fixed task-scoped pins disappearing when child records condense or age. The original multiline pin text, scope and source survive; if retained pins prevent the record fitting its cap, folding is refused rather than dropping constraints. Regression tests and all project gates pass in 28b968f."
+      },
+      "endedAt": "2026-11-06T18:19:12.860Z"
+    },
+    {
+      "id": "12.6",
+      "title": "Exercise a folded-group widget row in a real Pi terminal",
+      "status": "done",
+      "createdAt": "2026-11-06T18:34:58.610Z",
+      "updatedAt": "2026-11-06T18:40:56.130Z",
+      "startedAt": "2026-11-06T18:35:15.632Z",
+      "report": {
+        "outcome": "Exercised actual Taskfold groups in a real Pi terminal using a local mock provider. At 36, 57, 80 and 140 columns the widget showed two completed folded rows (`▣≡`) and real token savings; at 36 columns the approved width policy drops the list title first.",
+        "decisions": [
+          "Mock responses need unique assistant IDs — repeated IDs caused a false saturation in the first fixture."
+        ]
+      },
+      "endedAt": "2026-11-06T18:40:56.130Z"
+    },
+    {
+      "id": "13",
+      "title": "Fix task list browser creating lists without a required goal",
+      "status": "done",
+      "createdAt": "2026-11-06T15:27:09.709Z",
+      "updatedAt": "2026-11-06T15:33:41.655Z",
+      "startedAt": "2026-11-06T15:27:52.210Z",
+      "report": {
+        "outcome": "Both task-list creation dialogs now collect a required goal and the store rejects goal-less new lists; migration of old lists remains supported. Verified real Pi creation and JSON persistence, 130 Bun tests, extension smoke, app check and 1,002 app tests in f62e152."
+      },
+      "endedAt": "2026-11-06T15:33:41.655Z"
+    },
+    {
+      "id": "14",
+      "title": "Prepare the approved inline-versus-reference attachment comparison",
+      "status": "done",
+      "createdAt": "2026-11-06T18:41:33.589Z",
+      "updatedAt": "2026-11-06T18:43:48.557Z",
+      "startedAt": "2026-11-06T18:41:40.872Z",
+      "report": {
+        "outcome": "Prepared paired TF-inline and TF-reference arms with identical synthetic tasks and a spec-range attachment. A local mock and working-set check verified the seeded list, source locator, and inline versus reference rendering; the arms have not yet made provider calls.",
+        "decisions": [
+          "Use the same isolated runner, frozen code and budget cap as the floor comparison.",
+          "Treat specification-read counts from shell commands as heuristic, not exact recall metrics."
+        ],
+        "open": [
+          "Run four repetitions per arm and fixture after the floor comparison if the remaining authorized budget permits."
+        ]
+      },
+      "endedAt": "2026-11-06T18:43:48.557Z"
+    },
+    {
+      "id": "15",
+      "title": "Update the implementation plan with completed slices and outstanding evaluation work",
+      "status": "done",
+      "createdAt": "2026-11-06T18:44:12.019Z",
+      "updatedAt": "2026-11-06T18:46:30.765Z",
+      "startedAt": "2026-11-06T18:44:18.412Z",
+      "report": {
+        "outcome": "Updated PLAN-0002 to reflect completed implementation, live widget validation, the corrected isolated comparison, attachment rendering evaluation and the skill-eval consent decision. Committed as 86ecab7."
+      },
+      "endedAt": "2026-11-06T18:46:30.765Z"
+    },
+    {
+      "id": "16",
+      "title": "Prepare an isolated skill-evaluation harness without making provider requests",
+      "status": "done",
+      "createdAt": "2026-11-06T18:54:36.435Z",
+      "updatedAt": "2026-11-06T18:58:16.921Z",
+      "startedAt": "2026-11-06T18:55:05.694Z",
+      "report": {
+        "outcome": "Prepared a separate skill-comparison runner that exposes only synthetic fixtures, the public schema, and (in the treatment arm) the skill and its validator. A local mock verified that an attempted host-repository read fails and the shell cannot reach the host, config, or network; no external model was called.",
+        "open": [
+          "The real skill comparison remains blocked on the user's explicit approval."
+        ]
+      },
+      "endedAt": "2026-11-06T18:58:16.921Z"
+    }
+  ]
+}

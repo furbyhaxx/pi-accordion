@@ -1,0 +1,769 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 3,
+  "slug": "skill-plan-references",
+  "title": "accordion-task-lists: plan→list with pins and attachments",
+  "goals": [
+    {
+      "id": "g1",
+      "text": "The accordion-task-lists skill teaches how and why to attach plan, spec and research sections and pin rules on list and task scopes, with a worked plan→list example."
+    },
+    {
+      "id": "g2",
+      "text": "Hand-authored lists can carry pins and attachments that the validator resolves against the project, and a symlinked list in .pig/tasks survives store writes."
+    },
+    {
+      "id": "g3",
+      "text": "Changes verified (tests, smoke, validator on examples) and committed on a branch off feat/pi-native."
+    }
+  ],
+  "seq": {
+    "g": 3,
+    "c": 32
+  },
+  "createdAt": "2026-11-09T13:21:27.243Z",
+  "updatedAt": "2026-11-09T15:59:14.134Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-09T13:21:27.243Z",
+      "updatedAt": "2026-11-09T13:23:32.747Z",
+      "startedAt": "2026-11-09T13:21:28.651Z",
+      "report": {
+        "outcome": "Orientation done; gaps mapped and implementation tasks 2–6 added."
+      },
+      "endedAt": "2026-11-09T13:23:32.747Z",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Map store reference handling: file format, tool input, delivery, symlink writes",
+          "status": "done",
+          "createdAt": "2026-11-09T13:21:27.243Z",
+          "updatedAt": "2026-11-09T13:23:12.070Z",
+          "startedAt": "2026-11-09T13:21:28.651Z",
+          "report": {
+            "outcome": "Mapped gaps: skill tells agents to prefer the tool for refs and never explains them; parser requires pin/attachment ids and pin `at` (spec §2.1 says authors may omit ids); quote anchors need prefix/suffix/start by hand; validate.mjs checks structure only, never resolves refs; store write (tmp+rename, tasks.ts:428) replaces a symlinked list; projectPath() (taskPins.ts) rejects any file outside the project incl. the KB; nukular lists have zero pins/attachments and its plans/AGENTS.md says copy, not symlink.",
+            "decisions": [
+              "Allowed external roots via user setting, default empty — committed lists must not exfiltrate arbitrary files (spec rationale for the in-project rule)"
+            ]
+          },
+          "endedAt": "2026-11-09T13:23:12.070Z"
+        },
+        {
+          "id": "1.2",
+          "title": "Decide scope and add implementation tasks",
+          "status": "abandoned",
+          "createdAt": "2026-11-09T13:21:27.243Z",
+          "updatedAt": "2026-11-09T13:23:32.743Z",
+          "startedAt": "2026-11-09T13:23:14.751Z",
+          "report": {
+            "outcome": "Scope decided in 1.1; tasks 2–6 added."
+          },
+          "endedAt": "2026-11-09T13:23:32.743Z",
+          "supersededBy": "1.1"
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Worktree feat/task-list-references off origin/feat/pi-native",
+      "status": "done",
+      "createdAt": "2026-11-09T13:23:24.947Z",
+      "updatedAt": "2026-11-09T13:23:45.196Z",
+      "startedAt": "2026-11-09T13:23:32.750Z",
+      "report": {
+        "outcome": "Worktree .pi/worktrees/task-list-references on feat/task-list-references (30dd86f), deps installed; baseline taskSchema/tasks/taskPins tests 59 pass."
+      },
+      "endedAt": "2026-11-09T13:23:45.196Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c1",
+          "text": "Worktree at .pi/worktrees/task-list-references with deps installed"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Store: authorable references",
+      "status": "done",
+      "createdAt": "2026-11-09T13:23:24.947Z",
+      "updatedAt": "2026-11-09T13:26:51.588Z",
+      "startedAt": "2026-11-09T13:23:45.200Z",
+      "report": {
+        "outcome": "Store side done: hand-authored pins/attachments without ids, exact-only quotes, symlinked list files written through, and configurable external roots for KB attachments; all with regression tests."
+      },
+      "endedAt": "2026-11-09T13:26:51.588Z",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Parser accepts pins/attachments without id and pins without at",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:24:44.346Z",
+          "startedAt": "2026-11-09T13:23:45.200Z",
+          "report": {
+            "outcome": "Hand-written pins/attachments may omit id (assigned after explicit ids) and pin `at` (store read fills it); quote anchor may give only `exact`; JSON schema and tests updated; 71 tests pass.",
+            "decisions": [
+              "PIN_KINDS/PIN_TEXT_MAX/NOTE_MAX moved into import-free taskSchema.ts; taskPins and taskRouting import them — one owner, no re-export",
+              "Per-field error messages instead of 'invalid pin' — authors need the fix"
+            ]
+          },
+          "endedAt": "2026-11-09T13:24:44.346Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c2",
+              "text": "Hand-written refs without ids load and get p<n>/a<n> ids"
+            },
+            {
+              "id": "c3",
+              "text": "tasks.schema.json matches; taskSchema test passes"
+            }
+          ]
+        },
+        {
+          "id": "3.2",
+          "title": "Quote anchor with only exact resolves without spurious state",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:25:19.703Z",
+          "startedAt": "2026-11-09T13:24:44.350Z",
+          "report": {
+            "outcome": "QuoteAnchor prefix/suffix/start optional; an unpositioned quote resolves without `moved` and readAttachment returns a completed anchor that recordSeen persists. Regression test added in taskPins.test.ts."
+          },
+          "endedAt": "2026-11-09T13:25:19.703Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c4",
+              "text": "{quote:{exact}} delivers content with no moved state and gets its anchor completed"
+            }
+          ]
+        },
+        {
+          "id": "3.3",
+          "title": "Store writes through a symlinked list file",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:25:46.623Z",
+          "startedAt": "2026-11-09T13:25:19.707Z",
+          "report": {
+            "outcome": "TaskStore.write resolves a symlinked list (writeTarget in tasks.ts) and atomically replaces the target, keeping the link; migration backups stay beside the link. Regression test in tasks.test.ts; 36 pass."
+          },
+          "endedAt": "2026-11-09T13:25:46.623Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c5",
+              "text": "Regression test: symlink survives a tasks write and target holds the update"
+            }
+          ]
+        },
+        {
+          "id": "3.4",
+          "title": "External attachment roots setting",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:26:51.577Z",
+          "startedAt": "2026-11-09T13:25:46.626Z",
+          "report": {
+            "outcome": "Setting tasks.attachments.roots (absolute, ~ expanded, default []) lets attachments and file pin sources use absolute paths under a root; realpath escape still refused; refusal message names the setting. Threaded through PinLimits, readAttachment, deliverContext and accordion.ts. Tests: 70 pass.",
+            "decisions": [
+              "Roots ride on PinLimits (already threaded to every make/read path) instead of new parameters everywhere",
+              "External paths stored absolute; in-project absolute paths become project-relative"
+            ],
+            "open": [
+              "README config snippet must document roots (task 5.5)"
+            ]
+          },
+          "endedAt": "2026-11-09T13:26:51.577Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c6",
+              "text": "tasks.attachments.roots allows absolute paths under a root for attachments and pin sources"
+            },
+            {
+              "id": "c7",
+              "text": "Outside paths still rejected; default roots empty"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Validator resolves references",
+      "status": "done",
+      "createdAt": "2026-11-09T13:23:24.947Z",
+      "updatedAt": "2026-11-09T13:28:22.898Z",
+      "startedAt": "2026-11-09T13:26:51.593Z",
+      "report": {
+        "outcome": "validate.mjs now takes --project/--root (plus config roots), resolves every pin and attachment with the store's own functions, reports lost sections/symbols with candidates, quote/cap/dup errors, prints a reference summary and notes leaves with no inherited references. Tested with a symlinked fixture; 28 tests pass.",
+        "decisions": [
+          "registerHooks resolve hook maps extensionless store imports to .ts so the script reuses makePin/makeAttachment instead of duplicating resolution",
+          "PinError parameter property replaced by a plain field — Node type stripping cannot run parameter properties",
+          "user-sourced pins are counted, not checked — only the session has the user's words"
+        ]
+      },
+      "endedAt": "2026-11-09T13:28:22.898Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c8",
+          "text": "validate.mjs reports missing sections/symbols with candidates, quote mismatches and line caps against --project"
+        },
+        {
+          "id": "c9",
+          "text": "Valid file prints a reference summary"
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Skill content",
+      "status": "done",
+      "createdAt": "2026-11-09T13:23:24.947Z",
+      "updatedAt": "2026-11-09T13:33:57.715Z",
+      "startedAt": "2026-11-09T13:28:22.910Z",
+      "report": {
+        "outcome": "Skill now teaches references end to end: router SKILL.md, new references/context.md, plan example 6 with pins/attachments, schema/spec/README/AGENTS synced; store also resends doing parents' missing context on start."
+      },
+      "endedAt": "2026-11-09T13:33:57.715Z",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "references/context.md: pins and attachments guide",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:29:49.809Z",
+          "startedAt": "2026-11-09T13:28:22.910Z",
+          "report": {
+            "outcome": "Wrote references/context.md (121 lines): why references survive folding, delivery semantics, pin vs attachment with caps and kinds, source-part→scope placement table (plan/spec/research/KB/code/AGENTS/user), anchor choice, JSON form, outside-project roots, pre-save checklist.",
+            "decisions": [
+              "\"Do not\" sections are attached, not pinned bullet by bullet — a bare prohibition bullet reads as an instruction once its heading is gone"
+            ]
+          },
+          "endedAt": "2026-11-09T13:29:49.809Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c10",
+              "text": "Explains delivery, folding re-delivery, scope, anchor choice, caps, what to attach from plan/spec/research/KB"
+            }
+          ]
+        },
+        {
+          "id": "5.2",
+          "title": "Plan-directory workflow with symlink",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:31:32.900Z",
+          "startedAt": "2026-11-09T13:30:41.880Z",
+          "report": {
+            "outcome": "SKILL.md rewritten (143 lines) including 'Where the file lives': list next to the plan, relative symlink in .pig/tasks, never copy, store writes through, validate via the link."
+          },
+          "endedAt": "2026-11-09T13:31:32.900Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c11",
+              "text": "Skill tells how to keep tasks.json next to a plan and symlink it into .pig/tasks"
+            }
+          ]
+        },
+        {
+          "id": "5.3",
+          "title": "Worked plan→list example with references",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:32:40.347Z",
+          "startedAt": "2026-11-09T13:31:32.904Z",
+          "report": {
+            "outcome": "examples.md gains '6. A plan with a spec, research and project rules': condensed sources, inventory→placement table, annotated tree, complete JSON with list pins/attachments, slice quote attachments, leaf spec sections, a symbol and a KB root attachment, plus what-to-notice notes. context.md JSON fragment made a valid object; examples test passes (14)."
+          },
+          "endedAt": "2026-11-09T13:32:40.347Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c12",
+              "text": "examples.md has a plan+spec example whose list carries list/task pins and section attachments"
+            },
+            {
+              "id": "c13",
+              "text": "Example stays valid under the shipped examples test"
+            }
+          ]
+        },
+        {
+          "id": "5.4",
+          "title": "SKILL.md router and description",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:32:49.564Z",
+          "startedAt": "2026-11-09T13:32:40.351Z",
+          "report": {
+            "outcome": "SKILL.md is a 143-line router: why tree + references, 7-step conversion procedure with source inventory and mandatory references step, template with refs, file location, change flow, gotchas, reference table; description (513 chars) names pins, anchored attachments, plan conversion and plan-adjacent lists. decomposition.md checklist points to context.md."
+          },
+          "endedAt": "2026-11-09T13:32:49.564Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c14",
+              "text": "SKILL.md <200 lines, references-first procedure, gotchas, description mentions pins and attachments"
+            }
+          ]
+        },
+        {
+          "id": "5.5",
+          "title": "schema.md, spec 0002, AGENTS/docs sync",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:33:57.711Z",
+          "startedAt": "2026-11-09T13:32:49.568Z",
+          "report": {
+            "outcome": "SPEC-0002 rev 26 (§2.1 symlink + authoring, §3.4 parents, §4.2 roots, §4.3 ancestors, §11 skill layout/description/eval, §12 roots); schema.md documents authoring refs; extension/README.md documents roots and symlinked lists; root AGENTS.md gains the type-stripping trap and cross-update line. Reverted npm-install noise in package-lock.json."
+          },
+          "endedAt": "2026-11-09T13:33:57.711Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c15",
+              "text": "Spec §2.1/§4.2/§11/§12 and schema.md describe the new authoring rules and roots"
+            }
+          ]
+        },
+        {
+          "id": "5.6",
+          "title": "Store: start re-delivers doing ancestors' missing context",
+          "status": "done",
+          "createdAt": "2026-11-09T13:28:45.106Z",
+          "updatedAt": "2026-11-09T13:30:41.876Z",
+          "startedAt": "2026-11-09T13:29:49.812Z",
+          "report": {
+            "outcome": "tasks start now includes doing ancestors in the delivery set and returns their missing goals/criteria/pins/attachments as `parents`; previously a parent's references were lost for every later child once the first delivery folded. Tool description updated; smoke-context check added and passing.",
+            "decisions": [
+              "Result field `parents` (outermost first, only ancestors with missing context) — keeps `started` meaning tasks entering doing"
+            ],
+            "open": [
+              "Spec 0002 §3.4 start / §4.3 must describe `parents` (task 5.5)"
+            ]
+          },
+          "endedAt": "2026-11-09T13:30:41.876Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c19",
+              "text": "start of a child re-sends a doing parent's pins/attachments when their delivery is no longer live"
+            },
+            {
+              "id": "c20",
+              "text": "Nothing re-sent while the earlier delivery is live"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Verification and commit",
+      "status": "done",
+      "createdAt": "2026-11-09T13:23:24.947Z",
+      "updatedAt": "2026-11-09T13:37:41.599Z",
+      "startedAt": "2026-11-09T13:33:57.717Z",
+      "report": {
+        "outcome": "All gates green (bun 248, smoke OK, app check/tests), live eval on nukular 0038 resolved 25 attachments, committed on feat/task-list-references."
+      },
+      "endedAt": "2026-11-09T13:37:41.599Z",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Tests, smoke, app checks",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:35:59.202Z",
+          "startedAt": "2026-11-09T13:33:57.717Z",
+          "report": {
+            "outcome": "bun test extension/: 248 pass 0 fail; npm --prefix extension run smoke OK (the 'context hook failed' line is pre-existing on the base checkout); app check 0 errors, app tests 1048 pass; strict tsc over changed store modules clean."
+          },
+          "endedAt": "2026-11-09T13:35:59.202Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c16",
+              "text": "bun tests and npm smoke pass"
+            }
+          ]
+        },
+        {
+          "id": "6.2",
+          "title": "Live eval on a nukular plan",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:37:31.668Z",
+          "startedAt": "2026-11-09T13:35:59.208Z",
+          "report": {
+            "outcome": "Authored PLAN-0038's list with the skill against nukular-ai: 42 tasks, 2 pins, 25 attachments (plan sections/bullets, spec sections/bullets, Rust symbols, a KB section via --root) all resolve; a parent+leaf start delivers ~850 tokens. The eval exposed two traps now covered: a guessed Rust symbol (validator suggested SessionCommands) and prefix quotes delivering only the prefix.",
+            "decisions": [
+              "Validator notes quotes under 60 chars and hints to validate via the .pig/tasks link on slug mismatch — both mistakes happened in the eval"
+            ],
+            "open": [
+              "Eval list kept at /tmp/acc-eval/frame-delivery.json for the user; delete after review"
+            ]
+          },
+          "endedAt": "2026-11-09T13:37:31.668Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c17",
+              "text": "A 0038 list authored with the skill validates with resolved references against nukular-ai"
+            }
+          ]
+        },
+        {
+          "id": "6.3",
+          "title": "Commit",
+          "status": "done",
+          "createdAt": "2026-11-09T13:23:24.947Z",
+          "updatedAt": "2026-11-09T13:37:41.595Z",
+          "startedAt": "2026-11-09T13:37:31.673Z",
+          "report": {
+            "outcome": "Two commits on feat/task-list-references: a1e32f0 feat(tasks) store changes, 40efb93 docs(skill) skill/validator/spec/README/AGENTS. Not pushed; worktree clean."
+          },
+          "endedAt": "2026-11-09T13:37:41.595Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c18",
+              "text": "Conventional commits on feat/task-list-references, not pushed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Ship: merge, push, update installed pig extension",
+      "status": "done",
+      "createdAt": "2026-11-09T13:52:51.376Z",
+      "updatedAt": "2026-11-09T13:53:56.542Z",
+      "startedAt": "2026-11-09T13:52:55.046Z",
+      "report": {
+        "outcome": "Merged (ff) and pushed feat/pi-native to 40efb93, installed extension updated, KB root configured, worktree cleaned up."
+      },
+      "endedAt": "2026-11-09T13:53:56.542Z",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Merge feat/task-list-references into feat/pi-native",
+          "status": "done",
+          "createdAt": "2026-11-09T13:52:51.376Z",
+          "updatedAt": "2026-11-09T13:53:16.506Z",
+          "startedAt": "2026-11-09T13:52:55.046Z",
+          "report": {
+            "outcome": "Fast-forwarded feat/pi-native to 40efb93; bun test extension/ 248 pass on the main checkout."
+          },
+          "endedAt": "2026-11-09T13:53:16.506Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c21",
+              "text": "feat/pi-native contains both commits; tests pass on the merge"
+            }
+          ]
+        },
+        {
+          "id": "7.2",
+          "title": "Push feat/pi-native",
+          "status": "done",
+          "createdAt": "2026-11-09T13:52:51.376Z",
+          "updatedAt": "2026-11-09T13:53:23.361Z",
+          "startedAt": "2026-11-09T13:53:16.511Z",
+          "report": {
+            "outcome": "Pushed feat/pi-native 30dd86f..40efb93; local equals origin."
+          },
+          "endedAt": "2026-11-09T13:53:23.361Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c22",
+              "text": "origin/feat/pi-native equals local"
+            }
+          ]
+        },
+        {
+          "id": "7.3",
+          "title": "Update installed pig extension and remove worktree",
+          "status": "done",
+          "createdAt": "2026-11-09T13:52:51.376Z",
+          "updatedAt": "2026-11-09T13:53:56.538Z",
+          "startedAt": "2026-11-09T13:53:23.364Z",
+          "report": {
+            "outcome": "pig update installed pi-accordion 40efb93 (client rebuilt); KB root added to ~/.accordion/config.json; installed validator resolves the eval list via config roots; worktree and branch removed.",
+            "decisions": [
+              "Added tasks.attachments.roots=[/mnt/shared/knowledge-base] to ~/.accordion/config.json — required for KB attachments in the requested list redo"
+            ],
+            "open": [
+              "Running Pi sessions need /reload to load the new store code"
+            ]
+          },
+          "endedAt": "2026-11-09T13:53:56.538Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c23",
+              "text": "~/.pig/agent/git/.../pi-accordion at the merge commit; validator runs from it"
+            },
+            {
+              "id": "c24",
+              "text": "Worktree and branch removed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "nukular-ai: plan task lists with references",
+      "status": "done",
+      "createdAt": "2026-11-09T13:52:51.376Z",
+      "updatedAt": "2026-11-09T14:02:22.825Z",
+      "startedAt": "2026-11-09T13:53:56.546Z",
+      "report": {
+        "outcome": "nukular-ai: plans/AGENTS.md updated (ead694ec) and 18 lists redone with references (2979789d) on dev, unpushed."
+      },
+      "endedAt": "2026-11-09T14:02:22.825Z",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Orientation: nukular git rules, plan/spec map, KB topics, config roots",
+          "status": "done",
+          "createdAt": "2026-11-09T13:52:51.376Z",
+          "updatedAt": "2026-11-09T13:54:44.380Z",
+          "startedAt": "2026-11-09T13:53:56.546Z",
+          "report": {
+            "outcome": "nukular-ai on dev; .pig/ untracked. All 18 .pig/tasks copies are unclaimed, all-todo and identical to plan tasks.json, so replaceable by links. Sources: specs 0009–0022 (+0002/0003/0007), backlog B-items, references/models.md, .agents/skills/nukular-{cli,sdk,tui}-conventions, crate AGENTS.md, KB agent-extension-seams / ai-context-management / agent-harness-internals.",
+            "decisions": [
+              "Keep each plan's reviewed tree; add references plus fixes the sources demand",
+              "List: just-check/claim pins, progress pin, plan Goal + Do not; slices: Do bullet + spec section; leaves: spec subsections/symbols; verify: Tests; gate: Done when"
+            ]
+          },
+          "endedAt": "2026-11-09T13:54:44.380Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c25",
+              "text": "Per-plan source map known; roots configured"
+            }
+          ]
+        },
+        {
+          "id": "8.2",
+          "title": "plans/AGENTS.md: symlink workflow and reference requirement",
+          "status": "done",
+          "createdAt": "2026-11-09T13:52:51.376Z",
+          "updatedAt": "2026-11-09T13:54:59.861Z",
+          "startedAt": "2026-11-09T13:54:44.384Z",
+          "report": {
+            "outcome": "nukular .project/plans/AGENTS.md now requires the source references per scope, keeps the list only in the plan dir with a relative .pig/tasks symlink per checkout, validates through the link, and commits progress via the link. Commit ead694ec on dev."
+          },
+          "endedAt": "2026-11-09T13:54:59.861Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c26",
+              "text": "Rule says list next to plan, relative symlink, references required, validate via link"
+            }
+          ]
+        },
+        {
+          "id": "8.3",
+          "title": "Redo the 18 wave 0–3 lists with references",
+          "status": "done",
+          "createdAt": "2026-11-09T13:53:03.270Z",
+          "updatedAt": "2026-11-09T14:02:22.822Z",
+          "startedAt": "2026-11-09T13:54:59.866Z",
+          "report": {
+            "outcome": "All 18 wave 0-3 lists carry pins and attachments, validate via .pig/tasks symlinks, committed."
+          },
+          "endedAt": "2026-11-09T14:02:22.822Z",
+          "subtasks": [
+            {
+              "id": "8.3.1",
+              "title": "Wave 0: 0026, 0027, 0028",
+              "status": "done",
+              "createdAt": "2026-11-09T13:53:03.270Z",
+              "updatedAt": "2026-11-09T13:57:28.275Z",
+              "startedAt": "2026-11-09T13:54:59.866Z",
+              "report": {
+                "outcome": "0026, 0027, 0028 now carry pins (AGENTS.md rules, skill rules), plan Goal/Do not on the list, Do bullets and spec/skill/KB/models.md sections on slices and leaves, symbols and exact lines on code leaves; all validate via .pig/tasks symlinks.",
+                "decisions": [
+                  "Built a per-plan generator (/tmp/acc-eval/refs.py + pNNNN.py) so the common pins/attachments are consistent",
+                  "Docs leaves named pages that do not exist (SDK docs/hooks.md, docs/tools.md, nugent docs/cache-warming.md): retitled to the real pages",
+                  "Code-move leaves (scheduler split) reference the plan, not 300-line code symbols"
+                ]
+              },
+              "endedAt": "2026-11-09T13:57:28.275Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c27",
+                  "text": "Three lists validate with resolved references via .pig/tasks links"
+                }
+              ]
+            },
+            {
+              "id": "8.3.2",
+              "title": "Wave 1: 0029, 0030",
+              "status": "done",
+              "createdAt": "2026-11-09T13:53:03.270Z",
+              "updatedAt": "2026-11-09T13:58:41.116Z",
+              "startedAt": "2026-11-09T13:57:28.280Z",
+              "report": {
+                "outcome": "0029 (58 attachments: upload sections, per-page spec/module-map sources, nukular-ai docs as model) and 0030 (59 attachments: SPEC-0009 sections, D83-D87 skill reference sections, code symbols) validate via symlinks."
+              },
+              "endedAt": "2026-11-09T13:58:41.116Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c28",
+                  "text": "Two lists validate with resolved references via .pig/tasks links"
+                }
+              ]
+            },
+            {
+              "id": "8.3.3",
+              "title": "Wave 2: 0031–0034",
+              "status": "done",
+              "createdAt": "2026-11-09T13:53:03.270Z",
+              "updatedAt": "2026-11-09T14:00:08.364Z",
+              "startedAt": "2026-11-09T13:58:41.122Z",
+              "report": {
+                "outcome": "0031, 0032, 0033, 0034 carry SPEC-0010/0011/0012/0013 sections and bullets, D83-D88 skill sections, SDK migration guide, code symbols and exact table rows; all validate via .pig/tasks symlinks.",
+                "decisions": [
+                  "Fixed plan/list mismatches found while sourcing: 0031 docs leaf pointed at docs/configuration.md (real: config.md); 0033 tool-rows file name now matches the plan (tool_rows.rs)",
+                  "Added auto_slices/docs_leaf helpers so each slice gets its plan Do part automatically"
+                ]
+              },
+              "endedAt": "2026-11-09T14:00:08.364Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c29",
+                  "text": "Four lists validate with resolved references via .pig/tasks links"
+                }
+              ]
+            },
+            {
+              "id": "8.3.4",
+              "title": "Wave 3: 0035–0039",
+              "status": "done",
+              "createdAt": "2026-11-09T13:53:03.270Z",
+              "updatedAt": "2026-11-09T14:02:03.952Z",
+              "startedAt": "2026-11-09T14:00:08.371Z",
+              "report": {
+                "outcome": "0035-0043 carry spec sections, KB sections, skill rules, key code symbols and Done-when/Tests/Docs plan parts; all 18 lists validate via their .pig/tasks symlinks."
+              },
+              "endedAt": "2026-11-09T14:02:03.952Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c30",
+                  "text": "Five lists validate with resolved references via .pig/tasks links"
+                }
+              ]
+            },
+            {
+              "id": "8.3.5",
+              "title": "Wave 3: 0040–0043",
+              "status": "done",
+              "createdAt": "2026-11-09T13:53:03.270Z",
+              "updatedAt": "2026-11-09T14:02:15.455Z",
+              "startedAt": "2026-11-09T14:02:08.709Z",
+              "report": {
+                "outcome": "0040-0043 validated with resolved references via symlinks and committed (2979789d); temp generator files removed."
+              },
+              "endedAt": "2026-11-09T14:02:15.455Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c31",
+                  "text": "Four lists validate with resolved references via .pig/tasks links"
+                }
+              ]
+            },
+            {
+              "id": "8.3.6",
+              "title": "Replace copies with symlinks and commit on dev",
+              "status": "done",
+              "createdAt": "2026-11-09T13:53:03.270Z",
+              "updatedAt": "2026-11-09T14:02:22.818Z",
+              "startedAt": "2026-11-09T14:02:18.749Z",
+              "report": {
+                "outcome": "Verified: 18 relative symlinks each resolve to their plan's tasks.json; commits on dev, unpushed."
+              },
+              "endedAt": "2026-11-09T14:02:22.818Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c32",
+                  "text": "18 .pig/tasks entries are relative symlinks; commit on dev, not pushed"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9",
+      "title": "Merge feat/task-list-references into feat/pi-native and push",
+      "status": "abandoned",
+      "createdAt": "2026-11-09T13:52:52.970Z",
+      "updatedAt": "2026-11-09T13:53:08.547Z",
+      "report": {
+        "outcome": "Duplicate of 7.1 + 7.2 added just before; tracked there."
+      },
+      "endedAt": "2026-11-09T13:53:08.547Z",
+      "supersededBy": "7"
+    },
+    {
+      "id": "10",
+      "title": "Update the pig extension",
+      "status": "abandoned",
+      "createdAt": "2026-11-09T13:52:52.971Z",
+      "updatedAt": "2026-11-09T13:53:08.553Z",
+      "report": {
+        "outcome": "Duplicate of 7.3."
+      },
+      "endedAt": "2026-11-09T13:53:08.553Z",
+      "supersededBy": "7.3"
+    },
+    {
+      "id": "11",
+      "title": "nukular-ai: change .project/plans/AGENTS.md to tell agents to symlink lists instead of copying them",
+      "status": "abandoned",
+      "createdAt": "2026-11-09T13:52:52.972Z",
+      "updatedAt": "2026-11-09T13:53:08.559Z",
+      "report": {
+        "outcome": "Duplicate of 8.2."
+      },
+      "endedAt": "2026-11-09T13:53:08.559Z",
+      "supersededBy": "8.2"
+    },
+    {
+      "id": "12",
+      "title": "nukular-ai: redo the 18 lists for waves 0–3 with the new skill",
+      "status": "abandoned",
+      "createdAt": "2026-11-09T13:52:52.972Z",
+      "updatedAt": "2026-11-09T13:53:03.270Z",
+      "report": {
+        "outcome": "Superseded by 8.3."
+      },
+      "endedAt": "2026-11-09T13:53:03.270Z",
+      "supersededBy": "8.3"
+    },
+    {
+      "id": "13",
+      "title": "nukular-ai: push dev",
+      "status": "done",
+      "createdAt": "2026-11-09T14:16:06.795Z",
+      "updatedAt": "2026-11-09T14:16:19.311Z",
+      "startedAt": "2026-11-09T14:16:12.412Z",
+      "report": {
+        "outcome": "nukular-ai dev pushed (a388d03c..2979789d); local equals origin/dev."
+      },
+      "endedAt": "2026-11-09T14:16:19.311Z"
+    },
+    {
+      "id": "14",
+      "title": "Update the installed pig extension so it picks up the changes",
+      "status": "done",
+      "createdAt": "2026-11-09T14:16:06.803Z",
+      "updatedAt": "2026-11-09T14:16:32.151Z",
+      "startedAt": "2026-11-09T14:16:19.316Z",
+      "report": {
+        "outcome": "Installed checkout is clean at 40efb93 = origin/feat/pi-native; new skill files and KB roots config present, installed validator resolves the nukular lists. Running Pi sessions need a reload."
+      },
+      "endedAt": "2026-11-09T14:16:32.151Z"
+    }
+  ]
+}

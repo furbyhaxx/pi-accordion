@@ -1,0 +1,309 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 3,
+  "slug": "fold-timing-draft",
+  "title": "Draft: Taskfold fold timing, cache breakpoints, limits and debug mode",
+  "goals": [
+    {
+      "id": "g1",
+      "text": "A committed draft in .project/drafts/ proposes fold timing modes, report limits, routing fix, row accounting fix and debug mode."
+    },
+    {
+      "id": "g2",
+      "text": "The stable-breakpoint idea and provider awareness are verified against provider docs, Pi source and a simulation on real sessions, with evidence stored next to the draft."
+    },
+    {
+      "id": "g3",
+      "text": "No product code is changed."
+    }
+  ],
+  "seq": {
+    "g": 3,
+    "c": 11
+  },
+  "createdAt": "2026-11-10T08:37:38.913Z",
+  "updatedAt": "2026-11-10T11:40:13.405Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-10T08:37:38.913Z",
+      "updatedAt": "2026-11-10T08:38:32.767Z",
+      "startedAt": "2026-11-10T08:37:38.937Z",
+      "report": {
+        "outcome": "Worktree .pi/worktrees/fold-timing-draft on docs/fold-timing-draft (from origin/feat/pi-native 40efb93). Existing sim (.project/analyses/fold-representations/harness/sim.py) models breakpoint caches but folds a task at the very request after it finishes, where the record is the last message; the shipped planner forbids that and folds one step later. So the sim never exercised span length or the one-step delay, and its 'eager is free' result does not transfer.",
+        "decisions": [
+          "New draft DRAFT-fold-timing rather than revising DRAFT-taskfold-reliability - that one covers budget floor and protocol enforcement, a different undecided topic.",
+          "Reuse sim.py by copying it into the draft's evidence and extending it - the analysis' copy stays as its own evidence."
+        ],
+        "open": [
+          "Host is pig (Go); breakpoint placement must be read from /mnt/Projects/furbyhaxx/pig, not pi-ai."
+        ]
+      },
+      "endedAt": "2026-11-10T08:38:32.767Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c1",
+          "text": "Worktree exists; existing drafts and the sim harness are known."
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Verify cache semantics per provider",
+      "status": "done",
+      "createdAt": "2026-11-10T08:37:38.913Z",
+      "updatedAt": "2026-11-10T08:40:25.550Z",
+      "startedAt": "2026-11-10T08:38:32.772Z",
+      "report": {
+        "outcome": "Cache semantics verified for Anthropic and OpenAI from vendor docs, breakpoint placement read from pig source, and Taskfold's rule confirmed to be provider-blind. Both major providers write entries only at breakpoints and look back about 20 positions, so a fold is cheap only if an entry exists at an unchanged position just before it."
+      },
+      "endedAt": "2026-11-10T08:40:25.550Z",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Anthropic: breakpoints, lookback, TTL, pricing from current docs",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:39:13.508Z",
+          "startedAt": "2026-11-10T08:38:32.772Z",
+          "report": {
+            "outcome": "Anthropic prompt-caching docs (fetched 2026-11-10, copy at ~/.cache/pi-searxng/output/970a088ab1731c7f25a8.md): an entry is written only at a breakpoint; a read walks back at most 20 positions per breakpoint (the breakpoint counts) and finds prior writes, not stable content; runs of consecutive tool_use or tool_result blocks count as one position; up to 4 breakpoints; a hit refreshes the TTL. The docs recommend a second breakpoint when the last write falls outside the window.",
+            "decisions": [
+              "Cost weights must be per model in the simulation - the analysis used 0.1/1.25 for all.",
+              "Prices: writes 1.25x (5 min) or 2x (1 h); reads 0.1x, but 0.05x on Sonnet 5.5 and Opus 5.5, 0.025x on Fable/Mythos 5.1+."
+            ]
+          },
+          "endedAt": "2026-11-10T08:39:13.508Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c2",
+              "text": "Lookback, entry creation, max breakpoints, TTL refresh and write prices quoted from the vendor docs."
+            }
+          ]
+        },
+        {
+          "id": "2.2",
+          "title": "OpenAI and other providers: automatic prefix caching rules",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:39:23.679Z",
+          "startedAt": "2026-11-10T08:39:13.517Z",
+          "report": {
+            "outcome": "OpenAI docs (KB capture 2026-11-04, ai-context-management/evidence/raw/harness/codex/api-prompt-caching.md): GPT-5.6+ also writes entries only at breakpoints; implicit mode puts one at the latest eligible message and looks up that plus up to 20 earlier eligible message endings; up to 4 writes per request; writes 1.25x (30 min) or 2.5x (12 h), reads 0.1x (0.05x for GPT-6.1 Sol/Terra). Earlier models cache at fixed token intervals with no write charge. DeepSeek persists prefix units at request ends, detected common prefixes and fixed intervals.",
+            "decisions": [
+              "Three cache families for the planner: breakpoint+block lookback (Anthropic), breakpoint+message lookback (OpenAI GPT-5.6+), prefix-unit/interval (older OpenAI, DeepSeek, unknown)."
+            ],
+            "open": [
+              "The openai-codex (ChatGPT subscription) backend may differ from the public API docs; not verified.",
+              "No documented rule found for synthetic, xai, openrouter-routed or Gemini models in this pass."
+            ]
+          },
+          "endedAt": "2026-11-10T08:39:23.679Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c3",
+              "text": "Caching rule stated per provider family used in the sessions, with source."
+            }
+          ]
+        },
+        {
+          "id": "2.3",
+          "title": "Pi: where breakpoints are placed and whether an extension can add one",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:40:11.926Z",
+          "startedAt": "2026-11-10T08:39:23.684Z",
+          "report": {
+            "outcome": "pig (3dbc68a70) ai/anthropic.go places cache_control on every system block (1483; two blocks with an OAuth token, 1480), the last tool (867) and the last block of the final user message (470-487). That is 3 breakpoints with an API key and all 4 with OAuth, which the 'claude' provider uses. Extensions can rewrite the wire payload: pig-auth-plus already edits cache_control there (internal/hooks/hooks.go:46-119).",
+            "decisions": [
+              "An extra breakpoint is feasible through before_provider_request; under OAuth it must replace the identity-block breakpoint, which is redundant with the system prompt's."
+            ],
+            "open": [
+              "Not tested live: whether moving a cache_control marker alone changes the prefix hash (worst case one extra miss).",
+              "OpenAI explicit breakpoints (prompt_cache_breakpoint) are not emitted by pig today; only prompt_cache_key/retention."
+            ]
+          },
+          "endedAt": "2026-11-10T08:40:11.926Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c4",
+              "text": "Breakpoint placement located in pi-ai source per provider adapter."
+            },
+            {
+              "id": "c5",
+              "text": "Feasibility of an extension-placed breakpoint stated with the hook used."
+            }
+          ]
+        },
+        {
+          "id": "2.4",
+          "title": "Taskfold: provider awareness of the deep rule and calibration units",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:40:25.532Z",
+          "startedAt": "2026-11-10T08:40:11.931Z",
+          "report": {
+            "outcome": "The deep rule (taskfold.ts:743-745) has no provider or model input: one constant CACHE_LOOKBACK = 20, counted in Accordion blocks before the fold. recordTokens is compared through host.countTokens, which is calibrated (core/conductor/liveHost.ts:225). The calibration multiplier still absorbs tool-schema overhead (comment at extension/accordion.ts:2829-2831). SPEC-0002's leafForm 'bracket' option is specified but not implemented (no occurrence in any .ts file).",
+            "decisions": [
+              "Treat k as content-dependent, not a constant: caps on agent-written text should be checked in characters or raw estimate, not calibrated tokens."
+            ],
+            "open": [
+              "k for the audited session is inferred (~2.7 from widget sizes vs chars/4), not read from a log."
+            ]
+          },
+          "endedAt": "2026-11-10T08:40:25.532Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c6",
+              "text": "Stated whether the deep rule and recordTokens check depend on provider or calibration, with line references."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Simulate fold timing on real sessions",
+      "status": "done",
+      "createdAt": "2026-11-10T08:37:38.913Z",
+      "updatedAt": "2026-11-10T08:45:42.937Z",
+      "startedAt": "2026-11-10T08:40:25.557Z",
+      "report": {
+        "outcome": "Simulator written, validated against real receipts and run on three sessions: folding every finished task one step after it closes is 19-30% cheaper than the shipped rule, and anchoring the cache at the fold boundary adds 7-14%."
+      },
+      "endedAt": "2026-11-10T08:45:42.937Z",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Understand and reuse the existing sim harness",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:42:16.700Z",
+          "startedAt": "2026-11-10T08:40:25.557Z",
+          "report": {
+            "outcome": "sim.py replays a real Pi session per request with cache models lcp, bp and stable, but folds a task at the first request after its closing result, has no TTL, fixed 0.1/1.25 weights, and drops batched complete+start spans as crossing. timing_sim.py written and runs on the audited session (68 finished spans, 0 crossing).",
+            "decisions": [
+              "New simulator .project/drafts/fold-timing/evidence/timing_sim.py instead of patching sim.py: it adds timestamps (TTL), block-counted lookback, the one-step fold delay, real receipts for validation and per-model weights.",
+              "Draft is a directory artifact: .project/drafts/fold-timing/README.md plus evidence/."
+            ]
+          },
+          "endedAt": "2026-11-10T08:42:16.700Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c7",
+              "text": "Know its inputs, cache models and whether it takes a real session."
+            }
+          ]
+        },
+        {
+          "id": "3.2",
+          "title": "Validate the cache model against the audited session's real receipts",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:45:28.445Z",
+          "startedAt": "2026-11-10T08:42:16.705Z",
+          "report": {
+            "outcome": "Validated on the audited session (now 1,510 requests): simulated shipped policy gives mean input 156k, peak 217.6k, read 231.5M, write 4.45M and 30 fold events, against real mean 164k, read 242.7M, write 5.39M and 25 shrinks from ~217k. Fit: S=35.7k, k=1.93. Output in evidence/validate-plan0029.txt.",
+            "decisions": [
+              "Fit S and k per session on the requests before its first real fold; all policies share them."
+            ],
+            "open": [
+              "The simulator has no floor, untracked folding, held blocks or user-message verdicts, and folds spans whole."
+            ]
+          },
+          "endedAt": "2026-11-10T08:45:28.445Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c8",
+              "text": "Simulated read/write for the as-run policy compared with the recorded usage."
+            }
+          ]
+        },
+        {
+          "id": "3.3",
+          "title": "Compare pressure, lazy, eager and eager with frontier breakpoint",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:45:42.932Z",
+          "startedAt": "2026-11-10T08:45:28.452Z",
+          "report": {
+            "outcome": "Three sessions simulated (evidence/modes-*.txt). Cost at Sonnet 5.5 read 0.05 / 1 h write 2.0, in M weighted tokens, shipped -> eager -> eager+frontier breakpoint -> eager+bracket tail: PLAN-0029 20.48 -> 14.41 -> 13.46 -> 13.48; auth-plus 25.40 -> 20.57 -> 18.26 -> 19.19; nukular-1106 16.41 -> 13.14 -> 11.30 -> 12.53. Eager saves 19-30%; a frontier breakpoint a further 7-14%; the bracket tail recovers 33-100% of that without payload rewriting. Mean input stays 103k-177k because open leaf tasks are large. Same ranking under OpenAI and prefix-cache profiles.",
+            "decisions": [
+              "Recommend eager as default with the bracket tail first; the frontier breakpoint is an Anthropic-only second step.",
+              "Other two sessions ran on other models and budgets, so their rows are what-ifs at a 272k budget, not reproductions."
+            ]
+          },
+          "endedAt": "2026-11-10T08:45:42.932Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c9",
+              "text": "Weighted cost per mode for at least the audited session, for Anthropic and prefix-cache pricing."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Write the draft",
+      "status": "done",
+      "createdAt": "2026-11-10T08:37:38.913Z",
+      "updatedAt": "2026-11-10T08:47:49.219Z",
+      "startedAt": "2026-11-10T08:45:42.940Z",
+      "report": {
+        "outcome": "Draft DRAFT-fold-timing committed on docs/fold-timing-draft in worktree .pi/worktrees/fold-timing-draft, with simulator and results as evidence. No product code changed.",
+        "open": [
+          "Four open questions for the user are listed in the draft's section 6."
+        ]
+      },
+      "endedAt": "2026-11-10T08:47:49.219Z",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write DRAFT with evidence",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:47:43.962Z",
+          "startedAt": "2026-11-10T08:45:42.940Z",
+          "report": {
+            "outcome": "DRAFT-fold-timing written at .project/drafts/fold-timing/README.md with evidence (timing_sim.py, validation and three mode runs). The dot-project checker reports no problem for the draft.",
+            "open": [
+              "The repo-wide artifact check already fails on unrelated dangling paths in extension/skills/accordion-task-lists/references/examples.md; left untouched."
+            ]
+          },
+          "endedAt": "2026-11-10T08:47:43.962Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c10",
+              "text": "Draft has valid frontmatter and passes the artifact check if the repo has one."
+            }
+          ]
+        },
+        {
+          "id": "4.2",
+          "title": "Commit on the draft branch",
+          "status": "done",
+          "createdAt": "2026-11-10T08:37:38.913Z",
+          "updatedAt": "2026-11-10T08:47:49.202Z",
+          "startedAt": "2026-11-10T08:47:43.968Z",
+          "report": {
+            "outcome": "Two commits on docs/fold-timing-draft (c0e275d, 967eb95) contain only .project/drafts/fold-timing/; the worktree is clean and the main checkout is untouched.",
+            "open": [
+              "Branch docs/fold-timing-draft is local only: not pushed, not merged into feat/pi-native."
+            ]
+          },
+          "endedAt": "2026-11-10T08:47:49.202Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c11",
+              "text": "Only the draft and its evidence are committed."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

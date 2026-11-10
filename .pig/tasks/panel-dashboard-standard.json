@@ -1,0 +1,752 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 3,
+  "slug": "panel-dashboard-standard",
+  "title": "Rework /accordion panel to the extending-pig dashboard standard; record fold-timing decisions",
+  "goals": [
+    {
+      "id": "g1",
+      "text": "DRAFT-fold-timing records the user's four decisions and has no open questions left."
+    },
+    {
+      "id": "g2",
+      "text": "The /accordion panel follows the extending-pig dashboard standard: nine-line frame, fixed height, tab bar, search line, no single-key actions, theme tokens only, hints from the user's bindings."
+    },
+    {
+      "id": "g3",
+      "text": "Every panel line fits 36, 57, 80 and 140 columns; tests and smoke pass; live captures exist."
+    }
+  ],
+  "seq": {
+    "g": 4,
+    "c": 24,
+    "a": 1
+  },
+  "createdAt": "2026-11-10T08:59:03.264Z",
+  "updatedAt": "2026-11-10T15:42:16.098Z",
+  "claim": null,
+  "attachments": [
+    {
+      "id": "a1",
+      "path": ".pi/worktrees/panel-shell/.project/plans/0001-accordion-ui-polish/plan.md",
+      "anchor": {
+        "quote": {
+          "exact": "## S1: panel shell on the dashboard standard",
+          "prefix": "commit builds and tests green.\n\n",
+          "suffix": "\n\nGoal: `/accordion` follows the",
+          "start": 3064
+        }
+      },
+      "note": "Panel design: frame, tabs, key table, settings rules, scope limits.",
+      "hash": "e9b1a09436bf",
+      "at": "2026-11-10T09:02:45.093Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-10T08:59:03.264Z",
+      "updatedAt": "2026-11-10T09:02:37.376Z",
+      "startedAt": "2026-11-10T08:59:03.270Z",
+      "report": {
+        "outcome": "Fold-timing decisions recorded (da7df54 on docs/fold-timing-draft). Panel rework scoped to panel.ts on the dashboard standard; design is in PLAN-0001 section S1 on feat/panel-shell (a4751af); tasks 2-5 populated."
+      },
+      "endedAt": "2026-11-10T09:02:37.376Z",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Record the four decisions in DRAFT-fold-timing",
+          "status": "done",
+          "createdAt": "2026-11-10T08:59:03.264Z",
+          "updatedAt": "2026-11-10T08:59:17.783Z",
+          "startedAt": "2026-11-10T08:59:03.270Z",
+          "report": {
+            "outcome": "DRAFT-fold-timing revision 2 (commit da7df54 on docs/fold-timing-draft): section 6 lists the four decisions (whole outcome in history, eager default everywhere, limits accepted, ~/.accordion/debug).",
+            "open": [
+              "Draft is decided but still a draft: not yet moved into SPEC-0002 or a plan."
+            ]
+          },
+          "endedAt": "2026-11-10T08:59:17.783Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c1",
+              "text": "Section 6 open questions are replaced by decisions and section 4 reflects them; committed."
+            }
+          ]
+        },
+        {
+          "id": "1.2",
+          "title": "Read panel.ts, its tests, host.ts and PLAN-0001 status",
+          "status": "done",
+          "createdAt": "2026-11-10T08:59:03.264Z",
+          "updatedAt": "2026-11-10T08:59:40.098Z",
+          "startedAt": "2026-11-10T08:59:17.797Z",
+          "report": {
+            "outcome": "panel.ts (755 lines, one closure) read in full. Screens: blocks (map or list), inspect, help, conductors, consent, settings, inline inputs budget/protect/doorPort/bindHost/customToken; digest edit leaves ctx.ui.custom for ctx.ui.editor and loops back. Frame today is rule + summary + body (2-14 rows) + status + hint, not the nine-line frame; hints are literal strings cut blindly; conductor badges use raw RGB.",
+            "decisions": [
+              "Scope base: PLAN-0001 S1 (panel shell) is next and unstarted; SPEC-0001 3.6/5.2 prescribe bare-letter keys, 1-4 tab jumps and [Name] tabs, which contradict the dashboard standard and must be revised."
+            ],
+            "open": [
+              "Bare keys to replace, navigation: 1-4 tabs, ? help, / search, m map/list, c conductors, s settings, v digest/original.",
+              "Bare keys to replace, actions: o folding, C compact, b budget, t tail, e edit digest, D engine digest, f fold, p pin, a auto, r range, g group, x group fold, d ungroup; settings: g regenerate token, h toggle host.",
+              "Settings apply immediately via host.updateSettings (no staging, no source column); rows are addressed by fixed index 0-8."
+            ]
+          },
+          "endedAt": "2026-11-10T08:59:40.098Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c2",
+              "text": "List of every screen, action and key of the current panel, and what PLAN-0001 already delivered."
+            }
+          ]
+        },
+        {
+          "id": "1.3",
+          "title": "Read the reference frame (pig-auth-plus) and the Pi TUI API available to TS extensions",
+          "status": "done",
+          "createdAt": "2026-11-10T08:59:03.264Z",
+          "updatedAt": "2026-11-10T09:01:28.526Z",
+          "startedAt": "2026-11-10T08:59:40.102Z",
+          "report": {
+            "outcome": "Reference frame read (pig-auth-plus internal/ui/frame/frame.go, uitheme/chrome.go). The TS API (pi 1.5.0 and pig's shim) has every needed piece: theme.getThinkingBorderColor(level), getBgAnsi/getFgAnsi/colors/inverse/bold, pi.getThinkingLevel(), event thinking_level_select, keyHint/rawKeyHint/keyText from pi-coding-agent, keys.getKeys(binding), fuzzyFilter and colorToRgb from pi-tui.",
+            "decisions": [
+              "Port the reference frame's algorithms to TypeScript in extension/tui/chrome.ts rather than invent a layout.",
+              "Reference frame details: chip tab bar scrolls around the active tab with n/N; modal confirm is a body list; printable keys feed the filter unless the tab reports typing; hint priorities esc 0, f1 help 1."
+            ],
+            "open": [
+              "panel.test.ts fakes theme as {fg,bold,strikethrough} and keys as {matches}; the fakes must grow with the new chrome."
+            ]
+          },
+          "endedAt": "2026-11-10T09:01:28.526Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c3",
+              "text": "Known how the TS API gives thinking border color, key hints and fuzzy filter, or that it cannot."
+            }
+          ]
+        },
+        {
+          "id": "1.4",
+          "title": "Decide scope and populate implementation tasks",
+          "status": "done",
+          "createdAt": "2026-11-10T08:59:03.264Z",
+          "updatedAt": "2026-11-10T09:02:37.371Z",
+          "startedAt": "2026-11-10T09:01:28.531Z",
+          "report": {
+            "outcome": "Scope decided, tasks 2-5 added, and the design written into PLAN-0001 section S1 in the new worktree .pi/worktrees/panel-shell (branch feat/panel-shell, commit a4751af; deps installed, 106 tui tests pass). Read that section before implementing: frame, tabs, key table, settings rules.",
+            "decisions": [
+              "Scope is the /accordion panel (panel.ts); the task views are a follow-up, a further 1,200 lines with their own bare keys.",
+              "Block filter stays a substring match; fuzzy matching whole block bodies returns noise. Stated deviation."
+            ]
+          },
+          "endedAt": "2026-11-10T09:02:37.371Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c4",
+              "text": "Task list holds the implementation tree; gaps against the standard are listed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Frame: chrome.ts",
+      "status": "done",
+      "createdAt": "2026-11-10T09:01:28.536Z",
+      "updatedAt": "2026-11-10T09:04:19.324Z",
+      "startedAt": "2026-11-10T09:02:37.381Z",
+      "report": {
+        "outcome": "Frame chrome delivered in extension/tui/chrome.ts with tests; worktree .pi/worktrees/panel-shell ready."
+      },
+      "endedAt": "2026-11-10T09:04:19.324Z",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Worktree feat/panel-shell with dependencies",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:02:45.098Z",
+          "startedAt": "2026-11-10T09:02:37.381Z",
+          "report": {
+            "outcome": "Worktree .pi/worktrees/panel-shell on feat/panel-shell (off origin/feat/pi-native 40efb93) with extension/node_modules installed; baseline bun test extension/tui: 106 pass, 0 fail."
+          },
+          "endedAt": "2026-11-10T09:02:45.098Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c5",
+              "text": "Worktree exists off origin/feat/pi-native and bun test extension/tui passes there before changes."
+            }
+          ]
+        },
+        {
+          "id": "2.2",
+          "title": "chrome.ts: rules, crumbs, tab bar, search line, hint row, renderFrame",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:04:19.319Z",
+          "startedAt": "2026-11-10T09:02:45.102Z",
+          "report": {
+            "outcome": "extension/tui/chrome.ts added (commit on feat/panel-shell): exports CHROME_ROWS=8, bodyRowsFor(rows), clean, fitSegments (moved from taskWidget.ts), makeChrome(theme, level) -> {rule, tab}, ruleLine, crumbText, tabBar, searchLine, hintRow, keyLabel, bindingHint(theme, keys, binding, fallback, action, priority), rawHint, renderFrame(FrameSpec) plus types ChromeTheme, ChromeKeys, Hint, Chrome, FrameSpec. chrome.test.ts covers width matrix, constant height, hint priority, tab scrolling, crumbs; tui suite 114 pass.",
+            "decisions": [
+              "Hints are labelled through keys.getKeys(binding) from the KeybindingsManager Pi passes to the panel, not the module-level keyHint: it is testable and does not depend on the pig shim exporting keyHint at runtime.",
+              "A cut tab bar reserves room for n/N up front, so the counter always shows."
+            ]
+          },
+          "endedAt": "2026-11-10T09:04:19.319Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c6",
+              "text": "Unit tests: every line fits 36/57/80/140; hints drop by priority keeping esc; active tab stays visible; height constant."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Panel on the frame",
+      "status": "done",
+      "createdAt": "2026-11-10T09:01:28.536Z",
+      "updatedAt": "2026-11-10T09:12:19.244Z",
+      "startedAt": "2026-11-10T09:04:19.328Z",
+      "report": {
+        "outcome": "Panel rebuilt on the frame: panel.ts shell plus screens/context.ts, conductors.ts, settings.ts, types.ts; 120 tui tests pass; committed on feat/panel-shell."
+      },
+      "endedAt": "2026-11-10T09:12:19.244Z",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Panel shell: tabs, fixed height, filter, F1 help, confirm modal, key routing",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:06:59.851Z",
+          "startedAt": "2026-11-10T09:04:19.328Z",
+          "report": {
+            "outcome": "panel.ts rewritten as the shell (openAccordionPanel(ctx, host, start = 'context')): fixed body height, top-rule state, tab switching, filter routing, F1 help, confirm modal, dirty-close confirm, digest editor round trip kept. Shell API for tabs in screens/types.ts: host, theme(), keys(), readOnly(), say, send, run, confirm, editDigest, update. host.ts gained thinkingLevel?().",
+            "decisions": [
+              "Enter toggles; Space is text only (dashboard standard) and does nothing outside a filter or input.",
+              "Tab switching is suspended while a tab reports typing(), so an inline input is not left by accident."
+            ],
+            "open": [
+              "Not yet run: tab modules do not exist, so nothing compiles or is tested until 3.2-3.5. Commit d9468d1 does not build alone; squash it with the tab commits.",
+              "Tabs implement PanelTab (screens/types.ts): id, title, view(width, rows) -> {body, crumbs, description, hints, above, below}, key, typing, query, setFilter, back, dirty, discard, legend.",
+              "Factories expected by panel.ts: createContextTab(shell) in screens/context.ts, createConductorsTab(shell) in screens/conductors.ts, createSettingsTab(shell) in screens/settings.ts."
+            ]
+          },
+          "endedAt": "2026-11-10T09:06:59.851Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c7",
+              "text": "Printable keys never act; tab/shift+tab switch; esc clears filter, then back, then close."
+            }
+          ]
+        },
+        {
+          "id": "3.2",
+          "title": "Context tab and Inspector with modifier chords",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:07:56.913Z",
+          "startedAt": "2026-11-10T09:06:59.857Z",
+          "report": {
+            "outcome": "screens/context.ts written: map view (category bar, selected row, grid) and list view with segment-fitted rows (identity first), substring filter, Inspector drill-in with paging and original/digest toggle, and chords alt+f/p/u/e/r/m/n/g/d/v/o/c per the plan's key table. map.ts renderCategoryBar takes an optional painter for free cells so the panel passes the dim token.",
+            "decisions": [
+              "Budget and tail shortcuts (old b/t) are gone from Context; both are rows in Settings.",
+              "Deleting a group asks first (Keep group first); folding or unfolding a group does not.",
+              "Typing in map view shows the list while a filter is set; the map returns when it is cleared."
+            ],
+            "open": [
+              "Untested until 3.5; uncommitted."
+            ]
+          },
+          "endedAt": "2026-11-10T09:07:56.913Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c8",
+              "text": "Fold, pin, auto, edit digest, range/group, ungroup (confirm), view switch and compact work through chords."
+            }
+          ]
+        },
+        {
+          "id": "3.3",
+          "title": "Conductors tab with consent confirm; theme tokens only",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:08:20.272Z",
+          "startedAt": "2026-11-10T09:07:56.919Z",
+          "report": {
+            "outcome": "screens/conductors.ts written: rows with attached mark and word, readiness glyph plus word from success/error tokens, locks; description shows the attached conductor's status or the selected one's description; Enter attaches or detaches; a conductor with locks opens the Consent confirm (Cancel first) and re-checks readiness and locks on confirm.",
+            "decisions": [
+              "After attaching, the panel stays on the Conductors tab (it used to jump to the block list)."
+            ],
+            "open": [
+              "Untested until 3.5; uncommitted. The raw-ANSI criterion is checked by grep in 5.1."
+            ]
+          },
+          "endedAt": "2026-11-10T09:08:20.272Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c9",
+              "text": "No raw ANSI color in panel code; consent is a confirm screen with the safe choice first."
+            }
+          ]
+        },
+        {
+          "id": "3.4",
+          "title": "Settings tab: source column, staged edits, ctrl+s, discard confirm, scope prompt for budget/tail",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:10:07.656Z",
+          "startedAt": "2026-11-10T09:08:20.278Z",
+          "report": {
+            "outcome": "screens/settings.ts written: two sections (this session; all sessions), rows label/value/source, session rows apply at once, six global rows staged with a staged marker and saved by ctrl+s in one updateSettings patch, alt+u stages the default, cycled values with Left/Right, inline editors for budget, tail, address, port and token, scope prompt after a budget or tail value. Type check of the whole extension: 7 errors, the documented baseline, none in extension/tui.",
+            "decisions": [
+              "Default-conductor choices come from host.conductors(), not the old hardcoded list, which lacked taskfold.",
+              "Token regeneration is immediate behind a confirm (Keep token first), not staged.",
+              "Typed values are validated inline; Enter refuses an invalid value and says why."
+            ],
+            "open": [
+              "Behaviour untested until 3.5; panel.test.ts still targets the old keys. Working tree uncommitted on top of d9468d1; squash onto ed99830 once tests pass.",
+              "Env- and flag-locked settings are not marked as locked: the panel has no source information for them (PLAN-0001 S2)."
+            ]
+          },
+          "endedAt": "2026-11-10T09:10:07.656Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c10",
+              "text": "Global settings are staged and saved with ctrl+s; closing dirty asks first; session values apply at once."
+            }
+          ]
+        },
+        {
+          "id": "3.5",
+          "title": "Rewrite panel.test.ts for the new keys; printable-key sweep test",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:12:19.239Z",
+          "startedAt": "2026-11-10T09:10:07.663Z",
+          "report": {
+            "outcome": "panel.test.ts rewritten: 30 tests cover every former behaviour through the new chords plus tab switching, filter typing and esc order, constant height and width fit across all screens, staged settings with ctrl+s and dirty-close confirm, inline validation, token confirm, and a sweep sending all 95 printable ASCII keys to 8 screens with no command, setting or override changing. bun test extension/tui: 120 pass. tsc: 7 errors, the baseline. Squashed into one commit on feat/panel-shell.",
+            "decisions": [
+              "Tests send real key sequences (arrows, \\r, \\x1b, alt as ESC+letter) and match them through pi-tui's matchesKey, instead of the old word tokens.",
+              "Messages carry a level: results are plain, refusals get a warning glyph, failures an error glyph, so a success is not drawn as a warning.",
+              "A read-only panel prefixes the description with 'read-only · reopen /accordion'."
+            ]
+          },
+          "endedAt": "2026-11-10T09:12:19.239Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c11",
+              "text": "bun test extension/tui passes; a test sends every printable ASCII key to each screen and no command fires."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Wire-up and command UX",
+      "status": "done",
+      "createdAt": "2026-11-10T09:01:28.536Z",
+      "updatedAt": "2026-11-10T09:13:57.019Z",
+      "startedAt": "2026-11-10T09:12:19.249Z",
+      "report": {
+        "outcome": "Command entry points and thinking-level wiring done and committed on feat/panel-shell; READMEs updated."
+      },
+      "endedAt": "2026-11-10T09:13:57.019Z",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Thinking level into the host; /accordion settings|conductors|context entry points and usage line",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:13:57.004Z",
+          "startedAt": "2026-11-10T09:12:19.249Z",
+          "report": {
+            "outcome": "accordion.ts: host.thinkingLevel() from pi.getThinkingLevel(), repaint on thinking_level_select, /accordion context|conductors|settings (aliases blocks, conductor, config) open that tab, one shared usage line, usage checked before the headless reply. README.md and extension/README.md describe the new tabs and chords. Smoke passes; tsc stays at the 7 baseline errors.",
+            "open": [
+              "Thinking-level color is wired but only observable live; check it in the captures (5.2)."
+            ]
+          },
+          "endedAt": "2026-11-10T09:13:57.004Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c12",
+              "text": "Rules use the thinking-level color and repaint on thinking_level_select; completions list the new verbs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Verify and document",
+      "status": "done",
+      "createdAt": "2026-11-10T09:01:28.536Z",
+      "updatedAt": "2026-11-10T09:39:18.994Z",
+      "startedAt": "2026-11-10T09:13:57.032Z",
+      "report": {
+        "outcome": "Verified and documented: 217 bun tests, smoke, tsc baseline, 48 live captures without failure; spec, plan and AGENTS.md updated. Seven commits on feat/panel-shell, not pushed or merged.",
+        "open": [
+          "App check and app tests not run (no app dependencies in the worktree; no app/ or core/ change).",
+          "Task views still use bare keys; captures cover one thinking level."
+        ]
+      },
+      "endedAt": "2026-11-10T09:39:18.994Z",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Tests, smoke, type check",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:14:52.021Z",
+          "startedAt": "2026-11-10T09:13:57.032Z",
+          "report": {
+            "outcome": "bun test (settings, tasks, tui, taskfold): 217 pass, 0 fail. npm --prefix extension run smoke: exit 0. tsc 5.9 over extension/accordion.ts: 7 errors, the documented baseline. grep finds no raw color escapes and no bare-key comparisons in panel.ts, chrome.ts or screens/.",
+            "open": [
+              "npm --prefix app run check and app tests were not run: app dependencies are not installed in this worktree (svelte-kit: command not found). The diff touches no file under app/ or core/."
+            ]
+          },
+          "endedAt": "2026-11-10T09:14:52.021Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c13",
+              "text": "bun tests and npm --prefix extension run smoke pass; no new type errors against the baseline."
+            }
+          ]
+        },
+        {
+          "id": "5.2",
+          "title": "Live captures at 36/57/80/140 columns and 16 rows",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:38:03.008Z",
+          "startedAt": "2026-11-10T09:14:52.025Z",
+          "report": {
+            "outcome": "48 live pig runs (12 screens x 36/57/80/140 columns, two of them at 16 rows), 0 failures, no overflow crash: context map, list, inspector, help, conductors, consent, settings, staged, editor, discard confirm. Captures (.txt and .ansi) in .project/plans/0001-accordion-ui-polish/evidence/. Commits af871f0, 9a467c2.",
+            "decisions": [
+              "Each capture runs with its own ACCORDION_HOME: a second pig within 6 s otherwise meets the first one's controller lease and shows the takeover dialog.",
+              "Live run showed Pi keeps 4 rows around the panel, not 3 (bottom rule was clipped at 16 rows); HOST_ROWS fixed, body is 4 rows at 16.",
+              "A top-rule state segment shows whole or not at all; inactive tab chips fall back to the muted border color as background."
+            ],
+            "open": [
+              "Captures use one thinking level (low); a second level was not captured. Rule color escape is present in the .ansi files.",
+              "Pre-existing 'Take Accordion control?' dialog lists Yes first; the standard wants the safe choice first. Not changed."
+            ]
+          },
+          "endedAt": "2026-11-10T09:38:03.008Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c14",
+              "text": "Captures of every tab exist as evidence and pig did not crash."
+            }
+          ]
+        },
+        {
+          "id": "5.3",
+          "title": "Update SPEC-0001, PLAN-0001 and AGENTS.md; commit",
+          "status": "done",
+          "createdAt": "2026-11-10T09:01:28.536Z",
+          "updatedAt": "2026-11-10T09:39:18.989Z",
+          "startedAt": "2026-11-10T09:38:03.016Z",
+          "report": {
+            "outcome": "SPEC-0001 revision 10: sections 3.5-3.8 (selection, keys, hints, height), 5.1-5.2 (delivered modules, frame, chord table), panel keys in 5.3-7 converted to chords, 11 lists the task views as still on bare keys. PLAN-0001 revision 3: S1 done, S1b (task views, footer) next. AGENTS.md has one line on the panel standard and the key sweep. Commit ebd103a; worktree clean.",
+            "open": [
+              "feat/panel-shell is local: not pushed, not merged into feat/pi-native; the worktree stays until then."
+            ]
+          },
+          "endedAt": "2026-11-10T09:39:18.989Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c15",
+              "text": "Spec sections 3 and 5.2 describe the delivered frame and keys; plan progress shows S1 state."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Task views on the standard",
+      "status": "done",
+      "createdAt": "2026-11-10T09:42:32.303Z",
+      "updatedAt": "2026-11-10T09:50:44.686Z",
+      "startedAt": "2026-11-10T09:42:32.310Z",
+      "report": {
+        "outcome": "Task views are two tabs of the one /accordion dashboard (Tasks, Lists) with the shared frame, typing-to-filter and modifier chords; the separate overlays and TaskListsBrowser are gone. Commit 8f96b5d on feat/panel-shell.",
+        "open": [
+          "Docs (SPEC-0001, AGENTS.md, READMEs) still describe the old task views; updated before the merge in 8.1."
+        ]
+      },
+      "endedAt": "2026-11-10T09:50:44.686Z",
+      "goals": [
+        {
+          "id": "g4",
+          "text": "/accordion tasks lists and tasks tree use the nine-line frame, modifier chords and the shared chrome; their place in the /accordion family is coherent."
+        }
+      ],
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Read taskViews.ts, taskLists.ts, treeView.ts and their tests; decide organization",
+          "status": "done",
+          "createdAt": "2026-11-10T09:42:32.303Z",
+          "updatedAt": "2026-11-10T09:45:00.996Z",
+          "startedAt": "2026-11-10T09:42:32.310Z",
+          "report": {
+            "outcome": "Read taskViews.ts, taskLists.ts, treeView.ts, their tests, panel.ts shell and the accordion.ts/taskSession.ts wiring. Organization written into PLAN-0001 as section S1b (committed).",
+            "decisions": [
+              "One dashboard: tabs Context, Tasks (session tree), Lists (project lists), Conductors, Settings — instead of separate overlays with their own frame.",
+              "TaskViews becomes the screen stack behind both tabs (root 'session' or 'lists'); TaskListsBrowser is deleted; pick mode uses ui.select/ui.input.",
+              "Chords: alt+f fold/unfold, alt+p pin, alt+i other view, alt+g list context, alt+v view switch, alt+t attach/release, alt+n new list; legend via F1; body cap 20 rows."
+            ]
+          },
+          "endedAt": "2026-11-10T09:45:00.996Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c16",
+              "text": "Every screen, key and entry point of the task views is listed; the target organization is written into PLAN-0001."
+            }
+          ]
+        },
+        {
+          "id": "6.2",
+          "title": "Rework TaskViews into a tab screen stack with a lists root",
+          "status": "done",
+          "createdAt": "2026-11-10T09:45:01.003Z",
+          "updatedAt": "2026-11-10T09:48:37.419Z",
+          "startedAt": "2026-11-10T09:45:03.785Z",
+          "report": {
+            "outcome": "taskViews.ts: TaskViews is now a screen stack with view/key/back/query/setFilter/typing, a lists root (rows, filter, inline new-list input, alt+t attach/release/take-over via shell confirm with keep first) and chords alt+f/p/i/g/v/n/t; messages go through the shell. treeView.ts gained hidden() and lost the filtering flag; taskLists.ts lost TaskListsBrowser, the overlay options and frameBodyRows; ResumeDialog's take-over confirm lists keeping first.",
+            "decisions": [
+              "Data refresh is lazy: a host change only marks the stack stale; the next view or key rebuilds once.",
+              "Tree and list cursors are now the arrow marker, as in the panel."
+            ],
+            "open": [
+              "Tests still call the old API; fixed in 6.4."
+            ]
+          },
+          "endedAt": "2026-11-10T09:48:37.419Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c20",
+              "text": "TaskViews exposes view/key/back/query/setFilter with chords and a lists root; no bare-key action remains in it."
+            }
+          ]
+        },
+        {
+          "id": "6.3",
+          "title": "screens/tasks.ts, panel tabs, accordion.ts wiring, pick mode via dialogs",
+          "status": "done",
+          "createdAt": "2026-11-10T09:45:01.003Z",
+          "updatedAt": "2026-11-10T09:48:43.519Z",
+          "startedAt": "2026-11-10T09:48:37.426Z",
+          "report": {
+            "outcome": "screens/tasks.ts builds the Tasks and Lists tabs; panel.ts inserts them after Context when host.tasks exists and disposes tabs on close; body cap 20 rows. accordion.ts: host.tasks from taskViewsHost + taskSession.listsHost(), '/accordion tasks tree|open|lists|list' and '/accordion lists' open the panel on that tab, withTaskViews and the overlays are gone. taskSession 'choose another list' uses ui.select/ui.input with keep-first take-over. tsc at the 7 baseline; panel and chrome tests pass.",
+            "decisions": [
+              "Lists tab exists only when a TaskSession exists (conductor provides the tasks tool); /accordion tasks lists says so otherwise.",
+              "Remote-session panels get no task tabs (task data is local)."
+            ]
+          },
+          "endedAt": "2026-11-10T09:48:43.519Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c21",
+              "text": "Panel shows Tasks and Lists tabs when host.tasks exists; /accordion tasks tree|lists open them; old overlays removed."
+            }
+          ]
+        },
+        {
+          "id": "6.4",
+          "title": "Tests for the task tabs",
+          "status": "done",
+          "createdAt": "2026-11-10T09:45:01.003Z",
+          "updatedAt": "2026-11-10T09:50:44.669Z",
+          "startedAt": "2026-11-10T09:48:43.524Z",
+          "report": {
+            "outcome": "taskViews.test.ts and taskLists.test.ts drive the screens through chords; taskSession.test.ts covers 'choose another list' via select; panel.test.ts has a task-tab test: 95 printable keys on five task screens act on nothing, every line fits 36/57/80/140, height is constant, new-list input creates nothing until Enter. 227 tests pass (settings, tasks, taskSession, tui, taskfold); tsc at the 7 baseline. Commit 8f96b5d. (The one remaining `key === \"p\"` is an internal parameter, not input.)",
+            "open": [
+              "Live captures of the two task tabs follow in 7.2 together with the thinking-level check."
+            ]
+          },
+          "endedAt": "2026-11-10T09:50:44.669Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c22",
+              "text": "taskViews/taskLists tests use chords and pass; printable sweep covers both tabs; all tui tests pass."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Takeover dialog and thinking level",
+      "status": "done",
+      "createdAt": "2026-11-10T09:42:32.303Z",
+      "updatedAt": "2026-11-10T09:54:57.492Z",
+      "startedAt": "2026-11-10T09:50:44.690Z",
+      "report": {
+        "outcome": "Takeover prompt lists 'Open read-only' first (ee5a8d6, smoke asserts it); rule color verified live against the editor border at two thinking levels (2eb18df).",
+        "open": [
+          "Privacy-notice and adopt-session confirms still list Yes first.",
+          "Live level change while the panel is open was not exercised."
+        ]
+      },
+      "endedAt": "2026-11-10T09:54:57.492Z",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Takeover dialog: safe choice first",
+          "status": "done",
+          "createdAt": "2026-11-10T09:42:32.303Z",
+          "updatedAt": "2026-11-10T09:53:24.152Z",
+          "startedAt": "2026-11-10T09:50:44.690Z",
+          "report": {
+            "outcome": "claimNativeControl now asks through ui.select with 'Open read-only' first and 'Take control' last; Esc opens read-only. smoke.mjs asserts the option order and the declined takeover; its ctx gained cwd and a sessionManager because the panel now builds the task host. Smoke passes (exit 0).",
+            "decisions": [
+              "Reverted a ctx.sessionManager guard in accordion.ts — it only served the smoke mock; fixed the mock instead."
+            ],
+            "open": [
+              "The privacy-notice and adopt-session confirms (accordion.ts:799, :2947) still use ui.confirm with Yes first; not in the requested scope."
+            ]
+          },
+          "endedAt": "2026-11-10T09:53:24.152Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c17",
+              "text": "The control takeover prompt lists the keep-read-only choice first and a test covers it."
+            }
+          ]
+        },
+        {
+          "id": "7.2",
+          "title": "Thinking level: verify rule color at two levels live",
+          "status": "done",
+          "createdAt": "2026-11-10T09:42:32.303Z",
+          "updatedAt": "2026-11-10T09:54:57.485Z",
+          "startedAt": "2026-11-10T09:53:24.158Z",
+          "report": {
+            "outcome": "Live pig at --thinking off and high: panel rules are 38;5;4 and 38;5;5, identical to the editor border captured without the panel at the same levels (note: 'off' is shown as minimal by this model). Task tabs captured at 36/57/80/140 with explanatory empty rows; 10 runs, 0 failures. Captures in the plan's evidence/ (thinking-off, thinking-high, tasks-tab, lists-tab), commit 2eb18df.",
+            "open": [
+              "Not live-tested: changing the level while the panel is open (thinking_level_select -> notifyNative is wired, unit-level only).",
+              "/tmp/acc-wire.ts and /tmp/tsconfig.acc.json are still needed for the tsc baseline check; remove after the merge."
+            ]
+          },
+          "endedAt": "2026-11-10T09:54:57.485Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c18",
+              "text": "Captures at two thinking levels show different rule colors matching the editor border."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Merge feat/panel-shell into feat/pi-native",
+      "status": "done",
+      "createdAt": "2026-11-10T09:42:32.303Z",
+      "updatedAt": "2026-11-10T09:59:03.931Z",
+      "startedAt": "2026-11-10T09:55:02.388Z",
+      "report": {
+        "outcome": "Merged into local feat/pi-native at 47b5759; gate passed on the merged checkout; worktree and branch removed.",
+        "open": [
+          "Not pushed: feat/pi-native is 12 commits ahead of origin."
+        ]
+      },
+      "endedAt": "2026-11-10T09:59:03.931Z",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Full gate, merge, remove worktree",
+          "status": "done",
+          "createdAt": "2026-11-10T09:42:32.303Z",
+          "updatedAt": "2026-11-10T09:59:00.303Z",
+          "startedAt": "2026-11-10T09:55:02.388Z",
+          "report": {
+            "outcome": "feat/panel-shell fast-forwarded into local feat/pi-native (47b5759). On the merged checkout: 227 bun tests pass, extension smoke exits 0. Worktree and branch removed, temp files cleaned. SPEC-0001 rev 11, PLAN-0001 rev 4, AGENTS.md and both READMEs describe the five tabs.",
+            "decisions": [
+              "Lists attach/release chord is alt+a, not alt+t: alt+t is the task widget's global toggle.",
+              "Branch deleted with -D after checking it equals HEAD; -d refused only because origin is behind."
+            ],
+            "open": [
+              "feat/pi-native is 12 commits ahead of origin; not pushed.",
+              "docs/fold-timing-draft (da7df54) is still an unmerged draft branch with its worktree.",
+              "app check/tests not run (nothing under app/ or core/ changed).",
+              "dot-project artifact check reports pre-existing failures in other artifacts and skill examples."
+            ]
+          },
+          "endedAt": "2026-11-10T09:59:00.303Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c19",
+              "text": "Tests and smoke pass on the merged feat/pi-native; worktree and branch removed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9",
+      "title": "Merge fold-timing draft, push, update pig install",
+      "status": "done",
+      "createdAt": "2026-11-10T10:21:06.336Z",
+      "updatedAt": "2026-11-10T10:22:01.481Z",
+      "startedAt": "2026-11-10T10:21:11.181Z",
+      "report": {
+        "outcome": "Fold-timing draft merged, feat/pi-native pushed at e50dcb2, pig install updated to it and verified with a live launch.",
+        "open": [
+          "Restart running pig sessions to load the new panel; other hosts not updated."
+        ]
+      },
+      "endedAt": "2026-11-10T10:22:01.481Z",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Merge docs/fold-timing-draft and push feat/pi-native",
+          "status": "done",
+          "createdAt": "2026-11-10T10:21:06.336Z",
+          "updatedAt": "2026-11-10T10:21:29.462Z",
+          "startedAt": "2026-11-10T10:21:11.181Z",
+          "report": {
+            "outcome": "docs/fold-timing-draft merged (--no-ff, e50dcb2) and feat/pi-native pushed; origin equals local HEAD e50dcb2. Draft worktree and branch removed."
+          },
+          "endedAt": "2026-11-10T10:21:29.462Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c23",
+              "text": "origin/feat/pi-native equals local HEAD; draft worktree and branch removed."
+            }
+          ]
+        },
+        {
+          "id": "9.2",
+          "title": "Update the pig-installed package",
+          "status": "done",
+          "createdAt": "2026-11-10T10:21:06.336Z",
+          "updatedAt": "2026-11-10T10:22:01.476Z",
+          "startedAt": "2026-11-10T10:21:29.485Z",
+          "report": {
+            "outcome": "pig update of the git package succeeded: install at e50dcb2, browser client rebuilt. A fresh pig using the installed package (no -e) opens /accordion with the five-tab frame at 80 columns.",
+            "open": [
+              "Running pig sessions keep the old extension code until restarted.",
+              "devsrv01 and other hosts were not updated."
+            ]
+          },
+          "endedAt": "2026-11-10T10:22:01.476Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c24",
+              "text": "The pig git install of pi-accordion is at the pushed commit and loads."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

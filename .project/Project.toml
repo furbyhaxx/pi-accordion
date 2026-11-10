@@ -1,0 +1,22 @@
+# Project identity shared by all component repositories.
+version = 1
+id = "prj-67wflkwfdz"
+slug = "pi-accordion"
+name = "Pi Accordion"
+description = "Personal fork of **accordion**. Playground and experiments for different methods and approaches to reduce AI token usage, improve cost efficicieny and long running AI Agent work."
+
+# This repository's role in the project.
+[component]
+slug = "pi-accordion"
+primary = true
+
+[worktrees]
+links = []
+share_project_tree = true
+
+[artifacts]
+storage = "tree" # tree or branch
+
+[conventions]
+artifacts = true
+agents_md = true

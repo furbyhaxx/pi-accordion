@@ -1,0 +1,172 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 2,
+  "slug": "taskfold-session-audit",
+  "title": "Audit Taskfold session, projection and tasks UI",
+  "goal": "Identify and substantiate defects or integration gaps in the supplied nukular-ai session, task list, projection dump and Accordion tasks UI without changing product code.",
+  "createdAt": "2026-11-07T06:53:21.939Z",
+  "updatedAt": "2026-11-07T19:09:01.015Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-07T06:53:21.939Z",
+      "updatedAt": "2026-11-07T06:54:01.560Z",
+      "acceptanceCriteria": [
+        "Locate session, task list, projection and relevant implementation/revisions."
+      ],
+      "startedAt": "2026-11-07T06:53:23.869Z",
+      "report": {
+        "outcome": "Located the 2,955-entry session, 1,132-line v2 task list and 9,047-line YAML dump. Current source and installed extension both resolve to e6e87a2; the dump contains 221,120 live versus 1,811,359 full estimated tokens.",
+        "decisions": [
+          "Read-only investigation — no product edits or external disclosure of session content.",
+          "Use local implementation, SPEC-0002 and recorded tool details as authoritative evidence."
+        ]
+      },
+      "endedAt": "2026-11-07T06:54:01.560Z"
+    },
+    {
+      "id": "2",
+      "title": "Audit session behavior and folding integrity",
+      "status": "done",
+      "createdAt": "2026-11-07T06:53:45.088Z",
+      "updatedAt": "2026-11-07T06:56:59.366Z",
+      "startedAt": "2026-11-07T06:54:03.773Z",
+      "report": {
+        "outcome": "Established a reproduced migration regression and a planner starvation defect tied directly to the supplied session, plus six erased historical task nodes and repeated agent lifecycle violations. The latest source fixes historical add-under-finished behavior but does not repair existing affected sessions."
+      },
+      "endedAt": "2026-11-07T06:56:59.366Z",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Reconstruct task transitions, persisted metadata and anomalous session behavior",
+          "status": "done",
+          "createdAt": "2026-11-07T06:53:45.088Z",
+          "updatedAt": "2026-11-07T06:55:10.185Z",
+          "acceptanceCriteria": [
+            "Identify session and task-list inconsistencies with exact evidence."
+          ],
+          "startedAt": "2026-11-07T06:54:03.773Z",
+          "report": {
+            "outcome": "Reconstructed lifecycle errors, repeated premature stops and task-list divergence. Reproduced v1→v2 migration accepting deep legacy tasks then producing an unreadable v2 file; session lines 2440–2450 show this failure and manual deletion of six historical tasks to recover.",
+            "decisions": [
+              "Separate agent protocol failures from conductor bugs — no recall/unfold calls occurred despite later re-investigation of completed work.",
+              "Latest list has 75 tasks (41 done, 27 todo, 5 abandoned, 2 doing); six completed/abandoned legacy descendants remain only in the transcript."
+            ],
+            "open": [
+              "Trace projection record loss and UI metadata wiring next.",
+              "Earlier runtime allowed adding children to completed parents; current implementation rejects this, so distinguish historical behavior from current regressions."
+            ]
+          },
+          "endedAt": "2026-11-07T06:55:10.185Z"
+        },
+        {
+          "id": "2.2",
+          "title": "Trace conductor records, nesting, aging and recovery against the session",
+          "status": "done",
+          "createdAt": "2026-11-07T06:53:45.088Z",
+          "updatedAt": "2026-11-07T06:56:55.867Z",
+          "acceptanceCriteria": [
+            "Validate suspected folding defects using source and focused reproductions."
+          ],
+          "startedAt": "2026-11-07T06:55:12.289Z",
+          "report": {
+            "outcome": "Confirmed planner starvation of the historical 3.4.1 task: the completed parent ended before the child ran, parent compilation fails, and the ID-based roots exclude the child although it is individually foldable. Local replay saturated with safe child folds available; supplied dump leaves 61,706 calibrated tokens of 3.4.1 raw.",
+            "decisions": [
+              "Do not treat local replay token totals as the historical wire — replay lacks the live provider calibration and historical folding epochs.",
+              "Observed aggressive archival of 3.5 removes the child outcome/handle association; agent then re-audits completed agent-filter work without using recall."
+            ],
+            "open": [
+              "Projection duplicates shared groups, omits split carriers and loses structured details; investigate in next task.",
+              "UI steering appears to match group summary keys instead of composed task handles."
+            ]
+          },
+          "endedAt": "2026-11-07T06:56:55.867Z"
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Audit projection dump and tasks UI feature parity",
+      "status": "done",
+      "createdAt": "2026-11-07T06:53:45.088Z",
+      "updatedAt": "2026-11-07T07:00:52.644Z",
+      "startedAt": "2026-11-07T06:57:01.837Z",
+      "report": {
+        "outcome": "Audited all dump formats and native tasks surfaces. Verified wire fidelity defects, invalid YAML, metadata/working-set omissions, broken composed-child steering and interval attribution; the modern widget presentation is present but the inspection UI is not feature-complete."
+      },
+      "endedAt": "2026-11-07T07:00:52.644Z",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Check dump fidelity and metadata coverage",
+          "status": "done",
+          "createdAt": "2026-11-07T06:53:45.088Z",
+          "updatedAt": "2026-11-07T06:58:25.780Z",
+          "acceptanceCriteria": [
+            "Compare outgoing dump content and fields to source contracts and recorded data."
+          ],
+          "startedAt": "2026-11-07T06:57:01.837Z",
+          "report": {
+            "outcome": "Reproduced shared-record duplication, missing split/untracked carriers, raw paired-result leakage, and loss of structured metadata in dump construction. Supplied YAML fails parsing at line 2525 because literal indentation is inferred from an indented first content line; parsing an in-memory |2-adjusted copy yields 214,453 summed tokens versus 221,120 declared.",
+            "decisions": [
+              "All five formats share the defective DumpDoc; flat is not a trustworthy escape hatch.",
+              "Dump excludes the transient working-set suffix and serializes neither the list goal/pins/attachments nor structured task details/handles. System text is intentionally count-only, but working-set omission is undocumented in the wire claim."
+            ],
+            "open": [
+              "Verify UI composed-handle steering and interval attribution next."
+            ]
+          },
+          "endedAt": "2026-11-07T06:58:25.780Z"
+        },
+        {
+          "id": "3.2",
+          "title": "Check task panel, tree, widget and actions",
+          "status": "done",
+          "createdAt": "2026-11-07T06:53:45.088Z",
+          "updatedAt": "2026-11-07T07:00:49.081Z",
+          "acceptanceCriteria": [
+            "Trace new task features through UI models, renderers and command ingress; reproduce concrete gaps where practical."
+          ],
+          "startedAt": "2026-11-07T06:58:28.268Z",
+          "report": {
+            "outcome": "Confirmed composed-child handles work in core recall but the tasks panel refuses them as having no fold; task details omit goal, acceptance criteria, scoped pins and attachments. Interval-unaware views misattribute blocked sibling work, and rendering re-reads list files; invalid lists disappear from browser/widget.",
+            "decisions": [
+              "Native widget has the new status glyphs, separate fold markers and width fitting; those parts are wired.",
+              "Existing focused suites: 96 tests passed across schema, conductor, dump/transcript and tasks UI. App Vitest command unavailable (vitest: command not found); no real terminal capture was performed."
+            ],
+            "open": [
+              "Need summarize confirmed defects separately from intentional aging policy and agent misuse."
+            ]
+          },
+          "endedAt": "2026-11-07T07:00:49.081Z"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Synthesize ranked findings and verification limits",
+      "status": "done",
+      "createdAt": "2026-11-07T06:53:45.088Z",
+      "updatedAt": "2026-11-07T07:01:28.532Z",
+      "acceptanceCriteria": [
+        "Present actionable evidence-backed findings distinguishing confirmed defects from limitations."
+      ],
+      "startedAt": "2026-11-07T07:00:55.659Z",
+      "report": {
+        "outcome": "Prepared ranked findings separating reproduced implementation defects, historical migration damage, missing UI/dump feature parity and agent-protocol failures. Confirmed pre-flatten backup survives at /tmp/tui-full-integration.before-flatten.json; no tracked files changed.",
+        "decisions": [
+          "Prioritize migration safety and truthful wire export before tuning folding pressure.",
+          "Retain classifier behavior as a positive control: important user instructions were kept; observed repetition is not evidence of incorrect classifier deletion."
+        ],
+        "open": [
+          "No live /accordion terminal exercise or historical calibrated-wire replay was performed.",
+          "App test command could not run because the app's Vitest executable is not installed; 96 focused Bun tests passed despite uncovered defects."
+        ]
+      },
+      "endedAt": "2026-11-07T07:01:28.532Z"
+    }
+  ]
+}

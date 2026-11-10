@@ -1,0 +1,404 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 3,
+  "slug": "taskfold-ipc-investigation",
+  "title": "Investigate Taskfold IPC overflow and extraction options",
+  "goals": [
+    {
+      "id": "g1",
+      "text": "Investigate Taskfold IPC and extraction options, and establish pig-taskfolding with architecture, specifications, research, evaluations, UX designs, and implementation plans without host-side fixes."
+    }
+  ],
+  "seq": {
+    "g": 1,
+    "c": 12,
+    "p": 2
+  },
+  "createdAt": "2026-11-08T19:52:34.826Z",
+  "updatedAt": "2026-11-09T12:51:59.089Z",
+  "claim": null,
+  "pins": [
+    {
+      "id": "p1",
+      "kind": "constraint",
+      "text": "we do not need a web interface but it must be performant",
+      "source": "user",
+      "at": "2026-11-08T19:53:16.078Z"
+    },
+    {
+      "id": "p2",
+      "kind": "constraint",
+      "text": "we cannot fix the host side without forking pig, so this is out.",
+      "source": "user",
+      "at": "2026-11-08T20:05:30.848Z"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-08T19:52:34.826Z",
+      "updatedAt": "2026-11-08T19:53:29.231Z",
+      "startedAt": "2026-11-08T19:53:21.493Z",
+      "report": {
+        "outcome": "Located local PiG IPC implementation, Accordion turn_end hook, and tree-navigator sources; crash stderr file exists but is empty. Scope is investigation and architecture recommendations, with no implementation changes."
+      },
+      "endedAt": "2026-11-08T19:53:29.231Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c1",
+          "text": "Locate relevant runtime, Taskfold and navigator sources."
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Investigate the oversized turn_end IPC payload and whether Taskfold causes the frame-limit overflow.",
+      "status": "done",
+      "createdAt": "2026-11-08T19:53:16.077Z",
+      "updatedAt": "2026-11-08T19:53:55.927Z",
+      "startedAt": "2026-11-08T19:53:31.247Z",
+      "report": {
+        "outcome": "Traced frame rejection to PiG event dispatch and identified full boundary context serialization with repeated history representations; Accordion's turn_end handler itself only emits a turn/revision notification. Exact offending session and field sizes remain unavailable, so Taskfold causation is not established.",
+        "open": [
+          "No incident reproduction: supplied stderr log is empty and affected session was not identified.",
+          "Need field-size measurements of the actual turn_end event and installed host revision."
+        ]
+      },
+      "endedAt": "2026-11-08T19:53:55.927Z"
+    },
+    {
+      "id": "3",
+      "title": "Evaluate pi-tree-navigator ideas: each fold as a branch or separate session, plus resume and tree-view patches.",
+      "status": "done",
+      "createdAt": "2026-11-08T19:53:16.077Z",
+      "updatedAt": "2026-11-08T19:54:06.689Z",
+      "startedAt": "2026-11-08T19:53:58.344Z",
+      "report": {
+        "outcome": "Tree-navigator uses same-session rewind plus summary and retained original subtree, not a session per fold. Its prepare/summarize/validated-commit and queued safe-boundary pattern is useful, but branch navigation is not equivalent to selectively unfolding nested task spans.",
+        "decisions": [
+          "Prefer same-session archived spans or branches over one session per fold — avoids session proliferation and task-binding duplication.",
+          "Reuse navigation UX concepts, not prototype patches without checking PiG native contracts."
+        ]
+      },
+      "endedAt": "2026-11-08T19:54:06.689Z"
+    },
+    {
+      "id": "4",
+      "title": "Evaluate extracting all taskfolding into ../pig-taskfolding as a targeted extension with an event API, considering Go or Rust and preserving /tasks, renaming, and centering.",
+      "status": "done",
+      "createdAt": "2026-11-08T19:53:16.078Z",
+      "updatedAt": "2026-11-08T19:54:22.453Z",
+      "startedAt": "2026-11-08T19:54:08.638Z",
+      "report": {
+        "outcome": "Recommend a focused Go factory extension with task state, reversible span projection and native TUI, but only after addressing PiG's oversized boundary transport. Extraction must include task session binding, notices, anchors, verdicts, recall/unfold and views rather than just the conductor.",
+        "decisions": [
+          "Go over Rust — best-supported factory integration; no measured CPU bottleneck justifies Rust.",
+          "Versioned bounded event deltas and paged explicit reads — never publish full session snapshots per task event.",
+          "Retain one authoritative task store and host-owned session projection; no web server or browser dependencies."
+        ],
+        "open": [
+          "Exact incident payload and installed host revision remain unverified; no reproduction or implementation was performed."
+        ]
+      },
+      "endedAt": "2026-11-08T19:54:22.453Z"
+    },
+    {
+      "id": "5",
+      "title": "Create the pig-taskfolding repository and its .project/artifacts directory.",
+      "status": "done",
+      "createdAt": "2026-11-08T20:05:30.877Z",
+      "updatedAt": "2026-11-08T20:06:10.413Z",
+      "startedAt": "2026-11-08T20:05:36.477Z",
+      "report": {
+        "outcome": "Created a new local git repository at /mnt/Projects/furbyhaxx/pig-taskfolding with README, steering, .project template, Justfile and the portable artifact checker. No remote or runtime scaffold was created; artifact content and initial commit follow in task 6."
+      },
+      "endedAt": "2026-11-08T20:06:10.413Z"
+    },
+    {
+      "id": "6",
+      "title": "Produce pig-taskfolding documentation covering specifications for the different parts, architecture, mechanisms, evaluations, designs/wireframes/UX, plans, research, and analyses.",
+      "status": "done",
+      "createdAt": "2026-11-08T20:05:30.877Z",
+      "updatedAt": "2026-11-08T20:11:23.628Z",
+      "startedAt": "2026-11-08T20:06:16.703Z",
+      "report": {
+        "outcome": "Delivered a committed design-stage pig-taskfolding repository with seven component specs, architecture, lifecycle/folding/event/persistence mechanisms, evaluation gates, terminal wireframes, topology tradeoffs, source evidence, IPC analysis and an executable sliced plan. The no-host-fork constraint is explicit throughout.",
+        "decisions": [
+          "Backend selection remains evidence-gated — no safe live-commit or bounded transport behavior is invented.",
+          "Use standard typed .project directories rather than a catch-all artifacts directory.",
+          "Local design repository only — no runtime, remote repository or publication."
+        ],
+        "open": [
+          "Installed-host feasibility, topology choice, UX approval and measured performance remain future work; optional paid evaluations require authorization."
+        ]
+      },
+      "endedAt": "2026-11-08T20:11:23.628Z",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Ground host compatibility and topology alternatives in local sources",
+          "status": "done",
+          "createdAt": "2026-11-08T20:06:14.470Z",
+          "updatedAt": "2026-11-08T20:07:21.098Z",
+          "startedAt": "2026-11-08T20:06:16.703Z",
+          "report": {
+            "outcome": "Recorded local source revisions, SDK candidates and evidence limits; created IPC analysis, no-fork feasibility research and task/session topology alternatives. Live mutation, bounded reads and native resume/tree customization remain explicit probe gates rather than assumed APIs."
+          },
+          "endedAt": "2026-11-08T20:07:21.098Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c2",
+              "text": "Record source revisions, evidence and unresolved compatibility gates."
+            }
+          ]
+        },
+        {
+          "id": "6.2",
+          "title": "Write component specifications, UX designs and delivery/evaluation plans",
+          "status": "done",
+          "createdAt": "2026-11-08T20:06:14.470Z",
+          "updatedAt": "2026-11-08T20:10:42.515Z",
+          "startedAt": "2026-11-08T20:07:23.818Z",
+          "report": {
+            "outcome": "Wrote seven draft component specifications, proposed narrow/wide UX wireframes, artifact/source maps and a sliced implementation plan. Contracts cover lifecycle, reversible spans, bounded events, crash recovery, migration, no-fork backend gates and measurable evaluation budgets; no runtime behavior is claimed implemented."
+          },
+          "endedAt": "2026-11-08T20:10:42.515Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c3",
+              "text": "Cover task contracts, folding, events, persistence, UX and measurable acceptance."
+            }
+          ]
+        },
+        {
+          "id": "6.3",
+          "title": "Validate artifacts and commit the local design repository",
+          "status": "done",
+          "createdAt": "2026-11-08T20:06:14.470Z",
+          "updatedAt": "2026-11-08T20:11:18.037Z",
+          "startedAt": "2026-11-08T20:10:44.737Z",
+          "report": {
+            "outcome": "Validated artifacts with the portable checker and just check, fixed two dangling directory references, and passed staged/post-commit whitespace checks. Committed 29 files locally as d5b93e2; working tree is clean and no remote publication occurred.",
+            "open": [
+              "No runtime implementation or compatibility/performance evaluation has been run."
+            ]
+          },
+          "endedAt": "2026-11-08T20:11:18.037Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c4",
+              "text": "Artifact checker passes and intended files are committed without publication."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Specify bounded index-first recall in pig-taskfolding",
+      "status": "done",
+      "createdAt": "2026-11-09T09:06:44.575Z",
+      "updatedAt": "2026-11-09T09:13:40.151Z",
+      "startedAt": "2026-11-09T09:12:58.719Z",
+      "report": {
+        "outcome": "SPEC-0003 rev2 specifies index/entry/query recall with a per-call budget, step folding inside open tasks and an unfold ceiling; SPEC-0007 rev2 adds matching eval scenarios; PLAN-0001 rev2 folds them into the folding slice. just check passes; committed 55e8e2a."
+      },
+      "endedAt": "2026-11-09T09:13:40.151Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c5",
+          "text": "SPEC-0003/0007 specify index/page/query recall, hard budgets, in-task step folding"
+        },
+        {
+          "id": "c6",
+          "text": "Artifact check passes and change is committed"
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Apply bounded index-first recall to Accordion",
+      "status": "done",
+      "createdAt": "2026-11-09T09:06:44.575Z",
+      "updatedAt": "2026-11-09T09:12:58.714Z",
+      "startedAt": "2026-11-09T09:06:48.018Z",
+      "report": {
+        "outcome": "Accordion recall is now bounded and index-first (commit f1957c8, branch fix/bounded-recall in .pi/worktrees/bounded-recall); tests, smoke and svelte-check pass.",
+        "open": [
+          "Open-task step folding (768k saturation) and unbounded unfold remain unaddressed in Accordion"
+        ]
+      },
+      "endedAt": "2026-11-09T09:12:58.714Z",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Set up worktree and locate recall code, tests and handle structure",
+          "status": "done",
+          "createdAt": "2026-11-09T09:06:44.575Z",
+          "updatedAt": "2026-11-09T09:07:54.574Z",
+          "startedAt": "2026-11-09T09:06:48.018Z",
+          "report": {
+            "outcome": "Created worktree .pi/worktrees/bounded-recall on fix/bounded-recall from origin/feat/pi-native (30dd86f). Recall path: core/agentView.ts resolveRecall (unbounded join, duplicates possible across groups carrying the same handle) and extension/accordion.ts recall tool, which also stores the full text again in details.",
+            "decisions": [
+              "Keep resolveRecall's contract for app/tests; add a bounded presentation layer in core used by the tool"
+            ]
+          },
+          "endedAt": "2026-11-09T09:07:54.574Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c7",
+              "text": "Worktree off origin/feat/pi-native exists; recall paths and tests identified"
+            }
+          ]
+        },
+        {
+          "id": "8.2",
+          "title": "Implement bounded recall (index, page, query) in core and tool",
+          "status": "done",
+          "createdAt": "2026-11-09T09:06:44.575Z",
+          "updatedAt": "2026-11-09T09:10:54.311Z",
+          "startedAt": "2026-11-09T09:07:56.353Z",
+          "report": {
+            "outcome": "Added core/recallView.ts: recall returns a small fold whole, otherwise an index of subtask codes and code.N entries with previews; code.N reads one entry (paged), query returns addressed excerpts; all bounded by one per-call budget, dedupes members matched via several carriers. Tool in extension/accordion.ts now takes codes/query/page, broadcasts only shown ids, and stores small details.",
+            "decisions": [
+              "32k-char (~8k tok) per-call budget, constant RECALL_BUDGET_CHARS — no config surface until needed",
+              "Pages sized against the full budget regardless of call composition so page N is stable",
+              "details carry counts only — the old details duplicated the full text into the persisted session"
+            ],
+            "open": [
+              "unfold can still restore an arbitrarily large fold into standing context; not guarded",
+              "Open tasks still cannot be folded below task granularity (the 768k saturation)"
+            ]
+          },
+          "endedAt": "2026-11-09T09:10:54.311Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c8",
+              "text": "Recall result never exceeds byte budget; large folds return an index with drill-down"
+            }
+          ]
+        },
+        {
+          "id": "8.3",
+          "title": "Add regression tests, update tool docs/skills, run checks and commit",
+          "status": "done",
+          "createdAt": "2026-11-09T09:06:44.575Z",
+          "updatedAt": "2026-11-09T09:12:54.546Z",
+          "startedAt": "2026-11-09T09:10:58.841Z",
+          "report": {
+            "outcome": "core/recallView.test.ts (6 tests) proves a >10x-budget fold returns an index within budget, stable entry paging, search, multi-code budget and missing codes; skills, READMEs and CLAUDE.md updated. Committed f1957c8 on fix/bounded-recall.",
+            "decisions": [
+              "Reused existing test style (vitest API under bun) next to agentView tests"
+            ],
+            "open": [
+              "core/ suite has 7 pre-existing timer-based liveHost/remote failures under bun, identical on baseline",
+              "Branch not merged/pushed; live Pi-Bolt exercise not done"
+            ]
+          },
+          "endedAt": "2026-11-09T09:12:54.546Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c9",
+              "text": "Regression test fails on old behavior, passes now; bun/smoke checks pass; committed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9",
+      "title": "Fix Taskfold saturation in Accordion by folding finished steps inside open tasks so one long-running task cannot fill the context (resolve \"Taskfold saturated: open task … no safe fold is available\")",
+      "status": "abandoned",
+      "createdAt": "2026-11-09T09:25:03.235Z",
+      "updatedAt": "2026-11-09T09:25:11.268Z",
+      "report": {
+        "outcome": "Duplicate of task 10, which carries the subtasks."
+      },
+      "endedAt": "2026-11-09T09:25:11.268Z",
+      "supersededBy": "10"
+    },
+    {
+      "id": "10",
+      "title": "Fold finished steps inside open Taskfold tasks so one open task cannot saturate the context",
+      "status": "done",
+      "createdAt": "2026-11-09T09:25:05.464Z",
+      "updatedAt": "2026-11-09T09:29:17.307Z",
+      "startedAt": "2026-11-09T09:25:11.274Z",
+      "report": {
+        "outcome": "Taskfold now folds old finished steps of open tasks under pressure into recallable step carriers absorbed by the task's record on finish; saturation only remains when nothing foldable exists (commit 9b8fed0 on fix/bounded-recall).",
+        "open": [
+          "Not exercised in a live Pi session; branch not merged/pushed",
+          "unfold still has no size ceiling"
+        ]
+      },
+      "endedAt": "2026-11-09T09:29:17.307Z",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Analyze saturation path, span scan and group constraints in taskfold.ts",
+          "status": "done",
+          "createdAt": "2026-11-09T09:25:05.464Z",
+          "updatedAt": "2026-11-09T09:26:36.137Z",
+          "startedAt": "2026-11-09T09:25:11.274Z",
+          "report": {
+            "outcome": "Saturation fires in evaluate() when plan() under pressure returns nothing; open-task blocks are only reachable via opt-in `floor` (off by default), untracked() skips coverage.open, and unit() treats any non-child group as foreign.",
+            "decisions": [
+              "Generalize untracked() run-grouping into a shared run folder; add open-task scope with a `steps` carrier — reuses proven group-shape logic",
+              "unit() absorbs a finishing span's own steps carriers like child records — so a later finish still yields one record"
+            ]
+          },
+          "endedAt": "2026-11-09T09:26:36.137Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c10",
+              "text": "Saturation trigger, foldable units inside open spans and Truth group limits identified"
+            }
+          ]
+        },
+        {
+          "id": "10.2",
+          "title": "Implement step folding inside open tasks",
+          "status": "done",
+          "createdAt": "2026-11-09T09:25:05.464Z",
+          "updatedAt": "2026-11-09T09:27:54.090Z",
+          "startedAt": "2026-11-09T09:26:36.142Z",
+          "report": {
+            "outcome": "Added `steps` pressure pass: foldRuns() shared with untracked() groups old finished steps per innermost open task into `{steps,label,count,changed,verified}` carriers; unit() absorbs those carriers when the task finishes; settings `taskfold.steps` plumbed. The existing saturation test now folds instead of saturating (expected).",
+            "decisions": [
+              "Steps run after untracked in the pressure ladder — oldest-outside work first, current task last",
+              "Task start/resume messages, user messages, doc reads and user tail stay live — keeps task identity and steering visible",
+              "minSteps default 4 (untracked 8) — open tasks are the dominant growth source"
+            ]
+          },
+          "endedAt": "2026-11-09T09:27:54.090Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c11",
+              "text": "Under pressure an open task's old finished steps fold into recallable groups; working tail stays live"
+            }
+          ]
+        },
+        {
+          "id": "10.3",
+          "title": "Regression tests, docs, checks and commit",
+          "status": "done",
+          "createdAt": "2026-11-09T09:25:05.464Z",
+          "updatedAt": "2026-11-09T09:29:17.289Z",
+          "startedAt": "2026-11-09T09:27:54.096Z",
+          "report": {
+            "outcome": "Two regression tests (step folding instead of saturation; absorption on finish) fail on old taskfold.ts and pass now; saturation test kept with steps disabled; READMEs updated; 175 bun tests, smoke and svelte-check pass; committed 9b8fed0."
+          },
+          "endedAt": "2026-11-09T09:29:17.289Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c12",
+              "text": "Test reproduces old saturation and passes now; taskfold/smoke checks pass; committed"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

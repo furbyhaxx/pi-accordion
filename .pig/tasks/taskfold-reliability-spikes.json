@@ -1,0 +1,113 @@
+{
+  "slug": "taskfold-reliability-spikes",
+  "title": "Verify the Taskfold reliability proposal's assumptions",
+  "createdAt": "2026-11-05T22:17:33.461Z",
+  "updatedAt": "2026-11-06T14:16:03.360Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Spike: does Accordion see pi-auth-plus's corrected usage under pig",
+      "status": "done",
+      "createdAt": "2026-11-05T22:17:33.461Z",
+      "updatedAt": "2026-11-05T22:19:25.829Z",
+      "startedAt": "2026-11-05T22:17:37.012Z",
+      "report": {
+        "outcome": "Under pig with pi-auth-plus 0.5.5 (55baab6), assistant usage is neither de-duplicated nor recounted: a later extension's message_end and the persisted message both show cacheWrite == input. The token bus does work: pi-auth-plus:v1:tokens:context reported 7,397 tokens with source \"tokenizer\" where Pi counted 8,413.",
+        "decisions": [
+          "Accordion de-duplicates cacheWrite itself — the pi-auth-plus correction never runs under pig",
+          "Use the token bus as the recount source: k = report.tokens / Accordion's unfolded estimate of the same messages, when source is tokenizer or count-endpoint"
+        ],
+        "open": [
+          "pi-auth-plus bug to report: under pig, physicalHooksAvailable() is true but usage correction never applies"
+        ]
+      },
+      "endedAt": "2026-11-05T22:19:25.829Z"
+    },
+    {
+      "id": "2",
+      "title": "Spike: PiG delivers tool_call block and sendUserMessage followUp to Node extensions",
+      "status": "done",
+      "createdAt": "2026-11-05T22:17:33.461Z",
+      "updatedAt": "2026-11-05T22:19:41.825Z",
+      "startedAt": "2026-11-05T22:19:29.171Z",
+      "report": {
+        "outcome": "Both work under PiG for Node extensions: tool_call returning {block:true, reason} turned the call into an error tool result whose content is exactly the reason, and DeepSeek retried as told; sendUserMessage(…, {deliverAs:\"followUp\"}) from agent_end started a new run, and the follow-up is persisted as a user message.",
+        "decisions": [
+          "Gate uses tool_call {block, reason}; reason must carry the full fix because it is the only text the model sees",
+          "Follow-up uses sendUserMessage followUp from agent_end; it shows as a user message, so its text must read as an Accordion notice"
+        ]
+      },
+      "endedAt": "2026-11-05T22:19:41.825Z"
+    },
+    {
+      "id": "3",
+      "title": "Spike: the HUD can ride the outgoing wire without being persisted",
+      "status": "done",
+      "createdAt": "2026-11-05T22:17:33.461Z",
+      "updatedAt": "2026-11-05T22:20:16.399Z",
+      "startedAt": "2026-11-05T22:19:45.194Z",
+      "report": {
+        "outcome": "A context-hook append to the last outgoing message reaches the model (DeepSeek quoted the injected line verbatim) and is not persisted: the stored user message lacks it in both probe sessions.",
+        "decisions": [
+          "Accordion appends the HUD inside its own context handler, after ingesting messages into Truth and after serializing the folded wire, so Truth never sees it and no hook ordering matters"
+        ],
+        "open": [
+          "Cache cost of the moving HUD (the previous last message loses its HUD next request) not measured; expected to re-bill only the tail"
+        ]
+      },
+      "endedAt": "2026-11-05T22:20:16.399Z"
+    },
+    {
+      "id": "4",
+      "title": "Spike: keel-lite's planner can be extracted as a reusable function",
+      "status": "done",
+      "createdAt": "2026-11-05T22:17:33.461Z",
+      "updatedAt": "2026-11-05T22:21:21.528Z",
+      "startedAt": "2026-11-05T22:20:19.813Z",
+      "report": {
+        "outcome": "keel-lite's ladder is a private method that reads instance state, so a clean extraction is a refactor; composition works without touching the ladder. keel-note already wraps an unmodified KeelLiteConductor on a proxy host, and keel-lite's eligibility already skips every grouped block, so Taskfold's records are never touched.",
+        "decisions": [
+          "Reuse by composition, not extraction: Taskfold owns an unmodified KeelLiteConductor on a proxy host, like keel-note — plan() depends on instance state (decisions, prune, R0 re-assertion), so extracting it means a refactor of keel-lite",
+          "Taskfold forwards host events to the inner keel only after its own epoch settles, with the same HIGH/LOW band — keel then acts only when the task-record epoch left the context above HIGH",
+          "Add a keel-lite option that turns R7 off (groupChunkSteps is validated ≥ 1 today) — floor groups would cut across future task spans"
+        ],
+        "open": [
+          "keel-lite's roots (AGENT_BRIEFING.md, spec_*.md) are SlopCode-specific; harmless for Taskfold but the floor should set rootSpecPaths: 0"
+        ]
+      },
+      "endedAt": "2026-11-05T22:21:21.528Z"
+    },
+    {
+      "id": "5",
+      "title": "Spike: Truth lets a record group cover floor-folded blocks",
+      "status": "done",
+      "createdAt": "2026-11-05T22:17:33.461Z",
+      "updatedAt": "2026-11-05T22:22:01.473Z",
+      "startedAt": "2026-11-05T22:21:21.529Z",
+      "report": {
+        "outcome": "A real-Truth test (TestHost) showed it works: auto fold and replace on three blocks applied, a group over a range containing them applied (live 5,745 → 4,112 after the floor → 1,934 after the group), and ungrouping restored the floor's fold and replace intact.",
+        "decisions": [
+          "Fix in slice 3: Taskfold's unit() counts a member's current cost (folded ? foldedTokens : tokens), not only for its own groups — today it would overstate savings over floor-folded blocks and stop an epoch too early"
+        ]
+      },
+      "endedAt": "2026-11-05T22:22:01.473Z"
+    },
+    {
+      "id": "6",
+      "title": "Record spike results in the draft",
+      "status": "done",
+      "createdAt": "2026-11-05T22:17:33.461Z",
+      "updatedAt": "2026-11-05T22:23:03.530Z",
+      "startedAt": "2026-11-05T22:22:01.475Z",
+      "report": {
+        "outcome": "Draft revision 7 records all five spike results in a new §9a and adjusts §3 (bus recount with an anchor rule), §4 (floor by composition, R7-off option, unit() cost fix) and §9; probe scripts and logs are committed as evidence (2d0f5b1).",
+        "open": [
+          "pi-auth-plus bug (usage correction never applies under pig) is not filed; it lives in another repository",
+          "HUD cache cost is not measured"
+        ]
+      },
+      "endedAt": "2026-11-05T22:23:03.530Z"
+    }
+  ]
+}

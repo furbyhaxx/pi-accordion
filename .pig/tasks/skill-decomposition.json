@@ -1,0 +1,36 @@
+{
+  "slug": "skill-decomposition",
+  "title": "Encode task decomposition guidance in the authoring skill",
+  "createdAt": "2026-11-06T19:57:25.137Z",
+  "updatedAt": "2026-11-06T21:51:58.297Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-06T19:57:25.137Z",
+      "updatedAt": "2026-11-06T19:57:32.228Z",
+      "startedAt": "2026-11-06T19:57:29.433Z",
+      "report": {
+        "outcome": "Skill has a brief sizing step; tool guideline already carries the transcript example. Plan: add a decomposition section to SKILL.md plus a references/decomposition.md with the why, depth guidance and a bad/good example."
+      },
+      "endedAt": "2026-11-06T19:57:32.228Z"
+    },
+    {
+      "id": "2",
+      "title": "Add decomposition guidance to the skill and verify",
+      "status": "done",
+      "createdAt": "2026-11-06T19:57:25.137Z",
+      "updatedAt": "2026-11-06T19:58:19.717Z",
+      "startedAt": "2026-11-06T19:57:32.231Z",
+      "report": {
+        "outcome": "Skill now carries decomposition guidance (why, orientation first, outcome-based splits, 2–3 levels for broad work, bad/good example, checklist). The example list validates; task and schema tests and the package smoke pass. Committed.",
+        "decisions": [
+          "Depth by scale rather than a mandatory minimum — flat lists stay valid for small changes, avoiding padding tasks."
+        ]
+      },
+      "endedAt": "2026-11-06T19:58:19.717Z"
+    }
+  ]
+}

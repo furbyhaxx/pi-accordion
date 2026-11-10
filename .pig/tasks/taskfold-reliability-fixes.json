@@ -1,0 +1,3278 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 3,
+  "slug": "taskfold-reliability-fixes",
+  "title": "Repair Taskfold depth, folding, projection and tasks UI reliability",
+  "goals": [
+    {
+      "id": "g1",
+      "text": "Remove task nesting limits and resolve the approved audit findings with regression coverage, accurate projection/UI integration and live evaluation, while preserving existing project/session data."
+    }
+  ],
+  "seq": {
+    "g": 1,
+    "c": 152
+  },
+  "createdAt": "2026-11-07T07:11:58.331Z",
+  "updatedAt": "2026-11-08T19:48:35.839Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Orientation, Analysis, Scope & Objective clarification",
+      "status": "done",
+      "createdAt": "2026-11-07T07:11:58.331Z",
+      "updatedAt": "2026-11-07T07:13:53.665Z",
+      "startedAt": "2026-11-07T07:12:01.600Z",
+      "report": {
+        "outcome": "Created dedicated fix/taskfold-reliability worktree from latest origin/feat/pi-native (e6e87a2), installed locked worktree dependencies, and recorded PLAN-0003 plus independently verifiable repair/evaluation tasks.",
+        "decisions": [
+          "No hard nesting cap — update schema, actions and guidance together; preserve original user data.",
+          "Root/extension installs require --legacy-peer-deps because lockfiles omit host-provided peers; app dependencies installed normally.",
+          "Use existing Pi TypeScript APIs and patterns, not a Go/PiG rewrite. Live evaluation uses isolated Pi-Bolt."
+        ],
+        "open": [
+          "Existing app dependency audit reports 15 vulnerabilities; do not upgrade unrelated dependencies silently.",
+          "No product fixes yet."
+        ]
+      },
+      "endedAt": "2026-11-07T07:13:53.665Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c1",
+          "text": "Create dedicated worktree from latest integration branch and identify relevant guidance and evaluation paths."
+        },
+        {
+          "id": "c2",
+          "text": "Define independently verifiable implementation slices covering all approved findings."
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Remove depth limits and make persistence safe",
+      "status": "done",
+      "createdAt": "2026-11-07T07:12:53.206Z",
+      "updatedAt": "2026-11-07T07:18:34.425Z",
+      "startedAt": "2026-11-07T07:13:56.366Z",
+      "report": {
+        "outcome": "Task nesting has no policy cap, deep legacy/v2 round trips preserve identities, invalid migrations cannot overwrite the source, and invalid lists produce explicit native UI warnings. Original nukular-ai inputs remain untouched."
+      },
+      "endedAt": "2026-11-07T07:18:34.425Z",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Support deep task trees across schema, actions and bundled guidance",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:15:38.492Z",
+          "startedAt": "2026-11-07T07:13:56.366Z",
+          "report": {
+            "outcome": "Removed nesting caps from runtime creation/moves, v2 validation, JSON schema and bundled guidance/spec. Deep authored (64 levels) and legacy/create/add/move (32 levels) round-trip regressions now pass; 38 schema/store tests and app check (0 errors/warnings) passed. Committed 55d6577.",
+            "decisions": [
+              "No replacement numeric cap — nesting is bounded only by runtime/resource realities, not task policy.",
+              "Started-id immutability and finished-parent safety remain unchanged."
+            ]
+          },
+          "endedAt": "2026-11-07T07:15:38.492Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c3",
+              "text": "Deep legacy and v2 lists load, mutate and round-trip without losing identities."
+            },
+            {
+              "id": "c4",
+              "text": "Remove hard depth caps from validator, tool schema and published skill/docs; add regression coverage."
+            }
+          ]
+        },
+        {
+          "id": "2.2",
+          "title": "Validate writes and diagnose unreadable lists without hiding them",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:18:29.589Z",
+          "startedAt": "2026-11-07T07:15:41.269Z",
+          "report": {
+            "outcome": "Every serialized list candidate is validated before atomic replacement; a regression proves invalid legacy conversion preserves original bytes and identities. Invalid-list warnings now remain visible in the browser and widget without render-time scanning. 61 focused tests and app check passed; committed 7cc1735."
+          },
+          "endedAt": "2026-11-07T07:18:29.589Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c5",
+              "text": "A rejected write leaves the original file unchanged."
+            },
+            {
+              "id": "c6",
+              "text": "Browser/widget explicitly expose invalid list diagnostics."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Repair conductor fallback and aged recovery records",
+      "status": "done",
+      "createdAt": "2026-11-07T07:12:53.206Z",
+      "updatedAt": "2026-11-07T07:21:31.441Z",
+      "startedAt": "2026-11-07T07:18:37.279Z",
+      "report": {
+        "outcome": "Repaired descendant starvation and loss of child identity during aging without changing classifier policy, human holds, selective recovery or cache-epoch behavior. Regression suites and app type checks pass; historical private replay remains scheduled for evaluation."
+      },
+      "endedAt": "2026-11-07T07:21:31.441Z",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Fold safe descendants when a parent cannot compile",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:19:40.399Z",
+          "startedAt": "2026-11-07T07:18:37.279Z",
+          "report": {
+            "outcome": "Planner now recursively attempts safe finished descendants when an outer task is unbuildable or already folded, respecting pressure, keep-recent and held boundaries. The historical ended-parent/late-child regression failed before and now folds/recalls the child; all 42 conductor tests and app check passed. Committed 2a5a131."
+          },
+          "endedAt": "2026-11-07T07:19:40.399Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c7",
+              "text": "Historical ended-parent/late-child fixture folds reachable safe child work and preserves recall."
+            }
+          ]
+        },
+        {
+          "id": "3.2",
+          "title": "Keep meaningful child recovery associations through aging",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:21:26.028Z",
+          "startedAt": "2026-11-07T07:19:43.676Z",
+          "report": {
+            "outcome": "Condensation/aging now retain named descendant recovery rows with task key, title, status, short report outcome and handle, while preserving exact pins and every prior alias. Added nested archive/idempotence regressions and correct aging display with multiline pins; 45 tests and app check passed. Committed 60ba0bb."
+          },
+          "endedAt": "2026-11-07T07:21:26.028Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c8",
+              "text": "Aged records associate child handles with identities/outcomes without inventing facts or dropping pins."
+            },
+            {
+              "id": "c9",
+              "text": "Existing aging/cache and selective-unfold contracts remain covered."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Unify interval-aware transcript and faithful outgoing export",
+      "status": "done",
+      "createdAt": "2026-11-07T07:12:53.206Z",
+      "updatedAt": "2026-11-07T07:46:27.069Z",
+      "startedAt": "2026-11-07T07:21:34.826Z",
+      "report": {
+        "outcome": "The shared model and every exporter now use Truth's actual carriers and calibrated charges, preserve metadata/handles, and respect logical hierarchy and real working intervals. Export no longer duplicates or drops folded work, leaks substituted raw results, omits suffix state or writes invalid YAML. Native inspection feature wiring is next."
+      },
+      "endedAt": "2026-11-07T07:46:27.069Z",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Carry metadata and interval-aware attribution through shared transcript model",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:31:55.933Z",
+          "startedAt": "2026-11-07T07:21:34.826Z",
+          "report": {
+            "outcome": "Shared transcript input now preserves structured facts/handles and actual wire carrier accounting from Truth; task hierarchy, traversal, token metrics and derived facts respect real intervals rather than envelope containment. Focused core/native tests and app checks pass."
+          },
+          "endedAt": "2026-11-07T07:31:55.933Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c10",
+              "text": "Task details, handles and interval membership survive the adapter."
+            },
+            {
+              "id": "c11",
+              "text": "Paused sibling work is not misattributed or nested by envelope alone."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "4.1.1",
+              "title": "Preserve structured metadata and authoritative group-run projection",
+              "status": "done",
+              "createdAt": "2026-11-07T07:23:04.464Z",
+              "updatedAt": "2026-11-07T07:26:39.397Z",
+              "startedAt": "2026-11-07T07:23:07.662Z",
+              "report": {
+                "outcome": "Truth now exposes authoritative carriers using its existing collapse/drop/role-floor logic and exact additive calibration; adapter preserves projection, structured tool details and composed handles. Regression compares carrier text to actual serializeWire for drops, tool-pair stragglers and block digests. 102 tests/app check pass; committed 0f22e3f."
+              },
+              "endedAt": "2026-11-07T07:26:39.397Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c12",
+                  "text": "Adapter carries details/handles; Truth supplies actual collapsed runs and stragglers."
+                }
+              ]
+            },
+            {
+              "id": "4.1.2",
+              "title": "Attribute transcript hierarchy, facts and tokens to real intervals",
+              "status": "done",
+              "createdAt": "2026-11-07T07:23:04.464Z",
+              "updatedAt": "2026-11-07T07:31:51.470Z",
+              "startedAt": "2026-11-07T07:26:42.641Z",
+              "report": {
+                "outcome": "Task hierarchy follows logical task IDs; interval-aware traversal preserves paused siblings and untracked gaps, and details derive files/checks from only the task's own work. Added regressions; 11 transcript/view tests and app check pass, committed 15149ce.",
+                "decisions": [
+                  "Corrected an inconsistent old fixture: its grouped members total 220, not 240 tokens; explicit outgoing charges now reflect actual carrier placement."
+                ]
+              },
+              "endedAt": "2026-11-07T07:31:51.470Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c13",
+                  "text": "Paused siblings and untracked gaps are not swallowed by enclosing ranges."
+                },
+                {
+                  "id": "c14",
+                  "text": "Logical ancestry and interval-aware task metrics have regression coverage."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "4.2",
+          "title": "Emit every actual wire carrier once in every format",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:46:21.561Z",
+          "startedAt": "2026-11-07T07:32:00.843Z",
+          "report": {
+            "outcome": "Replaced span-envelope export with one authoritative carrier stream across all formats. Split/composed/untracked groups, drops, stragglers and substitutions are represented exactly once; full metadata, disarmed state, working-set eligibility and lossless YAML are regression- and smoke-covered."
+          },
+          "endedAt": "2026-11-07T07:46:21.561Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c15",
+              "text": "Composed/split/untracked groups and per-block substitutions match Truth serialization with additive token accounting."
+            },
+            {
+              "id": "c16",
+              "text": "YAML parses and preserves multiline content; all formats include explicit working-set metadata."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "4.2.1",
+              "title": "Build all dump formats from one carrier stream without duplication",
+              "status": "done",
+              "createdAt": "2026-11-07T07:32:30.128Z",
+              "updatedAt": "2026-11-07T07:37:01.529Z",
+              "startedAt": "2026-11-07T07:32:33.316Z",
+              "report": {
+                "outcome": "All five dump formats now share disjoint authoritative carriers, including split/composed/untracked groups, explicit drops and actual paired-result substitutions. Flat output preserves the true carrier chronology independently of task grouping, and no-task sessions no longer duplicate orientation as tail. 26 focused tests and app check pass; committed 86e09ed."
+              },
+              "endedAt": "2026-11-07T07:37:01.529Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c17",
+                  "text": "Composed, split and untracked groups appear exactly once per actual wire run."
+                },
+                {
+                  "id": "c18",
+                  "text": "Paired results use substituted text and all token charges remain additive."
+                }
+              ]
+            },
+            {
+              "id": "4.2.2",
+              "title": "Export metadata and working set with valid lossless YAML",
+              "status": "done",
+              "createdAt": "2026-11-07T07:32:30.128Z",
+              "updatedAt": "2026-11-07T07:46:16.391Z",
+              "startedAt": "2026-11-07T07:37:04.611Z",
+              "report": {
+                "outcome": "Dumps now expose complete list/task metadata, structured tool details and composed handles, plus the actual transient suffix with applied-vs-cached status. YAML round-trips indentation/newlines and dump writes preserve it; disarmed folding and calibrated system totals are correct. 115 focused tests, app check and command-level smoke pass; committed 6ecbaf6.",
+                "decisions": [
+                  "Metadata is explicitly off-wire; only an actually appended suffix increases outgoing totals.",
+                  "Dump uses the same session-local working-set selector as context_with_system."
+                ]
+              },
+              "endedAt": "2026-11-07T07:46:16.391Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c19",
+                  "text": "All formats expose list/task metadata and the transient working set."
+                },
+                {
+                  "id": "c20",
+                  "text": "YAML round-trips indented, multiline, blank and trailing-newline text."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Complete native task inspection and recovery UI",
+      "status": "done",
+      "createdAt": "2026-11-07T07:12:53.206Z",
+      "updatedAt": "2026-11-07T08:10:45.173Z",
+      "startedAt": "2026-11-07T07:46:30.819Z",
+      "report": {
+        "outcome": "Task inspection now surfaces goal/criteria/scoped facts/attachments and resolves composed child records and recovery through the lease. Shared cached snapshots, interval attribution, actual coverage and stale-session guards replace the prior partial UI wiring; focused/native smoke gates pass."
+      },
+      "endedAt": "2026-11-07T08:10:45.173Z",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Expose goals, criteria, scoped pins and attachments in task inspection",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T07:49:07.460Z",
+          "startedAt": "2026-11-07T07:46:30.819Z",
+          "report": {
+            "outcome": "Task details now expose list goal, acceptance criteria, list/ancestor/task-scoped pins and attachment references/notes/hashes; g opens list context even for empty lists. Legend distinguishes block pins from scoped facts and narrow hints expose context/help. Seven UI tests and app check pass; committed 45b988b."
+          },
+          "endedAt": "2026-11-07T07:49:07.460Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c21",
+              "text": "Relevant list/task metadata is readable and width-safe without confusing scoped pins with block pins."
+            }
+          ]
+        },
+        {
+          "id": "5.2",
+          "title": "Wire composed-child recovery and cache inspection data off render paths",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T08:10:40.806Z",
+          "startedAt": "2026-11-07T07:49:11.452Z",
+          "report": {
+            "outcome": "Composed-child inspection and controller-owned recovery are wired end to end for humans and agents, with actual coverage markers and scoped originals. Native list/transcript inspection is cached off render paths and verified against real extension update/session-switch behavior."
+          },
+          "endedAt": "2026-11-07T08:10:40.806Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c22",
+              "text": "Child inspection and unfold route through core handles and controller lease."
+            },
+            {
+              "id": "c23",
+              "text": "No disk IO occurs during task-screen rendering; refreshes and session switches remain correct."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "5.2.1",
+              "title": "Resolve composed task records and human steering through handles",
+              "status": "done",
+              "createdAt": "2026-11-07T07:51:15.877Z",
+              "updatedAt": "2026-11-07T08:00:29.492Z",
+              "startedAt": "2026-11-07T07:51:19.843Z",
+              "report": {
+                "outcome": "Task inspection resolves composed/cross-group handles, shows child codes and scoped originals, and applies handle-bearing ops through the controller. Discovered and fixed conductor ignoring human handle events; both human/agent selective recovery now recompose siblings, with correct widget coverage. 69 tests and app check pass; committed f2bec65.",
+                "decisions": [
+                  "Use existing Taskfold unfold grace policy for handle-based human and agent recovery; preserve separate block pin/hold semantics.",
+                  "Do not infer folded descendants from a parent ID; historical late children require actual coverage."
+                ]
+              },
+              "endedAt": "2026-11-07T08:00:29.492Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c24",
+                  "text": "Composed child record inspection and selective unfold use handles through the lease."
+                },
+                {
+                  "id": "c25",
+                  "text": "Widget and task-tree fold markers cover composed children without duplicating totals."
+                }
+              ]
+            },
+            {
+              "id": "5.2.2",
+              "title": "Refresh inspection snapshots outside render and preserve lifecycle isolation",
+              "status": "done",
+              "createdAt": "2026-11-07T07:51:15.877Z",
+              "updatedAt": "2026-11-07T08:10:34.750Z",
+              "startedAt": "2026-11-07T08:00:33.174Z",
+              "report": {
+                "outcome": "Native task views now consume shared list snapshots and refresh identity/revision-aware transcript, fold and detail caches outside render; session/project guards prevent stale access and writes. Paused folding and invalid lists are explicit. Twelve UI tests, app check, extension smokes and a real-extension native wiring smoke pass; committed ef5d23e.",
+                "decisions": [
+                  "Keep external file reload explicit by reopening the view; task calls and session events refresh automatically.",
+                  "The native smoke instruments TaskStore.scan and proves renders perform zero scans, while actual updates reload and stale views cannot pin replacement-session content."
+                ]
+              },
+              "endedAt": "2026-11-07T08:10:34.750Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c26",
+                  "text": "Repeated renders do not read disk or rebuild the transcript model."
+                },
+                {
+                  "id": "c27",
+                  "text": "Changes refresh snapshots; session replacement invalidates stale views and steering."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "6",
+      "title": "Validate, evaluate live and review delivery",
+      "status": "done",
+      "createdAt": "2026-11-07T07:12:53.206Z",
+      "updatedAt": "2026-11-07T10:47:26.214Z",
+      "startedAt": "2026-11-07T08:11:05.384Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "subtask 6.2.2.1 is blocked",
+          "on": "6.2.2.1",
+          "at": "2026-11-07T08:55:43.725Z",
+          "resumedAt": "2026-11-07T08:55:49.870Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 6.2.2.1 is blocked",
+          "on": "6.2.2.1",
+          "at": "2026-11-07T09:15:47.036Z",
+          "resumedAt": "2026-11-07T09:15:52.150Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 6.2.2.1 is blocked",
+          "on": "6.2.2.1",
+          "at": "2026-11-07T09:30:54.895Z",
+          "resumedAt": "2026-11-07T09:31:08.351Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 6.2.2.1 is blocked",
+          "on": "6.2.2.1",
+          "at": "2026-11-07T09:33:42.575Z",
+          "resumedAt": "2026-11-07T09:33:47.528Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 6.2.2.2 is blocked",
+          "on": "6.2.2.2",
+          "at": "2026-11-07T10:09:17.664Z",
+          "resumedAt": "2026-11-07T10:09:22.237Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 6.2.2.6 is blocked",
+          "on": "6.2.2.6",
+          "at": "2026-11-07T10:18:16.666Z",
+          "resumedAt": "2026-11-07T10:18:21.924Z"
+        }
+      ],
+      "report": {
+        "outcome": "Validated the completed fixes with 233 native and 1,055 configured Vitest tests, clean app check, extension smokes/builds, clean production installation/authenticated assets, historical replay and real terminal/live requests. All work is committed on fix/taskfold-reliability at a534a91 and the worktree is clean.",
+        "decisions": [
+          "Historical replay verifies carrier equality and exact totals at 100k/272k; the formerly stranded child folds recoverably.",
+          "Native terminal matrix covers four widths and short height; genuine requests verify selective child recall and actual suffix/export equivalence.",
+          "Record 258 pre-existing artifact issues versus 259 baseline, zero new; do not suppress failures or upgrade unrelated dependencies."
+        ],
+        "open": [
+          "Changes have not been integrated or installed.",
+          "Live classifier and task-coaching closure remain untested; budget dials are estimates rather than hard limits."
+        ]
+      },
+      "endedAt": "2026-11-07T10:47:26.214Z",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Run regression suites, application and extension gates",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T08:16:00.755Z",
+          "startedAt": "2026-11-07T08:11:05.384Z",
+          "report": {
+            "outcome": "All configured product gates pass: 229 native Bun tests, 1,054 Vitest tests with no skips, app check, full extension smokes and clean production lifecycle/authenticated assets. Recorded runner-specific and legacy artifact-check limitations without unrelated cleanup."
+          },
+          "endedAt": "2026-11-07T08:16:00.755Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c28",
+              "text": "Run relevant Bun suites, smoke scripts, app check/test and package checks; resolve introduced failures."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "6.1.1",
+              "title": "Run complete native/core/application regressions",
+              "status": "done",
+              "createdAt": "2026-11-07T08:11:27.898Z",
+              "updatedAt": "2026-11-07T08:13:12.167Z",
+              "startedAt": "2026-11-07T08:11:31.231Z",
+              "report": {
+                "outcome": "229 native/taskfold Bun tests, all 1,054 app/core/conductor Vitest tests, app check (0 errors/warnings) and extension smoke suite pass. Installed locked Triptych test dependencies to run the previously skipped 21 tests.",
+                "decisions": [
+                  "Run core fake-timer tests with their configured Vitest runner — extra broad Bun attempt failed because vi.advanceTimersByTimeAsync is unavailable there; the same core suites pass in Vitest.",
+                  "Do not repair unrelated legacy artifacts — full artifact checker reports existing malformed/frontmatter/changelog/dangling-reference issues, none in files changed by this branch."
+                ],
+                "open": [
+                  "Authenticated asset assertions await browser build/clean-install verification in 6.1.2.",
+                  "Legacy artifact checker errors remain outside this repair scope."
+                ]
+              },
+              "endedAt": "2026-11-07T08:13:12.167Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c29",
+                  "text": "Relevant Bun tests, Vitest application suite, app check and extension smokes pass."
+                }
+              ]
+            },
+            {
+              "id": "6.1.2",
+              "title": "Verify clean production install and authenticated assets",
+              "status": "done",
+              "createdAt": "2026-11-07T08:11:27.898Z",
+              "updatedAt": "2026-11-07T08:15:56.335Z",
+              "startedAt": "2026-11-07T08:13:18.658Z",
+              "report": {
+                "outcome": "Clean archived production source installed with npm ci --omit=dev --legacy-peer-deps; prepare generated browser assets, and production-directory smoke verified authenticated HTTP index/assets plus unauthorized rejection. Extension bundle, built smoke suite and package dry-run pass; redacted gates evidence committed in 8242ca1.",
+                "decisions": [
+                  "Use existing host-provided Pi peers, matching the package contract; do not add runtime peers as new dependencies.",
+                  "No tracked changes from builds or installs."
+                ]
+              },
+              "endedAt": "2026-11-07T08:15:56.335Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c30",
+                  "text": "Package lifecycle produces browser/extension assets and production asset requests authenticate successfully."
+                },
+                {
+                  "id": "c31",
+                  "text": "Pack dry-run contains intended runtime files without introducing unrelated changes."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "6.2",
+          "title": "Replay supplied session safely and perform live terminal evaluation",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T10:29:13.527Z",
+          "startedAt": "2026-11-07T08:16:20.628Z",
+          "blocks": [
+            {
+              "reason": "dependency",
+              "detail": "subtask 6.2.2.1 is blocked",
+              "on": "6.2.2.1",
+              "at": "2026-11-07T08:55:43.725Z",
+              "resumedAt": "2026-11-07T08:55:49.870Z"
+            },
+            {
+              "reason": "dependency",
+              "detail": "subtask 6.2.2.1 is blocked",
+              "on": "6.2.2.1",
+              "at": "2026-11-07T09:15:47.036Z",
+              "resumedAt": "2026-11-07T09:15:52.150Z"
+            },
+            {
+              "reason": "dependency",
+              "detail": "subtask 6.2.2.1 is blocked",
+              "on": "6.2.2.1",
+              "at": "2026-11-07T09:30:54.895Z",
+              "resumedAt": "2026-11-07T09:31:08.351Z"
+            },
+            {
+              "reason": "dependency",
+              "detail": "subtask 6.2.2.1 is blocked",
+              "on": "6.2.2.1",
+              "at": "2026-11-07T09:33:42.575Z",
+              "resumedAt": "2026-11-07T09:33:47.528Z"
+            },
+            {
+              "reason": "dependency",
+              "detail": "subtask 6.2.2.2 is blocked",
+              "on": "6.2.2.2",
+              "at": "2026-11-07T10:09:17.664Z",
+              "resumedAt": "2026-11-07T10:09:22.237Z"
+            },
+            {
+              "reason": "dependency",
+              "detail": "subtask 6.2.2.6 is blocked",
+              "on": "6.2.2.6",
+              "at": "2026-11-07T10:18:16.666Z",
+              "resumedAt": "2026-11-07T10:18:21.924Z"
+            }
+          ],
+          "report": {
+            "outcome": "Replayed the supplied session and six-level backup without modifying originals, verified safe descendant folding, named recovery, exact carrier projection and additive exports. Completed actual native terminal and authenticated model evaluation, fixing additional observed serializer, viewport, paging and suffix defects along the way.",
+            "decisions": [
+              "Historical replay is a saved-verdict SDK snapshot, not a reconstruction of historical request costs.",
+              "Richer records cost more at a roomy budget; the 100k pressure replay drops live context from 123,203 to 87,683 tokens.",
+              "Real selective recall excludes the sibling; in-flight working-set/record text matches the provider-ready payload."
+            ],
+            "open": [
+              "Final broad/build/install verification and final diff review."
+            ]
+          },
+          "endedAt": "2026-11-07T10:29:13.527Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c32",
+              "text": "Use read-only session inputs/copies; confirm folding, recall and export fidelity against the failing shapes."
+            },
+            {
+              "id": "c33",
+              "text": "Exercise real Pi-Bolt task screens at 36/57/80/140 columns and narrow height with captured evidence."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "6.2.1",
+              "title": "Replay private session and dump against repaired model",
+              "status": "done",
+              "createdAt": "2026-11-07T08:16:17.057Z",
+              "updatedAt": "2026-11-07T08:39:10.130Z",
+              "startedAt": "2026-11-07T08:16:20.628Z",
+              "report": {
+                "outcome": "Read-only private replay confirms recoverable late-child folding, preserved six-level history, exact actual-wire carrier ordering and additive export totals. It additionally exposed and repaired duplicate serializer recaps around empty protocol metadata; evidence and harness are committed without private transcript content."
+              },
+              "endedAt": "2026-11-07T08:39:10.130Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c34",
+                  "text": "Original inputs remain byte-identical; replay verifies historical child folding, handles and carrier totals."
+                },
+                {
+                  "id": "c35",
+                  "text": "Record only reusable harness code and redacted aggregate results."
+                }
+              ],
+              "subtasks": [
+                {
+                  "id": "6.2.1.1",
+                  "title": "Resolve actual-wire mismatch exposed by historical replay",
+                  "status": "done",
+                  "createdAt": "2026-11-07T08:24:39.831Z",
+                  "updatedAt": "2026-11-07T08:32:52.350Z",
+                  "startedAt": "2026-11-07T08:24:44.076Z",
+                  "report": {
+                    "outcome": "Historical replay exposed real duplicate recaps around blockless protocol/custom entries and system-prompt patches. Shared serializer now preserves their metadata without splitting logical runs; the failing synthetic regression and both actual historical wire text/order comparisons pass. Committed 3df0b46; 1,055 Vitest tests, 217 focused Bun tests, app check and context smoke pass.",
+                    "decisions": [
+                      "Preserve protocol messages unchanged — never swallow system sections/tool declarations to make accounting look correct.",
+                      "Classify only truly empty blockless entries as transparent; content-bearing opaque entries remain boundaries.",
+                      "Corrected replay tree traversal to count folded task wrappers as leaves rather than falsely treating them as empty branches."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T08:32:52.350Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c36",
+                      "text": "Reproduce duplicate summaries around blockless messages and repair the shared wire/accounting contract."
+                    },
+                    {
+                      "id": "c37",
+                      "text": "Add a synthetic regression; replay actual wire text and order must equal the authoritative projection."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.1.2",
+                  "title": "Finish comparative historical replay and redacted evidence",
+                  "status": "done",
+                  "createdAt": "2026-11-07T08:24:39.831Z",
+                  "updatedAt": "2026-11-07T08:39:04.951Z",
+                  "startedAt": "2026-11-07T08:32:56.072Z",
+                  "report": {
+                    "outcome": "Committed af2759f with reusable local replay and redacted evidence: original bytes unchanged, all ten exports generated, YAML/XML valid, exact carrier/token sums and actual wire order proven. At 100k, live tokens improve 123,203→87,683 and stranded child 37,352→62 with recall; at 272k richer named records cost more (143,430 vs 126,821).",
+                    "decisions": [
+                      "Snapshots use saved verdicts, fixed 10k tail, no provider calibration and intentionally exclude host prompt — not historical provider/cost reconstruction.",
+                      "Six-level 80-task backup round-trips all task facts after supplying its missing goal from the current authored list in memory only; no originals restored or rewritten.",
+                      "Original provided YAML remains invalid at line 2525; repaired generated YAML parses and matches declared totals."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T08:39:04.951Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c38",
+                      "text": "Compare baseline/repaired folding and validate every dump format, totals and original input integrity."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "6.2.2",
+              "title": "Exercise isolated Pi-Bolt terminal and live request path",
+              "status": "done",
+              "createdAt": "2026-11-07T08:16:17.057Z",
+              "updatedAt": "2026-11-07T10:29:05.404Z",
+              "startedAt": "2026-11-07T08:39:14.749Z",
+              "blocks": [
+                {
+                  "reason": "dependency",
+                  "detail": "subtask 6.2.2.1 is blocked",
+                  "on": "6.2.2.1",
+                  "at": "2026-11-07T08:55:43.725Z",
+                  "resumedAt": "2026-11-07T08:55:49.870Z"
+                },
+                {
+                  "reason": "dependency",
+                  "detail": "subtask 6.2.2.1 is blocked",
+                  "on": "6.2.2.1",
+                  "at": "2026-11-07T09:15:47.036Z",
+                  "resumedAt": "2026-11-07T09:15:52.150Z"
+                },
+                {
+                  "reason": "dependency",
+                  "detail": "subtask 6.2.2.1 is blocked",
+                  "on": "6.2.2.1",
+                  "at": "2026-11-07T09:30:54.895Z",
+                  "resumedAt": "2026-11-07T09:31:08.351Z"
+                },
+                {
+                  "reason": "dependency",
+                  "detail": "subtask 6.2.2.1 is blocked",
+                  "on": "6.2.2.1",
+                  "at": "2026-11-07T09:33:42.575Z",
+                  "resumedAt": "2026-11-07T09:33:47.528Z"
+                },
+                {
+                  "reason": "dependency",
+                  "detail": "subtask 6.2.2.2 is blocked",
+                  "on": "6.2.2.2",
+                  "at": "2026-11-07T10:09:17.664Z",
+                  "resumedAt": "2026-11-07T10:09:22.237Z"
+                },
+                {
+                  "reason": "dependency",
+                  "detail": "subtask 6.2.2.6 is blocked",
+                  "on": "6.2.2.6",
+                  "at": "2026-11-07T10:18:16.666Z",
+                  "resumedAt": "2026-11-07T10:18:21.924Z"
+                }
+              ],
+              "report": {
+                "outcome": "Completed native terminal and live-path verification, including four widths/short height, selective child recovery, metadata, diagnostics, pause, switching and all export formats. Live evaluation found and drove fixes for viewport/focus and a real trailing-notice working-set omission; the repaired source then passed two genuine provider requests.",
+                "decisions": [
+                  "Keep private originals and credentials untouched; commit only synthetic harnesses and redacted aggregate evidence.",
+                  "Use actual installed Pi-Bolt APIs rather than requiring newer peer-SDK features."
+                ],
+                "open": [
+                  "Final full diff review and refreshed broad/build/install gates.",
+                  "No live classifier-service or end-to-end task-coaching evaluation was claimed."
+                ]
+              },
+              "endedAt": "2026-11-07T10:29:05.404Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c39",
+                  "text": "Real terminal captures at four widths cover metadata, recovery, diagnostics, pause, switching and export."
+                },
+                {
+                  "id": "c40",
+                  "text": "Run a bounded live request with the repaired extension; record actual evidence and access limitations."
+                }
+              ],
+              "subtasks": [
+                {
+                  "id": "6.2.2.1",
+                  "title": "Exercise real terminal with isolated synthetic task/session fixtures",
+                  "status": "done",
+                  "createdAt": "2026-11-07T08:40:02.201Z",
+                  "updatedAt": "2026-11-07T09:54:58.536Z",
+                  "startedAt": "2026-11-07T08:40:06.747Z",
+                  "blocks": [
+                    {
+                      "reason": "dependency",
+                      "detail": "Real 36-column captures show list-context footers clipped because the task widget occupies the same viewport. Fix temporary suspension and short-height sizing before final captures.",
+                      "on": "6.2.2.3",
+                      "at": "2026-11-07T08:55:43.725Z",
+                      "resumedAt": "2026-11-07T09:08:19.827Z"
+                    },
+                    {
+                      "reason": "dependency",
+                      "detail": "Real PageDown goes to Pi-Bolt's fullscreen transcript instead of the task record. Wire the documented capturesViewportInput component capability through the browser, then finish captures.",
+                      "on": "6.2.2.4",
+                      "at": "2026-11-07T09:15:47.036Z",
+                      "resumedAt": "2026-11-07T09:24:12.960Z"
+                    },
+                    {
+                      "reason": "dependency",
+                      "detail": "Pause evaluation exposed the same widget/viewport collision in the main context panel. Reuse the session-safe suspension around that panel before finishing the matrix.",
+                      "on": "6.2.2.5",
+                      "at": "2026-11-07T09:30:54.895Z",
+                      "resumedAt": "2026-11-07T09:31:08.351Z"
+                    },
+                    {
+                      "reason": "dependency",
+                      "detail": "The compacted record for 6.2.2.5 overstated completion: git remains at eaf0223 and the task store shows 6.2.2.5 todo. Implement and verify the real main-panel fix now.",
+                      "on": "6.2.2.5",
+                      "at": "2026-11-07T09:33:42.575Z",
+                      "resumedAt": "2026-11-07T09:39:16.738Z"
+                    }
+                  ],
+                  "report": {
+                    "outcome": "Committed 7dee12a with a reusable fixture/checker and redacted evidence: 47 real Pi-Bolt captures, 15 semantic checks, four widths and 36×10. Verified metadata, six-level tasks, child recovery/sibling recomposition, pause/stored-record labels, diagnostics, paging, session isolation, goal creation and all five native export formats.",
+                    "decisions": [
+                      "Use only synthetic fixtures and an unreachable dummy provider — no credentials, provider calls or original project mutations.",
+                      "Both YAML exports parse and sum exactly: mixed live 48,046; paused live/full 91,881.",
+                      "Before the first agent start no working-set cache exists; verify its applied form in the authenticated-request task."
+                    ],
+                    "open": [
+                      "Run the bounded authenticated live request and final review/gates."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T09:54:58.536Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c41",
+                      "text": "Capture four widths and short height; exercise metadata, recovery, diagnostics, pause, switch and export."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.2.2",
+                  "title": "Run bounded live model request with repaired extension",
+                  "status": "done",
+                  "createdAt": "2026-11-07T08:40:02.201Z",
+                  "updatedAt": "2026-11-07T10:28:39.503Z",
+                  "startedAt": "2026-11-07T09:55:04.698Z",
+                  "blocks": [
+                    {
+                      "reason": "dependency",
+                      "detail": "First validate native RPC in-flight dump capture and request/cost bounds without credentials or external requests.",
+                      "on": "6.2.2.6",
+                      "at": "2026-11-07T10:09:17.664Z",
+                      "resumedAt": "2026-11-07T10:26:13.596Z"
+                    }
+                  ],
+                  "report": {
+                    "outcome": "Committed eb43a3d with a successful genuine native evaluation: two HTTP 200s, one correct composed-child recall and exact sentinel output without sibling raw content. Both in-flight five-format exports match actual working-set/record text and additive live totals; original credential file stayed byte-identical.",
+                    "decisions": [
+                      "12,474 provider usage tokens; SDK-estimated USD 0.001817886 is not provider-reported billing.",
+                      "Verified suffix on user input before the opaque notice, then on the recall result; 292 tokens each.",
+                      "A 7k estimate is not a hard cap: second snapshot estimated 8,334; its real receipt was 6,935 including output."
+                    ],
+                    "open": [
+                      "Final diff review and fresh full gates/build/production-install verification.",
+                      "Classifier service and fixture task-coaching closure were intentionally not evaluated live."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T10:28:39.503Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c42",
+                      "text": "A real authenticated request uses the repaired projection and reports honest outcome/usage without private content."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.2.3",
+                  "title": "Fix native viewport clipping exposed by terminal evaluation",
+                  "status": "done",
+                  "createdAt": "2026-11-07T08:55:37.388Z",
+                  "updatedAt": "2026-11-07T09:08:09.115Z",
+                  "startedAt": "2026-11-07T08:55:49.870Z",
+                  "report": {
+                    "outcome": "Real Pi-Bolt exposed and now verifies the widget/frame clipping repair at 36x24 and 80x10, including visible controls and diagnostics. Committed f9be066; 232 native tests, app check and full extension smokes pass.",
+                    "decisions": [
+                      "Suspend widgets with session-safe release tokens — never persist inspection-only visibility or let old sessions restore a new widget.",
+                      "Budget frame space for Pi's actual spacer/footer — width-only tests had missed vertical clipping.",
+                      "Unrelated invalid lists remain warnings — a visible valid list must not be falsely reported as hidden."
+                    ],
+                    "open": [
+                      "Complete the remaining terminal feature matrix and bounded live model request in sibling tasks."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T09:08:09.115Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c43",
+                      "text": "Task screens temporarily suspend the widget and restore it safely across close/session switches."
+                    },
+                    {
+                      "id": "c44",
+                      "text": "Hints remain visible at narrow widths and short height; tests and real captures verify the fix."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.2.4",
+                  "title": "Route fullscreen paging to the focused task inspector",
+                  "status": "done",
+                  "createdAt": "2026-11-07T09:15:41.048Z",
+                  "updatedAt": "2026-11-07T09:24:06.818Z",
+                  "startedAt": "2026-11-07T09:15:52.150Z",
+                  "report": {
+                    "outcome": "Real Pi-Bolt PageDown now moves task records from 1–21/25 to 5–25/25 and PageUp restores the initial position. Committed eaf0223 with observed captures; 232 native tests, app check and context smoke pass.",
+                    "decisions": [
+                      "Use documented modal overlay focus — installed Pi-Bolt is Pi 1.4.0/Bolt 1.0.9; the local Pi 1.5-only component capture flag was insufficient there.",
+                      "Preserve full-width layout and footer space; no raw global keyboard listener or host upgrade."
+                    ],
+                    "open": [
+                      "Finish the terminal feature matrix and authenticated live request."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T09:24:06.818Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c45",
+                      "text": "PageUp/Down scroll task records instead of the background transcript in real Pi-Bolt."
+                    },
+                    {
+                      "id": "c46",
+                      "text": "Use the host's modal focus contract without global key interception or a host upgrade."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.2.5",
+                  "title": "Keep native context-panel controls visible beside task widgets",
+                  "status": "done",
+                  "createdAt": "2026-11-07T09:30:48.752Z",
+                  "updatedAt": "2026-11-07T09:39:12.227Z",
+                  "startedAt": "2026-11-07T09:33:47.528Z",
+                  "report": {
+                    "outcome": "Implemented and actually committed eb92e9a: the main panel temporarily suspends/restores the task widget, including normal, synchronous-failure and rejected opens. A failing smoke reproducer now passes; app check and real 80×30 pause/resume/restored-widget captures verify it.",
+                    "decisions": [
+                      "Use the existing session-safe widget suspension — no panel layout dependency API or host upgrade.",
+                      "An earlier unbacked completion-style record is not evidence; git, the task store and observed tests are authoritative."
+                    ],
+                    "open": [
+                      "Finish the terminal matrix and authenticated live request."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T09:39:12.227Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c47",
+                      "text": "Opening the main Accordion panel temporarily suspends the task widget and restores it on close."
+                    },
+                    {
+                      "id": "c48",
+                      "text": "Real terminal pause/resume controls and footer fit without changing task-widget preferences."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.2.6",
+                  "title": "Prepare and dry-run bounded native RPC/proxy evaluation",
+                  "status": "done",
+                  "createdAt": "2026-11-07T10:09:09.078Z",
+                  "updatedAt": "2026-11-07T10:26:08.439Z",
+                  "startedAt": "2026-11-07T10:09:22.237Z",
+                  "blocks": [
+                    {
+                      "reason": "dependency",
+                      "detail": "The real dry request proves the working-set cache exists but is omitted behind a trailing opaque resume notice; repair the shared wire/dump target first.",
+                      "on": "6.2.2.7",
+                      "at": "2026-11-07T10:18:16.666Z",
+                      "resumedAt": "2026-11-07T10:23:43.985Z"
+                    }
+                  ],
+                  "report": {
+                    "outcome": "Committed b8ec74c with a reusable native RPC/local-proxy harness and successful credential-free preflight. Actual in-flight exports have the same working-set text/records as the provider-ready request and exact 4,447-token sums; no upstream call, stderr or malformed RPC records occurred.",
+                    "decisions": [
+                      "Bound genuine evaluation to two requests, 512 output tokens each, 90 seconds and a conservative $0.05 catalog-cost guard.",
+                      "Keep existing credentials read-only in parent memory; only a random loopback token reaches the isolated child.",
+                      "Use standard provider-key environment resolution on installed Pi-Bolt; a newer config-ref assumption was corrected during dry runs."
+                    ],
+                    "open": [
+                      "Execute the now-validated authenticated recovery run."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T10:26:08.439Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c49",
+                      "text": "Real Pi-Bolt exports during an in-flight synthetic request, including the applied working set."
+                    },
+                    {
+                      "id": "c50",
+                      "text": "A credential-free dry run checks the proxy bounds and snapshot validation without contacting a provider."
+                    }
+                  ]
+                },
+                {
+                  "id": "6.2.2.7",
+                  "title": "Keep working-set suffix across trailing task notices",
+                  "status": "done",
+                  "createdAt": "2026-11-07T10:18:09.798Z",
+                  "updatedAt": "2026-11-07T10:23:38.850Z",
+                  "startedAt": "2026-11-07T10:18:21.924Z",
+                  "report": {
+                    "outcome": "Committed 8a17908: the wire and dump now share a working-set input-target rule that safely skips opaque task notices. The observed smoke regression now passes, and native RPC shows the actual 292-token suffix on message 36/38 with exact additive totals (4,155 → 4,447).",
+                    "decisions": [
+                      "Preserve opaque messages unchanged; attach to the current user/tool-result input without crossing an assistant reply.",
+                      "232 native tests, app check and context smoke pass; the dry run used no credential or upstream request."
+                    ],
+                    "open": [
+                      "Commit the bounded RPC harness and run the authenticated recovery check."
+                    ]
+                  },
+                  "endedAt": "2026-11-07T10:23:38.850Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c51",
+                      "text": "A resumed request retains its full working set even when an opaque task notice follows the input."
+                    },
+                    {
+                      "id": "c52",
+                      "text": "Wire and dump use one target rule; notices and original input remain unchanged."
+                    },
+                    {
+                      "id": "c53",
+                      "text": "Observe a failing regression before repair and rerun the real credential-free RPC request."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "6.3",
+          "title": "Review final changes and record results",
+          "status": "done",
+          "createdAt": "2026-11-07T07:12:53.206Z",
+          "updatedAt": "2026-11-07T10:47:18.608Z",
+          "startedAt": "2026-11-07T10:29:29.864Z",
+          "report": {
+            "outcome": "Reviewed the complete repair branch, fixed human-hold and YAML-control regressions, and refreshed every configured code gate plus production install, historical replay and genuine live recovery. Committed the final delivery and evidence on a clean local branch; original project/session/configuration data remain untouched.",
+            "decisions": [
+              "Final source a91ebee; evidence 7bff1ac; final documentation a534a91.",
+              "Distinguish configured passing suites from unsupported extra Bun timer runs and existing artifact/dependency problems."
+            ],
+            "open": [
+              "Not merged, pushed or installed.",
+              "No live classifier/coaching evaluation; budgets remain estimates."
+            ]
+          },
+          "endedAt": "2026-11-07T10:47:18.608Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c54",
+              "text": "Review complete diff and persist concise evidence and remaining limitations."
+            },
+            {
+              "id": "c55",
+              "text": "Commit only intended explicit paths; do not alter the user's nukular task list or publish externally."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "6.3.1",
+              "title": "Review the complete branch diff and fix remaining scoped defects",
+              "status": "done",
+              "createdAt": "2026-11-07T10:29:21.845Z",
+              "updatedAt": "2026-11-07T10:40:21.263Z",
+              "startedAt": "2026-11-07T10:29:29.864Z",
+              "report": {
+                "outcome": "Reviewed the production diff against the audit and Truth/controller invariants. Reproduced and fixed two additional scoped defects: selective human recovery lacked sticky overrides, and YAML literal blocks rejected carriage-return/ANSI text; 74 focused tests now pass.",
+                "decisions": [
+                  "Selective human recovery holds selected blocks through Truth; full-task toggles retain their existing groups and remain reversible.",
+                  "YAML emits escaped scalars for terminal controls and Unicode line separators; ordinary text retains readable literal blocks."
+                ],
+                "open": [
+                  "Refresh broad gates, install checks and local terminal/replay evidence on final source."
+                ]
+              },
+              "endedAt": "2026-11-07T10:40:21.263Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c56",
+                  "text": "Review production changes against the approved audit and invariants; identify no unaddressed scoped defects."
+                }
+              ]
+            },
+            {
+              "id": "6.3.2",
+              "title": "Refresh final regression, build and production-install gates",
+              "status": "done",
+              "createdAt": "2026-11-07T10:29:21.845Z",
+              "updatedAt": "2026-11-07T10:45:34.709Z",
+              "startedAt": "2026-11-07T10:40:25.644Z",
+              "report": {
+                "outcome": "Final production revision a91ebee passes 233 native tests, 1,055 Vitest tests (no skips), zero-error/warning app check, extension smokes, builds/package checks and clean production install/authenticated assets. Final historical replay and two genuine HTTP 200 requests also pass; refreshed evidence committed in 7bff1ac.",
+                "decisions": [
+                  "Compare artifact failures against a real baseline archive using an isolated Git index — 258 existing issues remain versus 259 baseline, with no new issues.",
+                  "Final live recovery is selective, matches the actual suffix/record text and exact export totals, and leaves the credential file unchanged.",
+                  "Package dry run contains browser index and no private development/dependency files."
+                ],
+                "open": [
+                  "Document final delivery state; changes are not merged, pushed or installed.",
+                  "Live classifier service/coaching were not evaluated; budgets remain estimates."
+                ]
+              },
+              "endedAt": "2026-11-07T10:45:34.709Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c57",
+                  "text": "Run all relevant suites, smokes, build/pack and clean install/authenticated asset checks on final source."
+                }
+              ]
+            },
+            {
+              "id": "6.3.3",
+              "title": "Record final results and deliver committed branch",
+              "status": "done",
+              "createdAt": "2026-11-07T10:29:21.845Z",
+              "updatedAt": "2026-11-07T10:47:11.957Z",
+              "startedAt": "2026-11-07T10:45:44.672Z",
+              "report": {
+                "outcome": "Final delivery is committed in a534a91 on clean branch fix/taskfold-reliability, with final source a91ebee and refreshed evidence in 7bff1ac. Plan and evidence record exact test counts, final historical and genuine native recovery results, package/install checks and remaining limits.",
+                "decisions": [
+                  "No merge, push, PR or installation — preserve the installed extension and original nukular session/list/dump.",
+                  "Keep final artifact-check failures explicit — 258 legacy issues, unchanged by final documentation, no new issues.",
+                  "Task nesting has no policy depth cap; preserve existing IDs/history rather than flattening or restoring original files unasked."
+                ],
+                "open": [
+                  "Live classifier service and task-coaching closure were not evaluated.",
+                  "Legacy artifact errors and existing dependency audit warnings remain outside scope.",
+                  "Integration/deployment remains a separate operation."
+                ]
+              },
+              "endedAt": "2026-11-07T10:47:11.957Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c58",
+                  "text": "Evidence/plan match observed final checks and limits; branch is clean with only intended commits and no publication."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "7",
+      "title": "Merge verified repairs into feat/pi-native and push",
+      "status": "done",
+      "createdAt": "2026-11-07T14:49:11.869Z",
+      "updatedAt": "2026-11-07T14:50:49.427Z",
+      "startedAt": "2026-11-07T14:49:16.320Z",
+      "report": {
+        "outcome": "Fast-forwarded feat/pi-native to 455c55c and pushed only that branch to origin; verified the remote SHA exactly matches local. Re-ran all 233 native tests successfully, removed the completed plan/evidence with required deletion trailers, and safely removed the merged repair worktree and branch.",
+        "decisions": [
+          "Fast-forward only — fetched remote and local integration branch had no divergent commits.",
+          "Preserve all four pre-existing untracked entries and all unrelated worktrees.",
+          "Close PLAN-0003 at integration per artifact policy; prior evidence remains in Git history."
+        ],
+        "open": [
+          "Installed extension was not updated; deployment remains separate.",
+          "Previously documented classifier/coaching and legacy artifact limitations are unchanged."
+        ]
+      },
+      "endedAt": "2026-11-07T14:50:49.427Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c59",
+          "text": "Merge without losing local or remote work, then push only feat/pi-native."
+        },
+        {
+          "id": "c60",
+          "text": "Confirm the remote tip and clean up the merged repair worktree safely."
+        }
+      ]
+    },
+    {
+      "id": "8",
+      "title": "Diagnose and fix per-step prompt cache misses",
+      "status": "done",
+      "createdAt": "2026-11-07T17:12:05.018Z",
+      "updatedAt": "2026-11-07T17:19:58.065Z",
+      "startedAt": "2026-11-07T17:12:05.022Z",
+      "report": {
+        "outcome": "Per-step cache misses came from the working-set suffix moving to the newest input every request. It now stays on its carrier while unchanged; fix with regressions pushed to feat/pi-native at 26be536.",
+        "open": [
+          "Update installed extension and restart Pi; confirm cacheRead grows per step in a live session."
+        ]
+      },
+      "endedAt": "2026-11-07T17:19:58.065Z",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Reproduce cache misses and locate the changing prefix",
+          "status": "done",
+          "createdAt": "2026-11-07T17:12:05.018Z",
+          "updatedAt": "2026-11-07T17:16:08.418Z",
+          "startedAt": "2026-11-07T17:12:05.022Z",
+          "report": {
+            "outcome": "Root cause: context_with_system appends the transient working set to the current last user/toolResult message, so each new request removes it from the previous message and the prefix diverges there. Receipts show cacheRead fixed at 24,335 (system+tools) with ~105k+ cacheWrite every step on Claude; Codex plateaus at 68,096.",
+            "decisions": [
+              "Fix by anchoring the suffix to one message until its text changes — breaks cache only on working-set changes, near the previous anchor."
+            ]
+          },
+          "endedAt": "2026-11-07T17:16:08.418Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c61",
+              "text": "Session receipts and a request-to-request diff identify the first changed message and its cause."
+            }
+          ]
+        },
+        {
+          "id": "8.2",
+          "title": "Fix the cause with a regression test",
+          "status": "done",
+          "createdAt": "2026-11-07T17:12:05.018Z",
+          "updatedAt": "2026-11-07T17:19:48.137Z",
+          "startedAt": "2026-11-07T17:16:08.422Z",
+          "report": {
+            "outcome": "placeWorkingSet keeps an unchanged working set on its existing carrier; the hook and dump share it. Unit regression and an end-to-end prefix smoke both fail before and pass after; 234 native tests and all extension smokes pass. Committed 26be536.",
+            "decisions": [
+              "Anchor by role+timestamp+toolCallId within the session — survives message copies; carrier leaving the request falls back to current input.",
+              "Spec 0002 §4.3 revised to document the placement rule."
+            ]
+          },
+          "endedAt": "2026-11-07T17:19:48.137Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c62",
+              "text": "Consecutive requests keep a byte-identical prefix; regression fails before and passes after."
+            }
+          ]
+        },
+        {
+          "id": "8.3",
+          "title": "Verify, merge and push",
+          "status": "done",
+          "createdAt": "2026-11-07T17:12:05.018Z",
+          "updatedAt": "2026-11-07T17:19:58.062Z",
+          "startedAt": "2026-11-07T17:19:48.141Z",
+          "report": {
+            "outcome": "Fast-forwarded feat/pi-native to 26be536, pushed, remote SHA verified; worktree and branch removed.",
+            "open": [
+              "Installed extension checkout (~/.pig/agent/git/.../pi-accordion) still at 455c55c; needs update + Pi restart.",
+              "No live provider receipt check of the fix yet."
+            ]
+          },
+          "endedAt": "2026-11-07T17:19:58.062Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c63",
+              "text": "Gates pass; feat/pi-native pushed with verified remote SHA."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "9",
+      "title": "Document every tasks action's parameters and current return output",
+      "status": "done",
+      "createdAt": "2026-11-07T19:24:22.872Z",
+      "updatedAt": "2026-11-07T19:24:54.032Z",
+      "startedAt": "2026-11-07T19:24:22.875Z",
+      "report": {
+        "outcome": "Captured the actual return text of every tasks action by running runTasksTracked against a throwaway store, plus the registered parameter schema from extension/accordion.ts.",
+        "open": [
+          "Redesign of returns (structured start payload, no transient suffix) awaits user direction."
+        ]
+      },
+      "endedAt": "2026-11-07T19:24:54.032Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c64",
+          "text": "Every action shown with all accepted parameters and its actual current return text, verified by running the store."
+        }
+      ]
+    },
+    {
+      "id": "10",
+      "title": "Spec the new Taskfold mechanism with structured JSON tool results",
+      "status": "done",
+      "createdAt": "2026-11-07T22:27:39.986Z",
+      "updatedAt": "2026-11-07T22:31:52.710Z",
+      "startedAt": "2026-11-07T22:27:39.996Z",
+      "report": {
+        "outcome": "Spec for the new Taskfold mechanism is written and committed on docs/taskfold-spec at 74ce882, ready for review.",
+        "decisions": [
+          "Liveness derived from Truth (manifests on unfolded tasks results), not a stored ledger.",
+          "Anchors: section > symbol > quote > file; lines only as input sugar."
+        ],
+        "open": [
+          "User review of spec; then plan and implementation."
+        ]
+      },
+      "endedAt": "2026-11-07T22:31:52.710Z",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Read current spec and implementation to consolidate",
+          "status": "done",
+          "createdAt": "2026-11-07T22:27:39.986Z",
+          "updatedAt": "2026-11-07T22:28:59.346Z",
+          "startedAt": "2026-11-07T22:27:39.996Z",
+          "report": {
+            "outcome": "Read SPEC-0002 r14 and relevant code. Tool results are prose; context reaches the agent only via the injected working set; Block.details exists in Truth; pi.sendMessage supports persisted steer/nextTurn custom messages.",
+            "decisions": [
+              "Keep: list v2 file, actions/lifecycle, spans/intervals, records, planner, handles, aging, epoch, widget, skill (§2,§3.2–3.4,§5–§11).",
+              "Replace: §4.3 working set + context_with_system injection, prose results, line-range attachments with hash; add delivery ledger and JSON results.",
+              "Out-of-band deltas use pi.sendMessage(customType, {deliverAs:\"steer\"}) — persisted, append-only; Block.details already carries tool details into Truth."
+            ]
+          },
+          "endedAt": "2026-11-07T22:28:59.346Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c65",
+              "text": "Current SPEC-0002, store, pins and tool behavior read; parts to keep vs replace listed."
+            }
+          ]
+        },
+        {
+          "id": "10.2",
+          "title": "Research robust content anchors for attachments",
+          "status": "done",
+          "createdAt": "2026-11-07T22:27:39.986Z",
+          "updatedAt": "2026-11-07T22:29:33.973Z",
+          "startedAt": "2026-11-07T22:28:59.350Z",
+          "report": {
+            "outcome": "Chose anchor model from W3C Web Annotation selectors (TextQuote/TextPosition, as used by Hypothesis fuzzy anchoring) plus structural Markdown-section and tree-sitter symbol anchors.",
+            "decisions": [
+              "Anchors: section (Markdown heading path), symbol (tree-sitter, already a dependency), quote (W3C TextQuoteSelector exact+prefix+suffix with position hint), file — strongest first.",
+              "Lines stay input sugar only: converted to a quote anchor at attach time, never stored.",
+              "Section/symbol: content changes irrelevant while the anchor resolves; quote: relocation silent, only fuzzy match or loss is reported."
+            ]
+          },
+          "endedAt": "2026-11-07T22:29:33.973Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c66",
+              "text": "Anchor design grounded in prior art (quote/section selectors) and repo capabilities."
+            }
+          ]
+        },
+        {
+          "id": "10.3",
+          "title": "Design delivered-context liveness check",
+          "status": "done",
+          "createdAt": "2026-11-07T22:27:39.986Z",
+          "updatedAt": "2026-11-07T22:29:58.242Z",
+          "startedAt": "2026-11-07T22:29:33.976Z",
+          "report": {
+            "outcome": "Designed a derived delivery ledger: what the agent has = manifests on unfolded delivery blocks in the authoritative Truth; start/claim return requirement minus that.",
+            "decisions": [
+              "Liveness = delivery manifests in tool-result Block.details whose block is in the current Truth and not folded; no persisted ledger, so branch navigation, compaction and reload stay consistent by construction.",
+              "Delivery blocks of doing tasks are exempt from strategy folding (floor, untracked, aging) until their span folds whole — closes the race between computing a delta and folding.",
+              "Delivery lost while still needed (human fold, compaction) → one appended restore notice with only the missing items, never an edit of old messages."
+            ]
+          },
+          "endedAt": "2026-11-07T22:29:58.242Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c67",
+              "text": "Liveness rule decided with failure modes covered (fold, compaction, branch nav, race)."
+            }
+          ]
+        },
+        {
+          "id": "10.4",
+          "title": "Write the consolidated spec",
+          "status": "done",
+          "createdAt": "2026-11-07T22:27:39.986Z",
+          "updatedAt": "2026-11-07T22:31:52.705Z",
+          "startedAt": "2026-11-07T22:29:58.246Z",
+          "report": {
+            "outcome": "SPEC-0002 r15 rewritten in place on docs/taskfold-spec (74ce882): new §3 tool (principles, envelope, errors, shared shapes, every action with full params and JSON results), new §4 context delivery (pins, anchors, derived liveness ledger, out-of-band notices, removals); dependent sections and SPEC-0001 references updated.",
+            "open": [
+              "Not merged/pushed; awaiting user review.",
+              "Implementation plan not yet written."
+            ]
+          },
+          "endedAt": "2026-11-07T22:31:52.705Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c68",
+              "text": "SPEC-0002 rewritten in place for the whole mechanism incl. every action's JSON result."
+            },
+            {
+              "id": "c69",
+              "text": "Frontmatter valid; committed on docs/taskfold-spec."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "11",
+      "title": "Evaluate fold representations, timing and user-message routing",
+      "status": "done",
+      "createdAt": "2026-11-08T10:23:24.853Z",
+      "updatedAt": "2026-11-08T11:18:10.604Z",
+      "startedAt": "2026-11-08T10:23:24.857Z",
+      "blocks": [
+        {
+          "reason": "user-decision",
+          "detail": "User must pick the model(s) and approve spending ~43M input tokens for the live comprehension and routing evals.",
+          "at": "2026-11-08T10:26:57.082Z",
+          "resumedAt": "2026-11-08T10:53:59.191Z"
+        }
+      ],
+      "report": {
+        "outcome": "Evaluated fold representations, timing and user-message routing offline and live on deepseek-flash (~$1.55 total). Eager timing and history-on-completion dominate cost; all in-root forms are understood (0.93–0.98); history needs recall/status to answer (0.96); sidecar-applied user-message ops beat agent-applied ones (recall 0.93 vs 0.68 today).",
+        "decisions": [
+          "Eager folding; HR for completed roots with child codes on the history line; S or B→S inside open roots; HP rejected; no pressure-time consolidation.",
+          "User messages: extension applies extracted list ops (B) with verbatim pin check and a notice."
+        ],
+        "open": [
+          "Spec update for these decisions awaits user approval.",
+          "Single model (deepseek-flash) only; synthetic sessions are simplified."
+        ]
+      },
+      "endedAt": "2026-11-08T11:18:10.604Z",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Draft decisions and evaluation design",
+          "status": "abandoned",
+          "createdAt": "2026-11-08T10:23:24.853Z",
+          "updatedAt": "2026-11-08T10:26:57.080Z",
+          "report": {
+            "outcome": "Folded into the analysis artifact written in 11.4; a separate draft would duplicate it."
+          },
+          "endedAt": "2026-11-08T10:26:57.080Z",
+          "supersededBy": "11.4",
+          "acceptanceCriteria": [
+            {
+              "id": "c70",
+              "text": "Draft in .project/drafts with decided items, options and metrics; frontmatter valid."
+            }
+          ]
+        },
+        {
+          "id": "11.2",
+          "title": "Build offline wire simulator for representations and fold timing",
+          "status": "done",
+          "createdAt": "2026-11-08T10:23:24.853Z",
+          "updatedAt": "2026-11-08T10:25:23.359Z",
+          "startedAt": "2026-11-08T10:23:24.857Z",
+          "report": {
+            "outcome": "Built .project/analyses/fold-representations/harness/sim.py: rebuilds the outgoing wire before each assistant response for RAW, S, B, B→S, T × eager/lazy, with per-root history under hard pressure, and accounts prefix-cache read/write/rebill; runs the nukular session in ~2 s.",
+            "decisions": [
+              "Cost model: Anthropic 5-minute cache multipliers (read 0.1, write 1.25) in input-token units; tokens chars/4; always-warm cache.",
+              "Spans crossing their parent (historical late children) are counted and left raw."
+            ]
+          },
+          "endedAt": "2026-11-08T10:25:23.359Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c71",
+              "text": "Simulates S, B, T, B->S and history per request; reports tokens and prefix-cache rebill."
+            }
+          ]
+        },
+        {
+          "id": "11.3",
+          "title": "Run simulator on the nukular session and synthetic fixtures",
+          "status": "done",
+          "createdAt": "2026-11-08T10:23:24.853Z",
+          "updatedAt": "2026-11-08T10:26:13.465Z",
+          "startedAt": "2026-11-08T10:25:23.363Z",
+          "report": {
+            "outcome": "Ran sim on nukular session (60k/120k/200k budgets) and 3 synthetic tree shapes (40k/120k); evidence/results.txt holds aggregate numbers only. Session file sha256 unchanged.",
+            "decisions": [
+              "Timing dominates: eager vs lazy cuts weighted cost 25–90% and rebilled tokens 5–80x across all fixtures.",
+              "Representation is second-order: S ≈ T ≈ B→S within ~2%; pure B costs 1–60% more and leaves 2–30x more messages."
+            ],
+            "open": [
+              "Nukular eager peak 183k is dominated by long-open root and 2 crossing spans, not representation."
+            ]
+          },
+          "endedAt": "2026-11-08T10:26:13.465Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c72",
+              "text": "Results table recorded as evidence; originals untouched."
+            }
+          ]
+        },
+        {
+          "id": "11.4",
+          "title": "Design live comprehension and user-message routing evals with cost estimate",
+          "status": "done",
+          "createdAt": "2026-11-08T10:23:24.853Z",
+          "updatedAt": "2026-11-08T10:26:57.077Z",
+          "startedAt": "2026-11-08T10:26:13.468Z",
+          "report": {
+            "outcome": "Wrote ANA-fold-representations (README.md) with offline results, the comprehension eval (600 probes, S/T/B→S/H) and user-message routing eval (A/B/C, 50 messages) designs and a token-cost estimate (~43M input, <1M output). Committed f3b34ad; no paid calls.",
+            "open": [
+              "Model choice and approval to spend (~43M input tokens) before running live evals."
+            ]
+          },
+          "endedAt": "2026-11-08T10:26:57.077Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c73",
+              "text": "Protocol, metrics and estimated cost written; no paid calls made."
+            }
+          ]
+        },
+        {
+          "id": "11.5",
+          "title": "Resolve deepseek-flash model id, provider access and price",
+          "status": "done",
+          "createdAt": "2026-11-08T10:53:59.198Z",
+          "updatedAt": "2026-11-08T10:54:25.579Z",
+          "startedAt": "2026-11-08T10:53:59.201Z",
+          "report": {
+            "outcome": "deepseek/deepseek-flash = DeepSeek V4.1 Flash 1017 via api.deepseek.com (openai-completions, key present in pig auth). models.dev: $0.15 in / $0.60 out / $0.003 cache-read per M; local pig store lists $0.30/$1.20/$0.006 — use the higher for the estimate.",
+            "decisions": [
+              "Budget with the higher local price: ~43M input (70% cached) + 1M out ≈ $5.4 worst case."
+            ]
+          },
+          "endedAt": "2026-11-08T10:54:25.579Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c74",
+              "text": "Exact model id, provider route and per-token prices confirmed from a live source."
+            }
+          ]
+        },
+        {
+          "id": "11.6",
+          "title": "Simulate history-on-complete variants offline",
+          "status": "done",
+          "createdAt": "2026-11-08T10:53:59.198Z",
+          "updatedAt": "2026-11-08T10:55:48.532Z",
+          "startedAt": "2026-11-08T10:54:25.583Z",
+          "report": {
+            "outcome": "History on completion (HR) is cheapest: nukular rebill 261k→24k vs S eager, no pressure-time history needed; HP within ~1%. Consolidating history under pressure costs more (rebill up to 491k). Committed f5fb987.",
+            "decisions": [
+              "Leading candidate HR/HP; in-root form (S/T/B/B→S) chosen by comprehension.",
+              "Drop pressure-time consolidation."
+            ]
+          },
+          "endedAt": "2026-11-08T10:55:48.532Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c75",
+              "text": "Root-history and parent-history on completion, plus pressure-time history consolidation, measured beside S/T/B/B->S."
+            }
+          ]
+        },
+        {
+          "id": "11.7",
+          "title": "Build live comprehension harness",
+          "status": "done",
+          "createdAt": "2026-11-08T10:53:59.198Z",
+          "updatedAt": "2026-11-08T10:59:11.107Z",
+          "startedAt": "2026-11-08T10:55:48.538Z",
+          "report": {
+            "outcome": "harness/eval.py builds contexts for S/B/T/B→S/HR/HP at cut points (nukular: 6 cuts, ~112–125k tokens mean; synth with titled tasks), sends 5 probes (current, status, recall, continue, place) to deepseek-flash with cache-aware ordering, and scores automatically. Dry run of 9 requests passed; cache hits confirmed.",
+            "decisions": [
+              "Score the first reply only; tools offered but not executed; recall of own code = 1, ancestor code = 0.75; tasks status counts as partial for current/place.",
+              "Thinking left enabled (default) to match agent use; assistant history carries empty reasoning_content."
+            ]
+          },
+          "endedAt": "2026-11-08T10:59:11.107Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c76",
+              "text": "Renders each representation from fixtures, sends probes, scores answers automatically; dry run passes."
+            }
+          ]
+        },
+        {
+          "id": "11.8",
+          "title": "Run comprehension eval on deepseek-flash",
+          "status": "done",
+          "createdAt": "2026-11-08T10:53:59.198Z",
+          "updatedAt": "2026-11-08T11:12:23.672Z",
+          "startedAt": "2026-11-08T10:59:11.111Z",
+          "report": {
+            "outcome": "540 probes × 2 runs on deepseek-flash. Multi-step means: S 0.978, B 0.978, B→S 0.967, HR 0.956 (1.76 steps), T 0.928 (place 0.69), HP 0.922. History depends on tasks status + recall answering. Spend ≈ $1.40. Committed e2945e8.",
+            "decisions": [
+              "Multi-step run is authoritative: single-reply scoring punished correct lookups.",
+              "Recommend HR for completed roots, S or B→S inside open roots; HP rejected; T weak on placement."
+            ],
+            "open": [
+              "History lines should carry child codes (recall hits root 11/18)."
+            ]
+          },
+          "endedAt": "2026-11-08T11:12:23.672Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c77",
+              "text": "All representations incl. B scored; spend recorded."
+            }
+          ]
+        },
+        {
+          "id": "11.9",
+          "title": "Build and run user-message routing eval (A/B/C)",
+          "status": "done",
+          "createdAt": "2026-11-08T10:53:59.198Z",
+          "updatedAt": "2026-11-08T11:18:02.914Z",
+          "startedAt": "2026-11-08T11:12:23.675Z",
+          "report": {
+            "outcome": "50-message corpus (41 synthetic, 9 real by index), 2 reps. Recall: A0 0.68, A 0.81, B 0.93, C 0.89; agent applies 71% of proposals in A, 37% in C. Extractor is reliable; the agent is not. Committed 3d4c594; ~$0.15.",
+            "decisions": [
+              "Recommend B (extension applies, notice to agent), tighten extractor against one-off instructions."
+            ],
+            "open": [
+              "Gold for real restructuring messages is partial; precision there is understated."
+            ]
+          },
+          "endedAt": "2026-11-08T11:18:02.914Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c78",
+              "text": "Gold-labelled corpus; extraction precision/recall and apply rates per option recorded."
+            }
+          ]
+        },
+        {
+          "id": "11.10",
+          "title": "Record results and recommendation",
+          "status": "abandoned",
+          "createdAt": "2026-11-08T10:53:59.198Z",
+          "updatedAt": "2026-11-08T11:18:10.599Z",
+          "report": {
+            "outcome": "Results and recommendation were recorded in the analysis README as part of 11.8 and 11.9 (commits e2945e8, 3d4c594)."
+          },
+          "endedAt": "2026-11-08T11:18:10.599Z",
+          "supersededBy": "11.9",
+          "acceptanceCriteria": [
+            {
+              "id": "c79",
+              "text": "Analysis updated with live results; committed."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "12",
+      "title": "Write evaluation recommendations into SPEC-0002",
+      "status": "done",
+      "createdAt": "2026-11-08T11:47:18.348Z",
+      "updatedAt": "2026-11-08T11:48:49.875Z",
+      "startedAt": "2026-11-08T11:47:18.352Z",
+      "report": {
+        "outcome": "SPEC-0002 r16 (c05c2d8): new §4.6 user-message routing (classify→extract→apply→notice, routed messages fold with span), §6 JSON records on assistant carriers, one code per task, root history with direct child codes, §8 eager fold lifecycle replacing aging, epoch/keep-recent/settings/verification updated.",
+        "decisions": [
+          "Aging levels L2c/L3/L4 removed; history entries are never rewritten.",
+          "keepRecentTasks default 0; leafForm record|bracket setting keeps B->S as an option."
+        ]
+      },
+      "endedAt": "2026-11-08T11:48:49.875Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c80",
+          "text": "Spec has eager folding, root history with child codes, in-root S or B->S, sidecar-applied user ops."
+        },
+        {
+          "id": "c81",
+          "text": "Committed on docs/taskfold-spec."
+        }
+      ]
+    },
+    {
+      "id": "13",
+      "title": "Analyze the overflowed nukular session 01a1b680",
+      "status": "done",
+      "createdAt": "2026-11-08T11:47:18.348Z",
+      "updatedAt": "2026-11-08T11:55:29.802Z",
+      "startedAt": "2026-11-08T11:48:49.878Z",
+      "report": {
+        "outcome": "Session 01a1b680 overflowed because tasks calls inside codemode are invisible to the span scan, leaving all later work in never-closed spans; residual working-set moves rebilled 43.5M tokens. Replay shows recognizing nested calls cuts the final context 1.10M→131k at 272k budget."
+      },
+      "endedAt": "2026-11-08T11:55:29.802Z",
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Measure the new session: overflow, folds, cache rebills",
+          "status": "done",
+          "createdAt": "2026-11-08T11:47:18.348Z",
+          "updatedAt": "2026-11-08T11:54:44.981Z",
+          "startedAt": "2026-11-08T11:48:49.878Z",
+          "report": {
+            "outcome": "Measured: real context reached 872k (aborted), folding stopped after line ~1969; 114.6M uncached: 63.5M injected WS pre-26be536 (472 misses), 43.5M WS changes after tasks calls (140), 3.0M fold epochs (17), 4.7M other (10). Replay at end: current code 1.09M→339k, zombie open span 3.11.1.3.3.2 holds 308k; with codemode tasks calls visible 1.10M→131k.",
+            "decisions": [
+              "Replay scripts kept in /tmp/s2 (probe.ts, expand.ts); session file only read."
+            ]
+          },
+          "endedAt": "2026-11-08T11:54:44.981Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c82",
+              "text": "Overflow cause, fold coverage and cache-miss sources quantified from the session file."
+            }
+          ]
+        },
+        {
+          "id": "13.2",
+          "title": "Trace root causes in code",
+          "status": "done",
+          "createdAt": "2026-11-08T11:47:18.348Z",
+          "updatedAt": "2026-11-08T11:55:29.799Z",
+          "startedAt": "2026-11-08T11:54:44.985Z",
+          "report": {
+            "outcome": "Root causes: (1) scanTaskSpans only sees direct `tasks` tool_call blocks (taskfold.ts:172); from line ~1909 the agent batched complete+start in codemode, so every later span stayed open and nothing foldable remained — context grew 217k→872k against a 272k budget. Codemode details.calls truncates args at 200 chars, so it can't be parsed reliably. (2) No pressure relief inside open spans: a zombie/long doing span is unfoldable. (3) 43.5M rebilled from working-set re-placement after tasks calls (26be536 residual), which SPEC r15 removes.",
+            "decisions": [
+              "Fix direction: tasks tool records a structured event per execution (incl. parentToolCallId) and the span scan anchors it to the outer call; never parse codemode output."
+            ]
+          },
+          "endedAt": "2026-11-08T11:55:29.799Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c83",
+              "text": "Each finding traced to a code path or spec gap with evidence."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "14",
+      "title": "Specify adoption/backfill of legacy sessions",
+      "status": "done",
+      "createdAt": "2026-11-08T11:47:18.348Z",
+      "updatedAt": "2026-11-08T11:56:38.209Z",
+      "startedAt": "2026-11-08T11:55:29.804Z",
+      "report": {
+        "outcome": "SPEC-0002 r17 (fe003e1): §5.3 task events for nested tasks calls plus stale-span reporting; §14 legacy adoption (auto/ask/off, /accordion tasks adopt --dry-run, derived accordion.taskfold.adopted entry, idempotent, one cache miss). ANA-fold-representations r2 §5 records the session analysis and replay scripts.",
+        "decisions": [
+          "Adoption writes one derived custom entry; persisted messages are never rewritten.",
+          "Nested tasks calls are recorded by the tasks handler on the outer result; codemode logs are never parsed (truncated at 200 chars)."
+        ]
+      },
+      "endedAt": "2026-11-08T11:56:38.209Z",
+      "acceptanceCriteria": [
+        {
+          "id": "c84",
+          "text": "Spec defines one-time adoption of legacy sessions (auto/manual): derivation, idempotence, cache cost."
+        }
+      ]
+    },
+    {
+      "id": "15",
+      "title": "Update spec and draft, write plan, implement and evaluate structured Taskfold",
+      "status": "done",
+      "createdAt": "2026-11-08T12:12:37.347Z",
+      "updatedAt": "2026-11-08T14:56:52.215Z",
+      "startedAt": "2026-11-08T12:12:44.648Z",
+      "blocks": [
+        {
+          "reason": "user-decision",
+          "detail": "User decides whether to merge+push slices 1–3 now (unblocks the overflowed session) before slices 4–9 continue.",
+          "at": "2026-11-08T12:42:02.610Z",
+          "resumedAt": "2026-11-08T12:51:32.530Z"
+        },
+        {
+          "reason": "dependency",
+          "detail": "subtask 15.6 is blocked",
+          "on": "15.6",
+          "at": "2026-11-08T12:51:39.112Z",
+          "resumedAt": "2026-11-08T12:51:39.115Z"
+        },
+        {
+          "reason": "user-decision",
+          "detail": "User restarts pig/pi-bolt to load 3db51da and says whether to continue slices 4–9 now.",
+          "at": "2026-11-08T12:54:01.796Z",
+          "resumedAt": "2026-11-08T12:55:59.033Z"
+        }
+      ],
+      "report": {
+        "outcome": "All nine slices of PLAN-0004 are implemented, evaluated and merged: nested task events, legacy adoption, no request injection, JSON results with delivery liveness, list v3, eager JSON records with root history, anchors, routing with notices, views/docs/eval. feat/pi-native is at c377e5b and installed.",
+        "open": [
+          "Not yet exercised on a real-size session beyond replay: resume the nukular session 01a1b680 under the new build and watch the first folds.",
+          "Comprehension eval ran on one model (deepseek-flash).",
+          "bun-based gates only; no separate CI."
+        ]
+      },
+      "endedAt": "2026-11-08T14:56:52.215Z",
+      "subtasks": [
+        {
+          "id": "15.1",
+          "title": "Orientation: pi APIs, current code map, branch setup",
+          "status": "done",
+          "createdAt": "2026-11-08T12:12:37.347Z",
+          "updatedAt": "2026-11-08T12:14:14.623Z",
+          "startedAt": "2026-11-08T12:12:44.648Z",
+          "report": {
+            "outcome": "Verified pi 1.5: nested calls get id `<parent>/<n>` with parentToolCallId on tool_call/tool_result; tool_result handlers may replace details; the outer result message carries `nestedCalls` with full args (all 95 nested tasks calls in 01a1b680). Worktree .pi/worktrees/taskfold-structured on feat/taskfold-structured.",
+            "decisions": [
+              "Native nested events: tasks handler queues events by parentToolCallId; outer tool_result hook merges them into outer details.taskEvents.",
+              "Legacy/adoption source: message.nestedCalls (full args, status) instead of parsing codemode scripts.",
+              "Ingest copies details only for toolName tasks (core/wire.ts:200); scanTaskSpans reads only direct tasks calls (taskfold.ts:150)."
+            ]
+          },
+          "endedAt": "2026-11-08T12:14:14.623Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c85",
+              "text": "Nested tool-call ids, tool_result mutation and sendMessage APIs verified in installed pi source."
+            },
+            {
+              "id": "c86",
+              "text": "Implementation worktree on feat/taskfold-structured exists."
+            }
+          ]
+        },
+        {
+          "id": "15.2",
+          "title": "Docs: spec r18, draft update, PLAN-0003",
+          "status": "done",
+          "createdAt": "2026-11-08T12:12:37.347Z",
+          "updatedAt": "2026-11-08T12:16:52.454Z",
+          "startedAt": "2026-11-08T12:14:14.629Z",
+          "report": {
+            "outcome": "Spec r18 (multiple goals, item ids, verified nested-call mechanism), draft r8 aligned to no request injection, and PLAN-0004 committed on feat/taskfold-structured (30bec1d, 3f70449, 02eca2e)."
+          },
+          "endedAt": "2026-11-08T12:16:52.454Z",
+          "subtasks": [
+            {
+              "id": "15.2.1",
+              "title": "Spec r18: multiple goals and item ids, gaps found in orientation",
+              "status": "done",
+              "createdAt": "2026-11-08T12:12:37.347Z",
+              "updatedAt": "2026-11-08T12:15:28.269Z",
+              "startedAt": "2026-11-08T12:14:14.629Z",
+              "report": {
+                "outcome": "SPEC-0002 r18 (30bec1d): list file v3 with goals[] on lists/tasks and {id,text} criteria, item ids g/c/p/a, ItemEdit updates returning assigned ids, v1/v2 migration; §5.3 mechanism via parentToolCallId queue and outer tool_result details; §14.2 adoption reads nestedCalls. Artifact check unchanged at 258 pre-existing lines.",
+                "open": [
+                  "Skill examples/schema still use single goal; updated with the store slice."
+                ]
+              },
+              "endedAt": "2026-11-08T12:15:28.269Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c87",
+                  "text": "Spec defines goals[] and ids for goals/criteria on list and task, consistent across sections."
+                }
+              ]
+            },
+            {
+              "id": "15.2.2",
+              "title": "Update DRAFT-taskfold-reliability to the decided design",
+              "status": "done",
+              "createdAt": "2026-11-08T12:12:37.347Z",
+              "updatedAt": "2026-11-08T12:15:58.933Z",
+              "startedAt": "2026-11-08T12:15:28.278Z",
+              "report": {
+                "outcome": "DRAFT-taskfold-reliability r8 (3f70449): header points decided parts to SPEC-0002; §5.1 HUD replaced by result-borne state and appended notices; all HUD uses rewritten to append-only result reminders; spike 3 records the measured rejection. Remaining undecided scope: token truth, order enforcement, prompts."
+              },
+              "endedAt": "2026-11-08T12:15:58.933Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c88",
+                  "text": "Draft no longer proposes superseded HUD/injection; points at SPEC-0002 for decided parts."
+                }
+              ]
+            },
+            {
+              "id": "15.2.3",
+              "title": "Write executable PLAN-0003 with slices and acceptance",
+              "status": "done",
+              "createdAt": "2026-11-08T12:12:37.347Z",
+              "updatedAt": "2026-11-08T12:16:52.450Z",
+              "startedAt": "2026-11-08T12:15:58.938Z",
+              "report": {
+                "outcome": "PLAN-0004 (02eca2e) with 9 slices ordered so legacy sessions continue first (nested events, adoption), then injection removal, JSON results/liveness, v3 lists, eager JSON folds, anchors, routing, views/eval. Slices 1–2 detailed with files, tests and done criteria; ids.toml PLAN=5; artifact check unchanged (258)."
+              },
+              "endedAt": "2026-11-08T12:16:52.450Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c89",
+                  "text": "Plan lists slices, files, tests and done criteria; artifact check has no new issues."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.3",
+          "title": "Slice 1: nested task events",
+          "status": "done",
+          "createdAt": "2026-11-08T12:16:52.458Z",
+          "updatedAt": "2026-11-08T12:24:27.018Z",
+          "startedAt": "2026-11-08T12:17:03.815Z",
+          "report": {
+            "outcome": "Slice 1 done (3c5d0fb, 5dc3483, ba25f91): nested tasks calls record ordered span events on the outer result, ingest keeps them for any tool, and the scan opens/closes spans from them with stale detection."
+          },
+          "endedAt": "2026-11-08T12:24:27.018Z",
+          "subtasks": [
+            {
+              "id": "15.3.1",
+              "title": "Record task events on the outer tool result",
+              "status": "done",
+              "createdAt": "2026-11-08T12:16:52.458Z",
+              "updatedAt": "2026-11-08T12:20:05.753Z",
+              "startedAt": "2026-11-08T12:17:03.815Z",
+              "report": {
+                "outcome": "3c5d0fb: lifecycle tasks executions emit TaskEvent snapshots; direct calls put taskEvents on their own details, nested `<outer>/<n>` calls queue under the outer id and the outer tool_result returns merged details once. Queue cleared on session_start/agent_end. Core unit tests (3) and a smoke check pass; svelte-check 0 errors.",
+                "decisions": [
+                  "Event types/queue in core/taskEvents.ts (conductor imports only core); builder in extension/taskEvents.ts.",
+                  "Merged into the existing tool_result handler (one handler; smoke harness keeps one per event)."
+                ]
+              },
+              "endedAt": "2026-11-08T12:20:05.753Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c90",
+                  "text": "Direct and nested tasks executions put ordered taskEvents on the outer result details; hook test passes."
+                }
+              ]
+            },
+            {
+              "id": "15.3.2",
+              "title": "Ingest taskEvents details on any tool result",
+              "status": "done",
+              "createdAt": "2026-11-08T12:16:52.458Z",
+              "updatedAt": "2026-11-08T12:21:02.614Z",
+              "startedAt": "2026-11-08T12:20:05.756Z",
+              "report": {
+                "outcome": "5dc3483: linearize keeps tasks results' full details and, for any other tool, only `{taskEvents}`; contentFingerprint covers the same subset so unrelated host-tool details never trigger rebuilds. Wire tests 25/25 pass."
+              },
+              "endedAt": "2026-11-08T12:21:02.614Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c91",
+                  "text": "linearize keeps taskEvents details on any tool result; fingerprint covers it."
+                }
+              ]
+            },
+            {
+              "id": "15.3.3",
+              "title": "Scan spans from task events incl. nested; stale spans",
+              "status": "done",
+              "createdAt": "2026-11-08T12:16:52.458Z",
+              "updatedAt": "2026-11-08T12:24:27.015Z",
+              "startedAt": "2026-11-08T12:21:02.618Z",
+              "report": {
+                "outcome": "ba25f91: scanTaskSpans applies taskEvents from any tool result (outer call/result as boundaries), legacy direct-call path unchanged; TaskSpan.lastEvent + staleSpans (ZOMBIE_STEPS 40) excluding descendants; saturation status names stale tasks. Tests: taskfold 45/45, core+conductors 619 pass, native 191 pass, smoke OK.",
+                "decisions": [
+                  "A start following a finish inside one outer call opens at result+1, so spans don't overlap.",
+                  "Stale surfaced in saturation status now; tasks-result `stale` field lands with JSON results (slice 4)."
+                ]
+              },
+              "endedAt": "2026-11-08T12:24:27.015Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c92",
+                  "text": "Codemode-style complete A/start B folds A, keeps B open; legacy direct path unchanged; stale spans reported."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.4",
+          "title": "Slice 2: legacy adoption",
+          "status": "done",
+          "createdAt": "2026-11-08T12:16:52.458Z",
+          "updatedAt": "2026-11-08T12:38:15.665Z",
+          "startedAt": "2026-11-08T12:24:27.020Z",
+          "report": {
+            "outcome": "Slice 2 done (00ba073, 38fea61, 64bcb21): legacy sessions adopt automatically/ask/manually from nestedCalls + list files via one idempotent entry; overflowed session replays to 138k under 272k."
+          },
+          "endedAt": "2026-11-08T12:38:15.665Z",
+          "subtasks": [
+            {
+              "id": "15.4.1",
+              "title": "Derive events from nestedCalls and list file",
+              "status": "done",
+              "createdAt": "2026-11-08T12:16:52.458Z",
+              "updatedAt": "2026-11-08T12:27:26.076Z",
+              "startedAt": "2026-11-08T12:24:27.020Z",
+              "report": {
+                "outcome": "00ba073: extension/taskAdoption.ts replays direct+nested (nestedCalls) tasks calls, mirrors store auto-start/cascade, reconciles with list files, overlays events via applyAdoption; detection/fingerprint/entry reader. 3 tests pass. On session 01a1b680 (read-only): 63 nested events on 25 results, 2 ms; open spans 21 → 7, exactly the list's doing/blocked tasks; no stale spans remain.",
+                "decisions": [
+                  "Direct tasks results keep the legacy scan; events only go on host-tool results (events would replace the direct call's effect).",
+                  "Reconcile list-finished-but-open tasks at first non-tasks result after endedAt, else the last one."
+                ]
+              },
+              "endedAt": "2026-11-08T12:27:26.076Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c93",
+                  "text": "Synthetic legacy session yields same spans as native; incomplete records fall back to list status."
+                }
+              ]
+            },
+            {
+              "id": "15.4.2",
+              "title": "Adopted entry, detection, command and setting",
+              "status": "done",
+              "createdAt": "2026-11-08T12:16:52.458Z",
+              "updatedAt": "2026-11-08T12:37:29.112Z",
+              "startedAt": "2026-11-08T12:27:26.080Z",
+              "report": {
+                "outcome": "38fea61: tasks.adopt setting (auto/ask/off), adoption loaded from entries on session_start, auto-adopt with notice or confirm dialog, overlay on every ingest, `/accordion tasks adopt [--dry-run]` + completion/usage. Smoke proves one entry, correct spans in Truth, dry-run no-op after adoption, resume doesn't re-adopt. Tests: settings/adoption/tui 118 pass, smoke OK, no new tsc errors.",
+                "decisions": [
+                  "Overlay at ingestMessages/buildTruth entry so fingerprints stay consistent; wire output unaffected (details never sent).",
+                  "Detection = uncovered legacy nested lifecycle calls, not fingerprint equality, so new messages don't re-trigger.",
+                  "List files are read only; spec §14 updated to match."
+                ]
+              },
+              "endedAt": "2026-11-08T12:37:29.112Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c94",
+                  "text": "adopted entry written once, idempotent; scan reads it; dry-run writes nothing; auto/ask/off honored."
+                }
+              ]
+            },
+            {
+              "id": "15.4.3",
+              "title": "Replay overflowed session with adoption",
+              "status": "done",
+              "createdAt": "2026-11-08T12:16:52.458Z",
+              "updatedAt": "2026-11-08T12:38:15.662Z",
+              "startedAt": "2026-11-08T12:37:29.116Z",
+              "report": {
+                "outcome": "64bcb21: read-only replay of 01a1b680 with derived adoption (63 nested events) folds 1.09M → 138k (plain: 339k); session sha256 unchanged. Probe gained ADOPT=<tasks dir>; README §5 and PLAN-0004 progress updated (slices 1–2 done, 3 now)."
+              },
+              "endedAt": "2026-11-08T12:38:15.662Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c95",
+                  "text": "Read-only replay of 01a1b680 adopts and folds below 272k; evidence recorded."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.5",
+          "title": "Slice 3: remove working set and request injection",
+          "status": "done",
+          "createdAt": "2026-11-08T12:16:52.458Z",
+          "updatedAt": "2026-11-08T12:41:53.946Z",
+          "startedAt": "2026-11-08T12:38:15.668Z",
+          "report": {
+            "outcome": "14abd54/3db51da: working set, placement and context_with_system injection removed (hook only clears usage anchors); start/claim results carry the task context once; dump has no working-set section. New smoke proves start carries goal/pins/criteria/attachment, pin/status don't repeat it, no request text appended, and a task transition keeps the prior request a byte prefix. 199 Bun tests + full smoke pass.",
+            "decisions": [
+              "Interim: start/claim append the existing prose context once (slice 4 replaces it with JSON + liveness) — avoids a window where pins/criteria reach the agent nowhere."
+            ],
+            "open": [
+              "Slices 4–9 (JSON results/liveness, v3 lists, eager JSON records/history, anchors, routing, views/eval) not implemented."
+            ]
+          },
+          "endedAt": "2026-11-08T12:41:53.946Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c96",
+              "text": "No context_with_system suffix; smoke shows consecutive requests are byte prefixes."
+            }
+          ]
+        },
+        {
+          "id": "15.6",
+          "title": "Slice 4: structured JSON results and delivery liveness",
+          "status": "done",
+          "createdAt": "2026-11-08T12:17:03.812Z",
+          "updatedAt": "2026-11-08T13:12:48.522Z",
+          "startedAt": "2026-11-08T12:51:32.530Z",
+          "blocks": [
+            {
+              "reason": "dependency",
+              "detail": "Waits for the merge/update in 15.12 first.",
+              "on": "15.12",
+              "at": "2026-11-08T12:51:39.112Z",
+              "resumedAt": "2026-11-08T12:55:59.033Z"
+            }
+          ],
+          "report": {
+            "outcome": "Slice 4 on feat/taskfold-json (8c622f2, 7c5750e, 885b0a4): every tasks action returns spec JSON with coded errors; start/claim deliver goal/criteria/pins/attachments as JSON minus what is live in Truth; consumers, description and docs updated; all gates pass."
+          },
+          "endedAt": "2026-11-08T13:12:48.522Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c97",
+              "text": "Every action returns spec JSON; manifests in details; start/claim deliver required minus live."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "15.6.1",
+              "title": "Orient: worktree and map current result/details code",
+              "status": "done",
+              "createdAt": "2026-11-08T12:56:24.690Z",
+              "updatedAt": "2026-11-08T12:57:36.537Z",
+              "startedAt": "2026-11-08T12:56:24.693Z",
+              "report": {
+                "outcome": "Worktree .pi/worktrees/taskfold-json on feat/taskfold-json. Results are built in runAction (extension/tasks.ts:839–922) and the handler (accordion.ts:4067–4110); details already structured and preferred by scan (taskfold.ts:250–300, prose only as legacy fallback), toolRows and adoption. 71 TaskError sites need codes; nextTask (taskCoach.ts:27) supplies next.",
+                "decisions": [
+                  "Keep TaskError messages (they carry the fix) and add a code; boundary renders {ok:false,error,message}.",
+                  "Keep prose fallback regexes for legacy sessions only; new results are parsed from details."
+                ]
+              },
+              "endedAt": "2026-11-08T12:57:36.537Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c98",
+                  "text": "Worktree on feat/taskfold-json; result construction points in tasks.ts/accordion.ts mapped."
+                }
+              ]
+            },
+            {
+              "id": "15.6.2",
+              "title": "JSON results and error envelope for every action",
+              "status": "done",
+              "createdAt": "2026-11-08T12:56:24.690Z",
+              "updatedAt": "2026-11-08T13:07:38.160Z",
+              "startedAt": "2026-11-08T12:57:36.543Z",
+              "report": {
+                "outcome": "8c622f2: every action returns spec JSON (create ids, list, status/claim state, add/move renumbered map, pin/attach ids+ref, start started/resumed/closed, finish next/parentReady/cascaded/resumable, block alsoBlocked); refusals are {ok:false,error,message} with codes on all 92 throw sites. start/claim deliver goal/criteria/pins/attachment content as JSON and record details.delivered. Scan reads parent titles from JSON; tool rows render JSON. Exact-JSON tests per action; 210 Bun tests + full smoke pass; tsc unchanged at baseline 7.",
+                "decisions": [
+                  "next = first todo leaf, or a dependency-blocked task whose dependency finished (resume:true); a sibling under a user-blocked parent is a valid next since starting it resumes the parent.",
+                  "TaskError/PinError carry a code; the handler rethrows the JSON envelope as the error message, which pi passes through as the result text.",
+                  "Follow-up guidance (parentReady, block → tell user) moved from results into the tool description."
+                ]
+              },
+              "endedAt": "2026-11-08T13:07:38.160Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c99",
+                  "text": "Each action returns spec §3.4 JSON; errors use {ok:false,error,message,fix}; one exact-JSON test per action."
+                }
+              ]
+            },
+            {
+              "id": "15.6.3",
+              "title": "Delivery manifests and liveness",
+              "status": "done",
+              "createdAt": "2026-11-08T12:56:24.690Z",
+              "updatedAt": "2026-11-08T13:11:23.887Z",
+              "startedAt": "2026-11-08T13:07:38.163Z",
+              "report": {
+                "outcome": "7c5750e: liveDeliveryKeys derives the live set from details.delivered on unfolded Truth blocks; start/claim deliver required minus live with list-scoped keys; pin results count as delivered. End-to-end smoke proves live goal not re-sent, human-folded delivery re-sent, edited goal re-sent, pin live via its result; unit test for the helper. Spec r19 records the details; plan slice 4 marked done. 211 Bun tests + full smoke pass; tsc baseline 7.",
+                "decisions": [
+                  "Keys scoped `<slug>/…` — pin/attachment ids repeat across lists.",
+                  "Nested starts record no live delivery — codemode decides what of the nested result the model sees; re-sending is the safe side.",
+                  "Folding disarmed ⇒ nothing counts as folded."
+                ]
+              },
+              "endedAt": "2026-11-08T13:11:23.887Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c100",
+                  "text": "Manifests on details; live set from unfolded Truth blocks; start/claim send required minus live."
+                },
+                {
+                  "id": "c101",
+                  "text": "Tests cover folded delivery, edited item and other branch."
+                }
+              ]
+            },
+            {
+              "id": "15.6.4",
+              "title": "Rewire consumers, description and gates",
+              "status": "done",
+              "createdAt": "2026-11-08T12:56:24.690Z",
+              "updatedAt": "2026-11-08T13:12:48.519Z",
+              "startedAt": "2026-11-08T13:11:23.928Z",
+              "report": {
+                "outcome": "Consumers verified: scan reads details/taskEvents/JSON refs and skips error results; tool rows render JSON errors and expanded status/list/claim as fields; tool description carries follow-up rules. README documents JSON results and live-only delivery (885b0a4). Gates: 211 Bun, full extension smoke, app check 0/0, Vitest 1040 pass/21 env-skipped.",
+                "decisions": [
+                  "Legacy prose regexes in the scan stay as the fallback for pre-JSON sessions; new results are read from details/taskEvents and JSON refs."
+                ]
+              },
+              "endedAt": "2026-11-08T13:12:48.519Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c102",
+                  "text": "Tool description, toolRows, scan and adoption read JSON results; smoke and full gates pass; committed."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.7",
+          "title": "Slice 5: list file v3",
+          "status": "done",
+          "createdAt": "2026-11-08T12:17:03.812Z",
+          "updatedAt": "2026-11-08T13:31:21.596Z",
+          "startedAt": "2026-11-08T13:12:48.525Z",
+          "report": {
+            "outcome": "Slice 5 committed on feat/taskfold-json (abd8560): list file v3 with multiple goals, item ids never reused, ItemEdit updates, v1/v2 migration with kept backup, per-item delivery. All gates green."
+          },
+          "endedAt": "2026-11-08T13:31:21.596Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c103",
+              "text": "v3 goals/item ids load, migrate v1/v2 with backup, ItemEdit works; skill examples valid."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "15.7.1",
+              "title": "Schema v3: items, validation, migration, counters",
+              "status": "done",
+              "createdAt": "2026-11-08T13:13:19.666Z",
+              "updatedAt": "2026-11-08T13:16:56.317Z",
+              "startedAt": "2026-11-08T13:13:19.670Z",
+              "report": {
+                "outcome": "taskSchema.ts v3: goals/criteria items {id,text}, task goals, list-unique ids via IdAllocator with persisted seq, v1 and v2 migration (migratedFrom), toListFile writes v3. JSON Schema, validate.mjs and skill docs/examples moved to v3. taskSchema tests 11/11 incl. id-reuse and v2 migration.",
+                "decisions": [
+                  "Persisted `seq` per prefix (g/c/p/a) makes ids never reused after removal; claimed explicit ids raise it.",
+                  "Node strip-only constraint: no parameter properties in taskSchema.ts."
+                ],
+                "open": [
+                  "Store write backup (`<slug>.v<n>.json`) is in place but tested with the store in 15.7.2; tree does not compile until store/consumers move to items."
+                ]
+              },
+              "endedAt": "2026-11-08T13:16:56.317Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c104",
+                  "text": "v3 validates; v1/v2 migrate to goals/criteria items; first upgrade write keeps a backup; ids never reused."
+                }
+              ]
+            },
+            {
+              "id": "15.7.2",
+              "title": "Store actions on goals and criteria items",
+              "status": "done",
+              "createdAt": "2026-11-08T13:13:19.666Z",
+              "updatedAt": "2026-11-08T13:31:09.615Z",
+              "startedAt": "2026-11-08T13:16:56.321Z",
+              "report": {
+                "outcome": "Store, delivery, tool schema/description, UI detail views, records/adoption/scan and docs moved to v3 items. create/add/update take goals and ItemEdit and return assigned ids; delivery keys are per item id+text hash; old `goal` arg is refused with a pointer to `goals`. v2 migration test proves ids in document order and the v2 backup. Gates: 549 bun tests in extension/conductors/core (7 timer/spawn failures are pre-existing core/conductor tests), full extension smoke OK, app check 0/0, Vitest 1040 pass.",
+                "decisions": [
+                  "Spec §3.3 TaskContext carries goals as items; records still show criteria texts (criteriaTexts) so the planner is unchanged until slice 6."
+                ]
+              },
+              "endedAt": "2026-11-08T13:31:09.615Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c105",
+                  "text": "create/add/update take goals and ItemEdit; results return assigned item ids; no_goal gate uses goals."
+                }
+              ]
+            },
+            {
+              "id": "15.7.3",
+              "title": "Rewire consumers to items",
+              "status": "abandoned",
+              "createdAt": "2026-11-08T13:13:19.666Z",
+              "updatedAt": "2026-11-08T13:31:21.588Z",
+              "report": {
+                "outcome": "Folded into 15.7.2: consumers (views, rows, records, adoption, scan, smoke) had to change for the store to compile and were done there."
+              },
+              "endedAt": "2026-11-08T13:31:21.588Z",
+              "supersededBy": "15.7.2",
+              "acceptanceCriteria": [
+                {
+                  "id": "c106",
+                  "text": "Delivery, records, events, adoption, views and tool schema use items; all gates pass."
+                }
+              ]
+            },
+            {
+              "id": "15.7.4",
+              "title": "Skill, JSON Schema and examples for v3",
+              "status": "abandoned",
+              "createdAt": "2026-11-08T13:13:19.666Z",
+              "updatedAt": "2026-11-08T13:31:21.593Z",
+              "report": {
+                "outcome": "Done in 15.7.1: JSON Schema, validate.mjs, skill docs and examples moved to v3 together with the validator; skill example tests pass."
+              },
+              "endedAt": "2026-11-08T13:31:21.593Z",
+              "supersededBy": "15.7.1",
+              "acceptanceCriteria": [
+                {
+                  "id": "c107",
+                  "text": "JSON Schema, validate.mjs, SKILL.md and examples describe v3; example test passes; committed."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.8",
+          "title": "Slice 6: eager JSON records and root history",
+          "status": "done",
+          "createdAt": "2026-11-08T12:17:03.812Z",
+          "updatedAt": "2026-11-08T13:46:49.789Z",
+          "startedAt": "2026-11-08T13:31:47.614Z",
+          "report": {
+            "outcome": "Finished tasks fold at the next request into one-line JSON records on assistant carriers with one fold code per task; finished roots become one history message each and old aging is removed. Committed ac3bc9b..33acad5 with spec r20.",
+            "decisions": [
+              "Eager folding waits only for the protected tail and in-flight classification, never for pressure."
+            ],
+            "open": [
+              "A real-session replay of eager folding is part of slice 9, not yet run on the new carriers."
+            ]
+          },
+          "endedAt": "2026-11-08T13:46:49.789Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c108",
+              "text": "Finished tasks fold next request as JSON records on assistant carriers; roots become history."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "15.8.1",
+              "title": "Map planner against spec and detail slice 6 in the plan",
+              "status": "done",
+              "createdAt": "2026-11-08T13:31:43.379Z",
+              "updatedAt": "2026-11-08T13:33:26.127Z",
+              "startedAt": "2026-11-08T13:31:47.614Z",
+              "report": {
+                "outcome": "Mapped the planner against spec §6–§9 and wrote slice 6 into PLAN-0004 (committed). Key finding: eager folding is bounded by the protected tail, because a just-finished span's last blocks are protected and already sent. So the plan defers a unit until its whole span is outside the tail, instead of folding it in partial runs that can't be extended later.",
+                "decisions": [
+                  "Defer rather than partially fold when the span end is in the tail — a folded span key is never re-extended today, and extending would rewrite the cache each step.",
+                  "Role forcing needs a new optional Group.role in core, because carrier role follows the run's first message today."
+                ]
+              },
+              "endedAt": "2026-11-08T13:33:26.127Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c109",
+                  "text": "Planner code mapped against spec §6–§9; slice 6 detail with files and tests written into PLAN-0004."
+                }
+              ]
+            },
+            {
+              "id": "15.8.2",
+              "title": "JSON record carrier and one fold code per task",
+              "status": "done",
+              "createdAt": "2026-11-08T13:31:43.379Z",
+              "updatedAt": "2026-11-08T13:46:01.975Z",
+              "startedAt": "2026-11-08T13:33:26.131Z",
+              "report": {
+                "outcome": "records.ts (carrier parse/render, history, shrinkDeepest, recordForm) and the planner now emit one-line JSON on assistant carriers; taskKeyOfSummary parses task/history/part/untracked. Committed ac3bc9b (core role) and d449f32 (planner).",
+                "decisions": [
+                  "Carriers are `{#code FOLDED} <JSON>` built in new records.ts; the tag is the task's own `t:` code, group id code only for unrooted parts.",
+                  "Role forced via conductor-only Group.role, no protocol bump: groups already travel by spread.",
+                  "One fold code per task: children appear as `recall` tags inside the parent; old group codes are no longer shown."
+                ]
+              },
+              "endedAt": "2026-11-08T13:46:01.975Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c110",
+                  "text": "One code per task; carriers are assistant JSON records; taskKeyOfSummary parses them; recall/unfold round-trip."
+                }
+              ]
+            },
+            {
+              "id": "15.8.3",
+              "title": "Eager epoch: fold every finished task at the next request",
+              "status": "done",
+              "createdAt": "2026-11-08T13:31:43.379Z",
+              "updatedAt": "2026-11-08T13:46:21.983Z",
+              "startedAt": "2026-11-08T13:46:01.978Z",
+              "report": {
+                "outcome": "evaluate() always plans records; verified by real-Truth tests that a finished task folds below HIGH, later folds never rewrite earlier ones (no ungroup proposed), and a task still in the protected tail is deferred. All 45 taskfold tests pass.",
+                "decisions": [
+                  "keepRecentTasks defaults to 0 in the conductor and in settings; a unit waits only for its closing blocks to leave the protected tail, not for pressure."
+                ]
+              },
+              "endedAt": "2026-11-08T13:46:21.983Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c111",
+                  "text": "Finished tasks fold at the next request; keepRecentTasks defaults to 0; records need no pressure."
+                }
+              ]
+            },
+            {
+              "id": "15.8.4",
+              "title": "Root history and pressure history replacing aging",
+              "status": "done",
+              "createdAt": "2026-11-08T13:31:43.379Z",
+              "updatedAt": "2026-11-08T13:46:40.835Z",
+              "startedAt": "2026-11-08T13:46:21.986Z",
+              "report": {
+                "outcome": "Verified on real Truth: finished roots become one history carrier each with child codes recallable, status stays truthful about failed/abandoned descendants, pressure turns folded records in an open root into history oldest first. ageRecord, condenseChildren, ladder and taskfold.aging are gone from conductor, settings and docs; 45 taskfold tests and settings tests pass.",
+                "decisions": [
+                  "Merging history entries under pressure is not implemented: measured 20x worse rebills, so history entries are never rewritten, merged or shortened."
+                ]
+              },
+              "endedAt": "2026-11-08T13:46:40.835Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c112",
+                  "text": "Finished root becomes one history message with child codes; pressure history in open roots; aging removed."
+                }
+              ]
+            },
+            {
+              "id": "15.8.5",
+              "title": "Tests, gates and commit",
+              "status": "done",
+              "createdAt": "2026-11-08T13:31:43.379Z",
+              "updatedAt": "2026-11-08T13:46:49.786Z",
+              "startedAt": "2026-11-08T13:46:40.838Z",
+              "report": {
+                "outcome": "Gates pass: 1,041 Vitest, 199 Bun, svelte-check 0 errors, smoke suites OK. Slice 6 committed on feat/taskfold-json through 33acad5; spec r20 and plan updated.",
+                "decisions": [
+                  "Added a core regression that a conductor group's carrier gets the requested role and a human group does not; committed as four ordered commits (core, planner, extension, docs)."
+                ]
+              },
+              "endedAt": "2026-11-08T13:46:49.786Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c113",
+                  "text": "Real-Truth tests for carrier JSON, roles, eager timing, prefix stability; gates pass; committed."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.9",
+          "title": "Slice 7: content anchors",
+          "status": "done",
+          "createdAt": "2026-11-08T12:17:03.812Z",
+          "updatedAt": "2026-11-08T13:58:54.024Z",
+          "startedAt": "2026-11-08T13:47:05.606Z",
+          "report": {
+            "outcome": "Attachments no longer track line numbers: section, symbol and quote anchors resolve at delivery with states, legacy line ranges are read and upgraded, and the real tool handler is covered by a smoke check. Committed as 153f5a8, 75e6be0, 603deb1 and the spec r21 commit on feat/taskfold-json; all gates pass.",
+            "decisions": [
+              "Anchors by section (Markdown heading path), symbol (tree-sitter, ts/tsx/js/py/rs) and quote (W3C-style, moved/fuzzy/lost); line ranges are input sugar only and are stored as quotes.",
+              "Attachment delivery is keyed by id, so the agent's own edits to attached files during its task are never reported; only a not-live delivery reports changed/moved/fuzzy/lost/too_large."
+            ],
+            "open": [
+              "A quote's refreshed anchor is persisted only on the next delivery, never on a plain read."
+            ]
+          },
+          "endedAt": "2026-11-08T13:58:54.024Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c114",
+              "text": "Section/symbol/quote anchors resolve with states at delivery."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "15.9.1",
+              "title": "Section and quote anchors (pure resolver)",
+              "status": "done",
+              "createdAt": "2026-11-08T13:47:05.603Z",
+              "updatedAt": "2026-11-08T13:48:33.438Z",
+              "startedAt": "2026-11-08T13:47:05.606Z",
+              "report": {
+                "outcome": "extension/taskAnchors.ts resolves Markdown section paths (ATX and Setext, fences ignored, suffix match, body to next same-or-higher heading) and W3C-style quotes (exact, moved, fuzzy, lost); 7 tests pass. Committed.",
+                "decisions": [
+                  "Moved quotes return the exact text with state moved without disambiguation: content is identical wherever it sits.",
+                  "A repeated heading path is lost with candidates rather than picking one; fuzzy needs bigram similarity >= 0.8 else lost."
+                ]
+              },
+              "endedAt": "2026-11-08T13:48:33.438Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c115",
+                  "text": "Pure module resolves Markdown section paths and quotes; moved/fuzzy/lost cases tested."
+                }
+              ]
+            },
+            {
+              "id": "15.9.2",
+              "title": "Symbol anchors via tree-sitter",
+              "status": "done",
+              "createdAt": "2026-11-08T13:47:05.603Z",
+              "updatedAt": "2026-11-08T13:50:43.501Z",
+              "startedAt": "2026-11-08T13:48:33.441Z",
+              "report": {
+                "outcome": "extension/taskSymbols.ts resolves dotted symbols in ts/tsx/js/py/rs with export and decorator wrappers and leading doc comments; unknown names are lost with candidates, unsupported files lost. 8 tests with real grammars pass. Committed.",
+                "decisions": [
+                  "Grammars load lazily via dynamic import after warmSymbols(files), so sessions without symbol anchors pay nothing; resolveSymbol throws if not warmed instead of reporting a false loss.",
+                  "A name shared by several declarations (overloads, Rust struct and impl) resolves to each declaration's own text joined by blank lines, not a span that could swallow unrelated code."
+                ],
+                "open": [
+                  "No TypeScript compiler is available in this checkout and no project check covers extension/, so these modules are verified by tests only, not a strict typecheck."
+                ]
+              },
+              "endedAt": "2026-11-08T13:50:43.501Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c116",
+                  "text": "Symbol anchors resolve to declaration plus doc comment via tree-sitter; missing grammar degrades to lost."
+                }
+              ]
+            },
+            {
+              "id": "15.9.3",
+              "title": "Attach input, storage and canonical refs",
+              "status": "done",
+              "createdAt": "2026-11-08T13:47:05.603Z",
+              "updatedAt": "2026-11-08T13:55:44.514Z",
+              "startedAt": "2026-11-08T13:50:43.505Z",
+              "report": {
+                "outcome": "attach and create/add accept one of section, symbol, quote or lines; lines are stored as a quote anchor and refs are canonical (path#A > B, path::Class.method, path@q:id). Reading resolves by anchor, with legacy lines read and upgraded on delivery; 40-line cap enforced on the resolved content. Schema, validator, skill, README and tool text updated; 267 native tests and extension smoke pass. Committed.",
+                "decisions": [
+                  "Attachment delivery keys are by id only, so the agent's own edits to a file during its task never re-send the attachment (SPEC-0002 §4.2); only a delivery that is not live reports changed/moved/fuzzy/lost.",
+                  "Grammar preloading moved to symbolFiles/warmSymbols in taskSymbols.ts and called before the synchronous action, so symbol resolution never throws for an unwarmed grammar."
+                ],
+                "open": [
+                  "Moving a quote refreshes its anchor only on the next delivery; the store never rewrites a list on a plain read."
+                ]
+              },
+              "endedAt": "2026-11-08T13:55:44.514Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c117",
+                  "text": "attach accepts section/symbol/quote/lines; lines become quote; ref canonical; v3 schema and cap enforced."
+                }
+              ]
+            },
+            {
+              "id": "15.9.4",
+              "title": "Delivery-time resolution, states and agent-edit rule",
+              "status": "done",
+              "createdAt": "2026-11-08T13:47:05.603Z",
+              "updatedAt": "2026-11-08T13:57:29.515Z",
+              "startedAt": "2026-11-08T13:55:59.781Z",
+              "report": {
+                "outcome": "A new smoke check attaches by section, symbol and quote through tools.tasks.execute, moves the file, and verifies start returns current content, reports only the moved quote, preloads the symbol grammar, and persists a refreshed quote anchor. A hand-written legacy lines attachment is delivered by its lines and stored as a quote. Full smoke chain exits 0 (20 PASS, no FAIL); 267 native tests pass. Committed.",
+                "decisions": [
+                  "Delivery-time resolution, states and the agent-edit rule shipped with the storage change in 15.9.3; this task added the missing end-to-end proof through the real tool handler."
+                ],
+                "open": [
+                  "The 'agent edits during doing are never reported' rule is unit-tested via live keys; the smoke has no Truth blocks, so it does not exercise liveness through the real hook."
+                ]
+              },
+              "endedAt": "2026-11-08T13:57:29.515Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c118",
+                  "text": "start/claim/resume deliver anchored content with states; agent-made edits during doing never reported."
+                }
+              ]
+            },
+            {
+              "id": "15.9.5",
+              "title": "Docs, skill, gates and commit",
+              "status": "done",
+              "createdAt": "2026-11-08T13:47:05.603Z",
+              "updatedAt": "2026-11-08T13:58:54.021Z",
+              "startedAt": "2026-11-08T13:57:35.939Z",
+              "report": {
+                "outcome": "Skill, JSON Schema, README, tool text and spec r21 describe anchors; plan marks slice 7 done. Gates: 267 native tests, full extension smoke (exit 0), svelte-check 0 errors/warnings, 1,062/1,062 Vitest with Triptych installed. Committed through the spec/plan commit.",
+                "decisions": [
+                  "Spec corrected to the implemented cap tasks.attachments.maxLines (60) instead of a token cap, because existing configs already use maxLines.",
+                  "Added too_large and lost candidates to the spec; a moved quote returns exact text without disambiguation."
+                ],
+                "open": [
+                  "Artifact check stays at the 258 pre-existing issues (none from these files).",
+                  "No strict TypeScript typecheck covers extension/; verification is tests and smoke."
+                ]
+              },
+              "endedAt": "2026-11-08T13:58:54.021Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c119",
+                  "text": "Skill, schema, README and spec reflect anchors; gates pass; committed."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.10",
+          "title": "Slice 8: notices and user-message routing",
+          "status": "done",
+          "createdAt": "2026-11-08T12:17:03.812Z",
+          "updatedAt": "2026-11-08T14:21:42.664Z",
+          "startedAt": "2026-11-08T13:59:08.543Z",
+          "report": {
+            "outcome": "Slice 8 delivered: operation schema/validation/apply, extractor pipeline gated by the classifier with consent, JSON delta notices, routed-message folding and record links, live extractor check (recall 0.89, precision 0.90). Commits c30762e, 91ad1ea, 44d5f92, 905eff6, 8ba9d0b; spec r23.",
+            "decisions": [
+              "Extractor output is applied by the extension through the same store actions the agent uses; the agent gets a JSON notice and can revert.",
+              "No `restored` notice: start/claim re-deliver hidden context.",
+              "History entries carry no user links."
+            ],
+            "open": [
+              "Live in-session check of notices/routing in slice 9."
+            ]
+          },
+          "endedAt": "2026-11-08T14:21:42.664Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c120",
+              "text": "Notices appended once; routed user messages fold with span; extraction failure keeps raw."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "15.10.1",
+              "title": "Map classifier, hooks and model calls; detail slice 8 in the plan",
+              "status": "done",
+              "createdAt": "2026-11-08T13:59:03.768Z",
+              "updatedAt": "2026-11-08T14:01:59.376Z",
+              "startedAt": "2026-11-08T13:59:08.543Z",
+              "report": {
+                "outcome": "Mapped classifier, verdict ledger, before_agent_start notice queue, host.complete and linearize; slice 8 detail (design decisions, five ordered steps, done criteria) committed to PLAN-0004.",
+                "decisions": [
+                  "Routing port (taskfoldRouting) from the extension into the conductor — the conductor cannot import the store.",
+                  "Extractor uses the conductor's chat model via host.complete instead of a new model type.",
+                  "Routed = recorded extraction on the existing Verdict entry; folds = routed or classifier low loss, so failure keeps today's behavior.",
+                  "Notices count as delivery only if linearize can carry them as groupable blocks; otherwise restored is dropped from this slice."
+                ],
+                "open": [
+                  "linearize drops custom messages today; whether notices can become blocks without breaking applyPlan is decided in 15.10.4."
+                ]
+              },
+              "endedAt": "2026-11-08T14:01:59.376Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c121",
+                  "text": "Classifier, before_agent_start, sendMessage and model-call seams mapped; slice 8 detail written into PLAN-0004."
+                }
+              ]
+            },
+            {
+              "id": "15.10.2",
+              "title": "Operation schema, validation and store apply",
+              "status": "done",
+              "createdAt": "2026-11-08T13:59:03.768Z",
+              "updatedAt": "2026-11-08T14:04:20.159Z",
+              "startedAt": "2026-11-08T14:01:59.380Z",
+              "report": {
+                "outcome": "extension/taskRouting.ts parses extractor JSON strictly (12-op cap, shape rejections), applies each operation through the store, and reports applied and dropped operations; 9 tests on a real store pass and the native suite is green. Committed c30762e.",
+                "decisions": [
+                  "Operations run through runTasksTracked with the message as the only user text, so caps, freezing and the verbatim-pin check are the store's own rules.",
+                  "PinError and TaskError both count as a refused operation; any other error propagates.",
+                  "The store only freezes finished tasks, so a started task may be renamed by routing."
+                ],
+                "open": [
+                  "Notice text is built in 15.10.4 from AppliedOp."
+                ]
+              },
+              "endedAt": "2026-11-08T14:04:20.159Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c122",
+                  "text": "Pure module turns extractor output into validated list operations; verbatim pins enforced; bad ops dropped."
+                }
+              ]
+            },
+            {
+              "id": "15.10.3",
+              "title": "Extractor call and pipeline after classification",
+              "status": "done",
+              "createdAt": "2026-11-08T13:59:03.768Z",
+              "updatedAt": "2026-11-08T14:10:34.227Z",
+              "startedAt": "2026-11-08T14:04:20.184Z",
+              "report": {
+                "outcome": "Conductor extracts each new user message into the attached list via host.complete after classification, records Verdict.routed (persisted, merged with classifier verdicts) and folds routed messages with their span; failures keep them raw. 233 native, 1,064 app/conductor tests, app check and smokes pass. Committed 91ad1ea.",
+                "decisions": [
+                  "Routing port (conductors/in-process/taskfold/routing.ts) installed by the extension per session; the conductor owns the host.complete call, the port owns prompt/parse/store writes.",
+                  "Only unsent, classifiable (non-opening, non-harness) messages are routed, so resumed history is never re-extracted.",
+                  "A span containing an in-flight extraction is not folded until it settles, so a routed message folds with its span instead of splitting it; failure or the 45s timeout settles it raw.",
+                  "Routing never ends a started task: that stays a tool call, because spans open and close on tool events."
+                ],
+                "open": [
+                  "The agent is not yet told about applied changes: notice delivery is 15.10.4.",
+                  "Views still describe routed messages with classifier wording: 15.10.5."
+                ]
+              },
+              "endedAt": "2026-11-08T14:10:34.227Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c123",
+                  "text": "Context-aware extraction call via the models setting; privacy consent applies; failure leaves the message raw."
+                }
+              ]
+            },
+            {
+              "id": "15.10.4",
+              "title": "Notices: changed, restored, waiting",
+              "status": "done",
+              "createdAt": "2026-11-08T13:59:03.768Z",
+              "updatedAt": "2026-11-08T14:17:40.120Z",
+              "startedAt": "2026-11-08T14:10:34.271Z",
+              "report": {
+                "outcome": "Added extension/taskNotices.ts (listDelta, changed/routed/waiting JSON) and wired it through TaskSession and accordion.ts; 242 native tests, 1,064 app tests, smokes pass. Committed 44d5f92.",
+                "decisions": [
+                  "Notices are deltas against the list state the agent last saw (after its own tasks call, a note, or attach), so the agent never hears about its own edits.",
+                  "Delivery: steer message after non-tasks tool results while a turn runs, before_agent_start with the next prompt otherwise; an undeliverable note is requeued.",
+                  "`restored` notice dropped: notices are not Truth blocks (linearize skips custom messages), so they cannot join the delivery ledger; start/claim already re-deliver hidden context. Spec r22 records this.",
+                  "The old prose replyNotice is replaced by the JSON waiting notice."
+                ],
+                "open": [
+                  "Routed messages are not yet linked in fold records (15.10.5).",
+                  "No live delivery check of the steer path: needs a real pig session (15.10.6)."
+                ]
+              },
+              "endedAt": "2026-11-08T14:17:40.120Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c124",
+                  "text": "Appended changed/restored/waiting notices carry manifests and are never edits of earlier messages."
+                }
+              ]
+            },
+            {
+              "id": "15.10.5",
+              "title": "Folding of routed user messages and record links",
+              "status": "done",
+              "createdAt": "2026-11-08T13:59:03.768Z",
+              "updatedAt": "2026-11-08T14:18:49.340Z",
+              "startedAt": "2026-11-08T14:17:40.123Z",
+              "report": {
+                "outcome": "Routed user messages already join spans and fold (slice 8 pipeline); unrouted or in-flight ones stay raw. Records now carry `user: [{said, ids}]` for routed messages in the task's own intervals; test with real Truth passes. Committed 905eff6, spec r23.",
+                "decisions": [
+                  "History entries carry no user links: pins stay verbatim in them and recall returns the messages."
+                ]
+              },
+              "endedAt": "2026-11-08T14:18:49.340Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c125",
+                  "text": "Routed user messages join spans and fold; unrouted stay raw; records link user text to item ids."
+                }
+              ]
+            },
+            {
+              "id": "15.10.6",
+              "title": "Tests, gates, live check and commit",
+              "status": "done",
+              "createdAt": "2026-11-08T13:59:03.768Z",
+              "updatedAt": "2026-11-08T14:21:42.661Z",
+              "startedAt": "2026-11-08T14:18:49.343Z",
+              "report": {
+                "outcome": "Gates pass (242 native, 1,065 app tests, app check 0 errors, smoke OK, artifact check unchanged at 258). Live: shipped extractor on 41 synthetic messages x2: recall 0.89, precision 0.90, no-op messages clean 22/22, pins verbatim 14/14. Committed 8ba9d0b.",
+                "decisions": [
+                  "Live check drives the shipped prompt, parser and store directly against deepseek-flash rather than a full pig session.",
+                  "Removed previously committed __pycache__ files from the analysis harness."
+                ],
+                "open": [
+                  "The steer-message delivery path of notices and the full routed-message flow inside a running pig session are not exercised live; slice 9 includes a terminal/live pass."
+                ]
+              },
+              "endedAt": "2026-11-08T14:21:42.661Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c126",
+                  "text": "Tests, smoke, gates and a live deepseek-flash routing check pass; committed."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.11",
+          "title": "Slice 9: views, docs and evaluation",
+          "status": "done",
+          "createdAt": "2026-11-08T12:17:03.812Z",
+          "updatedAt": "2026-11-08T14:56:52.212Z",
+          "startedAt": "2026-11-08T14:21:55.242Z",
+          "report": {
+            "outcome": "Slice 9 done: views/dump audited and fixed, docs and settings synced, replay and comprehension eval on the real rendering, live pig run and native terminal pass (two defects found and fixed), final gates, merge and push."
+          },
+          "endedAt": "2026-11-08T14:56:52.212Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c127",
+              "text": "Views/dump/docs updated; replay, comprehension eval on real rendering and live run recorded."
+            }
+          ],
+          "subtasks": [
+            {
+              "id": "15.11.1",
+              "title": "Audit views and dump against spec r23 and fix gaps",
+              "status": "done",
+              "createdAt": "2026-11-08T14:21:55.239Z",
+              "updatedAt": "2026-11-08T14:22:49.012Z",
+              "startedAt": "2026-11-08T14:21:55.242Z",
+              "report": {
+                "outcome": "Audit found one gap: routed user messages showed no routing state. Transcript row reason and the user-message detail now show `routed → ids`; test added; spec §10.3 corrected. Committed 1d932c1; 242 native tests, app check 0 errors.",
+                "decisions": [
+                  "Notices stay out of the dump: they are not Truth blocks (spec §10.3 corrected).",
+                  "Widget, tree, details and dump needed no further change: JSON/history carriers, goals, item ids and scoped context were already carried by slices 4–6."
+                ]
+              },
+              "endedAt": "2026-11-08T14:22:49.012Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c128",
+                  "text": "Widget, tree, details and dump reflect JSON records, history, goals, item ids, user links; gaps fixed with tests."
+                }
+              ]
+            },
+            {
+              "id": "15.11.2",
+              "title": "Sync settings and docs",
+              "status": "done",
+              "createdAt": "2026-11-08T14:21:55.239Z",
+              "updatedAt": "2026-11-08T14:24:18.934Z",
+              "startedAt": "2026-11-08T14:22:49.015Z",
+              "report": {
+                "outcome": "Conductor README rewritten for eager folding, JSON records, root history, routed user messages and nested/adopted sessions; extension README pressure paragraph and taskPins header drop working-set/aging text. Spec §4.6/§13 aligned. Committed b43ee57; 290 native tests pass; artifact check unchanged at 258.",
+                "decisions": [
+                  "Extractor is documented as a `chat` completion (no new model type); spec corrected.",
+                  "Spec and README now state unrouted user messages fall back to the classifier gate, matching VerdictLedger.folds."
+                ]
+              },
+              "endedAt": "2026-11-08T14:24:18.934Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c129",
+                  "text": "Settings, README, AGENTS, skill and tool text match the implemented behavior; no stale working-set or aging text."
+                }
+              ]
+            },
+            {
+              "id": "15.11.3",
+              "title": "Replay session and fixtures on the final implementation",
+              "status": "done",
+              "createdAt": "2026-11-08T14:21:55.239Z",
+              "updatedAt": "2026-11-08T14:32:02.206Z",
+              "startedAt": "2026-11-08T14:24:36.779Z",
+              "report": {
+                "outcome": "Replayed 01a1b680 read-only (checksum unchanged) at three cuts. Adoption brings 1.20M tokens to 123k, under the 272k budget. The replay exposed a real planner defect, now fixed with a regression test that fails before the fix: an uncoverable child handle vetoed the whole parent fold. Full gates pass (645 conductor/core, 242 native, 1,066 app tests, app check 0 errors, smoke OK). Commits f690a5b and the evidence note.",
+                "decisions": [
+                  "Dropped uncoverable child handles instead of vetoing the parent fold; the child keeps a record without a recall code.",
+                  "A finished descendant whose work lies outside its carrier folds on its own."
+                ],
+                "open": [
+                  "Cut 3179 ends at 123k, slightly above the 119.6k before the fix, though 13 carriers replace 35; 3.11.1.2 (31k) still folds only partly.",
+                  "Eager timing and cache-prefix stability on real traffic are covered by 15.11.5."
+                ]
+              },
+              "endedAt": "2026-11-08T14:32:02.206Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c130",
+                  "text": "Read-only replay of 01a1b680 and fixtures: size, eager timing and cache-prefix stability measured and recorded."
+                }
+              ]
+            },
+            {
+              "id": "15.11.4",
+              "title": "Comprehension eval on real rendering",
+              "status": "done",
+              "createdAt": "2026-11-08T14:21:55.239Z",
+              "updatedAt": "2026-11-08T14:37:52.880Z",
+              "startedAt": "2026-11-08T14:32:08.401Z",
+              "report": {
+                "outcome": "Built harness/real.ts: replays 01a1b680 through adoption and the shipped conductor, serializes with Truth.serializeWire, and runs the probes on deepseek-flash (6 cuts, 20 probes, 2 runs each). Recall by code worked 12/12. Found that a root history named only child ids, so deep tasks could not be found by title and the agent fell back to bash/tasks status; history children now carry a 60-char title. Mean score 0.80–0.85 before, 0.85–0.93 after (small sample). Gates pass (242 native, 1,066 app, app check 0 errors, smoke OK). Committed 499b094.",
+                "decisions": [
+                  "Added child titles to history entries rather than switching to a different fold form; cost is about 25 tokens per direct child."
+                ],
+                "open": [
+                  "Only 1 current/continue probe per run: the replay finds no open task at 5 of 6 cuts, so those two kinds are barely measured on real rendering.",
+                  "Offline S baseline (0.978) uses a different probe mix; not directly comparable."
+                ]
+              },
+              "endedAt": "2026-11-08T14:37:52.880Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c131",
+                  "text": "Comprehension eval rerun on the implementation's real carriers; result compared to the offline eval."
+                }
+              ]
+            },
+            {
+              "id": "15.11.5",
+              "title": "Native terminal and live session pass",
+              "status": "done",
+              "createdAt": "2026-11-08T14:21:55.239Z",
+              "updatedAt": "2026-11-08T14:55:00.559Z",
+              "startedAt": "2026-11-08T14:37:58.874Z",
+              "report": {
+                "outcome": "Real pig session on deepseek-flash plus native terminal captures. Found and fixed a duplicate routed/agent task and a child-by-child refold; rerun shows 3 tasks, prefix breaks 6 → 1, cache hit 0.935. Evidence committed.",
+                "decisions": [
+                  "Live run uses a capped logging proxy so request prefixes can be compared exactly."
+                ],
+                "open": [
+                  "Live run is small and on one provider; real-size sessions are covered by replay only."
+                ]
+              },
+              "endedAt": "2026-11-08T14:55:00.559Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c132",
+                  "text": "Real terminal at four widths and a live pig request exercise start, notices, folding and recall."
+                }
+              ],
+              "subtasks": [
+                {
+                  "id": "15.11.5.1",
+                  "title": "Fix duplicate task when routing and the agent both add it",
+                  "status": "done",
+                  "createdAt": "2026-11-08T14:43:45.615Z",
+                  "updatedAt": "2026-11-08T14:45:32.440Z",
+                  "startedAt": "2026-11-08T14:43:45.622Z",
+                  "report": {
+                    "outcome": "Live run showed the user message extracted into task 3 while the agent concurrently added the same title as task 4. add now reuses an unstarted sibling with the same title (case/space-insensitive) and returns it in ids plus an existing list; regression test fails before and passes after, 35 tasks tests pass. Committed 5b05ace with spec §3.4.",
+                    "decisions": [
+                      "Idempotency lives in the store's add, so both the agent's add and the extractor's add are covered.",
+                      "Only bare tasks are treated as repeats; subtasks or supersedes are always real new work."
+                    ]
+                  },
+                  "endedAt": "2026-11-08T14:45:32.440Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c133",
+                      "text": "An agent add that repeats a just-extracted open task reuses its id; no duplicate; regression test fails before."
+                    }
+                  ]
+                },
+                {
+                  "id": "15.11.5.2",
+                  "title": "Stop re-folding the same region child by child",
+                  "status": "done",
+                  "createdAt": "2026-11-08T14:43:45.615Z",
+                  "updatedAt": "2026-11-08T14:53:26.211Z",
+                  "startedAt": "2026-11-08T14:46:35.221Z",
+                  "report": {
+                    "outcome": "Live replay showed a finished root folded child by child and again as a whole one request later. The planner now defers such a root and folds it once; regression test fails before and passes after, 50 taskfold tests pass. Live prefix breaks went 4 → 2 (both root folds), cache hit 0.89 → 0.93. Committed aebb604.",
+                    "decisions": [
+                      "A span deferred only because its closing blocks are in the tail or a user message is still routing waits whole; descendants fold on their own only under pressure."
+                    ]
+                  },
+                  "endedAt": "2026-11-08T14:53:26.211Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c134",
+                      "text": "A finished root with part of its span in the tail is folded once as history, not child by child; test fails before."
+                    }
+                  ]
+                },
+                {
+                  "id": "15.11.5.3",
+                  "title": "Native terminal pass at four widths",
+                  "status": "done",
+                  "createdAt": "2026-11-08T14:43:45.615Z",
+                  "updatedAt": "2026-11-08T14:55:00.555Z",
+                  "startedAt": "2026-11-08T14:54:24.207Z",
+                  "report": {
+                    "outcome": "Terminal pass recorded: 12 captures at 36/57/80/140 columns with no overlong lines (resume dialog, widget, tree with `routed → 3, p1`, span detail), plus the dump command in the real TUI producing valid YAML and tree. Evidence in evidence/live/."
+                  },
+                  "endedAt": "2026-11-08T14:55:00.555Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c135",
+                      "text": "/accordion tasks captured at 36/57/80/140 columns on the live session; findings fixed or recorded."
+                    }
+                  ]
+                },
+                {
+                  "id": "15.11.5.4",
+                  "title": "Rerun live pass and record evidence",
+                  "status": "done",
+                  "createdAt": "2026-11-08T14:43:45.615Z",
+                  "updatedAt": "2026-11-08T14:54:24.203Z",
+                  "startedAt": "2026-11-08T14:53:44.725Z",
+                  "report": {
+                    "outcome": "Rerun on deepseek-flash: three tasks (no duplicate), prefix breaks 6 → 1 (the one root fold), cache hit 0.886 → 0.935, carriers assistant, results JSON. Evidence and harness committed."
+                  },
+                  "endedAt": "2026-11-08T14:54:24.203Z",
+                  "acceptanceCriteria": [
+                    {
+                      "id": "c136",
+                      "text": "Rerun of the live harness shows no duplicate task and fewer prefix breaks; evidence committed."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "15.11.6",
+              "title": "Final gates, review, merge, push and update installs",
+              "status": "done",
+              "createdAt": "2026-11-08T14:21:55.239Z",
+              "updatedAt": "2026-11-08T14:56:52.209Z",
+              "startedAt": "2026-11-08T14:55:00.563Z",
+              "report": {
+                "outcome": "Gates passed (293 native, 1,067 app tests, app check 0 errors, extension smoke OK, artifact issues unchanged at 258, no stale working-set/aging code). Fast-forwarded feat/pi-native to c377e5b, pushed and verified on the remote; both installs updated to c377e5b clean; merged worktrees and branches removed."
+              },
+              "endedAt": "2026-11-08T14:56:52.209Z",
+              "acceptanceCriteria": [
+                {
+                  "id": "c137",
+                  "text": "Full gates pass, diff reviewed, merged to feat/pi-native, pushed, installs updated and verified."
+                }
+              ]
+            },
+            {
+              "id": "15.11.7",
+              "title": "Replay overflowed session against the final implementation",
+              "status": "abandoned",
+              "createdAt": "2026-11-08T14:24:18.938Z",
+              "updatedAt": "2026-11-08T14:24:30.773Z",
+              "report": {
+                "outcome": "Duplicate of 15.11.3 created by mistake."
+              },
+              "endedAt": "2026-11-08T14:24:30.773Z",
+              "supersededBy": "15.11.3",
+              "acceptanceCriteria": [
+                {
+                  "id": "c138",
+                  "text": "Replay of 01a1b680 and synthetic legacy sessions fits budget with adopted events and new records."
+                }
+              ]
+            },
+            {
+              "id": "15.11.8",
+              "title": "Comprehension eval on the real rendering",
+              "status": "abandoned",
+              "createdAt": "2026-11-08T14:24:18.938Z",
+              "updatedAt": "2026-11-08T14:24:30.776Z",
+              "report": {
+                "outcome": "Duplicate of 15.11.4 created by mistake."
+              },
+              "endedAt": "2026-11-08T14:24:30.776Z",
+              "supersededBy": "15.11.4",
+              "acceptanceCriteria": [
+                {
+                  "id": "c139",
+                  "text": "Comprehension eval on deepseek-flash uses the implemented carriers; scores recorded vs S baseline."
+                }
+              ]
+            },
+            {
+              "id": "15.11.9",
+              "title": "Live in-session run and cache-prefix check",
+              "status": "abandoned",
+              "createdAt": "2026-11-08T14:24:18.938Z",
+              "updatedAt": "2026-11-08T14:24:30.779Z",
+              "report": {
+                "outcome": "Duplicate of 15.11.5 created by mistake."
+              },
+              "endedAt": "2026-11-08T14:24:30.779Z",
+              "supersededBy": "15.11.5",
+              "acceptanceCriteria": [
+                {
+                  "id": "c140",
+                  "text": "Real pig session via RPC/proxy: start/complete JSON results, eager fold, byte-stable prefix, routed message."
+                }
+              ]
+            },
+            {
+              "id": "15.11.10",
+              "title": "Final gates, merge, push and update installs",
+              "status": "abandoned",
+              "createdAt": "2026-11-08T14:24:18.938Z",
+              "updatedAt": "2026-11-08T14:24:30.781Z",
+              "report": {
+                "outcome": "Duplicate of 15.11.6 created by mistake."
+              },
+              "endedAt": "2026-11-08T14:24:30.781Z",
+              "supersededBy": "15.11.6",
+              "acceptanceCriteria": [
+                {
+                  "id": "c141",
+                  "text": "Full gates, production install check, evidence committed; branch merged to feat/pi-native, pushed, installs updated."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "15.12",
+          "title": "Merge slices 1–3, push, update installed extension",
+          "status": "done",
+          "createdAt": "2026-11-08T12:51:32.526Z",
+          "updatedAt": "2026-11-08T12:53:50.957Z",
+          "startedAt": "2026-11-08T12:51:39.115Z",
+          "report": {
+            "outcome": "Fast-forwarded feat/pi-native to 3db51da and pushed (ls-remote verified). pi-bolt and pig installs both at 3db51da, clean, with taskAdoption.ts and `tasks adopt`, no placeWorkingSet. Merged worktree/branch removed.",
+            "decisions": [
+              "`pib` is a fish alias for pi-bolt (updates ~/.pi); also ran `pig update --extensions` because the nukular sessions run under pig (~/.pig)."
+            ],
+            "open": [
+              "Running Pi/pig processes must restart to load 3db51da."
+            ]
+          },
+          "endedAt": "2026-11-08T12:53:50.957Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c142",
+              "text": "origin/feat/pi-native contains slices 1–3; remote SHA verified."
+            },
+            {
+              "id": "c143",
+              "text": "pib update --extensions ran; installed checkout HEAD equals pushed SHA and contains adoption code."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "16",
+      "title": "Cache-aware fold timing",
+      "status": "done",
+      "createdAt": "2026-11-08T15:29:48.129Z",
+      "updatedAt": "2026-11-08T16:51:51.499Z",
+      "startedAt": "2026-11-08T15:29:48.154Z",
+      "report": {
+        "outcome": "Cache-aware folding is implemented and shipped: Taskfold owns the tail, holds the first request after load until the epoch commits, and defers folds beyond the cache lookback until the cache is cold or pressure requires them. feat/pi-native is at 30dd86f and both installs match.",
+        "open": [
+          "Restart pig and Pi-Bolt to load 30dd86f; the running session still has the old code.",
+          "The payback estimate was reasoned from the replay, not measured against live provider receipts."
+        ]
+      },
+      "endedAt": "2026-11-08T16:51:51.499Z",
+      "subtasks": [
+        {
+          "id": "16.1",
+          "title": "Orient: worktree, hold seam, cache signals",
+          "status": "done",
+          "createdAt": "2026-11-08T15:29:48.129Z",
+          "updatedAt": "2026-11-08T15:31:38.633Z",
+          "startedAt": "2026-11-08T15:29:48.154Z",
+          "report": {
+            "outcome": "Worktree .pi/worktrees/cache-fold on fix/cache-aware-folding. Seams: liveHost.fireWireDepartingAndAwaitHold (Taskfold declares no hold, so folds can land one request late); pi before_provider_request exposes the Anthropic payload (pi-auth-plus uses it). Pi places 3 breakpoints (system, last tool, last message); Anthropic allows 4.",
+            "decisions": [
+              "Add a cache-anchor task: extensions can rewrite the Anthropic payload in before_provider_request, so a 4th breakpoint at the last unchanged earlier-request tail makes a mid-context fold cost only the tokens after it.",
+              "Deep-fold deferral is decided by the re-run simulation, not assumed."
+            ]
+          },
+          "endedAt": "2026-11-08T15:31:38.633Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c144",
+              "text": "Worktree on fix/cache-aware-folding; hold path and available cache-cold signals mapped."
+            }
+          ]
+        },
+        {
+          "id": "16.2",
+          "title": "Re-run cost simulation with a breakpoint cache model",
+          "status": "done",
+          "createdAt": "2026-11-08T15:29:48.129Z",
+          "updatedAt": "2026-11-08T15:37:16.592Z",
+          "startedAt": "2026-11-08T15:31:46.504Z",
+          "report": {
+            "outcome": "Breakpoint cache model in sim.py shows the cost driver is the protected-tail wait, not fold depth: nukular HR 15.7M at tail 0 vs 22.2M at 20k tail (+41%), synthetic 14x; folding at the next request costs nothing extra. Recorded in fold-representations README §8, committed d3b3166.",
+            "decisions": [
+              "Taskfold takes the tail-size lock with a small tail so finished spans fold at the next request.",
+              "No extra cache breakpoint: the stable 4th breakpoint recovered only ~6% and needs per-provider payload rewriting.",
+              "Deep folds not required by pressure wait for a cold cache or a short payback (~11.5 x rewrite / saving requests)."
+            ]
+          },
+          "endedAt": "2026-11-08T15:37:16.592Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c145",
+              "text": "Simulator models breakpoints with ~20-block lookback; eager vs deferred deep folds re-measured and recorded."
+            }
+          ]
+        },
+        {
+          "id": "16.3",
+          "title": "Anchor breakpoint before the first changed message",
+          "status": "abandoned",
+          "createdAt": "2026-11-08T15:31:38.599Z",
+          "updatedAt": "2026-11-08T15:37:16.598Z",
+          "report": {
+            "outcome": "Dropped by the 16.2 measurement: a 4th breakpoint recovers only ~6% once folds wait for the tail and nothing once they land at the next request; owning the tail removes the cause instead."
+          },
+          "endedAt": "2026-11-08T15:37:16.598Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c149",
+              "text": "Anthropic payload gets a breakpoint at the latest earlier request tail before the first changed message; test."
+            },
+            {
+              "id": "c150",
+              "text": "Live receipt shows cacheRead covering the prefix up to the fold point."
+            }
+          ]
+        },
+        {
+          "id": "16.4",
+          "title": "Own the protected tail so finished spans fold at the next request",
+          "status": "done",
+          "createdAt": "2026-11-08T15:37:16.607Z",
+          "updatedAt": "2026-11-08T15:49:37.016Z",
+          "startedAt": "2026-11-08T15:37:28.113Z",
+          "report": {
+            "outcome": "Taskfold holds tail-size with tail 0, so finished spans fold at the next request; records never end the request; floor and untracked pressure folds stay outside the user's dial; detach restores the dial as far as safe. Each guard has a test that fails without it; native 555, app 1,046 tests, check and smoke pass. Committed dcddb9f with spec r24 and READMEs.",
+            "decisions": [
+              "Detach inherits the largest tail up to the user's dial that keeps every fold outside it, instead of the zero enforced tail — the user gets the dial back without healing frozen work.",
+              "A record whose span ends at the newest message waits one step — otherwise the wire ends on an assistant carrier (prefill).",
+              "User's tail dial stays locked while attached (existing tail-size contract, as for handoff); Taskfold applies its value to floor and untracked folds."
+            ],
+            "open": [
+              "Pre-existing limitation, unchanged: a task whose calls all land in a neighbour's group (batched complete+start+work in one message) leaves bare results that never fold.",
+              "Pre-existing bun-only failures: 7 core/conductor timer tests and one AgedSummary env-import test."
+            ]
+          },
+          "endedAt": "2026-11-08T15:49:37.016Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c151",
+              "text": "Taskfold holds tail-size with a small configurable tail; a finished task folds at the next request in a real-Truth test."
+            },
+            {
+              "id": "c152",
+              "text": "Floor and untracked records still respect the user's tail."
+            }
+          ]
+        },
+        {
+          "id": "16.5",
+          "title": "Hold the first request after load/expiry until the epoch ran",
+          "status": "done",
+          "createdAt": "2026-11-08T15:29:48.129Z",
+          "updatedAt": "2026-11-08T16:50:59.982Z",
+          "startedAt": "2026-11-08T15:49:43.473Z",
+          "report": {
+            "outcome": "Taskfold declares a 2s wire hold and its wire-departing handler returns the in-flight epoch, so the first request after load carries the folds instead of leaving one request early. Test fails without the hold and passes with it.",
+            "decisions": [
+              "The hold reuses the existing wire-departing seam rather than a new hook; the epoch is synchronous CPU so the hold settles in well under its window."
+            ]
+          },
+          "endedAt": "2026-11-08T16:50:59.982Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c146",
+              "text": "After resume/restart/model change/TTL expiry the first wire waits for the epoch; test fails before."
+            }
+          ]
+        },
+        {
+          "id": "16.6",
+          "title": "Defer deep folds unless cold, pressured or paying off",
+          "status": "done",
+          "createdAt": "2026-11-08T15:29:48.129Z",
+          "updatedAt": "2026-11-08T16:51:36.959Z",
+          "startedAt": "2026-11-08T16:51:08.116Z",
+          "report": {
+            "outcome": "A fold starting more than 20 blocks behind the tail waits unless the cache is cold or pressure requires it; folds inside the lookback stay eager. Both the deferral and the pressure override are tested, and the gate is present in the pushed commit.",
+            "decisions": [
+              "No separate payback trigger: a deep fold's rewrite includes its own span, so the cost always exceeds the per-request saving and it never pays back in a few requests. It waits for a cold cache or pressure."
+            ]
+          },
+          "endedAt": "2026-11-08T16:51:36.959Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c147",
+              "text": "Folds beyond the tail lookback wait unless cache cold, pressure, or payback; tail folds stay eager; tests."
+            }
+          ]
+        },
+        {
+          "id": "16.7",
+          "title": "Spec, docs, gates, merge, push, update installs",
+          "status": "done",
+          "createdAt": "2026-11-08T15:29:48.129Z",
+          "updatedAt": "2026-11-08T16:51:51.495Z",
+          "startedAt": "2026-11-08T16:51:36.966Z",
+          "report": {
+            "outcome": "Spec r25 and the extension README record the hold and the deep-fold wait. Gates passed: 52 conductor tests, 243 extension tests, smoke OK, artifact issues unchanged at 258. Merged and pushed feat/pi-native to 30dd86f; local, remote and both installs verified at that commit."
+          },
+          "endedAt": "2026-11-08T16:51:51.495Z",
+          "acceptanceCriteria": [
+            {
+              "id": "c148",
+              "text": "Spec/README updated; gates pass; merged, pushed and installs updated."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

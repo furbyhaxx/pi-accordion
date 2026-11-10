@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
+  "version": 2,
+  "slug": "skill-examples",
+  "title": "Skill: minimum depth wording and worked translation examples",
+  "createdAt": "2026-11-06T20:02:17.582Z",
+  "updatedAt": "2026-11-06T22:33:53.315Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "Fix depth wording to a minimum of two to three levels for broad work",
+      "status": "done",
+      "createdAt": "2026-11-06T20:02:17.582Z",
+      "updatedAt": "2026-11-06T20:02:28.197Z",
+      "startedAt": "2026-11-06T20:02:20.170Z",
+      "report": {
+        "outcome": "SKILL.md and decomposition.md now say broad work needs a minimum of two to three levels (four is the limit); only genuinely small changes stay flat."
+      },
+      "endedAt": "2026-11-06T20:02:28.197Z"
+    },
+    {
+      "id": "2",
+      "title": "Add worked examples translating work into fine-grained lists",
+      "status": "done",
+      "createdAt": "2026-11-06T20:02:17.582Z",
+      "updatedAt": "2026-11-06T20:03:50.876Z",
+      "startedAt": "2026-11-06T20:02:28.199Z",
+      "report": {
+        "outcome": "Skill now states a minimum of two to three levels for broad work and teaches translation with five worked examples."
+      },
+      "endedAt": "2026-11-06T20:03:50.876Z",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write examples reference with validated JSON",
+          "status": "done",
+          "createdAt": "2026-11-06T20:02:17.582Z",
+          "updatedAt": "2026-11-06T20:03:48.097Z",
+          "startedAt": "2026-11-06T20:02:28.199Z",
+          "report": {
+            "outcome": "Wrote references/examples.md: a five-step translation method, a bad/good activity-split contrast, five worked examples (feature, bug, migration, phased plan, research) and mid-way change rules. Four JSON lists validate."
+          },
+          "endedAt": "2026-11-06T20:03:48.097Z"
+        },
+        {
+          "id": "2.2",
+          "title": "Link from SKILL.md, verify and commit",
+          "status": "done",
+          "createdAt": "2026-11-06T20:02:17.582Z",
+          "updatedAt": "2026-11-06T20:03:50.873Z",
+          "startedAt": "2026-11-06T20:03:48.100Z",
+          "report": {
+            "outcome": "Linked both references from SKILL.md and SPEC-0002, added a test that every shipped skill list example passes the validator, ran task/schema tests and the package smoke, and committed as e6e87a2."
+          },
+          "endedAt": "2026-11-06T20:03:50.873Z"
+        }
+      ]
+    }
+  ]
+}

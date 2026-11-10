@@ -1,0 +1,988 @@
+{
+  "slug": "accordion-tui-polish",
+  "title": "Accordion TUI polish: TaskFold unit first, then spec/plan/handoff",
+  "createdAt": "2026-11-05T08:09:24.748Z",
+  "updatedAt": "2026-11-06T14:16:01.442Z",
+  "claim": null,
+  "tasks": [
+    {
+      "id": "1",
+      "title": "TaskFold visibility unit (installable)",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:30:00.306Z",
+      "report": {
+        "outcome": "Installable TaskFold visibility unit on feat/taskfold-widget: task timing, above-editor widget (collapsed/expanded/smart hiding/blink/folds/tokens), one-line tasks/unfold/recall rows, /accordion tasks + alt+t, taskWidget settings; verified by tests, smoke and live PiG.",
+        "open": [
+          "Mouse clicks on the widget are not delivered by PiG 0.5.3; keyboard/command fallback in place"
+        ]
+      }
+    },
+    {
+      "id": "1.1",
+      "title": "Worktree + read taskfold/tasks code",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:11:48.205Z",
+      "report": {
+        "outcome": "Worktree .pi/worktrees/taskfold-widget on feat/taskfold-widget (from feat/pi-native, which carries taskfold; devmain does not). Host APIs confirmed: setWidget factory (aboveEditor), registerTool renderCall/renderResult/renderShell self, MouseRegion/handleMouse, registerShortcut.",
+        "decisions": [
+          "Branch from feat/pi-native instead of origin/devmain — taskfold and tasks tool exist only there (49 commits ahead)",
+          "Widget data: TaskStore lists claimed by this session + Truth groups (fold state via record tag key) + task spans for tokens",
+          "Shortcut alt+t (unbound in pi/pig defaults) plus /accordion tasks command as keyboard fallback for mouse"
+        ],
+        "open": [
+          "Mouse routing to widgets under PiG subprocess runtime unverified — check live"
+        ]
+      }
+    },
+    {
+      "id": "1.2",
+      "title": "Task timing + fold state model (tasks.ts, taskfold exports)",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:12:50.262Z",
+      "report": {
+        "outcome": "Task gains optional startedAt/endedAt; taskfold exports scanTaskSpans (finished + open spans) and taskKeyOfSummary, conductor reuses them. Tests added; committed.",
+        "decisions": [
+          "Open spans appended after finished ones — conductor ordering for finished spans unchanged",
+          "Optional timestamps — older list files without them render without durations"
+        ]
+      }
+    },
+    {
+      "id": "1.3",
+      "title": "Tree view model + smart hiding (pure, tested)",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:29:35.909Z",
+      "report": {
+        "outcome": "taskTree.ts: tree build, summary (done/total/folded/time/current), smart hiding nearest-first around the active path with reveal/toggle overrides; tested against the sketch scenario.",
+        "decisions": [
+          "Revealing a single hidden sibling shows the task itself — same row cost as `… 1 hidden`",
+          "Counts use done only; failed/abandoned render ☒ — matches sketch 3/7 semantics",
+          "Narrow rows drop duration before truncating the title"
+        ]
+      }
+    },
+    {
+      "id": "1.4",
+      "title": "Above-editor widget (collapsed/expanded, blink, mouse, keyboard)",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:29:46.238Z",
+      "report": {
+        "outcome": "Widget above editor: collapsed 2 lines (▲/►), expanded tree (▼) with ☐▣☒▶◐, blinking running task, durations, (fold)/(n/m), ≡ count and span tokens full→live; alt+t + /accordion tasks [expand|collapse|hide|show]; handleMouse implemented.",
+        "decisions": [
+          "Visible only while the attached conductor declares the tasks tool and the session holds a list — no stale widget",
+          "List files read only on reload (session start, tasks calls) — render does no IO",
+          "Settings under taskWidget {mode, expanded, maxRows, toggleKey}"
+        ],
+        "open": [
+          "PiG does not route mouse events to extension widgets (verified live); click-to-expand works only where the host dispatches widget mouse events. Needs a PiG change or a focused tasks view for per-branch toggles."
+        ]
+      }
+    },
+    {
+      "id": "1.5",
+      "title": "Tool renderers (tasks, unfold, recall)",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:29:46.240Z",
+      "report": {
+        "outcome": "Self-shell one-line rows: `✓ tasks start 3.2 Title`, complete with duration/status, errors inline `✗ … · reason`, expanded shows report or list; unfold/recall rows with codes and restored/missing counts. tasks results carry structured details."
+      }
+    },
+    {
+      "id": "1.6",
+      "title": "Verify: tests, smoke, live PiG at 36/57/80/140",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:29:46.241Z",
+      "report": {
+        "outcome": "72 bun tests pass; extension smoke suite passes; no new tsc errors (ad-hoc tsc 5.9). Live PiG 0.5.3 with deepseek-flash: rows, collapsed/expanded/all-done, fold indicators (≡3, 8.2k→4.0k), hide/show, error row, widths 36/57/80/140 without overflow.",
+        "open": [
+          "Pre-existing tsc errors in agedSummaryConductor.ts and accordion.ts unfold/recall execute types — unchanged by this branch"
+        ]
+      }
+    },
+    {
+      "id": "1.7",
+      "title": "Commit + install instructions",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:29:55.533Z",
+      "report": {
+        "outcome": "Five commits on feat/taskfold-widget (worktree .pi/worktrees/taskfold-widget), history buildable per commit. Install: replace the git:...pi-accordion@feat/pi-native package entry with the worktree path, or push the branch and point the ref at it.",
+        "decisions": [
+          "Branched from feat/pi-native, not origin/devmain — taskfold and the tasks tool exist only on feat/pi-native (49 commits ahead)",
+          "Not pushed, user settings not edited — external/shared changes need authorization"
+        ]
+      }
+    },
+    {
+      "id": "2",
+      "title": "Spec/design for the rest (TUI, settings, compact, web)",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:40:18.636Z",
+      "report": {
+        "outcome": "SPEC-0001 at .project/specs/0001-accordion-ui-polish.md: decisions D1–D9, UI rules, delivered Taskfold contract, panel module split + screen contract + wireframes, full settings schema/store/sync, compaction strategies/requestPass/bake/undo/card, footer, protocol v23 + web surfaces, verification. Claims checked against code.",
+        "decisions": [
+          "Settings sync via SQLite sidecar mutex + existing ~1s poll — reuses controller-lease primitive",
+          "compactMode replaced by compact{manual,threshold,onSaturated} with load-time migration — three behaviours",
+          "Compaction result as appendEntry + entry renderer — custom messages would reach the model"
+        ]
+      }
+    },
+    {
+      "id": "3",
+      "title": "Implementation plan",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:40:46.664Z",
+      "report": {
+        "outcome": "PLAN-0001 at .project/plans/0001-accordion-ui-polish/plan.md: slices S1–S6 with dependencies, branches, steps, done criteria; S0 recorded done; tsc baseline verified (7 pre-existing errors)."
+      }
+    },
+    {
+      "id": "4",
+      "title": "Handoff document",
+      "status": "done",
+      "updatedAt": "2026-11-05T08:41:40.703Z",
+      "report": {
+        "outcome": "HO-accordion-ui-polish at .project/handoff/accordion-ui-polish.md: state, done list, exact commands (tests, smoke, tsc config + 7-error baseline, isolated live PiG run), traps, open items. Artifacts + .project bootstrap committed as 63c0102-amended docs commit.",
+        "open": [
+          "Merge of feat/taskfold-widget into feat/pi-native is a user decision; S1 base depends on it"
+        ]
+      }
+    },
+    {
+      "id": "5",
+      "title": "Task list reclaim on resume + /accordion tasks lists",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:11:54.527Z",
+      "startedAt": "2026-11-05T08:58:50.583Z",
+      "report": {
+        "outcome": "Resumed sessions get their task list back via silent reclaim or a resume dialog (reclaim/take over/choose/new/without) and the agent gets precise notes; /accordion tasks lists browses, attaches, releases and creates lists. Pushed and installed.",
+        "decisions": [
+          "Session file is the memory (accordion.tasks.binding entries) with tool-call fallback — no new store, works for old sessions",
+          "One attached list per session: attaching releases the others",
+          "Silent reclaim only for free+unchanged on reload or headless; resume always asks"
+        ]
+      },
+      "endedAt": "2026-11-05T09:11:54.527Z"
+    },
+    {
+      "id": "5.1",
+      "title": "Store: claim names, claim state, fingerprint, slugify",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:00:29.015Z",
+      "startedAt": "2026-11-05T08:58:50.584Z",
+      "report": {
+        "outcome": "TaskStore claims carry the session name; claimState, taskFingerprint (content hash, ignores claim writes), slugFor, claimedBySession; tested.",
+        "decisions": [
+          "Fingerprint = sha256 over id/status/updatedAt/title — ms timestamps alone missed same-ms changes",
+          "claimState mine/free/stale/held with the existing 30-min staleness rule"
+        ]
+      },
+      "endedAt": "2026-11-05T09:00:29.015Z"
+    },
+    {
+      "id": "5.2",
+      "title": "Binding: last binding from session history, resume situation, agent notices (pure, tested)",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:00:29.016Z",
+      "startedAt": "2026-11-05T09:00:29.016Z",
+      "report": {
+        "outcome": "extension/taskBinding.ts: previousBinding (binding entries, else tasks tool calls), changedSince, resumeSituation, agentNotice/attachedNotice with exact agent-facing texts; 6 tests incl. real entry shapes.",
+        "decisions": [
+          "History fallback treats task writes > last own call + 2s as foreign changes — sessions recorded before binding entries have no fingerprint",
+          "Holding actions: create/claim/add/start/complete/fail/abandon; release detaches"
+        ]
+      },
+      "endedAt": "2026-11-05T09:00:29.016Z"
+    },
+    {
+      "id": "5.3",
+      "title": "Task lists browser component (manage + pick modes)",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:04:37.597Z",
+      "startedAt": "2026-11-05T09:00:29.016Z",
+      "report": {
+        "outcome": "extension/tui/taskLists.ts: TaskListsBrowser (manage/pick; list, detail tree, take-over confirm, inline new-list title) and ResumeDialog (reclaim/take over, choose another, start new, continue without); width-fitted rows; 5 key-driven tests.",
+        "decisions": [
+          "Taking over a live foreign claim always needs a confirmation step — the other session's agent loses write access",
+          "Esc in the resume dialog = continue without — the agent still gets a notice",
+          "Narrow rows fall back to short claim words (yours/free/held/stale) — slug never cut below 28"
+        ]
+      },
+      "endedAt": "2026-11-05T09:04:37.597Z"
+    },
+    {
+      "id": "5.4",
+      "title": "Resume dialog + agent notice wiring in accordion.ts",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:11:54.525Z",
+      "startedAt": "2026-11-05T09:04:37.598Z",
+      "report": {
+        "outcome": "taskSession.ts orchestrates resume (silent or dialog), binding entries, agent notes via before_agent_start (renderer `▲ tasks note to the agent`), browse(); wired in accordion.ts with /accordion tasks lists."
+      },
+      "endedAt": "2026-11-05T09:11:54.525Z"
+    },
+    {
+      "id": "5.5",
+      "title": "Spec/docs update, verify live, commit, push, update install",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:11:54.526Z",
+      "startedAt": "2026-11-05T09:11:54.526Z",
+      "report": {
+        "outcome": "Spec rev 2 (§4.8, §4.9), README/AGENTS updated; 91 tests + smoke pass, no new tsc errors; live two-session PiG run verified dialog, take-over, notes, browser at 36/57/100; pushed da678da and pig update applied."
+      },
+      "endedAt": "2026-11-05T09:11:54.526Z"
+    },
+    {
+      "id": "6",
+      "title": "Task protocol guidance, folding fixes, sticky budget/tail",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:06:02.871Z",
+      "startedAt": "2026-11-05T10:06:02.868Z",
+      "report": {
+        "outcome": "Task protocol repaired and coached, Taskfold folds batched boundaries, keeps the newest task and ages old records, widget shows fold tokens, and budget/tail stick per model with model defaults; all pushed and installed.",
+        "decisions": [
+          "Budget follows the model on switch — each model resolves session value → default → window",
+          "Auto-close parents only when all subtasks are finished — unfinished branches still block with guidance",
+          "Aging ladder rewrites only Taskfold's own record summaries, same group ids — fold codes and recall survive"
+        ]
+      },
+      "endedAt": "2026-11-05T10:06:02.871Z"
+    },
+    {
+      "id": "6.1",
+      "title": "tasks.ts: auto-start ancestors, auto-close finished parents, completion hints",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:47:57.244Z",
+      "startedAt": "2026-11-05T09:46:13.100Z",
+      "report": {
+        "outcome": "start auto-starts unstarted ancestors; moving on from an open parent with all subtasks finished closes it (done/failed) with a composed report and autoClosed flag; finishing the last subtask returns a nudge to complete the parent; span scanner understands both. Tests added.",
+        "decisions": [
+          "Auto-close only when every subtask is finished — a parent with open subtasks still rejects, with guidance",
+          "Span scanner reads the result text lines — no new structured state needed, old transcripts unaffected"
+        ]
+      },
+      "endedAt": "2026-11-05T09:47:57.244Z"
+    },
+    {
+      "id": "6.2",
+      "title": "Agent guidance + nudges (tool text, outside-work and empty-span nudges)",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:50:03.518Z",
+      "startedAt": "2026-11-05T09:47:57.245Z",
+      "report": {
+        "outcome": "Tool description and guidelines spell out span discipline; TaskCoach appends a reminder on the 3rd then every 8th tool result run outside any task (naming the next task) and notes finished tasks whose span saw no work; wired via tool_result hook and runTasksTracked.",
+        "decisions": [
+          "Reminders appended to tool results via tool_result hook — reaches the agent at the moment of drift, never blocks",
+          "Work counter is in-memory — a task whose start this session did not see gets no empty-span note rather than a false one"
+        ]
+      },
+      "endedAt": "2026-11-05T09:50:03.518Z"
+    },
+    {
+      "id": "6.3",
+      "title": "Taskfold: overlap edge fix, keepRecentTasks, aging ladder",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:54:15.469Z",
+      "startedAt": "2026-11-05T09:50:03.521Z",
+      "report": {
+        "outcome": "Taskfold: span edges pull inward past groups that share a boundary message (also within one epoch), keepRecentTasks (default 1) keeps the newest finished top-level task open, and an aging ladder (full → one-line → archived stub, oldest first, newest record kept) runs when folding every finished span is not enough.",
+        "decisions": [
+          "Ladder rewrites only Taskfold's own group summaries, same ids — codes and recall survive, no range merges",
+          "Newest record never aged; groups touched by this epoch's folds skipped",
+          "Edges move inward past foreign or already-planned groups; interior foreign groups still block"
+        ]
+      },
+      "endedAt": "2026-11-05T09:54:15.469Z"
+    },
+    {
+      "id": "6.4",
+      "title": "Widget: fold tokens per task and on collapsed parents",
+      "status": "done",
+      "updatedAt": "2026-11-05T09:55:24.224Z",
+      "startedAt": "2026-11-05T09:54:15.473Z",
+      "report": {
+        "outcome": "Widget rows show `(fold 35.2k → 400)` for group owners, `(fold)` for subtasks folded inside a parent, `(3/7 · 2 folded · 20.0k → 500)` on closed parents and token sums on hidden runs; narrow widths fall back to the short form. Model carries foldTokens from foldedTaskTokens."
+      },
+      "endedAt": "2026-11-05T09:55:24.224Z"
+    },
+    {
+      "id": "6.5",
+      "title": "Budget/tail: human tokens, model defaults, session memory, ctrl+s, commands",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:00:33.070Z",
+      "startedAt": "2026-11-05T09:55:24.225Z",
+      "report": {
+        "outcome": "dials.ts parses 200k/1M/0.5M/85%, resolves session value → most specific modelDefaults key → window (tail → 20k), records accordion.dials entries per model; panel b/t inputs accept human amounts with live preview, Enter = session, ctrl+s = also default for this model; /accordion budget|tail <amount> [--default]; smoke-context regressions for resume and model switch.",
+        "decisions": [
+          "Session memory as accordion.dials session entries keyed by provider/model — resume and model switches restore without new files",
+          "Enter applies to the session only; ctrl+s additionally writes modelDefaults[provider/model] — user decision",
+          "Budget follows the model on switch — each model resolves its own session value/default/window"
+        ]
+      },
+      "endedAt": "2026-11-05T10:00:33.070Z"
+    },
+    {
+      "id": "6.6",
+      "title": "Spec/docs, verify (tests, smoke, live), commit, push, reinstall",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:05:56.496Z",
+      "startedAt": "2026-11-05T10:00:33.071Z",
+      "report": {
+        "outcome": "Spec rev 3 (§4.4 markers, §4.10–4.12, §6.1 modelDefaults), README/extension README/AGENTS/plan updated; 114 tests + smoke + tsc baseline green; live PiG verified ctrl+s default, resume restoring tail and default budget, auto-start/hint/auto-close, fold markers and keepRecentTasks; pushed 3b30017 and PiG install updated.",
+        "open": [
+          "Pi writes a session file only after the first exchange, so dials set before any prompt are not persisted"
+        ]
+      },
+      "endedAt": "2026-11-05T10:05:56.496Z"
+    },
+    {
+      "id": "7",
+      "title": "Widget: remember expanded state, show subtask counts on finished parents",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:40:04.347Z",
+      "startedAt": "2026-11-05T10:16:19.565Z",
+      "report": {
+        "outcome": "Widget remembers expanded/collapsed globally across sessions and shows done/total on every parent, finished ones included; pushed, reinstall with the tree work."
+      },
+      "endedAt": "2026-11-05T10:40:04.347Z"
+    },
+    {
+      "id": "7.1",
+      "title": "Persist expanded/collapsed across restarts",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:39:03.437Z",
+      "startedAt": "2026-11-05T10:16:19.565Z",
+      "report": {
+        "outcome": "Toggling (alt+t, /accordion tasks expand|collapse, header click) saves taskWidget.expanded to config.json, so new and resumed sessions open in the last state; controller regression test added.",
+        "decisions": [
+          "Global in config.json, not per session — user accepted proposal: one toggle sticks everywhere"
+        ]
+      },
+      "endedAt": "2026-11-05T10:39:03.437Z"
+    },
+    {
+      "id": "7.2",
+      "title": "done/total on every parent row",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:39:44.993Z",
+      "startedAt": "2026-11-05T10:39:03.438Z",
+      "report": {
+        "outcome": "Every task with subtasks shows done/total first in its marker, finished parents included: `(2/2 · 2 folded · 10.0k → 200)`, and a folded parent `(n/m · fold …)`; spec row updated; test added."
+      },
+      "endedAt": "2026-11-05T10:39:44.993Z"
+    },
+    {
+      "id": "7.3",
+      "title": "Verify, commit, push, reinstall",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:40:04.347Z",
+      "startedAt": "2026-11-05T10:40:04.346Z",
+      "report": {
+        "outcome": "Both widget fixes pushed (9dbf118); widget tests pass.",
+        "open": [
+          "Reinstall deferred to 8.4 so the install happens once"
+        ]
+      },
+      "endedAt": "2026-11-05T10:40:04.347Z"
+    },
+    {
+      "id": "8",
+      "title": "Design: list drill-down, fold inspector, /accordion tasks tree (wireframes)",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:44:41.675Z",
+      "startedAt": "2026-11-05T10:40:04.348Z",
+      "report": {
+        "outcome": "Groundwork for the tree views: persisted Taskfold verdicts and a pure task-centred transcript model; screens paused for the proposal.",
+        "open": [
+          "Screens (list drill-down, task detail, span inspector, /accordion tasks tree) pending approval",
+          "1868123 and ec28447 not pushed"
+        ]
+      },
+      "endedAt": "2026-11-05T10:44:41.675Z"
+    },
+    {
+      "id": "8.1",
+      "title": "Taskfold verdicts: source + threshold exposed, persisted as session entries, reloaded",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:42:19.021Z",
+      "startedAt": "2026-11-05T10:40:04.348Z",
+      "report": {
+        "outcome": "verdicts.ts: Verdict {loss, source: classifier|harness|opening|error}, VerdictLedger with threshold (=maxLoss on attach) and folds(), persisted as accordion.taskfold.verdict entries and seeded on session_start; resumed sessions reuse verdicts without re-classifying (test).",
+        "decisions": [
+          "Process-wide ledger injected into the registry's Taskfold — one session per extension process; the extension resets it on session_start",
+          "Failed classifications stay in memory only — a later session may classify them after all",
+          "Only durable block ids (u:/a:/r:/s:) are persisted — positional ids do not survive reload"
+        ]
+      },
+      "endedAt": "2026-11-05T10:42:19.021Z"
+    },
+    {
+      "id": "8.2",
+      "title": "taskTranscript.ts: pure transcript/span model (tested)",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:44:31.339Z",
+      "startedAt": "2026-11-05T10:42:19.022Z",
+      "report": {
+        "outcome": "taskTranscript.ts: sessionTranscript (top-level tasks nested by containment, user messages with verdict reasons, untracked runs), spanTranscript (start edge, subtasks, folds holding members, kept users, steps, finish edge), userReason, recordLevel, transcriptSource(Truth); 3 tests.",
+        "decisions": [
+          "Folds win over subtasks they cover only when the fold belongs to this span or an ancestor — a child's own fold stays inside its task node",
+          "Tokens come pre-calibrated in TBlock/TGroup — views stay Truth-free and testable"
+        ]
+      },
+      "endedAt": "2026-11-05T10:44:31.339Z"
+    },
+    {
+      "id": "8.3",
+      "title": "Tree screens: list tree, task details, span inspector, tasks tree",
+      "status": "abandoned",
+      "updatedAt": "2026-11-05T12:11:07.655Z",
+      "startedAt": "2026-11-05T10:44:31.340Z",
+      "report": {
+        "outcome": "Stopped before building screens: the user asked for a tree proposal first.",
+        "open": [
+          "Screens wait for approval of the tree proposal; 8.1 and 8.2 are unpushed local commits (1868123, ec28447)"
+        ]
+      },
+      "endedAt": "2026-11-05T10:44:41.675Z",
+      "supersededBy": "9.3"
+    },
+    {
+      "id": "8.4",
+      "title": "Wire: lists drill-down, /accordion tasks tree, verify live, docs, push, reinstall (incl. 7.3)",
+      "status": "abandoned",
+      "updatedAt": "2026-11-05T12:11:07.655Z",
+      "supersededBy": "9.5",
+      "endedAt": "2026-11-05T12:11:07.655Z",
+      "report": {
+        "outcome": "Superseded by task 9: the wiring, live verification, docs and reinstall ran as 9.5 after the user approved the tree proposal."
+      }
+    },
+    {
+      "id": "9",
+      "title": "Task tree views with actions",
+      "status": "done",
+      "updatedAt": "2026-11-05T11:11:10.861Z",
+      "startedAt": "2026-11-05T10:49:30.084Z",
+      "report": {
+        "outcome": "Task drill-down (list tree, details, span view, text viewer with classifier input, fold/pin/unfold actions) and /accordion tasks tree delivered, with task createdAt and stored classifier answers; live testing found and fixed a Taskfold bug that left batched tasks unfolded. Pushed and installed.",
+        "decisions": [
+          "Actions go through the controller lease like the panel — one steering gate",
+          "Verdicts persist as session entries with all classifier answers — resume neither loses nor re-bills them",
+          "Untracked tool work visible by default; plain answers between tasks are not flagged"
+        ]
+      },
+      "endedAt": "2026-11-05T11:11:10.861Z"
+    },
+    {
+      "id": "9.1",
+      "title": "Data: task createdAt, all classifier answers in verdicts",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:50:06.572Z",
+      "startedAt": "2026-11-05T10:49:30.084Z",
+      "report": {
+        "outcome": "Verdicts store confidence, the supporting questions' probabilities (keep_goal, durable_rule, overrule), model and time; tasks get createdAt on create/add; tests updated and added.",
+        "decisions": [
+          "Supporting answers stored as probability of true per question key — all three are bool questions"
+        ]
+      },
+      "endedAt": "2026-11-05T10:50:06.572Z"
+    },
+    {
+      "id": "9.2",
+      "title": "Shared tree view component (pure rows + input, tested)",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:51:36.784Z",
+      "startedAt": "2026-11-05T10:50:06.575Z",
+      "report": {
+        "outcome": "treeView.ts: TreeNode/TreeRow, flattenTree with connectors, filterKeys, treeRowLine dropping right value then meta before cutting the label, TreeState (move, ←/→, toggle, filter, scroll, position); 4 tests.",
+        "decisions": [
+          "Filter matches ancestors but not non-matching descendants — results stay short",
+          "Selection keyed by node key and falls back to the nearest row — survives live rebuilds"
+        ]
+      },
+      "endedAt": "2026-11-05T10:51:36.784Z"
+    },
+    {
+      "id": "9.3",
+      "title": "Screens: task tree, task details, span view, session tree, text viewer, actions",
+      "status": "done",
+      "updatedAt": "2026-11-05T10:59:01.339Z",
+      "startedAt": "2026-11-05T10:51:36.785Z",
+      "report": {
+        "outcome": "taskViews.ts: list tree, task details (planned/waited/ran/report/changed/checks/fold level), span view, session tree, text viewer with record↔original and classifier detail; f/p/u actions through the controller lease; wired into /accordion tasks lists and new /accordion tasks tree. Fixed stale-rows key handling. 128 tests, smoke, tsc baseline green; commit 72c0632.",
+        "decisions": [
+          "Session tree lists only tasks, user messages and untracked runs; steps live in the span view — keeps the overview readable",
+          "Lease claim extracted into claimNativeControl shared by panel and task views — one steering gate, no duplicate",
+          "Ctrl+C inside a list drill-down returns to the browser — a second Ctrl+C closes it"
+        ]
+      },
+      "endedAt": "2026-11-05T10:59:01.339Z"
+    },
+    {
+      "id": "9.4",
+      "title": "Wiring: /accordion tasks tree, list drill-in, control gate",
+      "status": "done",
+      "updatedAt": "2026-11-05T11:09:05.987Z",
+      "startedAt": "2026-11-05T10:59:01.340Z",
+      "report": {
+        "outcome": "Live PiG run verified session tree, span view, subtask spans, block viewer, fold record↔original, unfold/fold/pin through the lease, list drill-down, details screen and classifier detail; widths 57/36 fit. Found and fixed: Taskfold never folded a task whose closing message carried the next task's work into the tail (regression test), raw refusal ids, step fold state, untracked flag on plain answers, contradictory verdict wording, breadcrumb, wrapped detail values. 129 tests, smoke, tsc baseline green.",
+        "decisions": [
+          "Trailing protected/held message trims the record edge like a foreign group — batching agents otherwise never fold",
+          "Text-only runs between tasks render as answers, not untracked warnings — only tool calls outside tasks are misses",
+          "esc moved to second hint — survives narrow widths"
+        ]
+      },
+      "endedAt": "2026-11-05T11:09:05.987Z"
+    },
+    {
+      "id": "9.5",
+      "title": "Verify live, spec/docs, commit, push, reinstall",
+      "status": "done",
+      "updatedAt": "2026-11-05T11:11:10.860Z",
+      "startedAt": "2026-11-05T11:09:05.988Z",
+      "report": {
+        "outcome": "Spec rev 4 (§4.13 drill-down, §4.14 session tree, §4.11 protected trailing edge), plan rev 2, handoff rev 2 (state was stale: 'not pushed'), READMEs and AGENTS.md updated; pushed 945f736; PiG install updated via pig update and verified loading /accordion tasks tree in an isolated home."
+      },
+      "endedAt": "2026-11-05T11:11:10.860Z"
+    },
+    {
+      "id": "10",
+      "title": "Task states: blocked, abandoned, failed + supersededBy + description",
+      "status": "done",
+      "createdAt": "2026-11-05T12:00:49.170Z",
+      "updatedAt": "2026-11-05T12:18:52.004Z",
+      "startedAt": "2026-11-05T12:00:49.171Z",
+      "report": {
+        "outcome": "Tasks gained a real blocked state with required reasons and resume, distinct glyphs and struck-through abandoned rows, supersededBy/supersedes, strict parent completion, a rewritten tool description and recorded stop verdicts; verified live, documented, pushed and installed.",
+        "decisions": [
+          "⧗ for blocked per user choice; abandoned strikes id and title, glyph plain",
+          "complete refuses unstarted/blocked subtasks; fail/abandon cascade them",
+          "Every agent stop records an idle verdict — the basis for detecting premature stops"
+        ]
+      },
+      "endedAt": "2026-11-05T12:18:52.004Z"
+    },
+    {
+      "id": "10.1",
+      "title": "Store: blocked status + reasons, supersededBy, parent completion rule",
+      "status": "done",
+      "createdAt": "2026-11-05T12:00:49.170Z",
+      "updatedAt": "2026-11-05T12:04:24.190Z",
+      "startedAt": "2026-11-05T12:00:49.171Z",
+      "report": {
+        "outcome": "tasks.ts: status blocked with block {reason user-decision|user-input|third-party|dependency, detail, on, at, resumedAt}, IDLE_REASONS, block action, resume via start (Resumed/Also resumed lines), complete refused on unstarted/blocked subtasks, fail/abandon cascade, abandon on todo/blocked, supersededBy on abandon and supersedes on add; 4 new tests; commit f5f5f46.",
+        "decisions": [
+          "Block history kept as Task.blocks with resumedAt — durations exclude paused time and idle detection gets the record",
+          "Blocking a subtask also blocks open ancestors with nothing else in progress (reason dependency on the subtask) — otherwise the open parent would stop all other work",
+          "fail/abandon on a parent abandons its unstarted/blocked subtasks; complete refuses — per user decision",
+          "abandon works on todo and blocked tasks; complete/fail need a task in progress"
+        ]
+      },
+      "endedAt": "2026-11-05T12:04:24.190Z"
+    },
+    {
+      "id": "10.2",
+      "title": "Taskfold + coach: blocked spans stay open, idle detection basis, nudge picks",
+      "status": "done",
+      "createdAt": "2026-11-05T12:00:49.170Z",
+      "updatedAt": "2026-11-05T12:06:11.896Z",
+      "startedAt": "2026-11-05T12:04:24.191Z",
+      "report": {
+        "outcome": "scanTaskSpans keeps a blocked task's span open and resumes it from its first start (Resumed/Also resumed lines); coach's nextTask resumes dependency-blocked tasks whose dependency finished and skips work under user waits; idleVerdict (in-progress | pending | waiting | finished) recorded per agent stop as accordion.tasks.idle; commit 6ce05f4.",
+        "decisions": [
+          "Verdict recorded at every agent_end as a session entry — premature stops become queryable later without guessing",
+          "Todo tasks under a user/third-party wait are not suggested — starting them would resume the waiting parent"
+        ]
+      },
+      "endedAt": "2026-11-05T12:06:11.896Z"
+    },
+    {
+      "id": "10.3",
+      "title": "Widget/views/rows: glyphs, strikethrough, (fold) only on ran tasks, blocked reasons",
+      "status": "done",
+      "createdAt": "2026-11-05T12:00:49.170Z",
+      "updatedAt": "2026-11-05T12:08:52.055Z",
+      "startedAt": "2026-11-05T12:06:11.898Z",
+      "report": {
+        "outcome": "Glyphs ☐ ▶ ◐ ⧗ ▣ ☒ ⊘ with colors; abandoned id+title struck through and dim; blocked rows show the reason (yellow), superseded rows `→ id`; durations exclude blocked time; (fold) only on subtasks that ran; details screen shows Blocked/Paused periods, Superseded/Replaces; tool rows for block, resumed, failed in red, → replacement; commit 1bd895a.",
+        "decisions": [
+          "Abandoned strikes id and title, glyph stays plain — the state still reads at a glance",
+          "Collapsed widget shows current, else the blocked task with its reason, else next — a wait is the most important thing to see when nothing runs"
+        ]
+      },
+      "endedAt": "2026-11-05T12:08:52.055Z"
+    },
+    {
+      "id": "10.4",
+      "title": "Tool description rewrite",
+      "status": "done",
+      "createdAt": "2026-11-05T12:00:49.170Z",
+      "updatedAt": "2026-11-05T12:10:59.960Z",
+      "startedAt": "2026-11-05T12:08:52.059Z",
+      "report": {
+        "outcome": "tasks tool description, snippet and guidelines rewritten: lifecycle, exact meaning of complete/fail/abandon/block, the four block reasons and which allow stopping, parent/branch rules, supersededBy/supersedes, report contents; schema gains block, reason, detail, blockedBy, supersededBy, supersedes; commit 71f92fe. Smoke 'context hook failed' line is pre-existing (present at 3b30017)."
+      },
+      "endedAt": "2026-11-05T12:10:59.960Z"
+    },
+    {
+      "id": "10.5",
+      "title": "Data cleanup 8.3/8.4, verify live, docs, push, reinstall",
+      "status": "done",
+      "createdAt": "2026-11-05T12:00:49.170Z",
+      "updatedAt": "2026-11-05T12:18:52.000Z",
+      "startedAt": "2026-11-05T12:10:59.961Z",
+      "report": {
+        "outcome": "8.3 → superseded by 9.3, 8.4 abandoned and superseded by 9.5; live PiG run confirmed block/ask/resume, refused parent completion, supersede, strikethrough, 36/57 columns; fixed never-started span wording; spec rev 5 §4.15, handoff rev 3, AGENTS/README; pushed 6e3dcf4 and PiG install updated.",
+        "decisions": [
+          "Edited the list file directly for 8.3/8.4 — the store refuses to supersede a finished task and 8.3 was already abandoned; backup at /tmp/atp.backup.json"
+        ]
+      },
+      "endedAt": "2026-11-05T12:18:52.000Z"
+    },
+    {
+      "id": "11",
+      "title": "Research + proposal: orientation phase handling (pre-task context)",
+      "status": "done",
+      "createdAt": "2026-11-05T13:11:56.785Z",
+      "updatedAt": "2026-11-05T13:13:50.295Z",
+      "startedAt": "2026-11-05T13:11:56.786Z",
+      "report": {
+        "outcome": "Analyzed how Taskfold treats pre-task context (never folded), measured it in the reference session (60% of tokens), consulted the KB, and proposed a typed orientation fold as task 0.",
+        "open": [
+          "User to choose the approach and answer the open decisions before implementation"
+        ]
+      },
+      "endedAt": "2026-11-05T13:13:50.295Z"
+    },
+    {
+      "id": "11.1",
+      "title": "Current behavior: how Taskfold treats context before the first task",
+      "status": "done",
+      "createdAt": "2026-11-05T13:11:56.785Z",
+      "updatedAt": "2026-11-05T13:12:14.468Z",
+      "startedAt": "2026-11-05T13:11:56.786Z",
+      "report": {
+        "outcome": "Taskfold folds only finished task spans (plan() iterates scanTaskSpans roots). Everything outside a span — orientation before the first start, untracked work between tasks, user messages there — is never folded and never aged; it stays raw for the whole session. Over budget with no finished span only yields a warning status."
+      },
+      "endedAt": "2026-11-05T13:12:14.468Z"
+    },
+    {
+      "id": "11.2",
+      "title": "Reference session analysis (pig-workbench 'continue slice 1')",
+      "status": "done",
+      "createdAt": "2026-11-05T13:11:56.785Z",
+      "updatedAt": "2026-11-05T13:12:44.154Z",
+      "startedAt": "2026-11-05T13:12:14.469Z",
+      "report": {
+        "outcome": "Reference session: orientation = 16 tool calls and ~41.6k of ~70k tokens (60%) before the first task start. Content: user goal+constraints (300 tok), handoff 4.8k, plan 8.8k, five skills ~17k, grep 4.6k, git/ls/env state ~1.1k; the plan was transcribed into the task list. No file was re-read later."
+      },
+      "endedAt": "2026-11-05T13:12:44.154Z"
+    },
+    {
+      "id": "11.3",
+      "title": "Knowledge base: context engineering / compaction evidence",
+      "status": "done",
+      "createdAt": "2026-11-05T13:11:56.785Z",
+      "updatedAt": "2026-11-05T13:13:41.920Z",
+      "startedAt": "2026-11-05T13:12:44.155Z",
+      "report": {
+        "outcome": "KB ai-context-management: state must be routed by type — constraints/rules/goals pinned verbatim (17% retention in summaries, governance violations 0→30%, rules 53%→10% over five rounds; per-type triage 2–4x better); evidence as addressable pointers not prose (83% of failures act on unsupported summary entries); remove stale rivals; folding the head breaks the cache for everything after, so batch it."
+      },
+      "endedAt": "2026-11-05T13:13:41.920Z"
+    },
+    {
+      "id": "11.4",
+      "title": "Write proposal with options, pros/cons, recommendation",
+      "status": "done",
+      "createdAt": "2026-11-05T13:11:56.785Z",
+      "updatedAt": "2026-11-05T13:13:50.294Z",
+      "startedAt": "2026-11-05T13:13:41.922Z",
+      "report": {
+        "outcome": "Proposal for the orientation phase written in chat: four options (status quo, synthetic task 0, typed brief, explicit agent task) with pros/cons, recommendation and open decisions.",
+        "decisions": [
+          "Recommend a synthetic task 0 'Orientation' with a typed brief: verbatim goal/constraints, evidence index with recall pointers, agent-written orientation report — KB: per-type routing beats uniform summary"
+        ]
+      },
+      "endedAt": "2026-11-05T13:13:50.294Z"
+    },
+    {
+      "id": "12",
+      "title": "Experiment: orientation modes (exp/orientation-modes)",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T16:26:43.939Z",
+      "startedAt": "2026-11-05T14:10:48.680Z",
+      "report": {
+        "outcome": "Orientation experiment complete on exp/orientation-modes: configurable typed fold, agent-tracked orientation and pins built and tested; tier-1 replay (6 sessions) and tier-2 live runs (96) show none beats the status quo; written up in .project/analyses/orientation-modes/README.md.",
+        "decisions": [
+          "Experiment stays on exp/orientation-modes, unpushed and unmerged until the user decides"
+        ],
+        "open": [
+          "Push the branch?",
+          "Follow-up: folding inside long open task spans"
+        ]
+      },
+      "endedAt": "2026-11-05T16:26:43.939Z"
+    },
+    {
+      "id": "12.1",
+      "title": "Options plumbing: conductorOptions.taskfold.orientation -> Taskfold + tasks tool text",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T14:15:55.143Z",
+      "startedAt": "2026-11-05T14:10:48.680Z",
+      "report": {
+        "outcome": "conductorOptions.taskfold.orientation {fold off|typed, agentTask, rules live|fold} validated in settings, passed to Taskfold via a registry options getter; tasks tool gains `brief`, arm-specific guidelines, and a one-time brief nudge on the first start under typed. Committed c on exp/orientation-modes.",
+        "decisions": [
+          "Registry reads Taskfold options through a getter the extension sets once — settings are reassigned in 7 places",
+          "D detects the orientation task by title prefix \"Orientation\" — create numbers tasks from 1, no task 0 possible",
+          "Guidelines are fixed at extension load — changing the arm needs /reload (fine for the experiment)"
+        ]
+      },
+      "endedAt": "2026-11-05T14:15:55.143Z"
+    },
+    {
+      "id": "12.2",
+      "title": "Typed orientation fold (C) + brief field + nudge, tested",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T14:17:40.299Z",
+      "startedAt": "2026-11-05T14:15:55.144Z",
+      "report": {
+        "outcome": "Typed orientation fold: orientationSpan (first-start boundary, or the agent's finished \"Orientation…\" task under agentTask), record with brief (create/claim brief or orientation task outcome), per-call source index with sizes, rule reads (SKILL/AGENTS/CLAUDE…) kept verbatim in place under rules: live; folds first, never aged. 5 new tests, 142 total pass.",
+        "decisions": [
+          "Orientation ends before the message holding the first tasks start — that message's preamble stays with the task",
+          "Rule files stay ungrouped in place (rules: live) instead of being copied into the record — no duplication, cache-identical text",
+          "Orientation record excluded from the aging ladder; folds first and once"
+        ],
+        "open": [
+          "Not shown as task 0 in the widget yet (UI after the experiment)",
+          "Untracked runs between tasks still never fold"
+        ]
+      },
+      "endedAt": "2026-11-05T14:17:40.299Z"
+    },
+    {
+      "id": "12.3",
+      "title": "Agent-managed orientation (D) tool guidance",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T14:18:25.534Z",
+      "startedAt": "2026-11-05T14:17:40.300Z",
+      "report": {
+        "outcome": "D's guideline (shipped in 12.1) is now covered per arm: off adds none, typed asks for a brief, agentTask asks for an \"Orientation: …\" first task (and wins over typed's brief text)."
+      },
+      "endedAt": "2026-11-05T14:18:25.534Z"
+    },
+    {
+      "id": "12.4",
+      "title": "Tier-1 replay harness: probe extraction, arm contexts, scoring",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T14:29:21.489Z",
+      "startedAt": "2026-11-05T14:18:25.535Z",
+      "report": {
+        "outcome": "Harness under .project/analyses/orientation-modes/harness: replay.ts (linearize like the extension, TestHost + Taskfold per arm, serializeWire, cut points after the 1st and 4th finished span), probe.ts (12 typed fact probes extracted once and cached, answer + judge calls, logged, cost tracked), tier1.ts (runner, results table, spending cap). Found and fixed two Taskfold bugs along the way: orientation partly inside the tail never folded, and kept rule results pinned their whole parallel batch (rules now copied into the record).",
+        "decisions": [
+          "deepseek-flash via its API directly, thinking off, temp 0, JSON mode — cheap, reproducible; prompts put instructions after the long material",
+          "Replay = worst case (no recall, no brief in historic sessions); stated as a limitation"
+        ]
+      },
+      "endedAt": "2026-11-05T14:29:21.489Z"
+    },
+    {
+      "id": "12.5",
+      "title": "Tier-1 run on real sessions + results",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T14:32:56.901Z",
+      "startedAt": "2026-11-05T14:29:21.491Z",
+      "report": {
+        "outcome": "Six real sessions, 9 cut points, $0.89: A 98% retention at 89% of full; C 70% at 52%; C-rules-fold 65% at 49%; C+brief 78% at 52%. No C arm meets the promotion bar in replay; losses are evidence facts (values/constraints in tool output), not user instructions. Written to .project/analyses/orientation-modes/README.md.",
+        "decisions": [
+          "Added a C+brief arm (brief generated by the same model from the orientation, injected into tasks create) — the historic sessions have no brief, and it is C's main lever"
+        ],
+        "open": [
+          "Replay cannot recall folded records; tier 2 decides",
+          "Nested tasks calls inside codemode are invisible to Taskfold (a944 session)"
+        ]
+      },
+      "endedAt": "2026-11-05T14:32:56.901Z"
+    },
+    {
+      "id": "12.6",
+      "title": "Tier-2 fixtures + headless live runner",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T15:01:40.836Z",
+      "startedAt": "2026-11-05T14:48:53.665Z",
+      "report": {
+        "outcome": "Two fixtures (ratelimit, invoices) with long orientation material, superseded-draft traps, AGENTS.md rules and hidden graders (tests + constraint checks), validated against reference solutions; tier2.py runs headless PiG per arm with isolated ACCORDION_HOME and extracts usage, rereads, recall/unfold, pins, brief and idle verdict. Pilot of 12 runs cost $0.52.",
+        "decisions": [
+          "Budget 24k / tail 4k — at 40k the work finished before any fold, so nothing was stressed",
+          "Grader validated against reference solutions after the pilot exposed three grader bugs (clock unit, dict-clearing, nested config numbers)",
+          "Late plan steps (rejection path + log; summary file) need orientation facts after orientation has folded"
+        ]
+      },
+      "endedAt": "2026-11-05T15:01:40.836Z"
+    },
+    {
+      "id": "12.7",
+      "title": "Tier-2 runs (deepseek-flash, N=5) + analysis + verdict",
+      "status": "done",
+      "createdAt": "2026-11-05T14:10:48.678Z",
+      "updatedAt": "2026-11-05T16:26:43.938Z",
+      "startedAt": "2026-11-05T15:01:40.838Z",
+      "report": {
+        "outcome": "96 live runs ($7.79 incl. pilots): all arms 100% pass, 0 violations; typed fold lowers peak context ~20% but raises re-reads and costs the same or more; pins used in 15/48 runs and never better. Verdict: keep A.",
+        "decisions": [
+          "Added a second round (16k budget + unnamed phase-2 requirement) after round 1 hit the ceiling",
+          "Verdict: keep A default; options stay on the branch, default off"
+        ],
+        "open": [
+          "Long open tasks never fold (75–160k at 16k budget) — in-span folding is the bigger lever",
+          "Single model, two fixtures, files always available: does not test unrepeatable sources"
+        ]
+      },
+      "endedAt": "2026-11-05T16:26:43.938Z"
+    },
+    {
+      "id": "12.8",
+      "title": "Pins: store, verbatim validation, caps, scoping, working-set injection (tested)",
+      "status": "done",
+      "createdAt": "2026-11-05T14:44:25.293Z",
+      "updatedAt": "2026-11-05T14:48:53.663Z",
+      "startedAt": "2026-11-05T14:44:25.295Z",
+      "report": {
+        "outcome": "extension/pins.ts (validation, caps, scoping, file re-anchoring, working set) with tests; tasks pin/unpin actions (only when orientation.pins is on), guidance, file-pin refresh after tool results, working-set injection in the context hook. 148 tests, smoke OK, no new type errors.",
+        "decisions": [
+          "Pins live in session entries (accordion.pins), not the list file — they belong to the session's context",
+          "Working set appended as the last message (before a trailing user message) — cached prefix unchanged",
+          "Verbatim check against user messages / the cited file; caps 300 chars, 30 lines, 2000 session / 1500 per task",
+          "Finished tasks' pins leave view; not yet listed in the task record"
+        ]
+      },
+      "endedAt": "2026-11-05T14:48:53.663Z"
+    },
+    {
+      "id": "12.9",
+      "title": "Pins: tool actions, guidance, option flag, tier-1 C+pins arm",
+      "status": "abandoned",
+      "createdAt": "2026-11-05T14:44:25.293Z",
+      "updatedAt": "2026-11-05T14:48:53.664Z",
+      "report": {
+        "outcome": "Folded into 12.8 (tool actions, guidance, option flag); the simulated tier-1 C+pins arm is dropped in favour of live runs, which measure real pinning behaviour."
+      },
+      "endedAt": "2026-11-05T14:48:53.664Z"
+    },
+    {
+      "id": "13",
+      "title": "Experiment: Taskfold + Keel rungs (K arms)",
+      "status": "done",
+      "createdAt": "2026-11-05T21:52:00.881Z",
+      "updatedAt": "2026-11-06T08:33:20.944Z",
+      "startedAt": "2026-11-05T21:52:00.882Z",
+      "blocks": [
+        {
+          "reason": "dependency",
+          "detail": "subtask 13.5 is blocked",
+          "on": "13.5",
+          "at": "2026-11-05T22:38:15.457Z",
+          "resumedAt": "2026-11-06T07:09:21.547Z"
+        }
+      ],
+      "report": {
+        "outcome": "Taskfold + Keel/Doorman/Keel-note thinning built, tested and evaluated (tier 1 + 50 live runs): no quality loss, ~45% lower peak context for open-span thinning, but 17–44% higher cost; recommended as opt-in budget guard, not default.",
+        "open": [
+          "Branch exp/orientation-modes unpushed",
+          "Possible follow-up: fewer, larger thinning epochs; recall-over-reread guidance"
+        ]
+      },
+      "endedAt": "2026-11-06T08:33:20.944Z"
+    },
+    {
+      "id": "13.1",
+      "title": "Read keel-lite/keel-note/doorman composition points",
+      "status": "done",
+      "createdAt": "2026-11-05T21:52:00.881Z",
+      "updatedAt": "2026-11-05T21:57:58.407Z",
+      "startedAt": "2026-11-05T21:52:00.882Z",
+      "report": {
+        "outcome": "Read keel-lite's ladder/analysis, keel-note's proxy-host composition and doorman's wire-departing birth fold; composition via a proxy host that marks untouchable blocks held, with Keel limited by a new maxRung option."
+      },
+      "endedAt": "2026-11-05T21:57:58.407Z"
+    },
+    {
+      "id": "13.2",
+      "title": "Taskfold + keel rungs via proxy host (orientation / open spans), tested",
+      "status": "done",
+      "createdAt": "2026-11-05T21:52:00.881Z",
+      "updatedAt": "2026-11-05T21:59:35.613Z",
+      "startedAt": "2026-11-05T21:58:09.630Z",
+      "report": {
+        "outcome": "Taskfold drives keel-lite (or keel-note) and doorman through a masking proxy host; unit tests cover orientation/open scope, docs kept, finished spans still folding, birth skeletons. Live PiG: orientation 7.7k → 1.5k with thinking, code read and bash output folded and the spec kept whole.",
+        "decisions": [
+          "Keel limited to R1–R4 via new maxRung — R5–R7 would fold docs or group across spans Taskfold later folds",
+          "Proxy marks finished spans, document/rule reads (.md/.txt/...) and, in orientation scope, everything after orientation as held"
+        ]
+      },
+      "endedAt": "2026-11-05T21:59:35.613Z"
+    },
+    {
+      "id": "13.3",
+      "title": "Doorman birth skeletons + note brief options",
+      "status": "done",
+      "createdAt": "2026-11-05T21:52:00.881Z",
+      "updatedAt": "2026-11-05T21:59:52.582Z",
+      "startedAt": "2026-11-05T21:59:35.615Z",
+      "report": {
+        "outcome": "Doorman birth skeletons (orientation.birthSkeleton) and the keel-note note (orientation.note) are selectable options of the same thinning composition; birth skeletons tested (code read skeletonized before first send, docs untouched) and verified live; the note runs keel-note's own tested model path."
+      },
+      "endedAt": "2026-11-05T21:59:52.582Z"
+    },
+    {
+      "id": "13.4",
+      "title": "Tier-1 replay for K arms",
+      "status": "done",
+      "createdAt": "2026-11-05T21:52:00.881Z",
+      "updatedAt": "2026-11-05T22:04:23.589Z",
+      "startedAt": "2026-11-05T21:59:52.584Z",
+      "report": {
+        "outcome": "Tier-1 replay over 6 sessions × 2 cuts ($0.42): A 96% retention at 88% sent, K 87% at 68%, K+/K+D 88% at 63%, versus C 70% at 53%. Losses: values in function bodies of skeletonized code reads, text in trimmed bash dumps and folded thinking.",
+        "decisions": [
+          "K+D equals K+ in replay — birth skeletons only differ live, where results arrive fresh one by one"
+        ],
+        "open": [
+          "Probe set counts incidental text (rules quoted in a bash dump) as constraints — penalizes any trimming"
+        ]
+      },
+      "endedAt": "2026-11-05T22:04:23.589Z"
+    },
+    {
+      "id": "13.5",
+      "title": "Tier-2 live runs + analysis + verdict",
+      "status": "done",
+      "createdAt": "2026-11-05T21:52:00.881Z",
+      "updatedAt": "2026-11-06T08:33:20.942Z",
+      "startedAt": "2026-11-05T22:04:23.591Z",
+      "blocks": [
+        {
+          "reason": "user-input",
+          "detail": "DeepSeek returns 402 Insufficient Balance; the user must top up the DeepSeek account (about $5 needed) before the remaining 45 tier-2 runs can execute",
+          "at": "2026-11-05T22:38:15.457Z",
+          "resumedAt": "2026-11-06T07:09:21.547Z"
+        }
+      ],
+      "report": {
+        "outcome": "50 live runs ($7.58): all arms 50/50 pass, 0 violations; K+/K+D/K+N cut peak context 89k → 45–53k but cost $0.156–0.174 vs $0.121, cache 96.4% → 90–93%, rereads 1.7 → 4–6; K alone ~no effect. Verdict written to the analysis README.",
+        "decisions": [
+          "Keep A as default; thin:\"open\" only as an opt-in budget guard — halves peak context but costs 17–44% more via cache breaks and rereads",
+          "Drop thin:\"orientation\" and birthSkeleton — no live benefit"
+        ],
+        "open": [
+          "exp/orientation-modes not pushed"
+        ]
+      },
+      "endedAt": "2026-11-06T08:33:20.942Z"
+    }
+  ]
+}
