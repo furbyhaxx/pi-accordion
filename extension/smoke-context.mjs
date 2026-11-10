@@ -36,7 +36,7 @@ function runtime(messages = [], options = {}) {
 	};
 	const ctx = {
 		mode: "tui", hasUI: true, cwd: options.cwd ?? home, model,
-		ui: { notify() {}, setStatus() {}, confirm: async () => true, theme: { fg: (_c, s) => s } },
+		ui: { notify() {}, setStatus() {}, confirm: async () => true, select: async (_title, options) => options.at(-1), theme: { fg: (_c, s) => s } },
 		sessionManager: {
 			getSessionId: () => options.sessionId ?? "context-test-session",
 			getBranch: () => [...messages.map(message => ({ type: "message", message })), ...entries],

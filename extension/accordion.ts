@@ -3613,7 +3613,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		refreshControllerNow();
 		const current = controllerLease;
 		const contested = current && current.surfaceId !== lastNativeSurfaceId && isFreshLease(current, Date.now());
-		const takeControl = !contested || (await ctx.ui.confirm("Take Accordion control?", `${current.label} currently controls Accordion. ${purpose} will make that surface read-only.`));
+		// The safe choice comes first and is what Esc means: open without taking the lease.
+		const take = "Take control";
+		const takeControl = !contested || (await ctx.ui.select(`${current.label} controls Accordion. ${purpose} makes that surface read-only.`, ["Open read-only", take])) === take;
 		if (sessionId !== openedSessionId) return null;
 		let error: string | null = null;
 		if (takeControl) {

@@ -123,6 +123,8 @@ const ctx = {
 	ui: { setStatus() {}, notify(message, type) { notifications.push({ message, type }); }, theme: { fg: (_c, s) => s } },
 	model: { id: "test/model", contextWindow: 1000 },
 	getContextUsage: () => ({ tokens: 42, contextWindow: 1000 }),
+	cwd: HOME,
+	sessionManager: { getSessionId: () => "smoke-session", getBranch: () => [], getEntries: () => [] },
 };
 handlers.session_start({}, ctx);
 
@@ -167,8 +169,9 @@ if (accordionCmd) {
 if (accordionCmd) {
 	await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true }));
 	nativeProbeMode = "read-only";
-	let asked = false;
-	await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true, ui: { ...ctx.ui, confirm: async () => { asked = true; return false; } } }));
+	let asked = null;
+	await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true, ui: { ...ctx.ui, select: async (_title, options) => { asked = options; return options[0]; } } }));
+	if (asked?.join("|") !== "Open read-only|Take control") fails.push(`takeover prompt must list the read-only choice first, got ${JSON.stringify(asked)}`);
 	if (!asked || JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8")).surfaceId !== "other-surface") fails.push("native panel did not respect declined takeover");
 	fs.unlinkSync(CONTROLLER_PATH);
 }
