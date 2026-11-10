@@ -5,18 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-05T12:10:31+01:00"
+  updated_at: "2026-11-10T10:38:03+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["document creation"]
-    - revision: 2
-      reason: "S0 grew with user-requested Taskfold work"
-      changes: ["S0 progress line covers SPEC §4.8–4.14 on feat/taskfold-widget"]
+    - revision: 3
+      reason: "S1 delivered on the dashboard standard instead of the bare-key shell"
+      changes: ["S1 rewritten and marked done", "task views and footer split off as S1b", "evidence/ captures added"]
 ---
 
 # Accordion UI polish: plan
@@ -29,7 +26,8 @@ implementation must deviate, update the spec in the same change.
 
 ```
 done  S0  Taskfold visibility unit and task tooling (§4)  feat/taskfold-widget  8c2fb44…HEAD (pushed)
-next  S1  Panel shell, chrome, footer (§3, §5.1–5.2, §8)
+done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)  feat/panel-shell (not merged)
+next  S1b Task views on the standard (§11 item 0); footer (§8)
 later S2  Settings store, sync, schema (§6.1, §6.3)
 later S3  Settings screen (§6.2)
 later S4  Compaction (§7)
@@ -75,7 +73,7 @@ Design:
   accent background), search line, blank line, body, middle rule, description (or `▲ message`),
   hint row (dropped by priority, `esc` kept), bottom rule (`↓ N more`). Rules take the
   thinking-level color; text inside them is dim.
-- **Height**: body rows = clamp(terminal rows − 11, 3, 14), computed on open and on resize only.
+- **Height**: body rows = clamp(terminal rows − 12, 3, 14), computed on open and on resize only.
 - **Tabs**: Context ❱ Conductors ❱ Settings. Context has two views, map and list (`alt+v`);
   typing in the map view switches to the list and filters. Left/Right switch tabs except in the
   map view, where they move the cell.
@@ -118,6 +116,10 @@ Files: `extension/tui/chrome.ts` (+ test), `extension/tui/panel.ts`, `extension/
 Done when: tests and smoke pass; live capture at 36/57/80/140 columns and 16 rows shows no
 overflow; a test sends every printable ASCII key to every screen and nothing fires; every
 pre-existing panel action still works.
+
+Result: delivered on `feat/panel-shell`. 217 bun tests, smoke and the tsc baseline of 7 hold.
+`evidence/` holds 48 live PiG captures (12 screens at 36/57/80/140 columns, two at 16 rows), each
+taken with its own `ACCORDION_HOME` so no run meets the previous one's controller lease.
 
 ## S2: settings store, sync and schema
 

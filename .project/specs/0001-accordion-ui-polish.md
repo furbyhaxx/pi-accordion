@@ -5,22 +5,23 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 9
+  revision: 10
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-06T16:26:15+01:00"
+  updated_at: "2026-11-10T10:38:03+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 9
-      reason: "require a goal when creating task lists in the UI"
-      changes: ["§4.9 browser and resume creation collect the goal"]
+    - revision: 10
+      reason: "the panel follows the extending-pig dashboard standard"
+      changes: ["§3.5-3.8 selection, keys, hints and height", "§5.1-5.2 delivered shell, frame and chord table", "§5.3-§7 panel keys are modifier chords", "§11 task views still on bare keys"]
 ---
 
 # Accordion UI polish
 
 Inputs: the approved chat wireframes of 2026-11-05 (reproduced here), the user's sketch
 `.project/user-uploaded-assets/2026-11-05T09:00+01:00-taskfold-widget-sketch.md`, and the house UI
-conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md`). The implementation plan is
+conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md` and, for the panel,
+`references/dashboard-standard.md`). The implementation plan is
 `.project/plans/0001-accordion-ui-polish/plan.md`.
 
 "MUST" marks a requirement an implementation is checked against. Everything else is explanation.
@@ -30,7 +31,7 @@ conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md`). The imple
 | Area | In scope |
 |---|---|
 | A. Taskfold visibility | task widget above the editor, one-line tool rows for `tasks`/`unfold`/`recall`. **Delivered** (§4). |
-| B. Panel (`/accordion`) | new shell with chrome, tabs, fitted hints; Overview, Context (timeline, grid, list), Inspector, Conductors, Settings, Help screens. |
+| B. Panel (`/accordion`) | dashboard-standard shell with chrome, tabs, fitted hints (**delivered**, §5.1–5.2); Overview, Context (timeline, grid, list), Inspector, Conductors, Settings, Help screens. |
 | C. Settings | every `config.json` key editable; staged edits saved with `ctrl+s`; cross-instance sync; source and override display; validation errors. |
 | D. Compaction | one compaction entry point with strategies `pass`, `aggressive`, `bake`, `native`; conductor settle wait; `/compact <instructions>`; threshold handling; preview; undo; result card. |
 | E. Footer status | shorter, fitted status segment. |
@@ -69,16 +70,21 @@ These apply to every TUI surface in this spec. Each MUST hold.
    alone: the selected-block strip names it, and `?` shows the legend.
 4. **Glyphs.** `✓ ✗ ▲ ● ○ ◐ ▶ ☐ ▣ ☒ ⧗ ⊘ › · …` plus the box-drawing set. No emoji (`⏸` renders as
    one in common terminals; blocked uses `⧗`).
-5. **Selection** is a `›` marker plus accent; no row background. The selected row keeps its kind
-   colors (today's `theme.fg("accent", row)` repaint is removed).
+5. **Selection** is a `→` cursor plus a bold label; no row background. The selected row keeps its
+   kind colors.
 6. **Keys.** Enter confirms or drills in. Esc clears a filter, then goes back one level, then closes.
-   `ctrl+c` closes from any depth. Both ask before discarding staged settings. Bare-letter
-   accelerators are disabled while a text input or filter has focus. Tab/Shift+Tab cycle tabs;
-   `1`–`4` jump to a tab.
-7. **Hints.** One hint row per screen, built from a priority-ordered list and fitted with
-   `fitSegments`; `? keys` is always the last kept segment when anything was dropped.
-8. **Height.** The panel body sizes to content, capped at `rows − 6`, never below 6 rows, and never
-   shrinks while switching tabs inside one panel session (it keeps its maximum).
+   `ctrl+c` closes from any depth. Both ask before discarding staged settings. Tab/Shift+Tab cycle
+   tabs; Left/Right too, unless the screen moves or changes a value with them. `F1` opens help.
+   **No single-key actions in the panel:** a printable key types into the filter or an inline
+   input and does nothing else; every action is a modifier chord (§5.2). A test sends every
+   printable ASCII key to every screen and asserts that nothing fired. The task views of §4 predate
+   this rule and still use bare keys; converting them is open (§11).
+7. **Hints.** One hint row per screen, built from a priority-ordered list; the highest priority
+   number is dropped first and the cancel key is always kept. Key names come from the user's
+   bindings (`keys.getKeys`).
+8. **Height.** The panel body has a fixed height while open: `clamp(rows − 12, 3, 14)`, computed
+   on open and on resize only. Switching tabs, filtering, drilling in, help and confirms never
+   change it; content scrolls inside and the rules show `↑ N more` / `↓ N more`.
 9. **Session binding.** A panel belongs to the session that opened it (unchanged rule in
    `AGENTS.md`); late async results after a session switch touch nothing.
 10. **Untrusted text** (block text, task titles, model output) goes through the existing `clean()`
@@ -458,61 +464,71 @@ all → tasks only → untracked only. Enter opens a task's span (§4.13).
 
 ## 5. Area B: the panel
 
-### 5.1 Module structure
-
-`extension/tui/panel.ts` (723 lines, one closure) is replaced by:
+### 5.1 Module structure (delivered)
 
 | File | Owns |
 |---|---|
-| `extension/tui/panel.ts` | `openAccordionPanel(ctx, host)`: the `ctx.ui.custom` loop, screen stack, tab switching, digest-editor round trip (kept as today) |
-| `extension/tui/chrome.ts` | `renderFrame({ width, title, crumbs, state, tabs, body, status, hints })`, `fitSegments`, `fitHints(hints, width)`, `ruleLine` |
-| `extension/tui/screens/overview.ts` | Overview screen |
-| `extension/tui/screens/context.ts` | Context screen: timeline, grid, list views and block actions |
-| `extension/tui/screens/inspector.ts` | Inspector |
-| `extension/tui/screens/conductors.ts` | Conductor list, detail, consent |
-| `extension/tui/screens/settings.ts` | Settings list, editors, staging |
-| `extension/tui/screens/help.ts` | Key reference |
-| `extension/tui/timeline.ts` | pure timeline model (§5.4) |
+| `extension/tui/panel.ts` | `openAccordionPanel(ctx, host, start?)`: the `ctx.ui.custom` loop, tab switching, key routing, filter, help, confirm screens, `pending` command state, the digest-editor round trip |
+| `extension/tui/chrome.ts` | the frame: `renderFrame`, `ruleLine`, `crumbText`, `tabBar`, `searchLine`, `hintRow`, `makeChrome` (rule and chip painters), `fitSegments`, `bodyRowsFor` |
+| `extension/tui/screens/types.ts` | `PanelTab`, `TabView`, `Shell`, `ConfirmSpec`, `DigestAction` |
+| `extension/tui/screens/context.ts` | Context tab: map and list views, Inspector, block actions |
+| `extension/tui/screens/conductors.ts` | Conductor list and consent |
+| `extension/tui/screens/settings.ts` | Settings rows, inline editors, staging |
 
-Screen contract (TypeScript, `extension/tui/screens/types.ts`):
+Later slices add `screens/overview.ts` and `timeline.ts` (§5.3–5.4). A tab implements `PanelTab`:
+it returns a `TabView` (body lines, extra breadcrumb levels, description, hints, scroll counts),
+handles the keys the shell did not take, and reports `typing()`, `query()`, `dirty()`. Help is
+generated by the shell from the tab's hints plus its `legend()`.
 
-```ts
-export interface Hint { key: string; label: string; priority: number } // lower = kept longer
-export interface ScreenFrame { crumbs: string[]; state?: string; body: string[]; status?: string; hints: Hint[] }
-export type ScreenResult =
-  | { kind: "stay" } | { kind: "back" } | { kind: "close" }
-  | { kind: "push"; screen: Screen } | { kind: "tab"; tab: TabId }
-  | { kind: "editDigest"; action: DigestAction };   // today's DigestAction, unchanged
-export interface Screen {
-  render(width: number, bodyRows: number, theme: Theme): ScreenFrame;
-  handleInput(data: string, keys: KeybindingsManager): ScreenResult;
-  /** True when leaving would discard staged edits. */
-  dirty?(): boolean;
-  dispose?(): void;
-}
-export type TabId = "overview" | "context" | "conductors" | "settings";
-```
+### 5.2 Frame (delivered)
 
-### 5.2 Frame
+The nine lines of the dashboard standard, on every screen:
 
 ```
-────────────────────────────────────────────────────────────────────────────────   borderAccent
- Accordion › Overview                        ● folding  taskfold ✓  you control    title row
- [Overview]  Context   Conductors   Settings                     current session   tab row
-────────────────────────────────────────────────────────────────────────────────   border
- …body…
-────────────────────────────────────────────────────────────────────────────────   border
- status line (message, warning or scroll position; blank otherwise)                dim / warning
- enter context · c compact… · o folding off · tab next · ? keys       esc close    hint row
+── Accordion › Settings ──────────── ▲ 2 staged · 8.1k/425.0k tok · ● folding ──   top rule
+ ❱ Context ❱ Conductors ❱ Settings                                                 tab bar
+ ⌕ Type to filter…                                                                 search line
+
+ …body, fixed height…
+────────────────────────────────────────────────────────────────────────────────   middle rule
+ Conductor attached when a session starts armed. Stored in ~/.accordion/config.…   description
+ enter next value · ctrl+s save · ←→ change · f1 help · esc close                  hint row
+─────────────────────────────────── ↓ 7 more ───────────────────────────────────   bottom rule
 ```
 
-- Title row: crumbs left (`Accordion › Context › Inspector`); right state segments in this order,
-  dropped from the end: folding (`● folding` accent / `○ folding off` dim), conductor
-  (`<label> ✓|▲|✗` by status level), control (`you control` / `READ-ONLY` warning).
-  Below 57 columns the crumbs keep only the last two.
-- Tab row: the four tabs, active one `[Name]` in accent; right: session label (`current session`
-  or `<title> · <cwd>` fish-shortened). Below 57 columns the tab row shows only `‹ Name ›`.
-- Read-only surfaces show `READ-ONLY · reopen /accordion to request control` in the status line.
+- Rules take the thinking-level color (`theme.getThinkingBorderColor`, repainted on
+  `thinking_level_select`), `border` without it. Text inside rules is dim.
+- Top rule: breadcrumbs left (`Accordion › Tab › Drill-in`; the earliest levels drop first), `↑ N
+  more` in the middle, state right in this order, dropped from the end, each shown whole or not at
+  all: `READ-ONLY` (warning), `▲ N staged` (warning), `<live>/<budget> tok`, `● folding` /
+  `○ folding off`, `<conductor> ✓|▲|✗` by status level.
+- Tab bar: chips separated by `❱`; the active chip is bold on the accent background, inactive
+  chips on a neutral background (`toolPendingBg`, `selectedBg`, else the `borderMuted` color). It
+  never wraps: it scrolls around the active tab with `…` and `n/N`.
+- Search line: always present; empty on screens without a filter. `ctrl+u` clears.
+- Description: one line about the selected row. A result or refusal replaces it until the next
+  key: results plain, refusals `▲` (warning), failures `✗` (error). A read-only panel prefixes
+  `read-only · reopen /accordion`.
+- Drill-in screens (Inspector, inline editor, confirm, scope prompt, help) keep the tab bar and add
+  a breadcrumb level. A confirm lists the safe choice first.
+
+| Key | Action |
+|---|---|
+| Tab / Shift+Tab | next / previous tab |
+| Enter | inspect block, attach conductor, edit or toggle a setting, choose in a confirm |
+| Esc | clear filter, then back one level, then close (asks when settings are staged) |
+| Ctrl+C | close at any depth (asks when settings are staged) |
+| F1 | help for the current tab |
+| Ctrl+U | clear the filter |
+| Alt+F / Alt+P / Alt+U | fold or unfold / pin or unpin / return the block to auto (Settings: stage the default) |
+| Alt+E / Alt+R | edit the digest / restore the engine digest (Settings: regenerate the token, asks first) |
+| Alt+M / Alt+N | mark the range start / new group from the range |
+| Alt+G / Alt+D | fold or unfold the group / delete the group (asks first) |
+| Alt+V | Context: map ↔ list; Inspector: original ↔ digest |
+| Alt+O / Alt+C | folding on or off / compact now |
+| Ctrl+S | Settings: save staged values |
+
+`/accordion context|conductors|settings` opens the panel on that tab.
 
 ### 5.3 Overview (landing)
 
@@ -538,8 +554,8 @@ export type TabId = "overview" | "context" | "conductors" | "settings";
 | Tasks | task widget controller summary | only when a list is shown; clicking/Enter opens §5.8 |
 | Web UI | `host.webInfo()` | URL host: the bind host, except `0.0.0.0`/`::` which show the first non-internal IPv4 of `os.networkInterfaces()` and fall back to `127.0.0.1`; OSC 8 hyperlink when the terminal supports it |
 
-Keys (priority): `enter` context (1), `c` compact… (2), `o` folding on/off (3), `t` tasks (4),
-`tab` next (5), `?` keys (9).
+Keys (priority): `enter` context (1), `alt+c` compact… (2), `alt+o` folding on/off (3),
+`alt+t` tasks (4).
 
 ### 5.4 Context: timeline (default view)
 
@@ -580,21 +596,18 @@ export function buildTimeline(truth: Truth): TimelineRow[];
   id, tokens, state (`live`/`folded −N%`/`pinned`/`held:<x>`/`protected tail`/`group:<id>`), and
   the first line of text.
 
-Views: `v` cycles timeline → grid → list. Grid = today's `buildContextMap` with these changes:
+Views: `alt+v` cycles timeline → grid → list. Grid = today's `buildContextMap` with these changes:
 the `.` filler flag is removed (blank instead), `P` is shown only on the first protected cell, the
 cell pitch stays 6. List = today's list with aligned columns
 `kind(10) state(14) tokens(8) label(rest)`.
 
-Block keys (all views; priority in parentheses): `enter` inspect (1), `f` fold/unfold (2),
-`p` pin (3), `/` filter (4), `a` auto (5), `v` view (6), `r` range → `g` group (7),
-`x` expand/collapse group (7), `d` delete group (8), `e` edit digest, `D` engine digest (8),
-`?` keys (9). `b` budget and `t` tail move to Settings › This session.
+Block keys (all views): the chords of §5.2. Budget and tail are rows in Settings › This session.
 
 ### 5.5 Inspector
 
-Header row: `<kind word> · <tool or id> · <tokens> tok · <state>`; body: text or digest (`v`
-toggles, the active one named in the header), scroll with `↑↓ pgup pgdn home end`; position in the
-status line (`12–25 / 140`). `e` edits the digest of a folded block or group from here.
+Header row: `<kind word> · <tool or id> · <tokens> tok · <state>`; body: text or digest (`alt+v`
+toggles, the active one named in the description), scroll with `↑↓ pgup pgdn home end`; position in the
+rules (`↑ N more` / `↓ N more`). `alt+e` edits the digest of a folded block or group from here.
 
 ### 5.6 Conductors
 
@@ -602,19 +615,18 @@ List rows: `›`, `◉`/`◯` attached, label, readiness (`● ready` success / 
 `privacy` badge (`▲ sends content off-machine` warning) when `entry.privacy` and the provider is
 not loopback, `locks: …`. Below the list: the selected conductor's `description` wrapped to 3 rows
 and its current status when attached. Enter attaches (through `selectConductor`, keeping the
-consent gate), `d` detaches, `o` opens that conductor's options in Settings (§6.2, section
+consent gate), the `None` row detaches, `alt+i` opens that conductor's options in Settings (§6.2, section
 `Conductor: <label>`).
 
-### 5.7 Help
+### 5.7 Help (delivered)
 
-Scrollable key reference generated from the screens' hint lists, grouped by screen, plus the
-glyph and color legend of §5.4 and §4.4.
+`F1` on any tab: the tab's keys, one per line, then its legend; scrollable; staged edits are kept.
 
 ### 5.8 Tasks view
 
-Opened with `t` from Overview or `/accordion tasks open` (new verb). Full-panel rendering of
+Opened with `alt+t` from Overview or `/accordion tasks open` (new verb). Full-panel rendering of
 §4.4's tree with keyboard: `↑↓` move, `enter`/`→` open branch or reveal a hidden run, `←` close
-branch, `e` toggles expanded as the widget default for this session. Uses the widget controller's
+branch, `alt+e` toggles expanded as the widget default for this session. Uses the widget controller's
 view state, so changes show in the widget too.
 
 ## 6. Area C: settings
@@ -634,7 +646,7 @@ All keys, after this change. Types are TypeScript; "env/flag" lists overrides th
 | `models.defaults.chat` | spec / unset (= session model) | Models | model picker + `current` | – | immediately |
 | `models.defaults.classifier` | spec / unset | Models | model picker | – | immediately |
 | `models.conductors.<id>.<type>` | spec | Models › Per conductor | list of overrides; add/remove | – | immediately |
-| `privacyConsent.<id>` | ISO timestamp | Privacy | list; `x` revokes | – | immediately (§6.4) |
+| `privacyConsent.<id>` | ISO timestamp | Privacy | list; `alt+d` revokes | – | immediately (§6.4) |
 | `conductorOptions.<id>.<key>` **new** | per declared option | Conductor: `<label>` | per option type | – | re-attach of that conductor on save |
 | `taskWidget.mode` | `"auto" \| "off"` / `"auto"` | Task widget | toggle | – | immediately |
 | `taskWidget.expanded` | `boolean` / `false` | Task widget | toggle | – | next session start |
@@ -694,21 +706,21 @@ MUST be < `high`, else the save is rejected with that message), `maxLoss` (numbe
 Sections in order: This session, Defaults · all sessions, Budget & tail (`modelDefaults`), Compaction, Models, Privacy,
 Conductor: `<label>` (one per conductor declaring options), Task widget, Web UI.
 
-- Row: label column 30, value, right edge `›` for drill-in editors. Staged rows append `*`
-  (accent). Locked rows show `<ENV or --flag>  env · locked` / `flag · locked` in dim and refuse
+- Row: label column 20 (16 below 57 columns), value, right-aligned source (`session`, `default`,
+  `user`, `▲ staged`). Toggles `[x]`/`[ ]`; cycled values `‹ value ›`. Locked rows show `<ENV or --flag>  env · locked` / `flag · locked` in dim and refuse
   edits with a status message naming the override.
 - Description row (dim, 1–2 lines) under the list: the selected row's description from a table in
   `screens/settings.ts`.
-- Title-row right state: `● N unsaved` (warning) when dirty; `saved` (success, 3 s) after save.
-- Editors: toggles flip on `space`/`enter`; pickers push a searchable `SelectList` screen with one
+- Top-rule state: `▲ N staged` (warning) when dirty; the save result shows in the description line.
+- Editors: toggles flip on `enter`; cycled values change with Left/Right; pickers push a searchable `SelectList` screen with one
   description line per option; number/text push a single-line input with inline validation
-  (`✗ <reason>` in the status line; `enter` refuses invalid input).
-- Keys: `ctrl+s` save, `ctrl+r` reload from disk (discards staged, asks when dirty), `u` revert
-  the selected row, `esc` back (asks when dirty: "Discard N unsaved changes?").
+  (`✗ <reason>` under the input; `enter` refuses invalid input).
+- Keys: `ctrl+s` save, `alt+r` reload from disk (discards staged, asks when dirty), `alt+u` stage
+  the default for the selected row, `esc` back (asks when dirty, `Keep editing` first).
 - Web UI rows: bind address shows `▲ reachable on LAN` (warning) for non-loopback; door port
   shows `door held` / `door held by another session` / `door unavailable`; access token shows
-  `generated` or `custom` and `g` regenerates (immediate action, confirms first, not staged).
-- Privacy rows: one per consent, `x` revokes (confirm; immediate, not staged).
+  `generated` or `custom` and `alt+r` on that row regenerates (immediate action, confirms first, not staged).
+- Privacy rows: one per consent, `alt+d` revokes (confirm; immediate, not staged).
 
 ### 6.3 Store and sync
 
@@ -787,7 +799,7 @@ Trigger mapping while folding is armed (folding off ⇒ pi always compacts nativ
 | `/compact [text]` (manual) | `settings.compact.manual`; `bake`/`native` honor the text |
 | threshold | `settings.compact.threshold`. With `pass`: cancel when `after ≤ contextWindow − reserveTokens` (from `preparation.settings`), else apply `compact.onSaturated` |
 | overflow | `pass`; if still saturated, `compact.onSaturated` (`warn` cancels and notifies error-level "context overflow: Accordion cannot free more; switch /compact to native or bake") |
-| panel `c` / `/accordion compact` | dry-run preview (§7.6), then the chosen strategy |
+| panel `alt+c` / `/accordion compact` | dry-run preview (§7.6), then the chosen strategy |
 
 ### 7.3 Waiting for the conductor
 
@@ -805,7 +817,7 @@ Trigger mapping while folding is armed (folding off ⇒ pi always compacts nativ
 ### 7.4 Undo
 
 `runCompaction` records, for `pass`/`aggressive`, the inverse ops: `unfold` for every block id it
-folded, `ungroup` for every group it created. `/accordion compact undo` (and `u` on the result card
+folded, `ungroup` for every group it created. `/accordion compact undo` (and `alt+u` on the result card
 row in the panel's Overview) applies them with actor `"you"` (sticky open, so the conductor does not
 immediately refold) if `truth.rev` lineage still contains them; ids no longer folded are skipped and
 reported. Only the latest record is undoable; a session switch clears it.
@@ -831,7 +843,7 @@ turn sections first and adding `… <k> earlier turns omitted`. After pi saves i
 
 ### 7.6 Preview and result card
 
-Panel `c` opens a confirm screen:
+Panel `alt+c` opens a confirm screen:
 
 ```
  Accordion › Overview › Compact
@@ -917,6 +929,10 @@ Each area MUST pass, in the worktree, before it merges:
   concurrent saves of the same field report a conflict in the second.
 
 ## 11. Open items
+
+0. The task views (§4.9, §4.13, §4.14: `extension/tui/taskViews.ts`, `taskLists.ts`) still act on
+   bare keys (`n c r v g ? t u f i d p /`) and draw their own frame; bring them to §3.6 and §5.2.
+   Env- and flag-locked settings are not marked in the panel until the settings store (§6.3) exists.
 
 1. PiG click routing to extension widgets and self-rendered tool rows (§4.6): report upstream to
    PiG; until then §5.8 is the keyboard path.
