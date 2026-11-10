@@ -3,7 +3,7 @@ document:
   type: "draft"
   id: "DRAFT-fold-timing"
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
-  description: "Proposal from the PLAN-0029 session audit: selectable fold timing (eager, lazy, pressure), a cache anchor for eager folds, provider cache profiles, high hard report limits without cutting, fixes for row accounting and message routing, and a debug mode"
+  description: "Proposal from the audit of a nukular-ai docs-baseline session: selectable fold timing (eager, lazy, pressure), a cache anchor for eager folds, provider cache profiles, high hard report limits without cutting, fixes for row accounting and message routing, and a debug mode"
   status: "draft"
   revision: 1
   created_at: "2026-11-10T09:45:42+01:00"
@@ -24,7 +24,7 @@ lifecycle) and §12 (settings) once decided. It corrects §8 of
 
 ## 1. What the audit found
 
-Session `01a1c22c` (nukular-ai, PLAN-0029, `claude/claude-sonnet-5-5`, budget 272k, 68 tasks):
+Session `01a1c22c` (nukular-ai docs baseline, `claude/claude-sonnet-5-5`, budget 272k, 68 tasks):
 
 | Observation | Value |
 |---|---|
@@ -121,7 +121,7 @@ Weighted cost in millions of base-input tokens, Anthropic 1 h cache, Sonnet 5.5 
 
 | Session | pressure | shipped | lazy | eager | eager + frontier | eager + bracket | both |
 |---|---|---|---|---|---|---|---|
-| PLAN-0029 (`modes-plan0029.txt`) | 20.43 | 20.48 | 20.07 | 14.41 | 13.46 | 13.48 | 13.44 |
+| docs baseline (`modes-plan0029.txt`) | 20.43 | 20.48 | 20.07 | 14.41 | 13.46 | 13.48 | 13.44 |
 | auth-plus 11-08 (`modes-authplus-1108.txt`) | 26.28 | 25.40 | 24.63 | 20.57 | 18.26 | 19.19 | 18.40 |
 | nukular 11-06 (`modes-nukular-1106.txt`) | 16.30 | 16.41 | 15.87 | 13.14 | 11.30 | 12.53 | 11.35 |
 
@@ -134,7 +134,7 @@ Findings:
 3. The ranking is the same under the 5-minute, OpenAI and prefix-cache profiles (same files).
 4. `shipped`, `lazy` and `pressure` are within 3 % of each other.
 5. Mean input under `eager` stays at 103k–177k and the peak barely moves. The rest is the open
-   leaf task itself (largest leaf in PLAN-0029: about 154k real tokens). Fold timing cannot fix
+   leaf task itself (largest leaf in the docs-baseline session: about 154k real tokens). Fold timing cannot fix
    task size.
 
 Limits: no floor, untracked folding, held blocks or user-message verdicts; spans fold whole;
