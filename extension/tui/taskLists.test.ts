@@ -114,10 +114,10 @@ describe("lists tab", () => {
 			for (let i = 0; i < 5 && !l.body().some((row) => row.startsWith("→") && row.includes(` ${slug} `)); i++) l.press("down");
 		};
 		select("free");
-		l.press("alt+t");
+		l.press("alt+a");
 		expect(mine.read("free").claim?.session).toBe("s1");
 		select("held");
-		l.press("alt+t");
+		l.press("alt+a");
 		expect(mine.read("held").claim?.session).toBe("s2");
 		expect(l.modal()?.options[0]).toStartWith("Leave it with");
 		expect(l.modal()?.title).toContain("That session loses the claim");
@@ -125,7 +125,7 @@ describe("lists tab", () => {
 		expect(mine.read("held").claim?.session).toBe("s2");
 		l.modal()!.then(1);
 		expect(mine.read("held").claim?.session).toBe("s1");
-		l.press("alt+t");
+		l.press("alt+a");
 		expect(mine.read("held").claim).toBeNull();
 		l.press("alt+n");
 		expect(l.v.typing()).toBe(true);

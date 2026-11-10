@@ -464,7 +464,7 @@ describe("accordion panel", () => {
 		expect(acted).toEqual([]);
 		s.panel.handleInput(K.esc);
 		expect(s.screen()).toContain("→ ○ plan");
-		s.panel.handleInput(K.alt("t"));
+		s.panel.handleInput(K.alt("a"));
 		expect(acted).toEqual(["attach"]);
 		s.close(); await s.opening;
 	});

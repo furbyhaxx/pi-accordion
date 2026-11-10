@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 10
+  revision: 11
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-10T10:38:03+01:00"
+  updated_at: "2026-11-10T10:56:03+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 10
-      reason: "the panel follows the extending-pig dashboard standard"
-      changes: ["§3.5-3.8 selection, keys, hints and height", "§5.1-5.2 delivered shell, frame and chord table", "§5.3-§7 panel keys are modifier chords", "§11 task views still on bare keys"]
+    - revision: 11
+      reason: "task views became the Tasks and Lists tabs of the panel"
+      changes: ["§4.9, §4.13, §4.14 keys are chords, opened as tabs", "§5.2 tab order, task-tab chords, takeover prompt", "§11 item 0 reduced to locked settings"]
 ---
 
 # Accordion UI polish
@@ -281,7 +281,8 @@ a displayed custom message `accordion.tasks.notice` (rendered as `▲ tasks note
 
 Creating a list in the browser or resume dialog collects its title and required goal before writing it.
 
-`/accordion tasks lists` (alias `list`) opens a full-panel browser of `.pig/tasks/*.json`:
+`/accordion tasks lists` (alias `list`) opens the panel's Lists tab over `.pig/tasks/*.json`
+(frame and keys: §5.2; the sketch shows the rows):
 
 ```
  Accordion › Task lists · 2 lists
@@ -293,9 +294,9 @@ Creating a list in the browser or resume dialog collects its title and required 
 Rows: `●` attached to this session / `○` not, slug, progress (`☐ 0/n` none done, `▣ done/total`,
 `✓ n/n` all done, `empty`; the detail view adds `▶ <task>` in progress), claim (`this session`, `free`, `held · <holder> · <claim age>`,
 `stale · …`; short words `yours`/`free`/`held`/`stale` when narrow), list age, title. Enter opens a detail
-view with the full tree (§4.4 glyphs, no smart hiding, scrollable). Keys: `c` attach (claims and
-releases this session's other lists; a held list asks for confirmation first), `r` release (own
-lists only), `n` new list (inline title, slug from `slugFor`). Every attach, release and create
+view with the full tree (§4.4 glyphs, no smart hiding, scrollable). Keys: `alt+a` attaches (claims
+and releases this session's other lists; a held list asks first), or releases an own list;
+`alt+n` new list (inline title, slug from `slugFor`). Every attach, release and create
 from the browser queues the matching agent note (§4.8); re-attaching the same unchanged list does
 not.
 
@@ -374,7 +375,8 @@ Implemented in `extension/dials.ts` and `extension/accordion.ts`.
 ### 4.13 Task drill-down (delivered)
 
 Implemented in `extension/tui/taskTranscript.ts` (pure model), `extension/tui/treeView.ts` (shared
-tree component) and `extension/tui/taskViews.ts` (screens). Enter in the §4.9 browser opens it.
+tree component) and `extension/tui/taskViews.ts` (one screen stack behind the Tasks and Lists tabs,
+wired by `screens/tasks.ts`). Enter in the §4.9 Lists tab opens it.
 
 - **Data.** Tasks record `createdAt` (absent on older lists). Taskfold's user-message verdicts are
   stored as `accordion.taskfold.verdict` session entries with `loss`, `source`
@@ -383,7 +385,7 @@ tree component) and `extension/tui/taskViews.ts` (screens). Enter in the §4.9 b
   reuses them and never classifies a stored block again; `error` verdicts are not stored.
 - **Task tree** `Accordion › Task lists › <slug>`: the list's tasks with §4.4 glyphs, `done/total`
   on parents, `≡n` folds, duration, tokens `full → live` from this session's transcript. Enter opens
-  details, `i` the span, `u` unfolds/refolds the task's record.
+  details, `alt+i` the span, `alt+f` unfolds/refolds the task's record.
 - **Details** `… › <slug> › <id>`: task position, planned time and wait, ran from → to and
   duration, status (`closed automatically` when auto-closed), outcome, decisions, open, changed
   files and checks (from the span), span size and tokens, and per record its code, aging level
@@ -399,20 +401,20 @@ tree component) and `extension/tui/taskViews.ts` (screens). Enter in the §4.9 b
   rebuilt from the transcript (`session_goal`, `previous_user_message`, `assistant_last_reply`,
   `message`).
 - **Text viewer**: a step shows call and result with token counts; a fold shows the record as the
-  agent sees it, `v` toggles the original members.
-- **Actions** through the controller lease (claimed on open, as `/accordion`): `f` fold/unfold a
-  step (a call folds through its result; user messages fold only inside a record), `p` pin/unpin,
-  `u` unfold/refold a record. Refusals name the reason in words (`inside the protected working
+  agent sees it, `alt+v` toggles the original members.
+- **Actions** through the controller lease (the panel's): `alt+f` folds/unfolds a step (a call
+  folds through its result; user messages fold only inside a record) or a record, `alt+p`
+  pins/unpins. Refusals name the reason in words (`inside the protected working
   tail`, …). Without control the views stay read-only.
-- **Keys**: arrows, `→`/`←` expand/collapse, PgUp/PgDn, `/` filter, Enter, Esc one level back,
-  Ctrl+C closes. Hint rows put Enter and Esc first so narrow widths keep them.
+- **Keys**: arrows, `→`/`←` expand/collapse, PgUp/PgDn, typing filters, Enter, Esc one level back,
+  Ctrl+C closes. Printable keys never act (§3.6).
 
 ### 4.14 Session tasks tree (delivered)
 
 `/accordion tasks tree` shows this session's transcript by task: top-level tasks with subtasks
 (prefixed `<list>/` when the session used several lists), user messages between tasks with their
 verdicts, assistant answers between tasks as `A` rows, and tool calls outside any task as
-`⋯ untracked · n calls · ▲ no task in progress`. Untracked work is visible by default; `t` cycles
+`⋯ untracked · n calls · ▲ no task in progress`. Untracked work is visible by default; `alt+v` cycles
 all → tasks only → untracked only. Enter opens a task's span (§4.13).
 
 ### 4.15 Task end states (delivered)
@@ -486,7 +488,7 @@ The nine lines of the dashboard standard, on every screen:
 
 ```
 ── Accordion › Settings ──────────── ▲ 2 staged · 8.1k/425.0k tok · ● folding ──   top rule
- ❱ Context ❱ Conductors ❱ Settings                                                 tab bar
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings                                 tab bar
  ⌕ Type to filter…                                                                 search line
 
  …body, fixed height…
@@ -528,7 +530,16 @@ The nine lines of the dashboard standard, on every screen:
 | Alt+O / Alt+C | folding on or off / compact now |
 | Ctrl+S | Settings: save staged values |
 
-`/accordion context|conductors|settings` opens the panel on that tab.
+Tabs: `Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings`. Tasks and Lists (§4.9, §4.13, §4.14)
+exist for the local session only. `/accordion context|conductors|settings` and
+`/accordion tasks tree|lists` open the panel on that tab.
+
+Task tabs: typing filters; `alt+f` fold or unfold (step, fold, task record), `alt+p` pin, `alt+i`
+the other view of a task (span from a list, details from the tree), `alt+g` list goals and
+context, `alt+v` record ↔ original and all / tasks only / untracked only, `alt+a` attach, release
+or take over a list (take-over asks, keeping first), `alt+n` new list (title, then goal).
+
+Taking control from another surface asks with `Open read-only` first and `Take control` last.
 
 ### 5.3 Overview (landing)
 
@@ -930,9 +941,7 @@ Each area MUST pass, in the worktree, before it merges:
 
 ## 11. Open items
 
-0. The task views (§4.9, §4.13, §4.14: `extension/tui/taskViews.ts`, `taskLists.ts`) still act on
-   bare keys (`n c r v g ? t u f i d p /`) and draw their own frame; bring them to §3.6 and §5.2.
-   Env- and flag-locked settings are not marked in the panel until the settings store (§6.3) exists.
+0. Env- and flag-locked settings are not marked in the panel until the settings store (§6.3) exists.
 
 1. PiG click routing to extension widgets and self-rendered tool rows (§4.6): report upstream to
    PiG; until then §5.8 is the keyboard path.

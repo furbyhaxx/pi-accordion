@@ -389,7 +389,7 @@ export type TaskViewsStart = { kind: "lists" } | { kind: "list"; slug: string } 
 export const TASK_LEGEND = [
 	"▣ done    ☒ failed    ⊘ abandoned    ◐ partly done    ▶ doing    ⧗ blocked    ☐ todo",
 	"≡ folded    · finished but raw    ! unfinished descendants",
-	"Lists: ● attached to this session, ○ not. alt+t attaches, releases or takes over the selected list.",
+	"Lists: ● attached to this session, ○ not. alt+a attaches, releases or takes over the selected list.",
 	"alt+g shows a list's goals, claim, scoped pins and attachments.",
 	"alt+p pins transcript blocks; scoped facts use the tasks tool's pin and unpin.",
 	"A call folds through its result; user messages fold only inside a task record.",
@@ -605,7 +605,7 @@ export class TaskViews {
 		const sel = lists[index];
 		const state = sel ? claimState(sel, session, now) : null;
 		const hints: Hint[] = [];
-		if (sel) hints.push(enter("open"), rawHint(t, "alt+t", state === "mine" ? "release" : state === "held" ? "take over" : "attach", 2), rawHint(t, "alt+g", "context", 5));
+		if (sel) hints.push(enter("open"), rawHint(t, "alt+a", state === "mine" ? "release" : state === "held" ? "take over" : "attach", 2), rawHint(t, "alt+g", "context", 5));
 		hints.push(rawHint(t, "alt+n", "new list", 3));
 		const description = sel ? `${clean(sel.title)} · ${progressText(sel, t, true)} · ${claimText(sel, state!, t, now)}` : `${this.listsSnapshot.length} task list${this.listsSnapshot.length === 1 ? "" : "s"} in this project.`;
 		return { body, description, hints, above: start, below: Math.max(0, lists.length - start - listRows) };
@@ -707,7 +707,7 @@ export class TaskViews {
 		if (step) s.slug = lists[Math.max(0, Math.min(lists.length - 1, index + step))]?.slug ?? null;
 		else if (confirm && sel) this.stack.push({ kind: "list", slug: sel.slug, tree: new TreeState() });
 		else if (chord("g") && sel) this.stack.push({ kind: "list-details", slug: sel.slug, scroll: 0 });
-		else if (chord("n") || chord("t")) {
+		else if (chord("n") || chord("a")) {
 			if (!host) this.ui.say("Task lists change only while a conductor provides the tasks tool (Taskfold).");
 			else if (chord("n")) s.create = { title: null, input: { text: "" } };
 			else if (sel) this.toggleClaim(s, sel, host);

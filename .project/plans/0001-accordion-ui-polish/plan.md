@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-10T10:38:03+01:00"
+  updated_at: "2026-11-10T10:56:03+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "S1 delivered on the dashboard standard instead of the bare-key shell"
-      changes: ["S1 rewritten and marked done", "task views and footer split off as S1b", "evidence/ captures added"]
+    - revision: 4
+      reason: "S1b delivered: task views are tabs of the panel"
+      changes: ["S1 and S1b marked done with results", "attach chord is alt+a", "evidence for task tabs and thinking levels"]
 ---
 
 # Accordion UI polish: plan
@@ -26,9 +26,9 @@ implementation must deviate, update the spec in the same change.
 
 ```
 done  S0  Taskfold visibility unit and task tooling (§4)  feat/taskfold-widget  8c2fb44…HEAD (pushed)
-done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)  feat/panel-shell (not merged)
-now   S1b Task views inside the panel (§11 item 0)
-later S1c Footer (§8)
+done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
+done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
+next  S1c Footer (§8)
 later S2  Settings store, sync, schema (§6.1, §6.3)
 later S3  Settings screen (§6.2)
 later S4  Compaction (§7)
@@ -106,9 +106,7 @@ Design:
 - The block filter is a substring match over kind, id, tool name and text, not the host's fuzzy
   matcher: fuzzy matching whole block bodies returns noise.
 
-Not in this slice: the task views (`extension/tui/taskViews.ts`, `taskLists.ts`) still use bare
-keys (`n c r v g ? t u f i d p /`); mouse (not delivered to TypeScript components, SPEC D9);
-the footer (§8).
+Not in this slice: mouse (not delivered to TypeScript components, SPEC D9); the footer (§8).
 
 Files: `extension/tui/chrome.ts` (+ test), `extension/tui/panel.ts`, `extension/tui/screens/*.ts`,
 `extension/tui/panel.test.ts`, `extension/tui/host.ts` (`thinkingLevel`), `extension/accordion.ts`
@@ -118,17 +116,13 @@ Done when: tests and smoke pass; live capture at 36/57/80/140 columns and 16 row
 overflow; a test sends every printable ASCII key to every screen and nothing fires; every
 pre-existing panel action still works.
 
-Result: delivered on `feat/panel-shell`. 217 bun tests, smoke and the tsc baseline of 7 hold.
+Result: delivered. 217 bun tests, smoke and the tsc baseline of 7 hold.
 `evidence/` holds 48 live PiG captures (12 screens at 36/57/80/140 columns, two at 16 rows), each
 taken with its own `ACCORDION_HOME` so no run meets the previous one's controller lease.
 
 ## S1b: task views inside the panel
 
-Current: `/accordion tasks lists` and `/accordion tasks tree` open their own overlay
-(`TaskListsBrowser`, `TaskViews`) with a six-line frame and bare-key actions
-(`n c r g ? t u f i d p v /`). The resume flow reuses the browser in `pick` mode.
-
-Change: one dashboard. Tab order `Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings`.
+Delivered: one dashboard. Tab order `Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings`.
 
 - **Tasks** = this session's transcript by task (the former tree). **Lists** = the project's task
   lists; Enter drills list → task details → span → block text. Both are `PanelTab`s built by
@@ -139,8 +133,8 @@ Change: one dashboard. Tab order `Context ❱ Tasks ❱ Lists ❱ Conductors ❱
 - `/accordion tasks tree` and `/accordion tasks lists` open the panel on that tab.
 - Keys: typing filters; `alt+f` fold or unfold (step, fold, task record); `alt+p` pin; `alt+i` the
   other view of a task (span from a list, details from a tree); `alt+g` list goals and context;
-  `alt+v` record ↔ original, and all/tasks/untracked on the session tree; `alt+t` attach, release
-  or take over a list (take-over asks, keep first); `alt+n` new list (inline title, then goal).
+  `alt+v` record ↔ original, and all/tasks/untracked on the session tree; `alt+a` attach, release
+  or take over a list (not `alt+t`: that is the task widget's global toggle) (take-over asks, keep first); `alt+n` new list (inline title, then goal).
   The legend moves to `F1`.
 - Panel body cap rises from 14 to 20 rows: the tree tabs are the tallest content.
 - Resume flow: "Choose another list" becomes host `select`/`input` dialogs; the resume dialog keeps
@@ -150,6 +144,10 @@ Do not: read list files while rendering; keep a second frame for the task views.
 
 Tests: `taskViews.test.ts` and `taskLists.test.ts` move to the chords; both tabs join the
 printable-key sweep in `panel.test.ts`.
+
+Result: 227 bun tests and smoke pass. The control takeover prompt lists `Open read-only` first.
+`evidence/` adds `tasks-tab/`, `lists-tab/` (36/57/80/140 columns) and `thinking-off/`,
+`thinking-high/`: the rules carry the same color as the editor border at both levels.
 
 ## S2: settings store, sync and schema
 

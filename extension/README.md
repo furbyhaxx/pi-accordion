@@ -30,18 +30,18 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` to manage the current session in Pi's terminal. The panel has three tabs,
-Context (map and block list, `alt+v` switches), Conductors and Settings; `Tab` switches tabs,
+Run `/accordion` to manage the current session in Pi's terminal. The panel has five tabs,
+Context (map and block list, `alt+v` switches), Tasks, Lists, Conductors and Settings; `Tab` switches tabs,
 typing filters the block list, `F1` lists the keys of the current tab. Every action is a modifier
 chord (`alt+f` fold, `alt+p` pin, `alt+e` edit digest, `alt+c` compact, …); settings for all
 sessions are staged and saved with `ctrl+s`. `/accordion context|conductors|settings` opens a tab
-directly. Use `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
+directly, `/accordion tasks tree|lists` the Tasks or Lists tab. Use `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
 collapse the taskfold task list above the editor (also `alt+t`), `/accordion tasks lists` to browse
 and attach the project's task lists (tasks show as ☐ todo, ▶/◐ in progress, ⧗ blocked with its
 reason, ▣ done, ☒ failed, ⊘ abandoned) and drill into a task's details and folds. In the expanded
 widget, ≡ means folded, · means finished but raw, and ! flags a finished parent with unfinished
-children; progress counts are broken down by leaf status. Press `?` in the task list view for the
-legend. Press `g` for the list's goals, pins and attachments; task details show criteria and inherited/task-scoped facts with attachment references. Inspection uses cached snapshots refreshed on task calls or reopening, never disk reads during rendering. Task screens use modal focus so page keys scroll the inspector rather than the transcript. Task screens and the context panel temporarily hide the widget without changing its preferences, leaving room for content and controls in short terminals. Human child-handle unfolds recompose siblings through the controller lease and hold the selected blocks open; whole-task toggles remain reversible. `p` pins transcript blocks, not scoped facts. Task lists have no fixed nesting-depth limit; invalid files are named in warnings and rejected migrations leave the original file unchanged. Use `/accordion tasks tree`
+children; progress counts are broken down by leaf status. Press `F1` in a task tab for the
+legend, `alt+g` for the list's goals, pins and attachments, `alt+a` to attach or release a list, `alt+n` for a new one; task details show criteria and inherited/task-scoped facts with attachment references. Inspection uses cached snapshots refreshed on task calls or reopening, never disk reads during rendering. The panel temporarily hides the widget without changing its preferences, leaving room for content and controls in short terminals. Human child-handle unfolds recompose siblings through the controller lease and hold the selected blocks open; whole-task toggles remain reversible. `alt+p` pins transcript blocks, not scoped facts. Task lists have no fixed nesting-depth limit; invalid files are named in warnings and rejected migrations leave the original file unchanged. Use `/accordion tasks tree`
 to see this session's transcript by task, `/accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]`
 to write that projection to a file. Every actual carrier appears once, including split/composed
 and untracked groups; substituted results never print their original bodies. Inspection metadata
