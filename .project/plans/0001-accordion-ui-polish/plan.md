@@ -61,32 +61,63 @@ S6. S3 and S4 can run in parallel after S2.
   `pig --no-session -ne -e <worktree>/extension/accordion.ts --model deepseek/deepseek-flash`.
 - Commits: Conventional Commits, granular, no AI attribution. Each commit builds and tests green.
 
-## S1: panel shell, chrome, footer
+## S1: panel shell on the dashboard standard
 
-Goal: the new frame, tabs, hint fitting and key semantics around today's screen *contents*, so
-later slices only replace bodies.
+Goal: `/accordion` follows the house dashboard standard (skill `extending-pig`,
+`references/dashboard-standard.md`; reference implementation `pig-auth-plus`
+`internal/ui/frame`) around today's screen *contents*, so later slices only replace bodies.
+Branch `feat/panel-shell`, worktree `.pi/worktrees/panel-shell`.
 
-Steps:
-1. `extension/tui/chrome.ts`: `fitSegments(segments, width)` (moved from `taskWidget.ts`, which
-   then imports it), `fitHints(hints, width)` (§3.7), `ruleLine(width, token)`,
-   `renderFrame(...)` (§5.2). Unit tests in `extension/tui/chrome.test.ts`: priority dropping,
-   `? keys` retention, width matrix 36/57/80/140, crumbs reduced below 57.
-2. `extension/tui/screens/types.ts`: the screen contract (§5.1) verbatim.
-3. Split `panel.ts`: move today's blocks/map/list, inspect, help, conductors, consent and settings
-   bodies into `screens/*.ts` implementing `Screen`, unchanged in content. `panel.ts` keeps the
-   `ctx.ui.custom` loop, the tab stack, read-only handling, `pending` command state and the digest
-   editor round trip.
-4. Keys per §3.6: Esc back-one-level (consent → conductors, editor → settings), bare letters off
-   in filter mode, Tab/Shift+Tab/1–4, `ctrl+c` closes.
-5. Remove the accent repaint of selected rows (§3.5); selection marker `›`.
-6. Footer (§8): `footerText` → segments `acc <pct>% · <id> <glyph>`; usage pct = live/budget;
-   update `extension/tui/status.test.ts`.
-7. Update `extension/tui/panel.test.ts` to the new structure (assert observable frame lines and
-   key outcomes, not internals).
+Design:
 
-Done when: tests and smoke pass; live capture at 36/57/80/140 × 16 rows shows no truncated
-hint-critical keys and no overflow; every pre-existing panel action still works (fold, pin, auto,
-group, edit digest, conductor attach with consent, settings edits).
+- **Frame**, nine lines on every screen: top rule (crumbs `Accordion › Tab › …`, `↑ N more` in
+  the middle, state on the right), tab bar (chips separated by `❱`, active chip bold on the
+  accent background), search line, blank line, body, middle rule, description (or `▲ message`),
+  hint row (dropped by priority, `esc` kept), bottom rule (`↓ N more`). Rules take the
+  thinking-level color; text inside them is dim.
+- **Height**: body rows = clamp(terminal rows − 11, 3, 14), computed on open and on resize only.
+- **Tabs**: Context ❱ Conductors ❱ Settings. Context has two views, map and list (`alt+v`);
+  typing in the map view switches to the list and filters. Left/Right switch tabs except in the
+  map view, where they move the cell.
+- **No single-key actions.** Printable keys only type into the filter or an inline input.
+
+| Key | Action |
+|---|---|
+| Tab / Shift+Tab | next / previous tab |
+| Enter | inspect block, attach conductor, edit or toggle a setting, choose in a confirm |
+| Esc | clear filter, then back one level, then close (asks when settings are staged) |
+| Ctrl+C | close at any depth (asks when settings are staged) |
+| F1 | help for the current tab |
+| Ctrl+U | clear the filter |
+| Alt+F / Alt+P / Alt+U | fold or unfold / pin or unpin / return the block to auto |
+| Alt+E / Alt+R | edit the digest / restore the engine digest (Settings: regenerate the token, asks first) |
+| Alt+M / Alt+N | mark the range start / new group from the range |
+| Alt+G / Alt+D | fold or unfold the group / delete the group (asks first, `Keep` first) |
+| Alt+V | Context: map ↔ list; Inspector: original ↔ digest |
+| Alt+O / Alt+C | folding on or off / compact now |
+| Ctrl+S | Settings: save staged values |
+
+- **Settings**: rows `label · value · source`. Session rows (folding, budget, tail) apply at once.
+  Global rows are staged (`▲`), saved with `ctrl+s` through one `host.updateSettings` patch;
+  source is `default`, `user`, `session` or `staged`. Toggles `[x]`/`[ ]`; cycled values
+  `‹ value ›` with Left/Right. A budget or tail value is followed by a scope prompt
+  (`This session` / `This session and default for <model>`).
+- **Conductors**: consent is a confirm screen, `Cancel` first.
+- **Colors**: theme tokens only; every state color has a glyph or word.
+- The block filter is a substring match over kind, id, tool name and text, not the host's fuzzy
+  matcher: fuzzy matching whole block bodies returns noise.
+
+Not in this slice: the task views (`extension/tui/taskViews.ts`, `taskLists.ts`) still use bare
+keys (`n c r v g ? t u f i d p /`); mouse (not delivered to TypeScript components, SPEC D9);
+the footer (§8).
+
+Files: `extension/tui/chrome.ts` (+ test), `extension/tui/panel.ts`, `extension/tui/screens/*.ts`,
+`extension/tui/panel.test.ts`, `extension/tui/host.ts` (`thinkingLevel`), `extension/accordion.ts`
+(entry points `/accordion settings|conductors|context`, thinking-level repaint).
+
+Done when: tests and smoke pass; live capture at 36/57/80/140 columns and 16 rows shows no
+overflow; a test sends every printable ASCII key to every screen and nothing fires; every
+pre-existing panel action still works.
 
 ## S2: settings store, sync and schema
 
