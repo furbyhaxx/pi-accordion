@@ -23,7 +23,10 @@ export const GOALS_MAX = 5;
 export const TASK_GOAL_MAX = 300;
 export const TASK_GOALS_MAX = 3;
 export const CRITERIA_MAX = 8;
-export const CRITERION_MAX = 120;
+export const CRITERION_MAX = 300;
+export const REPORT_OUTCOME_MAX = 2000;
+export const REPORT_ITEM_MAX = 1000;
+export const REPORT_ITEMS_MAX = 12;
 export const PIN_KINDS = ["rule", "convention", "constraint", "standard", "fact"] as const;
 export const PIN_TEXT_MAX = 300;
 export const NOTE_MAX = 120;
@@ -34,6 +37,29 @@ export interface Item {
 	text: string;
 }
 const isText = (v: unknown): v is string => typeof v === "string" && v.trim().length > 0;
+
+/** Validate and normalize every report field, collecting all length and shape violations. */
+export function checkReport(report: unknown, where: string, errors: string[]): { outcome: string; decisions?: string[]; open?: string[] } {
+	if (!isObj(report)) { errors.push(`${where} must be { outcome, decisions?, open? }`); return { outcome: "" }; }
+	const outcome = typeof report.outcome === "string" ? report.outcome.trim() : "";
+	if (!outcome) errors.push(`${where}.outcome is required (1–${REPORT_OUTCOME_MAX} chars)`);
+	if (outcome.length > REPORT_OUTCOME_MAX) errors.push(`${where}.outcome is ${outcome.length} chars; limit ${REPORT_OUTCOME_MAX}`);
+	const list = (name: string, v: unknown): string[] | undefined => {
+		if (v === undefined) return undefined;
+		if (!Array.isArray(v)) { errors.push(`${where}.${name} must be an array of strings`); return undefined; }
+		if (v.length > REPORT_ITEMS_MAX) errors.push(`${where}.${name} has ${v.length} items; limit ${REPORT_ITEMS_MAX}`);
+		const items: string[] = [];
+		v.forEach((value, i) => {
+			if (typeof value !== "string") { errors.push(`${where}.${name}[${i}] must be a string`); return; }
+			const text = value.trim();
+			if (text.length > REPORT_ITEM_MAX) errors.push(`${where}.${name}[${i}] is ${text.length} chars; limit ${REPORT_ITEM_MAX}`);
+			if (text) items.push(text);
+		});
+		return items.length ? items : undefined;
+	};
+	const decisions = list("decisions", report.decisions), open = list("open", report.open);
+	return { outcome, ...(decisions ? { decisions } : {}), ...(open ? { open } : {}) };
+}
 
 /**
  * An attachment anchor is exactly one of a section path, a symbol or a quote. A hand-written quote
@@ -274,7 +300,7 @@ function walk(nodes: unknown[], prefix: string, at: string, out: FlatTask[], err
 		const goals = checkItems(node.goals, `${where}.goals`, "g", 0, TASK_GOALS_MAX, TASK_GOAL_MAX, ids, errors, "");
 		const criteria = checkItems(node.acceptanceCriteria, `${where}.acceptanceCriteria`, "c", 0, CRITERIA_MAX, CRITERION_MAX, ids, errors, "");
 		checkReferences(node, where, errors);
-		if (node.report !== undefined && !(isObj(node.report) && typeof node.report.outcome === "string")) errors.push(`${where}.report: must be { outcome, decisions?, open? }`);
+		if (node.report !== undefined) checkReport(node.report, `${where}.report`, errors);
 		if (FINISHED.includes(status as string) && !isObj(node.report)) errors.push(`${where}: a ${String(status)} task needs a report { outcome }`);
 		if (node.blocks !== undefined && !Array.isArray(node.blocks)) errors.push(`${where}.blocks: must be an array`);
 		const task = { ...withoutKeys(node, ["subtasks", "id", "title", "status", "goals", "acceptanceCriteria"]), id, title: typeof node.title === "string" ? node.title.trim() : "", status, ...(goals?.length ? { goals } : {}), ...(criteria?.length ? { acceptanceCriteria: criteria } : {}) } as FlatTask;

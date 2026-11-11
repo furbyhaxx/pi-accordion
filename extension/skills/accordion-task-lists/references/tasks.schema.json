@@ -1,7 +1,7 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
 	"$id": "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json",
-	"title": "Accordion task list (version 2)",
+	"title": "Accordion task list (version 3)",
 	"description": "One task list per file at <project>/.pig/tasks/<slug>.json. Tasks may nest to any depth; ids are derived from position and may be omitted.",
 	"type": "object",
 	"required": [
@@ -253,18 +253,24 @@
 					],
 					"properties": {
 						"outcome": {
-							"type": "string"
+							"type": "string",
+							"minLength": 1,
+							"maxLength": 2000
 						},
 						"decisions": {
 							"type": "array",
+							"maxItems": 12,
 							"items": {
-								"type": "string"
+								"type": "string",
+								"maxLength": 1000
 							}
 						},
 						"open": {
 							"type": "array",
+							"maxItems": 12,
 							"items": {
-								"type": "string"
+								"type": "string",
+								"maxLength": 1000
 							}
 						}
 					}
@@ -390,7 +396,7 @@
 				{
 					"type": "string",
 					"minLength": 1,
-					"maxLength": 120
+					"maxLength": 300
 				},
 				{
 					"type": "object",
@@ -406,7 +412,7 @@
 						"text": {
 							"type": "string",
 							"minLength": 1,
-							"maxLength": 120
+							"maxLength": 300
 						}
 					}
 				}

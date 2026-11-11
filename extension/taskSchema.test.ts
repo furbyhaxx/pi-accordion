@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, LIST_KEYS, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
+import { BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, LIST_KEYS, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
 
 const schema = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "skills/accordion-task-lists/references/tasks.schema.json"), "utf8"));
 
@@ -24,6 +24,17 @@ describe("task list v3 schema", () => {
 		expect([task.title.maxLength, schema.properties.title.maxLength, schema.properties.goals.maxItems]).toEqual([TITLE_MAX, TITLE_MAX, GOALS_MAX]);
 		expect(JSON.stringify(schema.$defs)).toContain(`"maxLength":${GOAL_MAX}`);
 		expect([task.acceptanceCriteria.maxItems, schema.$defs.criterion.oneOf[0].maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
+		expect(task.report.properties.outcome.maxLength).toBe(REPORT_OUTCOME_MAX);
+		for (const key of ["decisions", "open"]) expect([task.report.properties[key].maxItems, task.report.properties[key].items.maxLength]).toEqual([REPORT_ITEMS_MAX, REPORT_ITEM_MAX]);
+	});
+
+	test("authoring validates expanded criteria and reports with every violation", () => {
+		expect(errorsOf(v3([{ title: "A", status: "done", acceptanceCriteria: ["c".repeat(300)], report: { outcome: "o".repeat(2000), decisions: Array(12).fill("d".repeat(1000)) } }]))).toEqual([]);
+		const errors = errorsOf(v3([{ title: "A", acceptanceCriteria: ["c".repeat(301)], report: { outcome: "o".repeat(2001), decisions: ["d".repeat(1001)], open: Array(13).fill("x") } }]));
+		expect(errors).toEqual([
+			expect.stringContaining("acceptanceCriteria"), expect.stringContaining("outcome is 2001 chars; limit 2000"),
+			expect.stringContaining("decisions[0] is 1001 chars; limit 1000"), expect.stringContaining("open has 13 items; limit 12"),
+		]);
 	});
 
 	test("attachment anchors are exactly one of section, symbol or a quote", () => {
@@ -63,15 +74,17 @@ describe("task list v3 schema", () => {
 		const file = path.join(dir, "auth.json");
 		const script = path.join(import.meta.dir, "skills/accordion-task-lists/scripts/validate.mjs");
 		try {
-			fs.writeFileSync(file, JSON.stringify(v3([{ title: "Survey", acceptanceCriteria: ["All callers listed"] }])));
+			fs.writeFileSync(file, JSON.stringify(v3([{ title: "Survey", acceptanceCriteria: ["c".repeat(300)], report: { outcome: "o".repeat(2000) } }])));
 			const valid = spawnSync("node", [script, file], { encoding: "utf8" });
 			expect(valid.status).toBe(0);
 			expect(valid.stdout).toContain("Valid task list: auth");
-			fs.writeFileSync(file, JSON.stringify(v3([{ title: "Survey", id: "2" }], { goals: undefined })));
+			fs.writeFileSync(file, JSON.stringify(v3([{ title: "Survey", id: "2", report: { outcome: "o".repeat(2001), decisions: ["d".repeat(1001)] } }], { goals: undefined })));
 			const invalid = spawnSync("node", [script, file], { encoding: "utf8" });
 			expect(invalid.status).toBe(1);
 			expect(invalid.stderr).toContain("goals: required");
 			expect(invalid.stderr).toContain("does not match its position");
+			expect(invalid.stderr).toContain("outcome is 2001 chars; limit 2000");
+			expect(invalid.stderr).toContain("decisions[0] is 1001 chars; limit 1000");
 		} finally {
 			fs.rmSync(dir, { recursive: true, force: true });
 		}

@@ -43,7 +43,6 @@ export interface HistoryObj {
 }
 
 const LEADING = /^(\{#[0-9a-z]{6} FOLDED\}) (\{.*\})$/s;
-const HISTORY_OUTCOME_CHARS = 160;
 const HISTORY_CHILD_TITLE_CHARS = 60;
 
 /** Collapse whitespace and cut to `max` characters. */
@@ -146,7 +145,7 @@ export function toHistory(node: RecordObj | HistoryObj): HistoryObj {
 		status: node.status,
 		...(node.recall ? { recall: node.recall } : {}),
 		...(Object.keys(counts).length ? { subtasks: counts } : {}),
-		...(node.outcome ? { outcome: oneLine(node.outcome, HISTORY_OUTCOME_CHARS) } : {}),
+		...(node.outcome ? { outcome: node.outcome } : {}),
 		...(subtreePins(node).length ? { pins: subtreePins(node) } : {}),
 		...(Object.keys(direct).length ? { children: direct } : {}),
 	};

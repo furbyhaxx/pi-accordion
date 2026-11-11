@@ -27,6 +27,10 @@ tasks carry the parts of them they depend on.
 | **Pin** | A sentence that must keep holding while the work runs: a rule, constraint, convention, standard or fact. The agent should obey it, not read around it. | Verbatim quote, ≤300 chars. List pins ≤2,000 tokens in total, one task's ≤1,500 |
 | **Attachment** | A part of a file the agent needs to read to do the task: a spec section, a plan slice, a research finding, a function. | ≤60 lines resolved (setting `tasks.attachments.maxLines`), `note` ≤120 chars |
 
+Task titles stay within 200 chars; acceptance criteria are at most 8 × 300 chars (1–3 recommended).
+A finishing report's `outcome` is at most 2,000 chars; `decisions` and `open` are at most
+12 × 1,000 chars each. Rejections report every violation; no field is silently cut.
+
 Pin kinds: `rule` (a project or user instruction), `constraint` (a limit the work must stay within,
 often a plan's "Do not"), `convention` (how things are done here), `standard` (an external norm the
 result must meet), `fact` (a verified finding the work relies on).

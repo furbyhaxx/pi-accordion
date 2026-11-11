@@ -27,6 +27,7 @@
 import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
+import { estTokens } from "../../../core/tokens";
 import { VerdictLedger } from "./verdicts";
 import { RoutingParseError, taskfoldRouting, type RoutingPort } from "./routing";
 import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
@@ -47,7 +48,7 @@ export interface TaskfoldOptions {
 	harnessPatterns?: readonly RegExp[];
 	/** The newest finished top-level tasks that stay raw. Default 0: a finished task folds at the next request. */
 	keepRecentTasks?: number;
-	/** Maximum tokens in a full composed record before its deepest children become history entries. */
+	/** Raw token budget for descendant records; deepest children become history, own fields stay whole. */
 	recordTokens?: number;
 	/** Apply recoverable per-block pressure relief before folding untracked work. */
 	floor?: boolean;
@@ -1085,10 +1086,11 @@ export class TaskfoldConductor implements Conductor {
 		const tag = rootCovered ? foldTag(`t:${span.key}`) : foldTag(`g:${lastRun[0].id}`);
 		const entry = this.record(span, blocks, children, prior, included, reach);
 		const isRoot = !span.id.includes(".");
-		let carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
-		let text = render(tag, carrier);
-		while (!isHistory(carrier) && host.countTokens(text) > this.k.recordTokens && shrinkDeepest(carrier)) text = render(tag, carrier);
-		if (host.countTokens(text) > this.k.recordTokens) return { declined: "record-cap" };
+		const carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
+		while (!isHistory(carrier) && estTokens(JSON.stringify(carrier.children ?? [])) > this.k.recordTokens) {
+			if (!shrinkDeepest(carrier)) break;
+		}
+		const text = render(tag, carrier);
 		const shown = visibleTags(text);
 		const visible = usable.filter((h) => shown.has(foldTag(h.id)));
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);

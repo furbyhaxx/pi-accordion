@@ -27,7 +27,7 @@ breaks once per epoch, at the oldest span folded in it.
 |---|---|
 | a task finishes inside an open parent | a record (below) |
 | a non-root parent finishes | one record that composes its children's records |
-| a root finishes | one history line: title, status, subtask counts, a short outcome and the codes of its direct children |
+| a root finishes | one history entry: title, status, subtask counts, the whole outcome and the codes of its direct children |
 | pressure reaches 80% of the budget inside an open root | its folded records, oldest first, become history lines until the projection is back under 60% |
 | pressure remains inside a still-open task | runs of its old finished steps (at least `steps.minSteps`, default 4) become step carriers `{"steps":"<key>","label":…,"count":…}`, oldest first; its start message, user messages, document reads and the tail dial stay live |
 | a task with step carriers finishes | its record absorbs them |
@@ -52,7 +52,7 @@ raw; raising it delays folds and multiplies rebilled tokens.
 
 Enable `/accordion debug on` to explain finished tasks that remain raw. Epoch records name
 the declining path (cache lookback, protected tail, prefill guard, held boundary, pending
-classification/routing, record cap or keep-recent). Committed folds include their savings and
+classification/routing or keep-recent). Committed folds include their savings and
 changed frontier. A finished task still raw after 40 tool results raises a warning.
 
 ## The record
@@ -70,8 +70,10 @@ excluding child spans. `user` links each routed user message inside the span to 
 produced. Each child carries its own tag in `recall`. One code per task is derived from its id, so
 it stays stable when the planner recompiles. `recall` returns the task's raw intervals;
 `unfold` opens them, and while taskfold stays attached it re-folds eligible siblings around the
-requested child. When a record would exceed `taskfold.recordTokens` (default 1,500), its deepest
-children become history lines until it fits. Task pins are kept verbatim at every level.
+requested child. `taskfold.recordTokens` (default 1,500) budgets raw-estimated descendant content,
+not the task's own report: deepest children become history until it fits or none remain.
+Outcomes (up to 2,000 chars) stay whole, including in history; decision/open lists each allow
+12 × 1,000-char items. Task pins stay verbatim at every level; a long own report never blocks folding.
 
 ## User messages
 

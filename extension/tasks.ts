@@ -10,7 +10,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BLOCK_REASONS, checkTexts, compareIds, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, parentId, parseListFile, TASK_GOAL_MAX, TASK_GOALS_MAX, toListFile, type BlockReason, type FlatList, type Item, type ItemPrefix, type ItemSeq, type TaskStatus } from "./taskSchema";
+import { BLOCK_REASONS, checkReport, checkTexts, compareIds, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, parentId, parseListFile, REPORT_OUTCOME_MAX as OUTCOME_MAX, TITLE_MAX, TASK_GOAL_MAX, TASK_GOALS_MAX, toListFile, type BlockReason, type FlatList, type Item, type ItemPrefix, type ItemSeq, type TaskStatus } from "./taskSchema";
 import type { Anchor } from "./taskAnchors";
 import { attachmentRef, checkPinCap, makeAttachment, makePin, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
 
@@ -115,11 +115,7 @@ export class TaskError extends Error {
 }
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
-const TITLE_MAX = 200;
-const OUTCOME_MAX = 600;
-const ITEM_MAX = 240;
 const BLOCK_DETAIL_MAX = 1024;
-const ITEMS_MAX = 8;
 /** A claim not refreshed for this long may be taken over without `force`. */
 export const CLAIM_STALE_MS = 30 * 60_000;
 
@@ -159,30 +155,17 @@ function cleanTitle(title: unknown): string {
 
 /** Validate a report against the record's field budget; over-budget reports are rejected, not cut. */
 export function cleanReport(report: unknown): TaskReport {
-	if (!report || typeof report !== "object") throw new TaskError("invalid_args", 'A report is required: { outcome: "what was achieved", decisions?: ["choice — reason"], open?: ["unresolved item"] }.');
-	const r = report as Record<string, unknown>;
-	if (typeof r.outcome !== "string" || !r.outcome.trim()) throw new TaskError("invalid_args", "report.outcome is required: one or two sentences on what this task achieved.");
-	const outcome = r.outcome.trim();
-	if (outcome.length > OUTCOME_MAX) throw new TaskError("invalid_args", `report.outcome is ${outcome.length} chars; keep it under ${OUTCOME_MAX}. Move detail into decisions or open.`);
-	const list = (name: string, v: unknown): string[] | undefined => {
-		if (v === undefined) return undefined;
-		if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) throw new TaskError("invalid_args", `report.${name} must be an array of strings.`);
-		const items = (v as string[]).map((x) => x.trim()).filter(Boolean);
-		if (items.length > ITEMS_MAX) throw new TaskError("invalid_args", `report.${name} has ${items.length} items; keep at most ${ITEMS_MAX}, the ones a later step needs.`);
-		const long = items.find((x) => x.length > ITEM_MAX);
-		if (long) throw new TaskError("invalid_args", `A report.${name} item is ${long.length} chars; keep each under ${ITEM_MAX}: "${long.slice(0, 60)}…".`);
-		return items.length ? items : undefined;
-	};
-	const decisions = list("decisions", r.decisions);
-	const open = list("open", r.open);
-	return { outcome, ...(decisions ? { decisions } : {}), ...(open ? { open } : {}) };
+	const errors: string[] = [];
+	const clean = checkReport(report, "report", errors);
+	if (errors.length) throw new TaskError("invalid_args", errors.join("; "));
+	return clean;
 }
 
 /** Item texts as given in `create`/`add`/`update`: a non-empty array of strings within the limits. */
 function cleanTexts(v: unknown, where: string, max: number, maxChars: number): string[] {
 	const errors: string[] = [];
 	checkTexts(v, where, max, maxChars, errors);
-	if (errors.length) throw new TaskError("invalid_args", `${errors[0]}.`);
+	if (errors.length) throw new TaskError("invalid_args", `${errors.join("; ")}.`);
 	return (v as string[]).map((x) => x.trim().replace(/\s+/g, " "));
 }
 

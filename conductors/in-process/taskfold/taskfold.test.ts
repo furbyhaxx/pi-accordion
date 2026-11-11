@@ -117,7 +117,7 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 	});
 describe("taskfold", () => {
 	it("explains deferred finished tasks and warns once they outlive forty tool results", async () => {
-		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "cache-lookback", "record-cap"] as const) {
+		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "cache-lookback"] as const) {
 			const s = new Session();
 			s.user("Go.");
 			s.start("1", "Root");
@@ -125,13 +125,13 @@ describe("taskfold", () => {
 			s.work(2, "body");
 			s.finish("1.1", { outcome: "Finished", decisions: ["Keep ".repeat(100)] });
 			if (reason !== "prefill-guard") s.work(reason === "cache-lookback" ? 41 : 3, "tail");
-			const host = setup(s, reason === "record-cap" || reason === "held-boundary" ? 0.5 : 2);
+			const host = setup(s, reason === "held-boundary" ? 0.5 : 2);
 			host.truth.setLocks(["tail-size"], "Taskfold", 0);
 			if (reason === "held-boundary") host.truth.apply([{ kind: "pin", ids: [start] }], "you");
 			if (reason === "cache-lookback") await host.departWire();
 			const events: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
 			Object.assign(host, { debug: (event: typeof events[number]) => events.push(event) });
-			new TaskfoldConductor({ keepRecentTasks: reason === "keep-recent-tasks" ? 1 : 0, recordTokens: reason === "record-cap" ? 100 : 5000 }).attach(host);
+			new TaskfoldConductor({ keepRecentTasks: reason === "keep-recent-tasks" ? 1 : 0 }).attach(host);
 			await host.commitTurn();
 			const tasks = events.find((e) => e.type === "epoch")?.tasks as { key: string; reason: string }[];
 			expect(tasks.find((t) => t.key === "work/1.1")?.reason).toBe(reason);
@@ -1165,19 +1165,46 @@ describe("taskfold", () => {
 		expect(groupOf(host, parent)!.summary).not.toContain("Details Details");
 		expect(resolveRecall(host.truth, [foldCode("t:work/1.1.1")]).missing).toEqual([]);
 	});
-	it("keeps a record raw rather than truncating its own report when it still exceeds recordTokens", async () => {
+	it("keeps child records within the raw child budget regardless of own report size or calibration", async () => {
 		const s = new Session();
 		s.user("Go.");
 		s.start("1", "Root");
-		const start = s.start("1.1", "Task").call;
-		s.work(2, "task");
-		s.finish("1.1", { outcome: "done", decisions: ["Keep ".repeat(100)] });
+		const parent = s.start("1.1", "Parent").call;
+		s.start("1.1.1", "Child");
+		s.work(2, "child");
+		const decisions = ["Detail ".repeat(50)];
+		s.finish("1.1.1", { outcome: "done", decisions });
+		s.finish("1.1", { outcome: "done ".repeat(400) });
 		s.work(3, "tail");
 		const host = setup(s);
-		new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 100, untracked: { enabled: false, minSteps: 8 } }).attach(host);
+		host.truth.setCalibration(4);
+		new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 300 }).attach(host);
 		await host.commitTurn();
-		expect(groupOf(host, start)).toBeUndefined();
-		expect(host.statusLog.at(-1)?.metrics?.level).toBe("error");
+		expect(carrier(groupOf(host, parent))?.children[0]).toMatchObject({ task: "work/1.1.1", decisions });
+	});
+	it("folds long own reports verbatim despite a small child cap and high calibration", async () => {
+		for (const root of [false, true]) {
+			const s = new Session();
+			s.user("Go.");
+			s.start("1", "Root");
+			const start = s.start("1.1", "Task").call;
+			s.work(2, "task");
+			const report = { outcome: "done ".repeat(400), decisions: ["Keep ".repeat(200)] };
+			s.finish("1.1", report);
+			if (root) s.finish("1", { outcome: report.outcome });
+			s.work(3, "tail");
+			const host = setup(s);
+			host.truth.setCalibration(4);
+			new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 100 }).attach(host);
+			await host.commitTurn();
+			const entry = carrier(groupOf(host, start));
+			expect(entry?.outcome).toBe(report.outcome);
+			expect(root ? entry?.history : entry?.task).toBe(root ? "work/1" : "work/1.1");
+			if (!root) expect(entry?.decisions).toEqual(report.decisions);
+			const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1")]);
+			expect(recalled.missing).toEqual([]);
+			expect(JSON.stringify(recalled.restored)).toContain("Keep Keep");
+		}
 	});
 	it("under pressure turns folded records inside an open root into history entries, oldest first, keeping tags and pins", async () => {
 		const s = new Session();
@@ -1215,7 +1242,7 @@ describe("taskfold", () => {
 		const h = toHistory(root);
 		expect(h.subtasks).toEqual({ done: 1, failed: 1, abandoned: 1 });
 		expect(h.children).toEqual({ "1.1": { title: expect.any(String), recall: foldTag("t:w/1.1") } });
-		expect(h.outcome!.length).toBeLessThanOrEqual(160);
+		expect(h.outcome).toBe(root.outcome);
 		expect(h.pins).toEqual([{ kind: "rule", text: "r", source: "user" }]);
 		expect(shrinkDeepest(root)).toBe(true);
 		expect((root.children![0] as RecordObj).children![0]).toMatchObject({ history: "w/1.1.1" });

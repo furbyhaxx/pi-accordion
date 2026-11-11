@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { warmSymbols } from "./taskSymbols";
-import { CLAIM_STALE_MS, TaskError, TaskStore, claimState, runTasks, slugFor, taskFingerprint, type TasksArgs } from "./tasks";
+import { CLAIM_STALE_MS, TaskError, TaskStore, claimState, cleanReport, runTasks, slugFor, taskFingerprint, type TasksArgs } from "./tasks";
 
 function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-"))) {
 	return { dir, s: new TaskStore(dir, () => session) };
@@ -95,8 +95,25 @@ describe("tasks", () => {
 		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A" }] });
 		runTasks(s, { action: "start", list: "w", id: "1" });
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1" })).toThrow(TaskError);
-		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report: { outcome: "x".repeat(601) } })).toThrow(/under 600/);
-		expect(run(s, { action: "fail", list: "w", id: "1", report: { outcome: "Blocked on API.", open: ["need key"] } })).toEqual({ ok: true });
+		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report: { outcome: "x".repeat(2001) } })).toThrow(/2001 chars; limit 2000/);
+		const long = { outcome: "x".repeat(2000), decisions: Array(12).fill("d".repeat(1000)), open: Array(12).fill("o".repeat(1000)) };
+		expect(run(s, { action: "fail", list: "w", id: "1", report: long })).toEqual({ ok: true });
+		expect(s.read("w").tasks[0].report).toEqual(long);
+	});
+
+	test("reports every report violation together without changing task state", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A" }] });
+		runTasks(s, { action: "start", list: "w", id: "1" });
+		const invalid = { outcome: "x".repeat(2001), decisions: Array(13).fill("d".repeat(1001)), open: ["o".repeat(1002)] };
+		let message = "";
+		try { runTasks(s, { action: "complete", list: "w", id: "1", report: invalid }); } catch (e) { message = (e as Error).message; }
+		expect(message).toContain("report.outcome is 2001 chars; limit 2000");
+		expect(message).toContain("report.decisions has 13 items; limit 12");
+		for (let i = 0; i < 13; i++) expect(message).toContain(`report.decisions[${i}] is 1001 chars; limit 1000`);
+		expect(message).toContain("report.open[0] is 1002 chars; limit 1000");
+		expect(s.read("w").tasks[0].status).toBe("doing");
+		expect(() => cleanReport({ outcome: "", decisions: [false], open: "bad" })).toThrow(/outcome.*decisions\[0\].*open/);
 	});
 
 	test("another session's live claim blocks writes until forced", () => {

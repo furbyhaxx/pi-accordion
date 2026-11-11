@@ -53,6 +53,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import { BLOCK_REASONS, TASK_ACTIONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
+import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
@@ -4077,6 +4078,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), dependency (another task must finish first; give blockedBy). detail says exactly what is awaited.\n" +
 			"Rules: start a subtask and its parents start with it. Only one branch is in progress at a time; a blocked task frees you to start another. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
 			"Every list has 1–5 goals: together the end state the whole list delivers. A task may add up to 3 goals of its own. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
+			"Limits: title 200 chars; report.outcome 2,000 chars; decisions/open at most 12 items each, 1,000 chars per item; acceptance criteria at most 8 items, 300 chars each. Reports over a limit are rejected with every violation, never truncated.\n" +
 			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. Goals, criteria, pins and attachments carry ids (g1, c1, p1, a1) that stay fixed; results return the ids they assign. start returns the list goals and each entering task's goals, criteria, pins and attachment content once (parents: those of tasks already in progress above it that you can no longer see); keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
 			"Actions: create {list, title, goals: [texts], tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, goals?, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goals? (list without id, task with id), acceptanceCriteria? (task)} where goals/acceptanceCriteria take {add?: [texts], remove?: [ids], edit?: [{id, text}]}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, blockedBy?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
 		promptSnippet: "tasks(action, …) — persistent nested task lists; start before the work, then complete, fail, abandon or block with a reason.",
@@ -4094,19 +4096,19 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ description: "What to do." },
 			),
 			list: Type.Optional(Type.String({ description: 'List slug, e.g. "auth-refactor" (lowercase, digits, dashes).' })),
-			title: Type.Optional(Type.String({ description: "For create: the list title. For update: the new title of the list or of task id." })),
+			title: Type.Optional(Type.String({ maxLength: TITLE_MAX, description: "For create: the list title. For update: the new title of the list or of task id (max 200 chars)." })),
 			goals: Type.Optional(
 				Type.Union([Type.Array(Type.String()), Type.Object({ add: Type.Optional(Type.Array(Type.String())), remove: Type.Optional(Type.Array(Type.String())), edit: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String() }))) })], {
 					description: "For create: 1–5 goal texts, together the end state the whole list delivers. For update: {add?: [texts], remove?: [ids], edit?: [{id, text}]} on the list's goals (no id) or a task's goals (id).",
 				}),
 			),
-			acceptanceCriteria: Type.Optional(Type.Object({ add: Type.Optional(Type.Array(Type.String())), remove: Type.Optional(Type.Array(Type.String())), edit: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String() }))) }, { description: "For update with id: {add?: [texts], remove?: [ids], edit?: [{id, text}]} on the task's checkable acceptance criteria." })),
+			acceptanceCriteria: Type.Optional(Type.Object({ add: Type.Optional(Type.Array(Type.String({ maxLength: CRITERION_MAX }), { maxItems: CRITERIA_MAX })), remove: Type.Optional(Type.Array(Type.String())), edit: Type.Optional(Type.Array(Type.Object({ id: Type.String(), text: Type.String({ maxLength: CRITERION_MAX }) }))) }, { description: "For update with id: {add?: [texts], remove?: [ids], edit?: [{id, text}]}; at most 8 criteria, 300 chars each." })),
 			tasks: Type.Optional(
 				Type.Array(
 					Type.Object({
-						title: Type.String(),
+						title: Type.String({ maxLength: TITLE_MAX }),
 						goals: Type.Optional(Type.Array(Type.String(), { description: "Up to 3 goals of this subtree beyond its criteria." })),
-						acceptanceCriteria: Type.Optional(Type.Array(Type.String(), { description: "1–3 checkable statements that are true when the task is finished." })),
+						acceptanceCriteria: Type.Optional(Type.Array(Type.String({ maxLength: CRITERION_MAX }), { maxItems: CRITERIA_MAX, description: "1–3 recommended (max 8) checkable statements, max 300 chars each." })),
 						pins: Type.Optional(Type.Array(Type.Any())),
 						attachments: Type.Optional(Type.Array(Type.Any())),
 						subtasks: Type.Optional(Type.Array(Type.Any())),
@@ -4125,9 +4127,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			report: Type.Optional(
 				Type.Object(
 					{
-						outcome: Type.String({ description: "What this task achieved, or for fail what was tried and what went wrong, in one or two sentences." }),
-						decisions: Type.Optional(Type.Array(Type.String(), { description: '"choice — reason" lines.' })),
-						open: Type.Optional(Type.Array(Type.String(), { description: "Anything left unresolved." })),
+						outcome: Type.String({ maxLength: REPORT_OUTCOME_MAX, description: "What this task achieved, or for fail what was tried and what went wrong (max 2,000 chars)." }),
+						decisions: Type.Optional(Type.Array(Type.String({ maxLength: REPORT_ITEM_MAX }), { maxItems: REPORT_ITEMS_MAX, description: '"choice — reason" lines (max 12 items, 1,000 chars each).' })),
+						open: Type.Optional(Type.Array(Type.String({ maxLength: REPORT_ITEM_MAX }), { maxItems: REPORT_ITEMS_MAX, description: "Anything unresolved (max 12 items, 1,000 chars each)." })),
 					},
 					{ description: "Required for complete, fail and abandon." },
 				),

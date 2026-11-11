@@ -4,7 +4,9 @@ A file lives at `.pig/tasks/<slug>.json`, or elsewhere (next to its plan) with a
 
 Goals and criteria are written as plain strings; the store stores them as `{ id, text }` items (`g1`, `c1`, …) that results and records refer to. Item ids are unique within the list and never reused after removal (`seq` remembers the last number). An explicit item id is kept; it must have the right prefix and must not collide.
 
-Each task has a non-empty `title` (up to 200 characters), optional `subtasks` (no fixed depth limit), optional `goals` (up to 3, 300 characters each: what the subtree must achieve beyond its criteria), and optional `acceptanceCriteria`: up to 8 (1–3 recommended) non-empty statements of up to 120 characters. Missing `status` means `todo`. Explicit IDs must match their position (`1`, `1.1`, …). Consult `tasks.schema.json` for the remaining stored status and report fields.
+Each task has a non-empty `title` (up to 200 characters), optional `subtasks` (no fixed depth limit), optional `goals` (up to 3, 300 characters each), and optional `acceptanceCriteria`: up to 8 (1–3 recommended) non-empty statements of up to 300 characters. Missing `status` means `todo`. Explicit IDs must match their position (`1`, `1.1`, …).
+
+Reports require `outcome` (up to 2,000 characters). Optional `decisions` and `open` each hold at most 12 strings of up to 1,000 characters. Over-limit reports are rejected with every violation and its length/limit, never truncated. Root history preserves the whole outcome; `recordTokens` caps only descendant content using raw estimates.
 
 List and task scopes can hold `pins` and `attachments`; `context.md` explains what to put where. When authoring, omit their `id` (the store assigns `p<n>`/`a<n>` after any explicit ones), a pin's `at` and an attachment's `hash` and `at`.
 

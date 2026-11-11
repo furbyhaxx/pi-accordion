@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-11T23:15:00+01:00"
+  updated_at: "2026-11-11T23:25:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 5
-      reason: "S2 implementation and regression checks"
-      changes: ["snapped row accounting", "extraction retry and stop reasons", "ordered chat defaults and renewed consent"]
+    - revision: 6
+      reason: "S3 implementation and contract validation"
+      changes: ["expanded report and criteria limits", "all violations returned", "full history outcomes", "raw child-only record budget"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -27,8 +27,8 @@ the shipped behaviour.
 ```
 done  S1  Debug mode and decline reasons
 done  S2  Row accounting and routing fixes
-next  S3  Report limits, tool description, record cap unit
-later S4  Timing modes, eager default, cache profile, 20-block rule removed
+done  S3  Report limits, tool description, record cap unit
+next  S4  Timing modes, eager default, cache profile, 20-block rule removed
 later S5  Bracket tail; re-run the simulation on real debug logs
 later S6  Frontier breakpoint (Anthropic), only if S5's logs still show misses
 ```
@@ -48,6 +48,12 @@ owned carriers now charge whole groups. Widget/view/dump tests keep additive wir
 Native Vitest route/host/remote tests, routing/settings Bun tests and context/host smoke pass.
 Renewed consent is deliberate: old classifier-only permission does not cover sending list
 context to chat providers. The extension still has only its seven known TypeScript diagnostics.
+
+S3: shared validation, tool schemas and bundled authoring references now agree on 2,000-char
+outcomes, 12 × 1,000-char decision/open items and 300-char criteria. All violations are returned
+together without state changes. Whole root/non-root outcomes fold even with a 100-token child
+cap and high calibration; only descendant content counts against the raw-estimated budget.
+Native/authoring/CLI regressions, context smoke, app check and 1,059 app tests pass.
 
 ## Why
 

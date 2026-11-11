@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 30
+  revision: 31
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T23:15:00+01:00"
+  updated_at: "2026-11-11T23:21:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 30
-      reason: "row accounting and robust extraction"
-      changes: ["snapped carrier charges", "balanced JSON and parse-only retry", "stop reasons", "ordered chat defaults and renewed consent"]
+    - revision: 31
+      reason: "expanded report limits and own-field preservation"
+      changes: ["shared report validation with all violations", "300-character criteria", "full history outcomes", "raw-estimated child-only cap"]
 ---
 
 # Taskfold
@@ -88,7 +88,7 @@ referenced by `$schema`.
 | item ids | Goals `g<n>`, criteria `c<n>`, pins `p<n>`, attachments `a<n>`: unique within the list, assigned by the store, never reused after removal. Authors may omit them; an explicit id that collides is a validation error |
 | `tasks[].subtasks` | Nested tree with no fixed maximum depth |
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
-| `acceptanceCriteria` | Optional, ≤8 items (1–3 recommended) `{id, text}` of ≤120 chars, checkable end-state statements. Authoring accepts plain strings and assigns ids |
+| `acceptanceCriteria` | Optional, ≤8 items (1–3 recommended) `{id, text}` of ≤300 chars, checkable end-state statements. Authoring accepts plain strings and assigns ids |
 | `status` | Optional when authoring (`todo`). Other `Task` fields (`report`, timestamps, `blocks`, `supersededBy`, `autoClosed`) keep their v1 meaning |
 | `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files with `lines` are converted to a quote anchor on load. Authors omit ids, a pin's `at` and an attachment's `hash`/`at`; a hand-written quote may give only `exact`, and its first delivery resolves it without a `moved` state and stores the completed anchor |
 
@@ -191,6 +191,11 @@ type Ref = { id: string; title: string };
 start result becomes the task's anchor in the transcript. Titles are the only echo.
 
 ### 3.4 Actions and results
+
+Titles are at most 200 chars. Finishing reports require an `outcome` of at most 2,000 chars;
+`decisions` and `open` each hold at most 12 strings of at most 1,000 chars. The tool description,
+tool JSON schema, authoring schema and validator state the same limits. Rejections enumerate
+every field violation with its measured length and limit. Reports are never silently truncated.
 
 Parameters are listed in full; `null` means optional and absent.
 
@@ -678,9 +683,10 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
   with its own `"recall"` code instead of a leading tag.
 - `changed` and `verified` come from the node's own traffic only (blocks inside its intervals and
   outside every descendant's intervals).
-- Cap `taskfold.recordTokens` (default 1,500): over the cap, the deepest children become history
-  entries (§6.3) until it fits; never truncated mid-field. If own fields and pins still exceed it,
-  the task stays raw and saturation is reported.
+- `taskfold.recordTokens` (default 1,500) caps only the serialized `children` content, measured with
+  the raw `core/tokens.ts` estimate. Deepest full child records become history entries (§6.3)
+  until the child budget fits or none remain. Own fields and pins never veto a fold; even a
+  minimum history subtree may exceed the cap rather than losing text or recovery handles.
 - `taskfold.leafForm = "record" | "bracket"` (default `record`). `bracket` (B→S) keeps a leaf's
   original `tasks start` and finishing call/result pairs around a record without `outcome`, and
   becomes a plain record once its parent folds. Comprehension equal, cost ≤2 % higher.
@@ -688,10 +694,10 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
 ### 6.3 History (H)
 
 ```
-{#e1fc37 FOLDED} {"history":"auth/1","title":"Design","status":"done","subtasks":{"done":9,"abandoned":1},"outcome":"…≤160","children":{"1.1":{"title":"Add the interface","recall":"{#ucn7c8 FOLDED}"},"1.2":{"title":"Review it","recall":"{#v6m0f5 FOLDED}"}}}
+{#e1fc37 FOLDED} {"history":"auth/1","title":"Design","status":"done","subtasks":{"done":9,"abandoned":1},"outcome":"<whole outcome, up to 2,000 chars>","children":{"1.1":{"title":"Add the interface","recall":"{#ucn7c8 FOLDED}"},"1.2":{"title":"Review it","recall":"{#v6m0f5 FOLDED}"}}}
 ```
 
-- One message per task; at most three lines when wrapped. `children` names the **direct** children by id, a title of at most 60 characters and their codes, so the agent can find a task by what it was called and recall it (the eval recalled the root in 11 of 18 cases without codes, and on the real session fell back to `bash` when a deep task could not be found by title).
+- One message per task; the outcome is kept whole and verbatim. `children` names the **direct** children by id, a title of at most 60 characters and their codes so the agent can find and recall a task.
 - `status` is truthful about the subtree: a failed or abandoned descendant shows in `subtasks`.
 - Recalling the root code returns its full record (§6.2); recalling a child code returns that child's.
 
