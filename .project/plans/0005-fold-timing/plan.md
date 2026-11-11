@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-11T18:04:09+01:00"
+  updated_at: "2026-11-11T23:05:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "the user chose the extraction model"
-      changes: ["S2 item 4: openai/gpt-6-luna, else openai-codex/gpt-6-luna, as an ordered default"]
+    - revision: 4
+      reason: "S1 implemented and verified live"
+      changes: ["private diagnostics and bundle", "decline reasons", "live DeepSeek fixture and terminal captures"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -25,8 +25,8 @@ the shipped behaviour.
 ## Progress
 
 ```
-next  S1  Debug mode and decline reasons
-later S2  Row accounting and routing fixes
+done  S1  Debug mode and decline reasons
+next  S2  Row accounting and routing fixes
 later S3  Report limits, tool description, record cap unit
 later S4  Timing modes, eager default, cache profile, 20-block rule removed
 later S5  Bracket tail; re-run the simulation on real debug logs
@@ -35,6 +35,13 @@ later S6  Frontier breakpoint (Anthropic), only if S5's logs still show misses
 
 S1 comes first because S4–S6 are judged from its log. S2 and S3 are independent of each other and
 of S1. S5 needs S4. S6 needs S5's measurement.
+
+S1 evidence: `evidence/debug-live/` holds a real Pi-Bolt `deepseek/deepseek-flash` two-task
+run (nine request receipts, two committed folds, ~240 estimated tokens saved), Settings at
+36/57/80/140 columns, and validation notes. The live gzip bundle was mode 0600 and its token
+redacted. Automated checks: 556 Bun tests; app check 0 errors/warnings; app tests 1,058 pass,
+21 intentional skips; all three extension smoke suites pass, including enabled-debug
+no-synchronous-write context coverage. Browser assets await the packaging gate in S6/final QA.
 
 ## Why
 

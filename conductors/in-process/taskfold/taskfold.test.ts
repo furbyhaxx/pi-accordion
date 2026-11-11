@@ -12,6 +12,7 @@ import { UNFOLD_ENTRY, VERDICT_ENTRY, VerdictLedger, unfoldStatesOf, verdictsOf,
 import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
+import type { ConductorHost } from "../../../core/conductor/contract";
 
 class Session {
 	readonly blocks: Block[] = [];
@@ -92,6 +93,41 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 }
 
 describe("taskfold", () => {
+	it("explains deferred finished tasks and warns once they outlive forty tool results", async () => {
+		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "cache-lookback", "record-cap"] as const) {
+			const s = new Session();
+			s.user("Go.");
+			s.start("1", "Root");
+			const start = s.start("1.1", "Child").call;
+			s.work(2, "body");
+			s.finish("1.1", { outcome: "Finished", decisions: ["Keep ".repeat(100)] });
+			if (reason !== "prefill-guard") s.work(reason === "cache-lookback" ? 41 : 3, "tail");
+			const host = setup(s, reason === "record-cap" || reason === "held-boundary" ? 0.5 : 2);
+			host.truth.setLocks(["tail-size"], "Taskfold", 0);
+			if (reason === "held-boundary") host.truth.apply([{ kind: "pin", ids: [start] }], "you");
+			if (reason === "cache-lookback") await host.departWire();
+			const events: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
+			Object.assign(host, { debug: (event: typeof events[number]) => events.push(event) });
+			new TaskfoldConductor({ keepRecentTasks: reason === "keep-recent-tasks" ? 1 : 0, recordTokens: reason === "record-cap" ? 100 : 5000 }).attach(host);
+			await host.commitTurn();
+			const tasks = events.find((e) => e.type === "epoch")?.tasks as { key: string; reason: string }[];
+			expect(tasks.find((t) => t.key === "work/1.1")?.reason).toBe(reason);
+			if (reason === "cache-lookback") expect(host.statusLog.at(-1)?.text).toContain("work/1.1 still raw after 41 steps (cache-lookback)");
+		}
+	});
+
+	it("records committed fold savings and the changed frontier", async () => {
+		const { s } = oneTask();
+		const host = setup(s);
+		const events: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
+		Object.assign(host, { debug: (event: typeof events[number]) => events.push(event) });
+		await attach(host);
+		const event = events.find((e) => e.type === "fold");
+		expect(event?.task).toBe("work/1");
+		expect(event?.tokensRemoved).toBeGreaterThan(0);
+		expect(event?.carrierTokens).toBeGreaterThan(0);
+		expect(event?.firstChangedBlock).toBe(1);
+	});
 	it("opens and closes spans from task events recorded on a codemode result", async () => {
 		const s = new Session();
 		s.user("Batch the bookkeeping.");

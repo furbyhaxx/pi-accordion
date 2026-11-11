@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import fsDefault from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createJiti } from "jiti";
@@ -569,6 +571,30 @@ check("a provider-only change and a late-learned model change both invalidate ca
 		await r.request(history(2));
 		assert.equal(t.calibration, 1);
 	} finally { r.close(); }
+});
+check("debug records receipts and rejected tasks without synchronous writes on the context hook", async () => {
+	const r = runtime([], { sessionId: "debug-smoke" });
+	try {
+		await r.command("debug on");
+		const writes = ["writeFileSync", "appendFileSync", "mkdirSync", "renameSync"];
+		const originals = new Map(writes.map(key => [key, fsDefault[key]]));
+		try {
+			for (const key of writes) fsDefault[key] = () => { throw new Error(`synchronous write in context: ${key}`); };
+			syncBuiltinESMExports();
+			await r.request([{ role: "user", content: "Debug smoke", timestamp: 1 }]);
+		} finally {
+			for (const [key, value] of originals) fsDefault[key] = value;
+			syncBuiltinESMExports();
+		}
+		r.handlers.message_end({ message: { role: "assistant", content: [{ type: "text", text: "Done" }], responseId: "debug-reply", timestamp: 2,
+			stopReason: "stop", usage: { input: 200, cacheRead: 10, cacheWrite: 20 } } }, r.ctx);
+		await assert.rejects(r.tools.tasks.execute("debug-invalid", { action: "create", list: "bad!", title: "Invalid", goals: ["Test"], tasks: [] }, undefined, undefined, r.ctx));
+		await r.command("debug off");
+		assert.deepEqual(r.entries.filter(e => e.customType === "accordion.debug").map(e => e.data.enabled), [true, false]);
+	} finally { await r.close(); }
+	const rows = fs.readFileSync(path.join(home, ".accordion/debug/debug-smoke.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+	assert.ok(rows.some(row => row.type === "request" && row.realInput === 230 && row.cacheRead === 10));
+	assert.ok(rows.some(row => row.type === "tasks" && row.error));
 });
 let failures = 0;
 try {

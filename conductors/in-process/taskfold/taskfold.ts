@@ -379,7 +379,10 @@ interface Unit {
 	ops: Op[];
 	restore: Op[];
 	saved: number;
+	key?: string;
 }
+
+type UnitResult = Unit | { declined: string; deferred?: true };
 
 function parseCall(text: string | null | undefined): Record<string, unknown> | null {
 	const space = text?.indexOf(" ") ?? -1;
@@ -477,6 +480,7 @@ export class TaskfoldConductor implements Conductor {
 	private readonly routing = new Set<string>();
 	private classifyFailures = 0;
 	private epochs = 0;
+	private rawWarning: string | null = null;
 	/** The epoch currently committing, awaited by the wire-departing hold so the first request after load carries its folds. */
 	private inflight: Promise<void> | null = null;
 
@@ -709,7 +713,10 @@ export class TaskfoldConductor implements Conductor {
 		const pressure = stats.budget > 0 && stats.liveTokens >= this.k.high * stats.budget;
 		const plan = this.plan(host, undefined, pressure);
 		if (!plan.length) {
-			if (!pressure) return;
+			if (!pressure) {
+				if (this.rawWarning) host.setStatus(this.rawWarning, { level: "warning" });
+				return;
+			}
 			const blocks = host.blocks();
 			const scanned = scanTaskSpans(blocks, (b) => this.textOf(b));
 			const stale = staleSpans(scanned, blocks, ZOMBIE_STEPS).map((s) => s.key);
@@ -741,6 +748,7 @@ export class TaskfoldConductor implements Conductor {
 		// Outermost finished spans are the fold units; finished descendants fold inside them.
 		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(this.groupKeys(host).values());
+		const reasons = new Map<string, string>(allSpans.filter((s) => !spans.includes(s)).map((s) => [s.key, "unfolded-by-agent"]));
 		const recent = new Set([...roots].sort((a, b) => b.end - a.end).slice(0, this.k.keepRecentTasks).map((s) => s.key));
 		const candidates = recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.filter((s) => !recent.has(s.key));
 		// A fold changes the cache from its first block. Beyond the provider's lookback of the newest breakpoint that rewrites everything after the system prompt, so it pays back only after about 11.5 requests per token saved. Inside the lookback, under pressure, or on a cold cache it folds now.
@@ -751,17 +759,19 @@ export class TaskfoldConductor implements Conductor {
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
 		const planned = new Set<string>();
-		const deferred = new Set<string>();
+		for (const span of roots) if (recent.has(span.key)) reasons.set(span.key, "keep-recent-tasks");
 		const fold = (span: Span, eager = false): void => {
-			if (!recompose && !eager && projected <= target) return;
+			if (!recompose && !eager && projected <= target) { reasons.set(span.key, "below-target"); return; }
 			const descendants = spans.filter((s) => contains(span, s));
-			const unit = foldedKeys.has(span.key) ? null : this.unit(host, blocks, span, descendants, planned, deferred);
-			if (!unit) {
-				// A span that only waits for the tail to pass folds whole then; folding its children now would rewrite the same region again.
-				if (deferred.has(span.key) && !pressure) return;
+			const result: UnitResult = foldedKeys.has(span.key) ? { declined: "already-folded" } : this.unit(host, blocks, span, descendants, planned);
+			if ("declined" in result) {
+				reasons.set(span.key, result.declined);
+				if (result.deferred && !pressure) return;
 				for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) fold(child, eager);
 				return;
 			}
+			const unit = result;
+			reasons.set(span.key, "planned");
 			units.push(unit);
 			for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
 			projected -= unit.saved;
@@ -771,7 +781,10 @@ export class TaskfoldConductor implements Conductor {
 				if (outside && !foldedKeys.has(child.key)) fold(child, eager);
 			}
 		};
-		for (const span of candidates) if (!deep(span)) fold(span, !recompose);
+		for (const span of candidates) {
+			if (deep(span)) reasons.set(span.key, "cache-lookback");
+			else fold(span, !recompose);
+		}
 		if (!recompose && pressure) {
 			for (const span of roots.filter((s) => recent.has(s.key))) fold(span);
 			const condensed = projected > target ? this.condense(host, blocks, projected - target, planned) : null;
@@ -800,6 +813,15 @@ export class TaskfoldConductor implements Conductor {
 			}
 			if (projected > target && this.k.steps.enabled) units.push(...this.steps(host, blocks, projected - target, planned));
 		}
+		const diagnostics = allSpans.map((span) => {
+			const ancestor = allSpans.filter((s) => contains(s, span) && reasons.has(s.key)).sort((a, b) => b.key.length - a.key.length)[0];
+			const reason = reasons.get(span.key) ?? (ancestor ? `ancestor:${reasons.get(ancestor.key)}` : "not-selected");
+			const stepsSince = blocks.slice(span.end + 1).filter((b) => b.kind === "tool_result").length;
+			return { key: span.key, reason, stepsSince };
+		});
+		const zombie = diagnostics.find((d) => d.stepsSince > ZOMBIE_STEPS && !d.reason.includes("planned") && !d.reason.includes("already-folded"));
+		this.rawWarning = zombie ? `Taskfold: ${zombie.key} still raw after ${zombie.stepsSince} steps (${zombie.reason}).` : null;
+		host.debug?.({ type: "epoch", pressure, units: units.length, tasks: diagnostics });
 		return units;
 	}
 
@@ -936,7 +958,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
-	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set(), deferred?: Set<string>): Unit | null {
+	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): UnitResult {
 		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
@@ -958,7 +980,7 @@ export class TaskfoldConductor implements Conductor {
 			const result = start?.callId ? blocks.find((b) => b.kind === "tool_result" && b.callId === start.callId) : undefined;
 			const heldByHuman = (b: ViewBlock | undefined) => !!b && (b.held || host.groups().some((g) => g.by !== "auto" && g.memberIds.includes(b.id)));
 			return s.intervals.length > 0 && ([end, call].some((b) => b && (b.held || foreign(b))) || [start, result].some(heldByHuman));
-		})) return null;
+		})) return { declined: "held-boundary" };
 		const sameMsg = (i: number, j: number) => messageKey(blocks[i].id) === messageKey(blocks[j].id);
 		let lo = span.start;
 		let hi = span.end;
@@ -978,22 +1000,19 @@ export class TaskfoldConductor implements Conductor {
 			hi--;
 			while (hi >= lo && hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi--;
 		}
-		if (lo > hi) return null;
+		if (lo > hi) return { declined: "no-whole-message" };
 		// A span whose own tail is still protected (only without the tail-size lock) folds once it leaves the tail: a folded span is never re-extended.
 		if (blocks.slice(hi + 1, snapHi + 1).some((b, k) => b.protected && span.intervals.some((r) => r.start <= hi + 1 + k && hi + 1 + k <= r.end))) {
-			deferred?.add(span.key);
-			return null;
+			return { declined: "protected-tail", deferred: true };
 		}
 		// A record never ends the request: the wire would end on an assistant carrier (prefill). The next appended step re-runs the epoch.
 		if (finalMessageFrom(blocks) <= hi) {
-			deferred?.add(span.key);
-			return null;
+			return { declined: "prefill-guard", deferred: true };
 		}
 		const members = blocks.slice(lo, hi + 1);
 		// A fold is never re-extended, so a user message still being classified must settle first; its verdict re-runs the epoch.
 		if (members.some((b) => b.kind === "user" && (this.classifying.has(b.id) || this.routing.has(b.id)))) {
-			deferred?.add(span.key);
-			return null;
+			return { declined: "pending-classification-or-routing", deferred: true };
 		}
 		const allowed = new Set<number>();
 		for (const interval of span.intervals) {
@@ -1025,7 +1044,7 @@ export class TaskfoldConductor implements Conductor {
 			if (matching.length && (matching.length !== 1 || g.memberIds.some((id) => !matching[0].some((b) => b.id === id)))) excludedGroups.add(g.id);
 		}
 		if (excludedGroups.size) viable = makeRuns();
-		if (!viable.length) return null;
+		if (!viable.length) return { declined: "no-collapsible-run" };
 		const memberIds = new Set(viable.flatMap((r) => r.map((b) => b.id)));
 		const positions = new Map(blocks.map((b, i) => [b.id, i]));
 		const ours = host.groups().filter((g) => owns(g.id) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
@@ -1058,10 +1077,9 @@ export class TaskfoldConductor implements Conductor {
 		let carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
 		let text = render(tag, carrier);
 		while (!isHistory(carrier) && host.countTokens(text) > this.k.recordTokens && shrinkDeepest(carrier)) text = render(tag, carrier);
-		if (host.countTokens(text) > this.k.recordTokens) return null;
+		if (host.countTokens(text) > this.k.recordTokens) return { declined: "record-cap" };
 		const shown = visibleTags(text);
 		const visible = usable.filter((h) => shown.has(foldTag(h.id)));
-		if (visible.some((h) => !covered(h))) return null;
 		const ops: Op[] = ours.map((g) => ({ kind: "ungroup", groupId: g.id }) as Op);
 		const restore: Op[] = ours.map((g) => ({ kind: "group", ids: g.memberIds.slice(), summary: g.summary, ...(g.role ? { role: g.role } : {}), ...(g.handles ? { handles: g.handles.map((h) => ({ id: h.id, memberIds: [...h.memberIds] })) } : {}) }) as Op);
 		let saved = 0;
@@ -1074,7 +1092,7 @@ export class TaskfoldConductor implements Conductor {
 			const current = r.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
 			saved += Math.max(0, current - host.countTokens(summary));
 		});
-		return { ops, restore, saved };
+		return { ops, restore, saved, key: span.key };
 	}
 
 	/** A span's record as an object, with descendant records kept intact. */
@@ -1156,6 +1174,12 @@ export class TaskfoldConductor implements Conductor {
 				}
 				if (!failed || isFloor) applied += unitApplied;
 				if (unitApplied && !failed) saved += u.saved;
+				if (unitApplied && !failed) {
+					const groups = u.ops.filter((op) => op.kind === "group");
+					const firstChanged = host.blocks().findIndex((b) => groups.some((op) => op.ids.includes(b.id)));
+					host.debug?.({ type: "fold", task: u.key ?? null, carrierTokens: groups.reduce((n, op) => n + host.countTokens(op.summary ?? ""), 0),
+						tokensRemoved: u.saved, firstChangedBlock: firstChanged, blocksBehindEnd: host.blocks().length - firstChanged - 1 });
+				}
 				if (failed && !isFloor) {
 					undo.push(...appliedGroups.map((groupId) => ({ kind: "ungroup" as const, groupId })));
 					restore.push(...u.restore.filter((op) => op.kind === "group" && removedGroups.has(`g:${op.ids[0]}`)));
@@ -1168,13 +1192,13 @@ export class TaskfoldConductor implements Conductor {
 			}
 			this.epochs++;
 			const s = host.stats();
-			const unclassified = this.classifyFailures ? `; ${this.classifyFailures} user message(s) unclassified, kept` : "";
+			const unclassified = `${this.classifyFailures ? `; ${this.classifyFailures} user message(s) unclassified, kept` : ""}${this.rawWarning ? `; ${this.rawWarning}` : ""}`;
 			host.setStatus(rollbackFailed ? `Taskfold could not restore every group after a rejected fold; inspect the context.` : `Epoch ${this.epochs}: applied ${applied} fold operation(s), ~${saved} tokens${unclassified}.`, {
 				epochs: this.epochs,
 				groups: this.groupKeys(host).size,
 				live_tokens: s.liveTokens,
 				budget: s.budget,
-				...(rollbackFailed ? { level: "error" } : this.classifyFailures ? { level: "warning" } : {}),
+				...(rollbackFailed ? { level: "error" } : this.classifyFailures || this.rawWarning ? { level: "warning" } : {}),
 			});
 		} catch (error) {
 			if (this.host === host) host.setStatus(`Taskfold could not commit its plan: ${error instanceof Error ? error.message : String(error)}`, { level: "error" });

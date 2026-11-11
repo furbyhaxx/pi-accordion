@@ -36,12 +36,14 @@ describe("accordion settings & memorable tokens", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-settings-"));
 		try {
 			const defaults = loadSettings(tmp, {});
+			expect(defaults.debug).toBe(false);
 			expect(defaults.autoArm).toBe(true);
 			expect(defaults.defaultConductor).toBe("keel-lite");
 			expect(defaults.compactMode).toBe("accordion");
 			expect(defaults.bindHost).toBe("127.0.0.1");
 
 			saveSettings(tmp, {
+				debug: true,
 				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
@@ -58,6 +60,7 @@ describe("accordion settings & memorable tokens", () => {
 
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
+				debug: true,
 				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,

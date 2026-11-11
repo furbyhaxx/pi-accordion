@@ -1753,7 +1753,7 @@ await new Promise((r) => setTimeout(r, 50));
 	await new Promise((r) => setTimeout(r, 200));
 }
 
-// ── v17: ACCORDION_COMPLETION_LOG records an out-of-band conductor completion's usage/cost ──
+// ── Debug JSONL records out-of-band completion usage and provider failures ──
 // Self-contained: fresh extension instances with a MOCKED `dependencies.complete` (the same
 // injection seam `runCompletion` already exposes for tests — no real LLM/API calls happen here)
 // driving compaction-naive's REAL 90%-of-budget trigger, mirroring smoke-conductor.mjs's
@@ -1780,6 +1780,7 @@ await new Promise((r) => setTimeout(r, 50));
 	async function spawnClogSession(dependencies) {
 		const before = registryFilesNow();
 		const h = {};
+		let command;
 		const mpi = {
 			on: (name, fn) => (h[name] = fn),
 			registerFlag: () => {},
@@ -1787,7 +1788,7 @@ await new Promise((r) => setTimeout(r, 50));
 			registerShortcut: () => {},
 			registerMessageRenderer: () => {},
 			getSessionName: () => undefined,
-			registerCommand: () => {},
+			registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 			registerTool: () => {},
 			appendEntry: () => {},
 		};
@@ -1800,11 +1801,12 @@ await new Promise((r) => setTimeout(r, 50));
 			getContextUsage: () => ({ tokens: 0, contextWindow: model.contextWindow }),
 		};
 		h.session_start({ type: "session_start", reason: "startup" }, ctx);
+		await command("debug on", ctx);
 		await waitFor(() => registryFilesNow().length > before.length, 3000, "completion-log session registry entry");
 		const added = registryFilesNow().filter((f) => !before.includes(f));
 		if (added.length !== 1) throw new Error(`completion-log: expected exactly 1 new registry entry, found ${added.length}`);
 		const entry = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, added[0]), "utf8"));
-		return { h, ctx, port: entry.port };
+		return { h, ctx, port: entry.port, log: path.join(HOME, ".accordion", "debug", `${entry.sessionId}.jsonl`) };
 	}
 	// Pump a large over-budget synthetic history (mirrors smoke-conductor.mjs's PAIRS/BIG shape) through
 	// a real WS GUI client, claim control, dial the budget/protect/folding knobs down, attach
@@ -1851,22 +1853,21 @@ await new Promise((r) => setTimeout(r, 50));
 	}
 
 	// (a) success path: the mocked complete() resolves with real usage/cost → one success line.
-	const LOG_OK = path.join(HOME, "completions-ok.jsonl");
-	process.env.ACCORDION_COMPLETION_LOG = LOG_OK;
 	const mockUsage = { input: 111, output: 22, cacheRead: 3, cacheWrite: 0, totalTokens: 136, cost: { input: 0.0011, output: 0.0022, cacheRead: 0, cacheWrite: 0, total: 0.0033 } };
 	let mockCompleteOkCalls = 0;
 	const mockCompleteOk = async () => {
 		mockCompleteOkCalls++;
-		return { model: "mock/clog-model-result", content: [{ type: "text", text: "mock summary" }], usage: mockUsage };
+		return { model: "mock/clog-model-result", content: [{ type: "text", text: "mock summary" }], stopReason: "stop", usage: mockUsage };
 	};
 	const okSession = await spawnClogSession({ complete: mockCompleteOk });
+	const LOG_OK = okSession.log;
 	await driveOverBudget(okSession.h, okSession.ctx, okSession.port);
 	if (mockCompleteOkCalls < 1) fails.push("completion-log: compaction-naive never called the mocked complete() (budget trigger did not fire)");
-	await waitFor(() => readJsonl(LOG_OK).some((r) => r.t === "complete"), 2000, "completion-log success line on disk").catch(() =>
+	await waitFor(() => readJsonl(LOG_OK).some((r) => r.type === "complete"), 2000, "completion-log success line on disk").catch(() =>
 		fails.push(`completion-log: no line ever landed in ${LOG_OK}`),
 	);
 	{
-		const okLine = readJsonl(LOG_OK).find((r) => r.t === "complete" && typeof r.costUsd === "number");
+		const okLine = readJsonl(LOG_OK).find((r) => r.type === "complete" && typeof r.costUsd === "number");
 		if (!okLine) fails.push(`completion-log: no success line (t:"complete" with a numeric costUsd) in ${LOG_OK} (got ${JSON.stringify(readJsonl(LOG_OK))})`);
 		else {
 			if (okLine.conductor !== "compaction-naive") fails.push(`completion-log success: conductor expected "compaction-naive" (got ${JSON.stringify(okLine.conductor)})`);
@@ -1880,21 +1881,20 @@ await new Promise((r) => setTimeout(r, 50));
 			if ("error" in okLine) fails.push(`completion-log success: a success line must not carry an "error" field (got ${JSON.stringify(okLine)})`);
 		}
 	}
-	okSession.h.session_shutdown({}, okSession.ctx);
+	await okSession.h.session_shutdown({}, okSession.ctx);
 
 	// (b) failure path: the mocked complete() rejects → one error line, no usage fields.
-	const LOG_ERR = path.join(HOME, "completions-err.jsonl");
-	process.env.ACCORDION_COMPLETION_LOG = LOG_ERR;
 	const mockCompleteFail = async () => {
 		throw new Error("mock provider failure");
 	};
 	const errSession = await spawnClogSession({ complete: mockCompleteFail });
+	const LOG_ERR = errSession.log;
 	await driveOverBudget(errSession.h, errSession.ctx, errSession.port);
-	await waitFor(() => readJsonl(LOG_ERR).some((r) => r.t === "complete"), 2000, "completion-log failure line on disk").catch(() =>
+	await waitFor(() => readJsonl(LOG_ERR).some((r) => r.type === "complete"), 2000, "completion-log failure line on disk").catch(() =>
 		fails.push(`completion-log: no line ever landed in ${LOG_ERR}`),
 	);
 	{
-		const errLine = readJsonl(LOG_ERR).find((r) => r.t === "complete" && typeof r.error === "string");
+		const errLine = readJsonl(LOG_ERR).find((r) => r.type === "complete" && typeof r.error === "string");
 		if (!errLine) fails.push(`completion-log: no failure line (t:"complete" with a string error) in ${LOG_ERR} (got ${JSON.stringify(readJsonl(LOG_ERR))})`);
 		else {
 			if (errLine.conductor !== "compaction-naive") fails.push(`completion-log failure: conductor expected "compaction-naive" (got ${JSON.stringify(errLine.conductor)})`);
@@ -1905,9 +1905,7 @@ await new Promise((r) => setTimeout(r, 50));
 				fails.push(`completion-log failure: at/ms not sane numbers (got ${JSON.stringify(errLine)})`);
 		}
 	}
-	errSession.h.session_shutdown({}, errSession.ctx);
-
-	delete process.env.ACCORDION_COMPLETION_LOG;
+	await errSession.h.session_shutdown({}, errSession.ctx);
 }
 
 // shutdown must stop advertising (delete the registry entry)

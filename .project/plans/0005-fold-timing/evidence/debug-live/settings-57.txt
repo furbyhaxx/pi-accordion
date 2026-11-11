@@ -1,0 +1,40 @@
+ verified
+
+ Took 0.0s
+
+
+ Both leaves ran and completed, and the trailing printf
+ verified returned verified. No code or files touched;
+ only list live-debug was created and used.
+
+── Accordion › Settings ─── 29.8k/1.0M tok · ● folding ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+  Folding               [x] armed                 session
+  Token budget          1M                   model window
+  Protected tail        20k                      built-in
+ All sessions · ~/.accordion/config.json · staged until …
+  Arm on startup        [x] on                    default
+  Default conductor     ‹ taskfold ›                 user
+  /compact behavior     ‹ accordion ›             default
+  Web UI address        127.0.0.1                 default
+  Web UI door port      0                            user
+  Web access token      [REDACTED]
+→ Debug log             [x] on                       user
+
+
+
+
+
+
+
+
+─────────────────────────────────────────────────────────
+ Private session diagnostics in ~/.accordion/debug/. /ac…
+ enter toggle · alt+u default · f1 help · esc close
+─────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/bac...
+↑31k ↓879 R236k CH99.1% $0.012 3.0%/1.0M (auto)  deepseek
+accordion · Taskfold · Epoch 2: applied 1 fold operati...

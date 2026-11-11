@@ -103,6 +103,7 @@ import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, ru
 import { openAccordionPanel, type PanelTabId } from "./tui/panel";
 import { AlertGate, footerText, statusLevel } from "./tui/status";
 import type { AccordionTuiHost } from "./tui/host";
+import { DebugLog, debugOverrideOf, writeDebugBundle, type DebugRecord } from "./debug";
 import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
 import {
 	loadSettings,
@@ -447,6 +448,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	let settings: AccordionSettings = loadSettings(HOME);
+	let debugOverride: boolean | null = null;
+	let debugLog: DebugLog | null = null;
+	function debug(record: DebugRecord): void {
+		if (debugOverride ?? settings.debug) debugLog?.record(record);
+	}
 
 	function activeBindHost(): string {
 		try {
@@ -760,6 +766,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		runClassification,
 		spawnEnv: () => ({ port, sessionKey: sessionId, home: HOME }),
 		now: () => Date.now(),
+		debug,
 	});
 
 	/** Does any model this conductor sends session content to run off this machine? */
@@ -898,19 +905,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		};
 	}
 
-	/**
-	 * Fire-and-forget append of one JSON line to `ACCORDION_COMPLETION_LOG`, when set. This is the
-	 * only place `runCompletion` records the usage/cost of an out-of-band completion — protocol v22
-	 * gives conductors only `CompletionResult { text, model, inputTokens?, outputTokens? }`, so
-	 * without this side-log a conductor's spend is invisible to anything summing `host.jsonl` (e.g.
-	 * bellows' collector). NEVER on the `context` hook path (disk I/O is fine here — see the doc
-	 * comment on `runCompletion` below) and must never throw into, delay, or alter the completion
-	 * result: every error is swallowed, and the write is not awaited by the caller.
-	 */
-	function logCompletion(line: Record<string, unknown>): void {
-		const target = process.env.ACCORDION_COMPLETION_LOG;
-		if (typeof target !== "string" || target.length === 0) return;
-		void fs.promises.appendFile(target, JSON.stringify(line) + "\n").catch(() => {});
+	function sessionDebug(): (record: DebugRecord) => void {
+		const log = debugLog;
+		return (record) => { if (log === debugLog) debug(record); };
 	}
 
 	/**
@@ -945,6 +942,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	async function runCompletion(req: CompletionRequest, signal: AbortSignal, conductorId: string | null): Promise<CompletionResult> {
 		const startedAt = Date.now();
+		const record = sessionDebug();
 		if (typeof req.prompt !== "string" || req.prompt.length === 0) throw new Error("missing or empty prompt");
 		if (req.maxOutputTokens !== undefined && (!Number.isSafeInteger(req.maxOutputTokens) || req.maxOutputTokens <= 0))
 			throw new Error("maxOutputTokens must be a positive safe integer");
@@ -1000,10 +998,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (Array.isArray(result.content))
 				text = result.content.filter((p: any) => p?.type === "text").map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("");
 			const usage = result.usage as { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } } | undefined;
-			logCompletion({
-				t: "complete",
+			record({
+				type: "complete", purpose: "chat", stopReason: result.stopReason, reply: text.slice(0, 2000),
 				at: startedAt,
-				conductor: liveHost.activeMeta()?.id ?? null,
+				conductor: conductorId,
 				provider: m.provider,
 				model: result.model ?? m.id,
 				input: typeof usage?.input === "number" ? usage.input : null,
@@ -1020,10 +1018,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				outputTokens: typeof result.usage?.output === "number" ? result.usage.output : undefined,
 			};
 		} catch (err) {
-			logCompletion({
-				t: "complete",
+			record({
+				type: "complete", purpose: "chat",
 				at: startedAt,
-				conductor: liveHost.activeMeta()?.id ?? null,
+				conductor: conductorId,
 				provider: mForLog?.provider ?? null,
 				model: mForLog?.id ?? null,
 				error: err instanceof Error ? err.message : String(err),
@@ -1051,6 +1049,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 */
 	async function runClassification(req: ClassificationRequest, signal: AbortSignal, conductorId: string | null): Promise<ClassificationResult> {
 		const startedAt = Date.now();
+		const record = sessionDebug();
 		if (!req.state || typeof req.state !== "object" || Array.isArray(req.state)) throw new Error("classification state must be a JSON object");
 		if (!req.questions || typeof req.questions !== "object" || !Object.keys(req.questions).length) throw new Error("classification needs at least one question");
 		if (activeCompletions >= MAX_CONCURRENT_COMPLETIONS) throw new Error(`too many concurrent model calls in flight (max ${MAX_CONCURRENT_COMPLETIONS})`);
@@ -1075,10 +1074,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		try {
 			const result = await Promise.race([call, deadline]);
 			if (result?.stopReason !== "stop") throw new Error(`classifier ${spec} failed: ${result?.errorMessage ?? result?.stopReason ?? "unknown error"}`);
-			logCompletion({ t: "classify", at: startedAt, conductor: conductorId, provider: m.provider, model: m.id, costUsd: result.usage?.cost?.total ?? null, ms: Date.now() - startedAt });
+			record({ type: "complete", purpose: "classifier", at: startedAt, conductor: conductorId, provider: m.provider, model: m.id, stopReason: result.stopReason, tokens: result.usage, costUsd: result.usage?.cost?.total ?? null, ms: Date.now() - startedAt });
 			return { answers: result.answers, model: spec };
 		} catch (err) {
-			logCompletion({ t: "classify", at: startedAt, conductor: conductorId, provider: m.provider, model: m.id, error: err instanceof Error ? err.message : String(err), ms: Date.now() - startedAt });
+			record({ type: "complete", purpose: "classifier", at: startedAt, conductor: conductorId, provider: m.provider, model: m.id, error: err instanceof Error ? err.message : String(err), ms: Date.now() - startedAt });
 			throw err;
 		} finally {
 			if (timer) clearTimeout(timer);
@@ -2705,6 +2704,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// The Truth object was replaced — an in-process conductor rebuilds its tracked desired
 			// state from resync; a remote replica gets the forced resnapshot broadcast above.
 			liveHost.dispatchResync();
+			debug({ type: "truth", action: "rebuild", rev: truth?.rev, blocks: truth?.blocks.length });
 		}
 	}
 
@@ -2848,6 +2848,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		lastRealTokens = real;
 		lastEstWireTokens = est;
 		truth.setCalibration(real / est, throughOrder);
+		debug({ type: "request", model: modelSpec(), estimate: est, realInput: real, cacheRead, cacheWrite, k: truth.calibration,
+			liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: "shipped" });
 	}
 
 	/**
@@ -3009,6 +3011,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	pi.on("session_start", (event, ctx: ExtensionContext) => {
+		void debugLog?.flush().catch((error: Error) => ctx.ui.notify(`Debug log: ${error.message}`, "warning"));
+		debugLog = null;
+		debugOverride = null;
 		releaseTaskClaims();
 		nestedTaskEvents.clear();
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
@@ -3062,6 +3067,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		activeConductorTools = ""; // a new session starts with its own active tool set
 		sessionId = `s-${process.pid}-${Date.now()}`;
 		startedAt = Date.now();
+		const debugSession = typeof ctx.sessionManager?.getSessionId === "function" ? ctx.sessionManager.getSessionId() : sessionId;
+		debugLog = new DebugLog(path.join(REGISTRY_ROOT, "debug"), debugSession);
 		try {
 			meta = { title: "pi session", cwd: process?.cwd?.() ?? "", model: "", contextWindow: null, format: "pi" };
 		} catch {
@@ -3078,6 +3085,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const sessionAtStart = sessionId;
 		try {
 			const entries = typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
+			debugOverride = debugOverrideOf(entries);
 			adoption = adoptionOf(entries);
 			taskfoldVerdicts.reset(verdictsOf(entries), (id, v) => {
 				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
@@ -3520,6 +3528,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		const flush = debugLog?.flush();
+		const shutdownCtx = latestCtx;
+		debugLog = null;
 		taskfoldRouting.current = null;
 		taskWidget.detach();
 		taskSession?.dispose();
@@ -3575,6 +3586,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		httpServer = null;
 		wss = null;
 		latestCtx = null;
+		return flush?.catch((error: Error) => shutdownCtx?.ui.notify(`Debug log: ${error.message}`, "warning"));
 	});
 
 	async function handleAccordionWebCommand(ctx: ExtensionCommandContext): Promise<void> {
@@ -3790,6 +3802,25 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		},
 		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const argument = args.trim();
+			if (/^debug(?:\s|$)/.test(argument)) {
+				const value = argument.slice(5).trim();
+				if (value === "on" || value === "off") {
+					debugOverride = value === "on";
+					pi.appendEntry("accordion.debug", { enabled: debugOverride });
+					ctx.ui.notify(`Debug ${value} for this session${debugLog ? `: ${debugLog.file}` : ""}`, "info");
+				} else if (/^bundle(?:\s|$)/.test(value)) {
+					if (!truth || !debugLog) { ctx.ui.notify("No session context yet", "warning"); return; }
+					const target = path.resolve(ctx.cwd, value.slice(6).trim() || `accordion-debug-${sessionId}.json.gz`);
+					const source = transcriptSource(truth, () => undefined, null, { folding: foldingEnabled });
+					const doc = dumpDocument({ source, meta: { sessionId, model: meta.model || model },
+						system: null, totals: { full: source.blocks.reduce((n, b) => n + b.full, 0), live: source.blocks.reduce((n, b) => n + b.live, 0), budget: truth.budget }, generatedAt: new Date() });
+					try {
+						await writeDebugBundle(target, debugLog, renderDump(doc, "tree"), settings);
+						ctx.ui.notify(`Wrote ${target}. Contains session content; review before sharing.`, "info");
+					} catch (error) { ctx.ui.notify(`Debug bundle: ${error instanceof Error ? error.message : String(error)}`, "error"); }
+				} else ctx.ui.notify(`Debug ${debugOverride ?? settings.debug ? "on" : "off"}. Usage: /accordion debug on|off|bundle [file]`, "info");
+				return;
+			}
 			if (argument === "web") {
 				await handleAccordionWebCommand(ctx);
 				return;
@@ -4171,6 +4202,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (delivered.length) details.delivered = delivered;
 				return { content: [{ type: "text", text }], details };
 			} catch (err) {
+				debug({ type: "tasks", action: args.action, list: args.list, error: err instanceof TaskError || err instanceof PinError ? err.code : "internal", message: err instanceof Error ? err.message : String(err) });
 				// Pi turns a thrown error into an error result whose text is the message: the JSON envelope.
 				if (err instanceof TaskError) throw new Error(err.toResult());
 				if (err instanceof PinError) throw new Error(new TaskError(err.code, err.message).toResult());

@@ -1,0 +1,12 @@
+2026-11-11 Europe/Zurich
+Live: Pi-Bolt 1.5.0, isolated ACCORDION_HOME and synthetic project, deepseek/deepseek-flash.
+Two tasks started and completed, each with a printf command; final printf advances wire.
+Debug log contains receipts, explicit prefill-guard and planned/already-folded reasons, and two committed folds.
+Live bundle created with mode 0600, gzip decoded, all three named files present, settings customToken redacted.
+Settings inspected at 36/57/80/140 columns, debug toggle visible and bounded; token row redacted in captures.
+Bun targeted suite: 556 pass, 0 fail.
+App Svelte check: 0 errors, 0 warnings.
+App Vitest: 1058 pass, 21 skip; 59 files pass, 1 skip.
+Extension smoke: context, HTTP/WS/controller, spawned conductor, autoarm pass. Browser asset coverage deferred until build:client in final QA.
+Context smoke asserts no sync write on context/context_with_system while debug is on.
+Ad-hoc extension TypeScript gate reports the seven pre-existing errors recorded during orientation; no new errors.

@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 28
+  revision: 29
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T17:56:18+01:00"
+  updated_at: "2026-11-11T23:03:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 28
-      reason: "one long open task saturated the session and a handle recall exceeded the provider limit"
-      changes: ["§9 step 6 and §9.4: step carriers inside open tasks under pressure", "§7.3: recall output is bounded, indexed and searchable", "§12: taskfold.steps"]
+    - revision: 29
+      reason: "private session diagnostics"
+      changes: ["debug setting and session override", "epoch decline reasons and stale-finished warnings", "private capped log and redacted bundle"]
 ---
 
 # Taskfold
@@ -946,6 +946,7 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
 
 ```jsonc
 {
+  "debug": false,
   "tasks": {
     "attachments": { "render": "inline", "maxLines": 60, "roots": [] },
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
@@ -964,6 +965,24 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
 
 Sanitized like existing settings: an invalid value is reported and ignored, and the default
 applies. `roots` keeps absolute paths (`~/` expanded) and drops anything else. `low < high`. The extractor model resolves through `models` like other out-of-band calls.
+
+### 12.1 Debug diagnostics
+
+`debug` defaults to false. `/accordion debug on|off` stores an `accordion.debug` session entry;
+the latest valid entry overrides the global setting on resume. The Settings tab stages the global
+default. Logs live in `~/.accordion/debug/<sessionId>.jsonl` (under `ACCORDION_HOME` when set).
+
+Records: `request` (model, estimate, actual input/cache receipt, k and full/live tokens), `epoch`
+(planned units and a reason per finished task), `fold` (key, carrier tokens, savings and changed
+frontier), `complete` (model, purpose, usage/cost, stop reason, first 2,000 reply characters or
+error), `tasks` (rejected call) and `truth` (rebuild/resync). A finished task still raw after
+40 tool results warns with its key and reason. Existing timing safety gates are unchanged.
+
+Writes yield off the calling hook and use asynchronous filesystem APIs. Files are mode 0600,
+bounded to 50 MiB; at overflow, the oldest half is discarded on whole JSONL boundaries.
+`/accordion debug bundle [file]` exclusively creates a private gzip JSON archive with named
+`debug.jsonl`, `transcript.txt` and redacted `settings.json` entries. Bundles still contain
+session content and must be reviewed before sharing.
 
 ## 13. Verification
 

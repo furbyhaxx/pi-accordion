@@ -4,7 +4,7 @@ import { type AccordionSettings, DEFAULT_SETTINGS, sanitizeBindHost, sanitizeCus
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
 
-type GlobalKey = "autoArm" | "defaultConductor" | "compactMode" | "bindHost" | "doorPort" | "customToken";
+type GlobalKey = "debug" | "autoArm" | "defaultConductor" | "compactMode" | "bindHost" | "doorPort" | "customToken";
 type Globals = Pick<AccordionSettings, GlobalKey>;
 type RowId = "folding" | DialKind | GlobalKey;
 interface Row {
@@ -26,6 +26,7 @@ const GLOBAL_ROWS: Row[] = [
 	{ id: "bindHost", label: "Web UI address", description: "Address the web UI listens on; 0.0.0.0 is reachable from the network." },
 	{ id: "doorPort", label: "Web UI door port", description: "Fixed port shared by all sessions; 0 disables it." },
 	{ id: "customToken", label: "Web access token", description: "3-64 URL-safe characters; empty uses a generated token." },
+	{ id: "debug", label: "Debug log", description: "Private session diagnostics in ~/.accordion/debug/. /accordion debug on|off overrides this session." },
 ];
 const COMPACT_MODES = ["accordion", "suppress", "native"] as const;
 const isGlobal = (id: RowId): id is GlobalKey => GLOBAL_ROWS.some((row) => row.id === id);
@@ -78,7 +79,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			return { value: now === undefined ? "–" : formatTokens(now), source: dials ? describeSource(dials.sources[id]) : "session" };
 		}
 		const source = id in staged ? theme.fg("warning", "▲ staged") : theme.fg("dim", saved()[id] === DEFAULT_SETTINGS[id] ? "default" : "user");
-		if (id === "autoArm") return { value: value(id) ? "[x] on" : "[ ] off", source };
+		if (id === "autoArm" || id === "debug") return { value: value(id) ? "[x] on" : "[ ] off", source };
 		if (id === "defaultConductor" || id === "compactMode") return { value: `‹ ${clean(value(id))} ›`, source };
 		if (id === "customToken") return { value: value(id) === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(value(id) ?? ""), source };
 		return { value: clean(String(value(id))), source };
@@ -183,7 +184,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			const row = rows[selected];
 			const web = host.webInfo?.();
 			const webNote = row.id === "bindHost" || row.id === "doorPort" || row.id === "customToken" ? ` Browser URL: ${web?.url ?? "starting…"} (${web?.clients ?? 0} connected).` : "";
-			const action = row.id === "defaultConductor" || row.id === "compactMode" ? "next value" : row.id === "folding" || row.id === "autoArm" ? "toggle" : "edit";
+			const action = row.id === "defaultConductor" || row.id === "compactMode" ? "next value" : row.id === "folding" || row.id === "autoArm" || row.id === "debug" ? "toggle" : "edit";
 			return {
 				body: display.slice(top, top + bodyRows),
 				crumbs: [],
@@ -235,7 +236,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				});
 			} else if (keys.matches(data, "tui.select.confirm")) {
 				if (row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
-				else if (row.id === "autoArm") stage("autoArm", !value("autoArm"));
+				else if (row.id === "autoArm" || row.id === "debug") stage(row.id, !value(row.id));
 				else if (!cycle(row.id, 1)) input = { row, text: row.id === "budget" || row.id === "protect" ? "" : String(value(row.id as GlobalKey) ?? "") };
 			} else return false;
 			return true;

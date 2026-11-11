@@ -75,6 +75,8 @@ export interface LiveHostDeps {
 	spawnEnv(): { port: number; sessionKey: string; home: string };
 	/** Monotonic-ish clock for measuring the hold window. */
 	now(): number;
+	/** Queue local diagnostics off the calling hook; no-op when disabled. */
+	debug?: ConductorHost["debug"];
 }
 
 /** How long the host waits for a spawned runner to dial in before auto-detaching. */
@@ -305,6 +307,9 @@ export class LiveConductorHost implements ConductorHost {
 			complete: (req) => this.complete(req),
 			classify: (req) => this.classify(req),
 			setStatus: (text, metrics) => this.setStatus(text, metrics),
+			debug: (record) => {
+				if (this.attachGeneration === generation) this.deps.debug?.(record);
+			},
 			propose: (txn) => {
 				if (this.mode !== "in-process" || this.attachGeneration !== generation) {
 					return Promise.resolve(this.refusedTxn(txn.ops));

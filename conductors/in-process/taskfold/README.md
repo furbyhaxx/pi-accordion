@@ -50,6 +50,11 @@ best-effort guard, not a hard budget guarantee: protected or otherwise ineligibl
 the request above budget. `taskfold.keepRecentTasks` (default 0) keeps that many finished tasks
 raw; raising it delays folds and multiplies rebilled tokens.
 
+Enable `/accordion debug on` to explain finished tasks that remain raw. Epoch records name
+the declining path (cache lookback, protected tail, prefill guard, held boundary, pending
+classification/routing, record cap or keep-recent). Committed folds include their savings and
+changed frontier. A finished task still raw after 40 tool results raises a warning.
+
 ## The record
 
 Every folded task is one `assistant` message: its fold tag, then one line of JSON with a fixed key

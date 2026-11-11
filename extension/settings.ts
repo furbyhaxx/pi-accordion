@@ -59,6 +59,8 @@ export interface TaskfoldSettings {
 }
 
 export interface AccordionSettings {
+	/** Write private per-session diagnostics when enabled. */
+	debug: boolean;
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
 	/** Default conductor attached when autoArm is enabled (or when /compact triggers a pass). */
@@ -83,6 +85,7 @@ export interface AccordionSettings {
 }
 
 export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
+	debug: false,
 	autoArm: true,
 	defaultConductor: "keel-lite",
 	compactMode: "accordion",
@@ -326,6 +329,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 	const customToken = sanitizeCustomToken(env.ACCORDION_TOKEN ?? fileData.customToken);
 
 	return {
+		debug: typeof fileData.debug === "boolean" ? fileData.debug : DEFAULT_SETTINGS.debug,
 		autoArm,
 		defaultConductor,
 		compactMode,
@@ -343,6 +347,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 
 export function saveSettings(homeDir: string, settings: AccordionSettings): AccordionSettings {
 	const normalized: AccordionSettings = {
+		debug: settings.debug === true,
 		autoArm: !!settings.autoArm,
 		defaultConductor: (settings.defaultConductor || DEFAULT_SETTINGS.defaultConductor).trim(),
 		compactMode: sanitizeCompactMode(settings.compactMode),

@@ -202,10 +202,19 @@ state locally, in-process, immediately before the model call: there's no GUI rou
 no timeout to tune, because the state the extension already holds *is* the state applied,
 synchronously, every time.
 
-A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
-context) never appear on the `context` hook path. If you need their cost/usage for external
-accounting, set `ACCORDION_COMPLETION_LOG=<path>` and the extension appends one JSON line
-per completion (success or failure) to that file.
+## Debug diagnostics
+
+Enable `debug` in Settings or `~/.accordion/config.json`, or use `/accordion debug on|off` for
+this session (restored on resume). Private JSONL logs live in `~/.accordion/debug/<sessionId>.jsonl`
+under `ACCORDION_HOME` when set. They explain fold declines, request estimates/cache receipts,
+successful folds, out-of-band completion usage/replies and rejected task calls. Finished tasks
+still raw after 40 tool results raise a warning naming the reason. Logs are mode 0600, capped
+at 50 MiB per session, and written asynchronously, never synchronously on the context hook.
+
+`/accordion debug bundle [file]` writes a mode-0600 `.json.gz` archive containing named
+`debug.jsonl`, `transcript.txt` and `settings.json` files (the web token is redacted).
+It refuses to overwrite an existing file. The archive contains session content: inspect it
+before sharing. To inspect the archive: `gzip -dc <file> | jq .files`.
 
 ## Skills included
 
