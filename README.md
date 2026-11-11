@@ -154,14 +154,13 @@ with every trim, in the same request, so it adds little to cache cost. The trim 
 note: room for it is reserved in the budget from the first turn.
 
 **[taskfold](conductors/in-process/taskfold/)** folds by task. The agent plans in a persistent,
-nested task list (the `tasks` tool) and ends each task with a short report. Once the context gets
-tight, finished tasks fold into fixed-shape records: outcome, decisions, files changed, checks run,
-open items. User messages stay verbatim unless a classifier model says losing them costs nothing,
-as with approvals, status checks and step steering. The newest finished task stays open, folding
-goes oldest first, and when that is not enough the oldest records shrink to one line and then to
-a stub; their fold codes still reach the full transcript through `recall`, which returns a large
-fold as a searchable, addressable index rather than all at once. Starting a subtask starts its parents,
-and the agent is reminded when it works outside any task.
+nested task list (the `tasks` tool) and ends each task with a report. Finished tasks fold eagerly
+at the first safe request into records carrying outcomes, decisions, changed files and checks;
+finished roots become stable whole-outcome history. `/accordion fold eager|lazy|pressure` changes
+this session/model's timing without unfolding anything. Under pressure, open-task records can
+be condensed further. User messages stay verbatim unless routed into durable list facts or the
+classifier deems them safe to fold. Fold codes reach the original spans through `recall` and
+`unfold`. Starting a subtask starts its parents; working outside tasks triggers a reminder.
 
 While taskfold is attached, the task list sits above the editor. Collapsed it shows progress,
 folded tasks (`≡`), working time and the tokens the task spans take before and after folding,
@@ -282,6 +281,10 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   remembers them per model across resumes; the panel's scope prompt (or `--default`) also saves them as the model's
   default under `modelDefaults` in `~/.accordion/config.json`, keyed by `provider/model`,
   `provider/*` or `*`: `{ "anthropic/claude-opus-5-5": { "budget": "200k" }, "openai-codex/*": { "budget": "272k" } }`.
+- Taskfold timing uses `/accordion fold eager|lazy|pressure`; `eager` is the default. `lazy` waits
+  for a cold/expired cache or high pressure; `pressure` waits only for high pressure. The session
+  mode overrides `modelDefaults` timing (exact model, provider wildcard, `*`), then global
+  `taskfold.timing`. Settings stages the global value; the footer shows the resolved mode.
 - `/accordion tasks [lists | expand | collapse | hide | show]` browses task lists and controls the taskfold task list above the editor.
 
 The fork is also a Pi package and can be installed from Git:

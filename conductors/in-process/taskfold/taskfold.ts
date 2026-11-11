@@ -24,10 +24,11 @@
  * Folding proposes `group`, plus `ungroup` of absorbed child groups. Child handles remain recoverable
  * across group boundaries; a handle-based unfold reopens the task and recompiles its siblings.
  */
-import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, HostEvent, ViewBlock } from "../../../core/conductor/contract";
+import { isFoldTiming, type ClassifierAnswer, type ClassifierQuestion, type Conductor, type ConductorHost, type FoldTiming, type FoldingPolicy, type HostEvent, type ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { estTokens } from "../../../core/tokens";
+import { cacheProfileFor } from "../../../core/cacheProfiles";
 import { VerdictLedger } from "./verdicts";
 import { RoutingParseError, taskfoldRouting, type RoutingPort } from "./routing";
 import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
@@ -48,6 +49,8 @@ export interface TaskfoldOptions {
 	harnessPatterns?: readonly RegExp[];
 	/** The newest finished top-level tasks that stay raw. Default 0: a finished task folds at the next request. */
 	keepRecentTasks?: number;
+	/** Fold eagerly, on a cold/expired cache or pressure (lazy), or only under pressure. Default eager. */
+	timing?: FoldTiming;
 	/** Raw token budget for descendant records; deepest children become history, own fields stay whole. */
 	recordTokens?: number;
 	/** Apply recoverable per-block pressure relief before folding untracked work. */
@@ -63,6 +66,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	low: 0.6,
 	maxLoss: 0.3,
 	keepRecentTasks: 0,
+	timing: "eager",
 	recordTokens: 1500,
 	floor: false,
 	untracked: { enabled: true, minSteps: 8 },
@@ -118,8 +122,6 @@ const ROUTE_TIMEOUT_MS = 45_000;
 const ROUTE_MAX_OUTPUT_TOKENS = 1500;
 /** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
 export const ZOMBIE_STEPS = 40;
-/** Blocks the provider looks back from a cache breakpoint. A fold starting further back rewrites the whole tail. */
-const CACHE_LOOKBACK = 20;
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
 const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
@@ -462,7 +464,7 @@ export class TaskfoldConductor implements Conductor {
 	readonly id = "taskfold";
 	readonly label = "Taskfold";
 	readonly description = "Folds finished task spans into structured task records; user steering folds when a classifier says so.";
-	/** Taskfold owns the tail so a finished task folds at the next request, inside the provider's cache lookback. Pressure folds of open or untracked work still honor the user's dial (`userTailFrom`). */
+	/** Finished tasks ignore the tail dial; pressure folds of open/untracked work still honor it. */
 	readonly locks = ["tail-size"] as const;
 	readonly tailTokens = 0;
 	/** The first request after load or cache expiry waits for the epoch, so a fold lands before the wire leaves instead of one request late. */
@@ -484,6 +486,7 @@ export class TaskfoldConductor implements Conductor {
 	private rawWarning: string | null = null;
 	/** The epoch currently committing, awaited by the wire-departing hold so the first request after load carries its folds. */
 	private inflight: Promise<void> | null = null;
+	private lastRequestAt: number | null = null;
 
 	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger(), private readonly router: RoutingPort = taskfoldRouting) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
@@ -492,6 +495,7 @@ export class TaskfoldConductor implements Conductor {
 		if (!Number.isSafeInteger(k.keepRecentTasks) || k.keepRecentTasks < 0 || !Number.isSafeInteger(k.recordTokens) || k.recordTokens < 1) throw new RangeError("taskfold: invalid recent-task or record-token limit");
 		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
 		if (!Number.isSafeInteger(k.steps.minSteps) || k.steps.minSteps < 1 || typeof k.steps.enabled !== "boolean") throw new RangeError("taskfold: invalid open-task step settings");
+		if (!isFoldTiming(k.timing)) throw new RangeError("taskfold: invalid timing mode");
 		this.verdicts = verdicts;
 	}
 
@@ -518,8 +522,12 @@ export class TaskfoldConductor implements Conductor {
 		switch (e.type) {
 			case "resync":
 				return this.evaluate();
-			case "wire-departing":
-				return this.inflight ?? undefined;
+			case "wire-departing": {
+				const host = this.host;
+				this.evaluate();
+				const sent = () => { if (this.host === host) this.lastRequestAt = Date.now(); };
+				return this.inflight ? this.inflight.finally(sent) : sent();
+			}
 			case "blocks-appended":
 				this.classifyNew(e.blocks);
 				return this.evaluate();
@@ -742,7 +750,11 @@ export class TaskfoldConductor implements Conductor {
 		return run;
 	}
 
-	/** `pressure`: the projection is at or above `high·budget`; below it only finished tasks fold (eager records, SPEC-0002 §8). */
+	private policy(host: ConductorHost): FoldingPolicy {
+		return host.foldPolicy?.() ?? { timing: this.k.timing, cache: cacheProfileFor("*"), now: Date.now(), lastRequestAt: this.lastRequestAt };
+	}
+
+	/** Pressure relief runs in every mode; finished records obey the epoch's timing policy. */
 	private plan(host: ConductorHost, recompose?: ReadonlySet<string>, pressure = true): Unit[] {
 		const blocks = host.blocks();
 		const stats = host.stats();
@@ -763,10 +775,9 @@ export class TaskfoldConductor implements Conductor {
 		const reasons = new Map<string, string>(allSpans.filter((s) => !spans.includes(s)).map((s) => [s.key, "unfolded-by-agent"]));
 		const recent = new Set([...roots].sort((a, b) => b.end - a.end).slice(0, this.k.keepRecentTasks).map((s) => s.key));
 		const candidates = recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.filter((s) => !recent.has(s.key));
-		// A fold changes the cache from its first block. Beyond the provider's lookback of the newest breakpoint that rewrites everything after the system prompt, so it pays back only after about 11.5 requests per token saved. Inside the lookback, under pressure, or on a cold cache it folds now.
-		const lookback = Math.max(0, blocks.length - CACHE_LOOKBACK);
-		const cold = !blocks.some((b) => b.sent);
-		const deep = (span: Span) => !cold && !pressure && span.start < lookback && !foldedKeys.has(span.key);
+		const policy = this.policy(host);
+		const cold = policy.lastRequestAt === null || policy.now - policy.lastRequestAt >= policy.cache.ttlMs;
+		const timingAllows = policy.timing === "eager" || pressure || (policy.timing === "lazy" && cold);
 		const units: Unit[] = [];
 		let projected = stats.liveTokens;
 		const target = this.k.low * stats.budget;
@@ -794,7 +805,7 @@ export class TaskfoldConductor implements Conductor {
 			}
 		};
 		for (const span of candidates) {
-			if (deep(span)) reasons.set(span.key, "cache-lookback");
+			if (!recompose && !timingAllows) reasons.set(span.key, `timing-${policy.timing}`);
 			else fold(span, !recompose);
 		}
 		if (!recompose && pressure) {
@@ -833,7 +844,7 @@ export class TaskfoldConductor implements Conductor {
 		});
 		const zombie = diagnostics.find((d) => d.stepsSince > ZOMBIE_STEPS && !d.reason.includes("planned") && !d.reason.includes("already-folded"));
 		this.rawWarning = zombie ? `Taskfold: ${zombie.key} still raw after ${zombie.stepsSince} steps (${zombie.reason}).` : null;
-		host.debug?.({ type: "epoch", pressure, units: units.length, tasks: diagnostics });
+		host.debug?.({ type: "epoch", pressure, timing: policy.timing, cold, cache: policy.cache, units: units.length, tasks: diagnostics });
 		return units;
 	}
 
@@ -1189,9 +1200,13 @@ export class TaskfoldConductor implements Conductor {
 				if (unitApplied && !failed) saved += u.saved;
 				if (unitApplied && !failed) {
 					const groups = u.ops.filter((op) => op.kind === "group");
-					const firstChanged = host.blocks().findIndex((b) => groups.some((op) => op.ids.includes(b.id)));
+					const changed = new Set(rs.filter(r => r.applied).flatMap(({ op }) => op.kind === "group" || op.kind === "fold" ? op.ids : op.kind === "replace" ? [op.id] : []));
+					const firstChanged = host.blocks().findIndex(b => changed.has(b.id));
+					const policy = this.policy(host);
+					const rewrittenTokens = host.blocks().slice(Math.max(0, firstChanged)).reduce((n, b) => n + (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)), 0);
 					host.debug?.({ type: "fold", task: u.key ?? null, carrierTokens: groups.reduce((n, op) => n + host.countTokens(op.summary ?? ""), 0),
-						tokensRemoved: u.saved, firstChangedBlock: firstChanged, blocksBehindEnd: host.blocks().length - firstChanged - 1 });
+						tokensRemoved: u.saved, firstChangedBlock: firstChanged, blocksBehindEnd: host.blocks().length - firstChanged - 1,
+						timing: policy.timing, cache: policy.cache, rewrittenTokens, estimatedWriteInputUnits: rewrittenTokens * policy.cache.writeWeight });
 				}
 				if (failed && !isFloor) {
 					undo.push(...appliedGroups.map((groupId) => ({ kind: "ungroup" as const, groupId })));

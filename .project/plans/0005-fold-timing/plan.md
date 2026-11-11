@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 6
+  revision: 7
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-11T23:25:00+01:00"
+  updated_at: "2026-11-12T00:01:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 6
-      reason: "S3 implementation and contract validation"
-      changes: ["expanded report and criteria limits", "all violations returned", "full history outcomes", "raw child-only record budget"]
+    - revision: 7
+      reason: "S4 explicit timing modes verified in real Pi-Bolt"
+      changes: ["eager/lazy/pressure and per-model dials", "provider profiles and observed retention", "Settings/footer controls", "two eager folds within two requests"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -28,8 +28,8 @@ the shipped behaviour.
 done  S1  Debug mode and decline reasons
 done  S2  Row accounting and routing fixes
 done  S3  Report limits, tool description, record cap unit
-next  S4  Timing modes, eager default, cache profile, 20-block rule removed
-later S5  Bracket tail; re-run the simulation on real debug logs
+done  S4  Timing modes, eager default, cache profile, 20-block rule removed
+next  S5  Bracket tail; re-run the simulation on real debug logs
 later S6  Frontier breakpoint (Anthropic), only if S5's logs still show misses
 ```
 
@@ -54,6 +54,16 @@ outcomes, 12 × 1,000-char decision/open items and 300-char criteria. All violat
 together without state changes. Whole root/non-root outcomes fold even with a 100-token child
 cap and high calibration; only descendant content counts against the raw-estimated budget.
 Native/authoring/CLI regressions, context smoke, app check and 1,059 app tests pass.
+
+S4: the 20-block/deep-span veto is gone. Eager/lazy/pressure resolve session → exact model →
+provider → wildcard → global, preserving numeric dials. Provider profiles are verified against
+current primary docs; host-observed retention overrides TTL, and unknown backends remain
+conservative. Real Pi-Bolt saves/reset global timing and changes its footer at all four widths;
+`evidence/timing-live/` includes inspected redacted captures and ten real request receipts. Both
+finished leaves fold within two subsequent requests (302 estimated tokens saved). Automated
+gates: 278 extension/TUI Bun tests, 64 Taskfold tests, 1,068 app tests, clean Svelte check and all
+extension smoke suites. Browser packaging remains for final QA. The live run also found a
+duplicate routed goal; the project task list tracks its repair before S5.
 
 ## Why
 
@@ -108,19 +118,19 @@ an OAuth token), the last tool, and the last block of the final user message. Th
 with an API key and all 4 with OAuth (the `claude` provider). Extensions can rewrite the provider
 payload: `pig-auth-plus` edits `cache_control` in `internal/hooks/hooks.go`. Re-read both before S6.
 
-### Why eager folding does not run today
+### Why eager folding was missing
 
-- `conductors/in-process/taskfold/taskfold.ts:747-749` (`deep()`) defers a finished span that starts
-  more than `CACHE_LOOKBACK = 20` (line 121) blocks before the end while the cache is warm and
-  there is no pressure. The distance is measured before the fold, so it is the task's own length.
-- A record may not end the request (`taskfold.ts:988`, `finalMessageFrom`), so a fold lands one
+- The removed `deep()`/`CACHE_LOOKBACK = 20` veto deferred a finished span that started more than
+  20 blocks before the end while the cache was warm and there was no pressure. It measured the
+  task's own length, not an avoidable rewrite. S4 removes that veto in every mode.
+- A record may not end the request (`finalMessageFrom`), so a fold lands one
   step after the closing message at the earliest.
 - One step later the previous sibling's fold has already landed inside the current task. No request
   ever ended at the boundary before the current task with its present content, so no cache entry
   exists there. A deferred fold and an immediate fold both miss; the deferred one misses on a
   context two to three times larger.
 - `.project/analyses/fold-representations/README.md` §8 derived the rule from a simulation that
-  folded at the first request after the closing result, which the planner forbids. S4 corrects it.
+  folded at the first request after the closing result, which the planner forbids. S4 corrects that conclusion.
 
 ### Simulation
 
@@ -318,7 +328,7 @@ Change:
   from pig's cache-retention setting where the host exposes it, else from the table. An unknown
   provider is `prefix` with a 5-minute TTL.
 - `.project/analyses/fold-representations/README.md` §8: replace the lookback conclusion with the
-  finding above ("Why eager folding does not run today"), new revision.
+  finding above ("Why eager folding was missing"), new revision.
 
 Tests: one `taskfold.test.ts` case per mode with a finished 60-block task (eager folds at the next
 step, lazy after the TTL or at `high`, pressure only at `high`); `extension/dials.test.ts` for the

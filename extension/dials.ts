@@ -1,39 +1,46 @@
 /*
- * dials.ts — the session's budget and protected tail: human token amounts ("200k", "1M", "85%"),
+ * dials.ts — the session's budget, protected tail and task-fold timing: human token amounts,
  * per-model defaults from config.json, and the values the user set in this session, remembered in
  * the session file per model so a resume or a model switch restores them.
  */
+import { isFoldTiming, type FoldTiming } from "../core/conductor/contract";
 
-/** Session entry type recording a budget or tail the user set, with the model it was set for. */
+/** Session entry type recording a numeric or timing dial for the current model. */
 export const DIALS_ENTRY = "accordion.dials";
 
 /** Protected tail when neither the session nor a default sets one. */
 export const DEFAULT_PROTECT_TOKENS = 20_000;
 
-/** A model default: amounts as written in config.json (`"200k"`, `"85%"`, `200000`). */
+/** Model defaults: human token amounts and finished-task timing. */
 export interface ModelDials {
 	budget?: string;
 	protect?: string;
+	timing?: FoldTiming;
 }
 
 /** `provider/model`, `provider/*` or `*` → defaults. */
 export type ModelDefaults = Record<string, ModelDials>;
 
 /** One `accordion.dials` entry. */
-export interface DialsRecord {
+export interface DialsRecord extends Partial<DialValues> {
 	model: string;
-	budget?: number;
-	protect?: number;
 }
 
-export type DialKind = "budget" | "protect";
+/** Dials that accept a token amount. */
+export type NumericDialKind = "budget" | "protect";
+/** Every dial recorded per session/model. */
+export type DialKind = NumericDialKind | "timing";
+/** Value types recorded for each dial. */
+export interface DialValues { budget: number; protect: number; timing: FoldTiming }
 
 /** Where a resolved value came from. */
-export type DialSource = { kind: "session" } | { kind: "default"; key: string } | { kind: "window" } | { kind: "builtin" };
+export type DialSource = { kind: "session" } | { kind: "default"; key: string } | { kind: "window" } | { kind: "builtin" } | { kind: "global" };
 
+/** Effective values and their resolution sources. */
 export interface ResolvedDials {
 	budget: number | null;
 	protect: number;
+	timing: FoldTiming;
 	sources: Record<DialKind, DialSource>;
 }
 
@@ -89,18 +96,21 @@ export function sanitizeModelDefaults(value: unknown): ModelDefaults {
 			const text = typeof v === "number" ? String(v) : typeof v === "string" ? v.trim() : "";
 			if (text && typeof parseTokens(text, 1_000_000) === "number") dials[kind] = text;
 		}
-		if (dials.budget !== undefined || dials.protect !== undefined) out[key] = dials;
+		const timing = (rawDials as Record<string, unknown>).timing;
+		if (isFoldTiming(timing)) dials.timing = timing;
+		if (dials.budget !== undefined || dials.protect !== undefined || dials.timing !== undefined) out[key] = dials;
 	}
 	return out;
 }
 
 /** The last value per dial the user set in this session for `model`. */
-export function sessionDials(records: readonly DialsRecord[], model: string): Partial<Record<DialKind, number>> {
-	const out: Partial<Record<DialKind, number>> = {};
+export function sessionDials(records: readonly DialsRecord[], model: string): Partial<DialValues> {
+	const out: Partial<DialValues> = {};
 	for (const r of records) {
 		if (r.model !== model) continue;
 		if (typeof r.budget === "number") out.budget = r.budget;
 		if (typeof r.protect === "number") out.protect = r.protect;
+		if (r.timing !== undefined) out.timing = r.timing;
 	}
 	return out;
 }
@@ -113,7 +123,7 @@ export function dialsRecordsOf(entries: readonly unknown[]): DialsRecord[] {
 		if (entry?.type !== "custom" || entry.customType !== DIALS_ENTRY) continue;
 		const d = entry.data as Partial<DialsRecord> | undefined;
 		if (typeof d?.model !== "string") continue;
-		out.push({ model: d.model, ...(typeof d.budget === "number" ? { budget: d.budget } : {}), ...(typeof d.protect === "number" ? { protect: d.protect } : {}) });
+		out.push({ model: d.model, ...(typeof d.budget === "number" ? { budget: d.budget } : {}), ...(typeof d.protect === "number" ? { protect: d.protect } : {}), ...(isFoldTiming(d.timing) ? { timing: d.timing } : {}) });
 	}
 	return out;
 }
@@ -123,10 +133,10 @@ export function dialsRecordsOf(entries: readonly unknown[]): DialsRecord[] {
  * model default, else the context window (budget) or the built-in 20k (tail). The budget never
  * exceeds the window; it is null only when neither a value nor a window is known.
  */
-export function resolveDials(model: string, window: number | null, records: readonly DialsRecord[], defaults: ModelDefaults): ResolvedDials {
+export function resolveDials(model: string, window: number | null, records: readonly DialsRecord[], defaults: ModelDefaults, globalTiming: FoldTiming = "eager"): ResolvedDials {
 	const session = sessionDials(records, model);
 	const keys = patternsFor(model);
-	const fromDefault = (kind: DialKind): { value: number; key: string } | null => {
+	const fromDefault = (kind: NumericDialKind): { value: number; key: string } | null => {
 		for (const key of keys) {
 			const text = defaults[key]?.[kind];
 			if (text === undefined) continue;
@@ -148,10 +158,13 @@ export function resolveDials(model: string, window: number | null, records: read
 	if (session.protect !== undefined) [protect, protectSource] = [session.protect, { kind: "session" }];
 	else if (dp) [protect, protectSource] = [dp.value, { kind: "default", key: dp.key }];
 	else [protect, protectSource] = [DEFAULT_PROTECT_TOKENS, { kind: "builtin" }];
-	return { budget, protect, sources: { budget: budgetSource, protect: protectSource } };
+	const timingKey = keys.find((key) => defaults[key]?.timing !== undefined);
+	const timing = session.timing ?? (timingKey ? defaults[timingKey].timing! : globalTiming);
+	const timingSource: DialSource = session.timing !== undefined ? { kind: "session" } : timingKey ? { kind: "default", key: timingKey } : { kind: "global" };
+	return { budget, protect, timing, sources: { budget: budgetSource, protect: protectSource, timing: timingSource } };
 }
 
 /** `session`, `default claude/*`, `model window`, `built-in`. */
 export function describeSource(s: DialSource): string {
-	return s.kind === "session" ? "set in this session" : s.kind === "default" ? `default ${s.key}` : s.kind === "window" ? "model window" : "built-in";
+	return s.kind === "session" ? "set in this session" : s.kind === "default" ? `default ${s.key}` : s.kind === "window" ? "model window" : s.kind === "global" ? "global taskfold.timing" : "built-in";
 }

@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 /** A session-local diagnostic event; callers must omit credentials. */
 export interface DebugRecord {
-	type: "request" | "epoch" | "fold" | "complete" | "tasks" | "truth" | "route-retry";
+	type: "request" | "epoch" | "fold" | "complete" | "tasks" | "truth" | "route-retry" | "cache-profile";
 	[key: string]: unknown;
 }
 

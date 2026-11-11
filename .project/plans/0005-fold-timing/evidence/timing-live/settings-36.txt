@@ -1,0 +1,40 @@
+ the trailing printf verified
+ returned verified. No code or
+ files touched; only list
+ live-debug was created and used.
+
+ Reloaded keybindings, extensions,
+ skills, prompts, themes, and
+ context files
+
+── … › Settings ── 26.0k/1.0M tok ──
+ …❱ Conductors ❱ Settings  5/5
+ ⌕
+
+ This session · applies at once
+  Folding           [x] armed
+  Token budget      1M  model window
+  Protected tail    20k     built-in
+ All sessions · ~/.accordion/config…
+  Arm on startup    [x] on   default
+  Default conduct…  ‹ taskfold ›
+  /compact behavi…  ‹ accordion ›
+  Web UI address    127.0.0.1
+  Web UI door port  0           user
+  Web access token  ········ (gener…
+  Debug log         [x] on      user
+→ Task fold timing  ‹ lazy ›    user
+
+
+
+
+
+
+
+────────────────────────────────────
+ Saved 1 setting to ~/.accordion/co…
+ f1 help · esc close
+────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accord...
+↑31k ↓879 R236k CH99.1% $0.012 3....
+accordion · Taskfold · lazy · Epo...

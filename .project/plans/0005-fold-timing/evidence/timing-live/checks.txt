@@ -1,0 +1,7 @@
+live-timing/1: completion observed after departure 5; fold before departure 7 (2 requests, eager).
+live-timing/2: completion observed after departure 8; fold before departure 10 (2 requests, eager).
+10 real DeepSeek requests; two leaves finished, two folds, terminal marker TIMING-LIVE-DONE.
+Automated: 278 extension/TUI Bun tests; 64 Taskfold Bun tests; 1,068 app tests, 21 intentional skips; Svelte check 0 errors/warnings; all extension smoke suites pass.
+Smoke first exceeded the 30-second shell limit; rerun with 120 seconds passed.
+Extension type checking remains at seven pre-existing diagnostics. Authenticated browser assets remain for final packaging QA.
+Live discovery: routed extraction appended a duplicate existing goal (tracked as backlog-completion/2.5); no action concealed it.

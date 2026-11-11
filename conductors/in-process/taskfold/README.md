@@ -18,10 +18,20 @@ or reports. A crash or forced kill still relies on the stale-claim timeout or an
 
 ## When it folds
 
-A finished task folds at the very next request, whatever the pressure. Folding early is what keeps
-the provider cache cheap: the work is rewritten once, right after the model has seen it, instead of
-after another 100k tokens have piled on top. Each epoch commits as one transaction, so the cache
-breaks once per epoch, at the oldest span folded in it.
+By default (`taskfold.timing: "eager"`) a finished task folds at the first safe request, whatever
+its length or the pressure. The closing result needs a following message, so the record never ends
+the request. Pending user-message classification/routing can also delay it. Each epoch commits as
+one transaction; eager folding keeps its rewritten suffix short but does not guarantee a cache hit.
+
+`/accordion fold eager|lazy|pressure` sets timing for this session and model. Resolution is session
+value → `modelDefaults` exact model → provider wildcard → `*` → global `taskfold.timing`.
+Settings stages the global mode until `ctrl+s`; the footer shows the resolved mode. `lazy` waits
+for a cold/expired cache or `high` pressure; `pressure` waits only for `high`. Changing modes never
+unfolds anything. Open-task pressure relief remains active in all modes.
+
+Cache profiles live in `core/cacheProfiles.ts`; observable main-provider retention overrides their
+TTL. Model/session changes start cold. Unknown backends use a 5-minute prefix profile without an
+assumed discount. Debug cost estimates are diagnostic, not provider invoices.
 
 | Event | What replaces the span |
 |---|---|
@@ -51,7 +61,7 @@ the request above budget. `taskfold.keepRecentTasks` (default 0) keeps that many
 raw; raising it delays folds and multiplies rebilled tokens.
 
 Enable `/accordion debug on` to explain finished tasks that remain raw. Epoch records name
-the declining path (cache lookback, protected tail, prefill guard, held boundary, pending
+the declining path (timing mode, protected tail, prefill guard, held boundary, pending
 classification/routing or keep-recent). Committed folds include their savings and
 changed frontier. A finished task still raw after 40 tool results raises a warning.
 

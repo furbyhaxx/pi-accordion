@@ -10,6 +10,7 @@ import { CHROME_ROWS } from "./chrome";
 import { openAccordionPanel, type PanelTabId } from "./panel";
 import type { TaskTabsHost } from "./screens/tasks";
 import type { TaskList } from "../tasks";
+import { DEFAULT_SETTINGS } from "../settings";
 
 function block(id: string, order: number): Block {
 	return { id, order, kind: "text", turn: 1, text: `content ${id}`, tokens: 20, override: null, autoFolded: false, by: null };
@@ -30,6 +31,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 	let renders = 0;
 	let resolveCommand = () => {};
 	let settingsState = {
+		...DEFAULT_SETTINGS,
 		autoArm: true,
 		defaultConductor: "keel-lite",
 		compactMode: "accordion" as const,
@@ -408,6 +410,7 @@ describe("accordion panel", () => {
 			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1],
 			conductors: [K.tab], consent: [K.tab, K.down, K.enter],
 			settings: [K.tab, K.tab], confirm: [K.tab, K.tab, K.down, K.down, K.down, K.down, K.down, K.down, K.down, K.down, K.alt("r")],
+			timing: [K.tab, K.tab, ...Array(10).fill(K.down)],
 		};
 		for (const [name, path] of Object.entries(reach)) {
 			const s = setup();
@@ -417,11 +420,38 @@ describe("accordion panel", () => {
 			for (const key of printable) s.panel.handleInput(key);
 			await tick();
 			expect([name, s.commands]).toEqual([name, []]);
-			expect([name, s.settings()]).toEqual([name, { autoArm: true, defaultConductor: "keel-lite", compactMode: "accordion", bindHost: "127.0.0.1", doorPort: 24317, customToken: null }]);
+			expect([name, s.settings()]).toEqual([name, DEFAULT_SETTINGS]);
 			expect([name, s.truth.groups.length, s.truth.blocks.some((b) => b.override)]).toEqual([name, 0, false]);
 			expect(s.panel.render(100)[0].replace(/ · ▲.*$/, "")).toBe(rule.replace(/ · ▲.*$/, ""));
 			s.close(); await s.opening;
 		}
+	});
+
+	test("global timing cycles, stays staged, preserves other taskfold settings and resets to default", async () => {
+		const s = setup(false, "settings");
+		const before = { ...s.settings().taskfold, high: 0.9 };
+		s.settings().taskfold = before;
+		for (let i = 0; i < 10; i++) s.panel.handleInput(K.down);
+		expect(s.cursor()).toContain("Task fold timing");
+		s.panel.handleInput(K.right);
+		expect(s.settings().taskfold.timing).toBe("eager");
+		expect(s.cursor()).toContain("lazy");
+		const height = s.panel.render(80).length;
+		for (const width of [36, 57, 80, 140]) {
+			const lines = s.panel.render(width);
+			expect(lines).toHaveLength(height);
+			expect(lines.every(line => visibleWidth(line) <= width)).toBe(true);
+		}
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.settings().taskfold).toEqual({ ...before, timing: "lazy" });
+		s.panel.handleInput(K.right);
+		expect(s.cursor()).toContain("pressure");
+		s.panel.handleInput(K.alt("u"));
+		expect(s.cursor()).toContain("eager");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.settings().taskfold).toEqual(before);
+		expect(s.commands).toEqual([]);
+		s.close(); await s.opening;
 	});
 
 	test("task tabs: printable keys never act, every line fits, the height stays fixed", async () => {

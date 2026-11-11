@@ -1,4 +1,5 @@
 /** Footer status and alert policy for the active conductor, shared by the extension and the panel. */
+import type { FoldTiming } from "../../core/conductor/contract";
 
 /** How a conductor status should be presented. */
 export type StatusLevel = "info" | "warning" | "error";
@@ -15,14 +16,17 @@ export function statusLevel(metrics: Metrics): StatusLevel {
 export interface FooterState {
 	folding: boolean;
 	conductor: string | null;
+	/** Current Taskfold timing; absent for other conductors. */
+	timing?: FoldTiming | null;
 	statusText: string | null;
 	level: StatusLevel;
 }
 
-/** The footer text, trimmed to `max` columns: `accordion · <conductor> · <status>`. */
+/** The footer text, trimmed to `max` columns: `accordion · <conductor> · [timing] · <status>`. */
 export function footerText(state: FooterState, max = 72): string {
 	if (!state.folding) return "accordion off";
 	const parts = ["accordion", state.conductor ?? "no conductor"];
+	if (state.timing) parts.push(state.timing);
 	const status = state.statusText?.replace(/\s+/g, " ").trim();
 	if (status) parts.push(status);
 	const text = parts.join(" · ");

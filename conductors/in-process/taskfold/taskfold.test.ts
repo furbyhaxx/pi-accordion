@@ -13,7 +13,8 @@ import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
 import { parseExtraction } from "../../../extension/taskRouting";
-import type { ConductorHost } from "../../../core/conductor/contract";
+import type { ConductorHost, FoldTiming } from "../../../core/conductor/contract";
+import { cacheProfileFor } from "../../../core/cacheProfiles";
 
 class Session {
 	readonly blocks: Block[] = [];
@@ -117,25 +118,24 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 	});
 describe("taskfold", () => {
 	it("explains deferred finished tasks and warns once they outlive forty tool results", async () => {
-		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "cache-lookback"] as const) {
+		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "timing-pressure"] as const) {
 			const s = new Session();
 			s.user("Go.");
 			s.start("1", "Root");
 			const start = s.start("1.1", "Child").call;
 			s.work(2, "body");
 			s.finish("1.1", { outcome: "Finished", decisions: ["Keep ".repeat(100)] });
-			if (reason !== "prefill-guard") s.work(reason === "cache-lookback" ? 41 : 3, "tail");
+			if (reason !== "prefill-guard") s.work(reason === "timing-pressure" ? 41 : 3, "tail");
 			const host = setup(s, reason === "held-boundary" ? 0.5 : 2);
 			host.truth.setLocks(["tail-size"], "Taskfold", 0);
 			if (reason === "held-boundary") host.truth.apply([{ kind: "pin", ids: [start] }], "you");
-			if (reason === "cache-lookback") await host.departWire();
 			const events: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
 			Object.assign(host, { debug: (event: typeof events[number]) => events.push(event) });
-			new TaskfoldConductor({ keepRecentTasks: reason === "keep-recent-tasks" ? 1 : 0 }).attach(host);
+			new TaskfoldConductor({ keepRecentTasks: reason === "keep-recent-tasks" ? 1 : 0, timing: reason === "timing-pressure" ? "pressure" : "eager" }).attach(host);
 			await host.commitTurn();
 			const tasks = events.find((e) => e.type === "epoch")?.tasks as { key: string; reason: string }[];
 			expect(tasks.find((t) => t.key === "work/1.1")?.reason).toBe(reason);
-			if (reason === "cache-lookback") expect(host.statusLog.at(-1)?.text).toContain("work/1.1 still raw after 41 steps (cache-lookback)");
+			if (reason === "timing-pressure") expect(host.statusLog.at(-1)?.text).toContain("work/1.1 still raw after 41 steps (timing-pressure)");
 		}
 	});
 
@@ -211,20 +211,58 @@ describe("taskfold", () => {
 		expect(groupOf(host, start)).toBeDefined();
 	});
 
-	it("defers a fold that sits beyond the cache lookback until the cache is cold or pressure requires it", async () => {
+	for (const timing of ["eager", "lazy", "pressure"] as const) {
+		it(`${timing} controls a finished 60-block task independently of its distance from the request tail`, async () => {
+			const s = new Session();
+			s.user("Go.");
+			const start = s.start("1", "Long task").call;
+			s.work(20, "body");
+			s.finish("1", { outcome: "Done." });
+			s.work(1, "next step");
+			const host = setup(s, 2);
+			host.truth.setLocks(["tail-size"], "Taskfold", 0);
+			let now = 1_000;
+			Object.assign(host, { foldPolicy: () => ({ timing, cache: cacheProfileFor("claude/claude-sonnet-5-5"), now, lastRequestAt: 1_000 }) });
+			new TaskfoldConductor().attach(host);
+			await host.departWire();
+			expect(!!groupOf(host, start)).toBe(timing === "eager");
+			now += 300_000;
+			await host.departWire();
+			expect(!!groupOf(host, start)).toBe(timing !== "pressure");
+			if (timing === "pressure") {
+				host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+				await host.commitTurn();
+				expect(groupOf(host, start)).toBeDefined();
+			}
+		});
+	}
+	it("lazy folds on cold caches and warm-cache pressure, but respects a host's longer TTL", async () => {
+		for (const state of ["cold", "pressure", "long-ttl"] as const) {
+			const { s, start } = oneTask();
+			const host = setup(s, state === "pressure" ? 0.5 : 2);
+			host.truth.setLocks(["tail-size"], "Taskfold", 0);
+			Object.assign(host, { foldPolicy: () => ({ timing: "lazy", cache: cacheProfileFor("claude/claude-sonnet-5-5", 3_600_000), now: 301_000, lastRequestAt: state === "cold" ? null : 1_000 }) });
+			new TaskfoldConductor().attach(host);
+			await host.departWire();
+			expect(!!groupOf(host, start)).toBe(state !== "long-ttl");
+		}
+	});
+	it("samples mode changes at the next epoch without unfolding existing records", async () => {
 		const { s, start } = oneTask();
-		s.work(30, "after");
 		const host = setup(s, 2);
 		host.truth.setLocks(["tail-size"], "Taskfold", 0);
-		const c = new TaskfoldConductor({ keepRecentTasks: 0 });
-		c.attach(host);
-		// A warm cache: the span was already sent, and it starts far behind the newest message.
-		await host.departWire();
-		expect(groupOf(host, start)).toBeUndefined();
-		// Pressure overrides the deferral.
-		host.setBudget(Math.ceil(host.stats().liveTokens * 0.5));
+		let timing: FoldTiming = "pressure";
+		Object.assign(host, { foldPolicy: () => ({ timing, cache: cacheProfileFor("*"), now: 1_000, lastRequestAt: 1_000 }) });
+		new TaskfoldConductor().attach(host);
 		await host.commitTurn();
+		expect(groupOf(host, start)).toBeUndefined();
+		timing = "eager";
+		await host.commitTurn();
+		const folded = host.groups();
 		expect(groupOf(host, start)).toBeDefined();
+		timing = "pressure";
+		await host.commitTurn();
+		expect(host.groups()).toEqual(folded);
 	});
 
 	it("folds a finished root into a one-line history carrier on an assistant group", async () => {
@@ -429,6 +467,8 @@ describe("taskfold", () => {
 		const tailFrom = s.blocks.length;
 		s.work(4, "recent");
 		const host = setup(s, 0.5);
+		const events: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
+		Object.assign(host, { debug: (event: typeof events[number]) => events.push(event) });
 		host.setProtect(s.blocks.slice(tailFrom).reduce((n, b) => n + b.tokens, 0));
 		const proposals: string[][] = [];
 		const propose = host.propose.bind(host);
@@ -444,16 +484,22 @@ describe("taskfold", () => {
 		expect(groupOf(host, open)).toBeUndefined();
 		expect(host.truth.isFolded(host.truth.get(doc.result)!)).toBe(false);
 		expect(s.blocks.slice(tailFrom).every((b) => !host.truth.isFolded(host.truth.get(b.id)!))).toBe(true);
+		const floor = events.find(e => e.type === "fold" && e.task === null);
+		expect(floor?.firstChangedBlock).toBeGreaterThanOrEqual(s.blocks.findIndex(b => b.id === open));
+		expect(floor?.rewrittenTokens).toBeGreaterThan(0);
 	});
 
-	it("folds old steps of a long open task under pressure instead of saturating", async () => {
+	for (const timing of ["eager", "lazy", "pressure"] as const) it(`folds old steps of a long open task under pressure in ${timing} mode`, async () => {
 		const s = new Session();
 		const go = s.user("Go.");
 		const start = s.start("1", "Long task").call;
 		s.work(12, "open");
 		const newest = s.blocks.at(-1)!.id;
 		const host = setup(s, 0.3);
-		await attach(host);
+		const c = new TaskfoldConductor({ timing });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		await host.commitTurn();
 		const steps = host.groups().filter((g) => carrier(g)?.steps === "work/1");
 		expect(steps.length).toBeGreaterThan(0);
 		expect(groupOf(host, start)).toBeUndefined();

@@ -16,8 +16,25 @@ import type { LockName } from "../locks";
 import type { Actor } from "../types";
 import type { Op, TxnResult } from "../ops";
 import type { TruthStats } from "../truth";
+import type { CacheProfile } from "../cacheProfiles";
 
 export type { LockName, Op, TxnResult, TruthStats, Actor };
+
+/** Finished-task timing policies, independent of provider defaults. */
+export const FOLD_TIMINGS = ["eager", "lazy", "pressure"] as const;
+/** When finished task spans become eligible for folding. */
+export type FoldTiming = typeof FOLD_TIMINGS[number];
+/** Whether external input names a supported timing mode. */
+export function isFoldTiming(value: unknown): value is FoldTiming {
+	return typeof value === "string" && (FOLD_TIMINGS as readonly string[]).includes(value);
+}
+/** Host-resolved timing and cache facts, sampled at the start of an epoch. */
+export interface FoldingPolicy {
+	timing: FoldTiming;
+	cache: CacheProfile;
+	now: number;
+	lastRequestAt: number | null;
+}
 
 /**
  * One block as every conductor sees it — pure serializable data, identical in-process and (in
@@ -255,6 +272,8 @@ export interface ConductorHost {
 	classify?(req: ClassificationRequest): Promise<ClassificationResult>;
 	/** Queue local planner diagnostics; hosts without diagnostics may omit this capability. */
 	debug?(record: { type: "epoch" | "fold" | "route-retry"; [key: string]: unknown }): void;
+	/** Current resolved timing/cache policy; null or absent uses the conductor's defaults. */
+	foldPolicy?(): FoldingPolicy | null;
 	/**
 	 * Surface display-only conductor status to the human; `null`/empty clears it. A `level` metric of
 	 * `"warning"` or `"error"` marks a degraded state (a failing model call, an unreachable budget, a

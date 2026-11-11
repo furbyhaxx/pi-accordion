@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 31
+  revision: 32
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T23:21:00+01:00"
+  updated_at: "2026-11-11T23:51:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 31
-      reason: "expanded report limits and own-field preservation"
-      changes: ["shared report validation with all violations", "300-character criteria", "full history outcomes", "raw-estimated child-only cap"]
+    - revision: 32
+      reason: "explicit finished-task timing and provider cache profiles"
+      changes: ["eager/lazy/pressure modes", "removed deep-span veto", "session/model/global timing resolution", "observed cache retention and rewrite estimates"]
 ---
 
 # Taskfold
@@ -766,12 +766,12 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
 
 ## 8. Fold lifecycle
 
-Evidence: `.project/analyses/fold-representations/README.md` §2–4. Folding as soon as a task
-finishes cut weighted cost 27–88 % against folding under pressure; history on completion cut
-rebilled tokens a further ~10× on the nukular session, because a finished root is written once in its
-final form and never rewritten.
+Evidence: `.project/analyses/fold-representations/README.md` §2–4 and §8; PLAN-0005's real-session
+audit corrects the earlier simulation's assumption that a nearby lookback alone guarantees a hit.
+Eager folding keeps the rewritten suffix short; it does not guarantee a cache hit. A completed root
+is written once in its final form and never rewritten.
 
-| Event | Effect, at the next request |
+| Event | Effect at the first eligible request (timing below) |
 |---|---|
 | a task finishes inside an open parent | its span becomes a record (§6.2) once another message follows its closing message and none of its user messages is still being classified (a folded span is never re-extended, so it folds whole or not yet) |
 | a non-root parent finishes | its span becomes one record composing its children's records |
@@ -792,12 +792,17 @@ final form and never rewritten.
   model change the host fires that epoch on attach; the hold makes the first request carry its folds
   instead of leaving one request early and paying for the rewrite on the next one (the 177k miss in
   this repository's session).
-- **A fold beyond the cache lookback waits.** A fold changes the cache from its first block. When that
-  block is more than the provider's lookback (~20 blocks) behind the newest breakpoint, the fold
-  rewrites everything after the system prompt. Such a fold waits unless the cache is already cold
-  (nothing sent yet) or pressure requires it. It never pays back in a few requests: the rewrite
-  includes the span itself, so the cost always exceeds the per-request saving (ANA-fold-representations
-  §8: payback ≈ 11.5 · rewrite / saving, and rewrite ≥ saving). Folds inside the lookback stay eager.
+- **Finished-task timing is explicit.** `eager` (default for every provider) folds at the first safe
+  request, regardless of span length. `lazy` folds only when the cache is cold/expired or pressure
+  reaches `high`. `pressure` folds only at `high`. There is no 20-block or deep-span eligibility veto.
+  Safety gates still apply, including the following-message guard and pending user-message routing.
+  A mode change applies at the next epoch and never unfolds existing groups. Pressure relief for
+  open tasks and untracked work continues in every mode.
+- **Cache facts are host-scoped.** `core/cacheProfiles.ts` resolves exact model, provider wildcard,
+  then a conservative prefix-cache fallback (5-minute TTL, no assumed discount). It supplies cache
+  family, TTL, read/write weights. The last main-provider payload overrides TTL when its retention
+  is observable; a model/session change clears that observation and starts cold. `lazy` compares
+  the last request's age with this TTL; mixed breakpoints conservatively use the longest retention.
 - No other aging. A history entry is never rewritten, merged or shortened. (Merging all history
   under pressure was measured: up to 20× more rebilled tokens on the nukular session.)
 - History within an open root rewrites from the oldest affected subtree onward: it happens only
@@ -806,11 +811,11 @@ final form and never rewritten.
 
 ## 9. Epoch
 
-Every request after a task finished runs an epoch (eager). Steps 2–7 run only when the projection
-is ≥ `high·budget`.
+Every request re-evaluates eligibility under §8's timing policy, including cache expiry. Steps
+2–7 run only when the projection is ≥ `high·budget`.
 
 ```
-  1 records     fold every task that finished since the last epoch, in its §8 form; try safe descendants if a node cannot compile
+  1 records     fold eligible finished tasks in their §8 form; try safe descendants if a node cannot compile
   2 history     §8 pressure row
   3 keep-recent waive the kept root if still above
   4 floor       §9.2, if enabled
@@ -968,6 +973,7 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
   },
   "taskfold": {
+    "timing": "eager",
     "high": 0.8, "low": 0.6,
     "keepRecentTasks": 0,
     "recordTokens": 1500,
@@ -982,6 +988,12 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
 Sanitized like existing settings: an invalid value is reported and ignored, and the default
 applies. `roots` keeps absolute paths (`~/` expanded) and drops anything else. `low < high`. The extractor model resolves through `models` like other out-of-band calls.
 
+`/accordion fold eager|lazy|pressure` records a timing dial for this session and model in
+`accordion.dials`; existing numeric budget/protect entries remain valid. Resolution is the latest
+session value, then `modelDefaults` exact `provider/model`, `provider/*`, `*`, then `taskfold.timing`.
+For example, `"modelDefaults": { "anthropic/*": { "timing": "lazy" } }`. Settings stages the global
+value until `ctrl+s`; the footer shows the resolved mode after Taskfold's name.
+
 ### 12.1 Debug diagnostics
 
 `debug` defaults to false. `/accordion debug on|off` stores an `accordion.debug` session entry;
@@ -989,10 +1001,12 @@ the latest valid entry overrides the global setting on resume. The Settings tab 
 default. Logs live in `~/.accordion/debug/<sessionId>.jsonl` (under `ACCORDION_HOME` when set).
 
 Records: `request` (model, estimate, actual input/cache receipt, k and full/live tokens), `epoch`
-(planned units and a reason per finished task), `fold` (key, carrier tokens, savings and changed
-frontier), `complete` (model, purpose, usage/cost, stop reason, first 2,000 reply characters or
-error), `tasks` (rejected call) and `truth` (rebuild/resync). A finished task still raw after
-40 tool results warns with its key and reason. Existing timing safety gates are unchanged.
+(timing, cold/pressure state, cache profile, planned units and a reason per finished task), `fold`
+(key, carrier tokens, savings, changed frontier and frontier-based rewrite/cost estimates),
+`cache-profile` (main-provider retention observation), `complete` (model, purpose, usage/cost,
+stop reason, first 2,000 reply characters or error), `route-retry`, `tasks` (rejected call) and
+`truth` (rebuild/resync). Rewrite estimates are not observed cache billing. A finished task still
+raw after 40 tool results warns with its key and reason.
 
 Writes yield off the calling hook and use asynchronous filesystem APIs. Files are mode 0600,
 bounded to 50 MiB; at overflow, the oldest half is discarded on whole JSONL boundaries.

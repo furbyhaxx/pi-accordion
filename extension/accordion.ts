@@ -55,7 +55,10 @@ import { Type } from "typebox";
 import { BLOCK_REASONS, TASK_ACTIONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
-import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialsRecord, type ResolvedDials } from "./dials";
+import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
+import { cacheProfileFor } from "../core/cacheProfiles";
+import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
+import { observedCacheTtl } from "./cacheRetention";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { deliverContext, deliveryKey, liveDeliveryKeys, PIN_LIMITS, PinError } from "./taskPins";
@@ -582,6 +585,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// Most recent full model object (dc037bc's `latestModel`) — a completion needs the whole object
 	// (apiKey resolution + maxTokens ceiling), not just the id string kept in `model`.
 	let latestModelObj: any = null;
+	let lastRequestAt: number | null = null;
+	let observedTtl: number | undefined;
 	// Process-wide in-flight completion count, bounded by MAX_CONCURRENT_COMPLETIONS.
 	let activeCompletions = 0;
 
@@ -752,6 +757,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	const liveHost = new LiveConductorHost({
 		truth: () => truth,
 		createInProcess: (entry) => entry.id === "taskfold" ? new TaskfoldConductor(settings.taskfold, taskfoldVerdicts) : undefined,
+		foldPolicy: () => ({ timing: currentDials()?.timing ?? settings.taskfold.timing, cache: cacheProfileFor(modelSpec() ?? "*", observedTtl), now: Date.now(), lastRequestAt }),
 		broadcast,
 		sendToConductor: (m) => {
 			if (conductorWs && conductorWs.readyState === 1) send(conductorWs, m);
@@ -822,9 +828,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!ctx) return;
 		const status = liveHost.cachedStatus();
 		const active = liveHost.activeMeta()?.label ?? null;
+		const timing = liveHost.activeMeta()?.id === "taskfold" ? currentDials()?.timing ?? settings.taskfold.timing : null;
 		if (active) lastConductorLabel = active;
 		const level = statusLevel(status?.metrics);
-		const text = footerText({ folding: foldingEnabled, conductor: active, statusText: status?.text ?? null, level });
+		const text = footerText({ folding: foldingEnabled, conductor: active, timing, statusText: status?.text ?? null, level });
 		try {
 			const color = level === "error" ? "error" : level === "warning" ? "warning" : foldingEnabled ? "accent" : "dim";
 			const footer = ctx.ui.theme.fg(color, text);
@@ -1335,6 +1342,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function applyModel(m: { id?: string; provider?: string; contextWindow?: number } | undefined): void {
 		if (!m) return;
 		if (latestModelObj && (latestModelObj.id !== m.id || latestModelObj.provider !== m.provider)) {
+			lastRequestAt = null;
+			observedTtl = undefined;
 			pendingWireEst = null;
 			pendingCalibrationThroughOrder = null;
 			lastRealTokens = null;
@@ -2663,21 +2672,21 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	function currentDials(): (ResolvedDials & { model: string | null }) | null {
 		const spec = modelSpec();
-		return spec ? { ...resolveDials(spec, contextWindow, dialRecords, settings.modelDefaults), model: spec } : null;
+		return spec ? { ...resolveDials(spec, contextWindow, dialRecords, settings.modelDefaults, settings.taskfold.timing), model: spec } : null;
 	}
 
 	/** Set budget and tail for the current model when it differs from the one they were set for. */
 	function applyDials(): void {
 		const spec = modelSpec();
 		if (!truth || !spec || spec === dialModel) return;
-		const r = resolveDials(spec, contextWindow, dialRecords, settings.modelDefaults);
+		const r = resolveDials(spec, contextWindow, dialRecords, settings.modelDefaults, settings.taskfold.timing);
 		dialModel = spec;
 		if (r.budget !== null && r.budget !== truth.budget) truth.setBudget(r.budget);
 		if (r.protect !== truth.protectTokens) truth.setProtect(r.protect);
 	}
 
-	/** Remember a budget or tail the user set, for the current model, in the session file. */
-	function recordDial(kind: DialKind, value: number): void {
+	/** Remember a dial for the current model in the session file. */
+	function recordDial<K extends DialKind>(kind: K, value: DialValues[K]): void {
 		const spec = modelSpec();
 		if (!spec) return;
 		const rec: DialsRecord = { model: spec, [kind]: value };
@@ -2691,7 +2700,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	/** Make `value` the default `kind` for the current model in config.json. */
-	function saveDialDefault(kind: DialKind, value: number): string {
+	function saveDialDefault(kind: NumericDialKind, value: number): string {
 		const spec = modelSpec();
 		if (!spec) return "The current model is not known yet";
 		const prev = settings.modelDefaults[spec] ?? {};
@@ -3085,6 +3094,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		activeConductorTools = ""; // a new session starts with its own active tool set
 		sessionId = `s-${process.pid}-${Date.now()}`;
 		startedAt = Date.now();
+		lastRequestAt = null;
+		observedTtl = undefined;
 		const debugSession = typeof ctx.sessionManager?.getSessionId === "function" ? ctx.sessionManager.getSessionId() : sessionId;
 		debugLog = new DebugLog(path.join(REGISTRY_ROOT, "debug"), debugSession);
 		try {
@@ -3607,6 +3618,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return flush?.catch((error: Error) => shutdownCtx?.ui.notify(`Debug log: ${error.message}`, "warning"));
 	});
 
+	pi.on("before_provider_request", (event) => {
+		if (!sessionId) return;
+		const spec = modelSpec() ?? "*";
+		observedTtl = observedCacheTtl(event.payload, cacheProfileFor(spec).family);
+		lastRequestAt = Date.now();
+		debug({ type: "cache-profile", model: spec, cache: cacheProfileFor(spec, observedTtl) });
+	});
+
 	async function handleAccordionWebCommand(ctx: ExtensionCommandContext): Promise<void> {
 		writeFocusRequest();
 		const wasAttached = attached();
@@ -3794,7 +3813,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	// ── /accordion : open the native context panel ─────────────────────────────
-	const ACCORDION_USAGE = "[context | tasks tree | tasks lists | conductors | settings | sessions | compact | web | tasks | budget | tail]";
+	const ACCORDION_USAGE = "[context | tasks tree | tasks lists | conductors | settings | sessions | compact | web | tasks | budget | tail | fold]";
 	const PANEL_TAB_ALIASES: Record<string, PanelTabId | undefined> = { context: "context", blocks: "context", "tasks tree": "tasks", "tasks open": "tasks", "tasks lists": "lists", "tasks list": "lists", lists: "lists", conductors: "conductors", conductor: "conductors", settings: "settings", config: "settings" };
 	pi.registerCommand("accordion", {
 		description: `${ACCORDION_USAGE} — open the Accordion context panel`,
@@ -3810,6 +3829,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "tasks", label: "tasks", description: "Expand or collapse the task list above the editor" },
 				{ value: "budget ", label: "budget", description: "Set the token budget for this session, e.g. 200k, 1M or 85% (--default saves it for this model)" },
 				{ value: "tail ", label: "tail", description: "Set the protected tail for this session, e.g. 20k (--default saves it for this model)" },
+				...FOLD_TIMINGS.map((value) => ({ value: `fold ${value}`, label: `fold ${value}`, description: `Use ${value} finished-task timing for this session and model` })),
 				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release, start one, or drill into tasks and their folds" },
 				{ value: "tasks tree", label: "tasks tree", description: "This session's transcript by task: spans, folds, kept user messages, untracked work" },
 				{ value: "tasks adopt", label: "tasks adopt", description: "Adopt a session recorded before task events so its finished tasks fold; --dry-run only reports" },
@@ -3848,9 +3868,22 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				ctx.ui.notify(res.message, "info");
 				return;
 			}
+			if (/^fold(?:\s|$)/.test(argument)) {
+				const mode = argument.slice(4).trim();
+				const dials = currentDials();
+				if (!mode || !isFoldTiming(mode)) {
+					ctx.ui.notify(`Fold timing: ${dials?.timing ?? settings.taskfold.timing}${dials ? ` (${describeSource(dials.sources.timing)})` : ""}. Usage: /accordion fold eager|lazy|pressure`, mode ? "warning" : "info");
+					return;
+				}
+				if (!truth || !dials) { ctx.ui.notify("No session model yet", "warning"); return; }
+				recordDial("timing", mode);
+				notifyNative();
+				ctx.ui.notify(`Fold timing ${mode} for this session and model; applies at the next epoch.`, "info");
+				return;
+			}
 			const dialArg = /^(budget|tail)(?:\s+(.*))?$/.exec(argument);
 			if (dialArg) {
-				const kind: DialKind = dialArg[1] === "budget" ? "budget" : "protect";
+				const kind: NumericDialKind = dialArg[1] === "budget" ? "budget" : "protect";
 				const words = (dialArg[2] ?? "").split(/\s+/).filter(Boolean);
 				const asDefault = words.includes("--default");
 				const amount = words.filter((w) => w !== "--default").join("");

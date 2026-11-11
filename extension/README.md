@@ -113,6 +113,7 @@ attaches):
 ```json
 {
   "taskfold": {
+    "timing": "eager",
     "high": 0.8, "low": 0.6,
     "keepRecentTasks": 0, "recordTokens": 1500,
     "floor": false,
@@ -122,14 +123,20 @@ attaches):
 }
 ```
 
-Finished tasks fold at the next request, a finished top-level task becomes a one-line history
-entry, and history inside an open root is only produced under pressure (`high`, `low`). History
-entries are never rewritten, so each fold costs the provider cache once. Taskfold holds the
-protected-tail lock while attached, so folds land while the cache can still absorb them; your tail
-dial is locked meanwhile and still limits pressure folding. The first request after a session loads
-waits for that fold, and a fold that would change content far behind the provider's cache lookback
-waits until the cache is cold or the context is over budget. `keepRecentTasks` is for experiments: it
-delays folds. Under pressure, `steps` groups old finished steps of a still-open task into a
+Finished tasks fold at the first safe request by default (`taskfold.timing: "eager"`), independent
+of span length. `/accordion fold eager|lazy|pressure` records a session/model override. `lazy` waits
+for a cold/expired cache or high pressure, while `pressure` waits only for high pressure. Resolution
+is session → `modelDefaults` exact model → provider wildcard → `*` → global `taskfold.timing`.
+Settings stages the global value until `ctrl+s`; the footer shows the resolved mode. Changes never
+unfold existing groups. Cache TTL comes from the last provider payload when observable, else the
+core profile (unknown backends: 5-minute prefix cache).
+
+A finished root becomes stable whole-outcome history; records inside an open root become history
+under pressure (`high`, `low`). Taskfold holds the protected-tail lock so finished spans need not
+leave a token tail; your locked tail dial still limits pressure folding. The following-message
+guard and pending user routing can delay a fold, but there is no cache-lookback veto. The first
+request waits for the epoch. `keepRecentTasks` delays folds intentionally. Under pressure, `steps`
+groups old finished steps of a still-open task into a
 recallable step carrier, so one long task cannot fill the context; the task's start message, user
 messages and your tail dial stay live, and the carriers merge into the task's record when it
 finishes. Setting `floor` to `true` additionally applies recoverable per-block folding inside

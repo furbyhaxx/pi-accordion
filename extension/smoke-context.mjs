@@ -578,6 +578,59 @@ check("switching models follows each model's own budget: session value, then its
 		fs.rmSync(path.join(home, ".accordion", "config.json"), { force: true });
 	}
 });
+check("fold timing commands persist per model without unfolding or changing numeric dials", async () => {
+	const r = runtime(history(2));
+	try {
+		const host = await r.open();
+		const truth = host.truth();
+		const before = { budget: truth.budget, protect: truth.protectTokens, groups: structuredClone(truth.groups) };
+		assert.equal(host.dials().timing, "eager");
+		await r.command("fold pressure");
+		assert.equal(host.dials().timing, "pressure");
+		assert.deepEqual(r.entries.filter(e => e.customType === "accordion.dials").at(-1).data, { model: "openrouter/test/model", timing: "pressure" });
+		await r.command("fold invalid");
+		assert.equal(host.dials().timing, "pressure");
+		assert.deepEqual({ budget: truth.budget, protect: truth.protectTokens, groups: truth.groups }, before);
+		const original = r.ctx.model;
+		r.ctx.model = { ...original, id: "another-model" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		assert.equal(host.dials().timing, "eager");
+		r.ctx.model = original;
+		r.handlers.model_select({ model: original }, r.ctx);
+		assert.equal(host.dials().timing, "pressure");
+		r.handlers.session_start({ reason: "resume" }, r.ctx);
+		assert.equal((await r.open()).dials().timing, "pressure");
+	} finally { r.close(); }
+});
+check("host cache observations reset on model and session changes", async () => {
+	const r = runtime([], { sessionId: "cache-reset-smoke" });
+	const selectTaskfold = async () => {
+		const host = await r.open();
+		await host.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+	};
+	try {
+		await r.command("debug on");
+		r.ctx.model = { ...r.ctx.model, provider: "anthropic", id: "claude-sonnet-5-5" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		await selectTaskfold();
+		r.handlers.before_provider_request({ payload: { cache_control: { type: "ephemeral", ttl: "1h" } } }, r.ctx);
+		await r.request([]);
+		r.ctx.model = { ...r.ctx.model, id: "claude-opus-5-5" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		await r.request([]);
+		r.handlers.before_provider_request({ payload: { cache_control: { type: "ephemeral", ttl: "1h" } } }, r.ctx);
+		r.handlers.session_start({ reason: "new" }, r.ctx);
+		await selectTaskfold();
+		await r.request([]);
+	} finally { await r.close(); }
+	const epochs = fs.readFileSync(path.join(home, ".accordion/debug/cache-reset-smoke.jsonl"), "utf8").trim().split("\n").map(JSON.parse).filter(row => row.type === "epoch");
+	assert.ok(epochs.some(row => row.cache.ttlMs === 3_600_000 && !row.cold));
+	const warm = epochs.findIndex(row => row.cache.ttlMs === 3_600_000);
+	assert.ok(epochs.slice(warm + 1).some(row => row.cache.ttlMs === 300_000 && row.cold), "model change clears the prior provider TTL and cache age");
+	assert.equal(epochs.at(-1).cache.ttlMs, 300_000);
+	assert.equal(epochs.at(-1).cold, true, "new session starts cold");
+});
 check("a provider-only change and a late-learned model change both invalidate calibration", async () => {
 	const r = runtime(history(2));
 	try {
@@ -603,6 +656,7 @@ check("debug records receipts and rejected tasks without synchronous writes on t
 			for (const key of writes) fsDefault[key] = () => { throw new Error(`synchronous write in context: ${key}`); };
 			syncBuiltinESMExports();
 			await r.request([{ role: "user", content: "Debug smoke", timestamp: 1 }]);
+			r.handlers.before_provider_request({ payload: { prompt_cache_options: { ttl: "12h" } } }, r.ctx);
 		} finally {
 			for (const [key, value] of originals) fsDefault[key] = value;
 			syncBuiltinESMExports();
@@ -616,6 +670,7 @@ check("debug records receipts and rejected tasks without synchronous writes on t
 	const rows = fs.readFileSync(path.join(home, ".accordion/debug/debug-smoke.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
 	assert.ok(rows.some(row => row.type === "request" && row.realInput === 230 && row.cacheRead === 10));
 	assert.ok(rows.some(row => row.type === "tasks" && row.error));
+	assert.ok(rows.some(row => row.type === "cache-profile" && row.cache.ttlMs === 43_200_000));
 });
 let failures = 0;
 try {

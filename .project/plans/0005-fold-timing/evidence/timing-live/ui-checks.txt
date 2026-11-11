@@ -1,0 +1,8 @@
+Real Pi-Bolt terminal, tmux socket acc-backlog, session live.
+Loaded the worktree extension with /reload; opened /accordion settings.
+Cycled global eager -> lazy: config stayed eager before ctrl+s and persisted lazy after ctrl+s.
+Footer changed eager -> lazy without unfolding the two prior task groups.
+Inspected Settings captures at 36x40, 57x40, 80x40 and 140x40; width checker passes all four.
+Rendered and visually inspected redacted ANSI captures at 36 and 140 columns. Selected timing row, mode, saved state and footer are legible; no overflow or raw escape leakage.
+Web token redacted before writing any capture. Narrow chrome deliberately truncates paths/descriptions.
+Restored global eager using alt+u and ctrl+s, and closed the panel.

@@ -5,15 +5,15 @@ document:
   title: "Fold representations, fold timing and user-message routing: evaluation"
   description: "Offline cache/token simulation of folded-task representations and fold timing, plus the design of the live comprehension and user-message routing evaluations"
   status: "draft"
-  revision: 4
+  revision: 5
   created_at: "2026-11-08T11:26:48+01:00"
-  updated_at: "2026-11-08T16:37:04+01:00"
+  updated_at: "2026-11-11T23:51:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "a cache miss after restart showed the always-warm prefix model is wrong"
-      changes: ["§8 breakpoint cache model: fold timing re-measured; the protected-tail wait, not depth, drives rebills"]
+    - revision: 5
+      reason: "real-session audit corrects the lookback-based timing conclusion"
+      changes: ["distinguished cache lookup from prior writes", "accounted for the following-message guard", "recorded eager/lazy/pressure implementation and conservative cache profiles"]
 ---
 
 # Fold representations, timing and user-message routing
@@ -303,9 +303,9 @@ Live rerun after the two fixes (`evidence/live/rerun-after-fixes.json` vs `first
 
 Trigger: in this repository's session, request 3504 read only 25k (system and tools) and rewrote
 177k right after Taskfold folded finished root 15 on load. §2 assumed every unchanged prefix is a
-hit. Anthropic only stores entries at request breakpoints (Pi sets system, last tool, last message)
-and looks back ~20 blocks from each breakpoint, so a change further back than that rewrites
-everything after the system prompt.
+hit. Breakpoint caches instead need a previously written entry at an unchanged position before the
+fold; looking back finds those entries, not arbitrary stable content. The following simulation is
+a simplified cache model, not evidence that real eager folds cost no extra writes.
 
 `harness/sim.py --cache lcp|bp|stable --tail N` (evidence: `evidence/cache-model.txt`):
 - `bp`: entries only at each request's last message, lookback 10 messages.
@@ -321,18 +321,24 @@ Weighted cost, thousands of input-token units (reads 0.1, writes 1.25):
 | synth 1, 40k | HR | 73 | 73 | | 1,043 | 1,043 |
 | synth 2, 40k | HR | 42 | 42 | | 552 | 552 |
 
-Findings:
-1. **Folding at the next request costs nothing extra under breakpoints.** With tail 0 the fold
-   point is within the lookback of the previous breakpoint; HR's `bp` cost equals the
-   always-warm model.
-2. **Waiting for the protected tail is the expensive part.** A 20k tail puts every fold ~20k
-   tokens behind the newest breakpoint: +41 % on nukular, 14× on the synthetic trees. The shipped
-   planner waits for it (`taskfold.ts`: a span whose tail is protected folds once it leaves).
-3. **A 4th "stable" breakpoint recovers only a fraction** (22.2M → 20.9M) and needs payload
-   rewriting per provider; it is not worth it once folds land at the tail.
-4. **Deep folds stay expensive** (load-time folds, pressure history): their rewrite cost is the
-   live tokens after the fold point. They pay back after ≈ 11.5 · rewrite / saving requests.
+Findings and current decision:
 
-Decisions: Taskfold owns the tail (`tail-size` lock, small tail) so finished spans fold at the
-next request; it holds the departing wire until its epoch lands; a deep fold not required by
-pressure waits for a cold cache or a short payback. No extra breakpoint.
+1. The tail-0 `bp` result equalled the always-warm model because the simulation folded immediately
+   after a closing result. The real planner requires another message after it: a record cannot end
+   the request. Thus the simulation does not establish a cache hit at the real fold boundary.
+2. A long finished task starts more than 20 blocks before the newest implicit breakpoint even when
+   it just completed. The previous `deep()`/`CACHE_LOOKBACK` veto measured the task's own length,
+   not avoidable cache churn. The PLAN-0005 audit found 52/60 finished leaves longer than 18 blocks
+   and no completion-triggered folds in 1,480 requests: compaction happened only at high pressure.
+3. A prior sibling's fold may already have changed the boundary before the current task. With no
+   matching entry there, both an eager and deferred fold miss; the deferred rewrite covers a much
+   larger suffix. The +41% protected-tail result still warns against delaying all finished work.
+4. `eager` is now the default for every provider, with no span-length veto. `lazy` waits for a
+   cold/expired cache or high pressure; `pressure` waits for high pressure only. All modes preserve
+   the following-message/user-routing gates and open-task pressure relief. Mode changes never unfold.
+5. One core profile supplies cache family, TTL and read/write weights, with host-observed retention
+   overriding the table. Unknown providers use a conservative 5-minute prefix profile. Debug logs
+   distinguish timing declines, actual request receipts and frontier-based rewrite estimates.
+
+Next evidence: PLAN-0005 S5 replays real debug logs with bracket tails. Its cache misses decide
+whether the provider-specific frontier breakpoint of S6 is necessary; lookback alone cannot decide.

@@ -3,7 +3,7 @@ import type { ActiveConductorMeta, WireCommand } from "../../core/protocol";
 import type { OpResult } from "../../core/ops";
 import type { SessionEntry } from "../../app/src/lib/live/registry";
 import type { AccordionSettings } from "../settings";
-import type { DialKind, ResolvedDials } from "../dials";
+import type { NumericDialKind, ResolvedDials } from "../dials";
 import type { TaskTabsHost } from "./screens/tasks";
 
 export interface AccordionWebInfo {
@@ -40,7 +40,7 @@ export interface AccordionTuiHost {
 	/** Budget and tail as resolved for this session's model, with where each value comes from. */
 	dials?(): (ResolvedDials & { model: string | null }) | null;
 	/** Save a budget or tail as the default for this session's model; returns a status message. */
-	saveDialDefault?(kind: DialKind, value: number): string;
+	saveDialDefault?(kind: NumericDialKind, value: number): string;
 	compactNow?(): { beforeTokens: number; afterTokens: number; message: string } | Promise<{ beforeTokens: number; afterTokens: number; message: string }>;
 	listSessions?(): Promise<SessionEntry[]>;
 	/** Task data for the Tasks and Lists tabs; absent for a remote session. */

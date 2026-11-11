@@ -44,7 +44,7 @@ describe("accordion settings & memorable tokens", () => {
 
 			saveSettings(tmp, {
 				debug: true,
-				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
+				taskfold: { timing: "lazy", high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -61,7 +61,7 @@ describe("accordion settings & memorable tokens", () => {
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
 				debug: true,
-				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
+				taskfold: { timing: "lazy", high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -91,8 +91,10 @@ describe("accordion settings & memorable tokens", () => {
 	});
 
 	test("validates taskfold budget, age and untracked settings", () => {
-		expect(sanitizeTaskfoldSettings({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } });
+		expect(sanitizeTaskfoldSettings({ timing: "pressure", high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ timing: "pressure", high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } });
 		expect(sanitizeTaskfoldSettings({ high: 0.5, low: 0.7, untracked: { minSteps: 0 } })).toMatchObject({ high: 0.8, low: 0.6, untracked: { enabled: true, minSteps: 8 } });
+		expect(sanitizeTaskfoldSettings({ timing: "fast" }).timing).toBe("eager");
+		expect(sanitizeTaskfoldSettings({}).timing).toBe("eager");
 	});
 
 	test("validates custom tokens and loopback hosts", () => {

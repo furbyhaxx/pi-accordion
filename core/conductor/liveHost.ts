@@ -77,6 +77,8 @@ export interface LiveHostDeps {
 	now(): number;
 	/** Queue local diagnostics off the calling hook; no-op when disabled. */
 	debug?: ConductorHost["debug"];
+	/** Resolved session timing and provider cache facts, without I/O. */
+	foldPolicy?: ConductorHost["foldPolicy"];
 }
 
 /** How long the host waits for a spawned runner to dial in before auto-detaching. */
@@ -310,6 +312,7 @@ export class LiveConductorHost implements ConductorHost {
 			debug: (record) => {
 				if (this.attachGeneration === generation) this.deps.debug?.(record);
 			},
+			foldPolicy: () => this.attachGeneration === generation ? this.deps.foldPolicy?.() ?? null : null,
 			propose: (txn) => {
 				if (this.mode !== "in-process" || this.attachGeneration !== generation) {
 					return Promise.resolve(this.refusedTxn(txn.ops));
