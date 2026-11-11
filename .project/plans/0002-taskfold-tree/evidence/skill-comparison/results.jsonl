@@ -1,6 +1,0 @@
-{"case": "plan", "arm": "baseline", "agent_exit": 0, "valid": true, "leaf_criteria": true, "used_skill": false, "cost": 0.00416346, "validator": "Valid task list: transcript (19 tasks)"}
-{"case": "plan", "arm": "with-skill", "agent_exit": 0, "valid": true, "leaf_criteria": true, "used_skill": true, "cost": 0.002094144, "validator": "Valid task list: transcript (7 tasks)"}
-{"case": "scratch", "arm": "baseline", "agent_exit": 0, "valid": true, "leaf_criteria": true, "used_skill": false, "cost": 0.003572364, "validator": "Valid task list: invoices (12 tasks)"}
-{"case": "scratch", "arm": "with-skill", "agent_exit": 0, "valid": true, "leaf_criteria": true, "used_skill": true, "cost": 0.004995996, "validator": "Valid task list: invoices (7 tasks)"}
-{"case": "repair", "arm": "baseline", "agent_exit": 0, "valid": true, "leaf_criteria": true, "used_skill": false, "cost": 0.0023538359999999998, "validator": "Valid task list: repair (1 tasks)"}
-{"case": "repair", "arm": "with-skill", "agent_exit": 0, "valid": true, "leaf_criteria": true, "used_skill": true, "cost": 0.0017023439999999997, "validator": "Valid task list: repair (1 tasks)"}

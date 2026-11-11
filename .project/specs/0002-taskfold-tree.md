@@ -5,23 +5,20 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 26
+  revision: 27
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-09T14:33:19+01:00"
+  updated_at: "2026-11-11T17:48:48+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 26
-      reason: "lists converted from plans carried no pins or attachments: the skill never taught them, hand-written references needed store ids, knowledge-base files were unreachable, a symlinked list was replaced on write, and a parent's references were lost once its first child folded"
-      changes: ["hand-written pins and attachments omit ids and bookkeeping; a quote may give only exact", "tasks.attachments.roots allows absolute paths outside the project", "the store writes through a symlinked list file", "start resends missing context of doing ancestors as parents", "the skill's validator resolves every reference; skill gains references/context.md and a plan example"]
-    - revision: 25
-      reason: "a fold one request late and beyond the cache lookback re-billed the whole tail"
-      changes: ["the first request after load waits for the epoch", "a fold beyond the cache lookback waits for a cold cache or pressure", "a deep fold never pays back in a few requests"]
+    - revision: 27
+      reason: "implementation plans deleted after merge"
+      changes: ["plan references removed", "floor and skill comparison results stated inline (§11, §13)"]
 ---
 
 # Taskfold
 
-Implementation plans: `.project/plans/0002-taskfold-tree/plan.md` (v2 tree), `.project/plans/0004-taskfold-structured/plan.md` (r15–r18).
+Implemented and merged into `feat/pi-native`; the implementation plans are deleted.
 
 This spec amends SPEC-0001 §4.3, §4.4, §4.10, §4.11 and §4.15. Each slice that changes one of those
 behaviours updates SPEC-0001 in the same commit.
@@ -824,8 +821,7 @@ folds and multiplies rebilled tokens; it exists for experiments only.
 - `unit` savings count members at their current cost (`foldedTokens` when folded).
 - `taskfold.floor`: `true`/`false`, default `false`. The unseeded TF sample stayed within 16k,
   but 2/8 inline-attachment runs exceeded it; TF also cost about 12% more than directly comparable T.
-  The floor is an opt-in guard, not a hard budget guarantee. Evidence: `PLAN-0002`'s
-  `evidence/floor-comparison/README.md`.
+  The floor is an opt-in guard, not a hard budget guarantee (measurement: §13).
 
 ### 9.3 Untracked records
 
@@ -930,7 +926,8 @@ Eval: 3 prompts (convert a plan document, write from scratch, repair an invalid 
 without the skill. Assertions: validator passes with every reference resolved, list is ordered,
 every leaf has criteria, every implementing leaf inherits or carries the plan step and spec section
 it depends on.
-Evidence lives in the plan's `evidence/`.
+Result (one run per case and arm, `deepseek-flash`): both arms produced a valid list in 3/3 cases; with
+the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the repair case 1 in both).
 
 ## 12. Settings (`~/.accordion/config.json`)
 
@@ -974,7 +971,7 @@ applies. `roots` keeps absolute paths (`~/` expanded) and drops anything else. `
 | Adoption | derive from a synthetic legacy session (prose results, codemode batches, v1 list): same spans as a native session, idempotent re-run, dry-run writes nothing |
 | Widget | `bun test extension/tui/*.test.ts`, plus a real terminal at 36/57/80/140 |
 | Gates | `npm --prefix extension run smoke`, `npm --prefix app run check`, `npm --prefix app test` |
-| Measurement | Isolated synthetic fixture comparison: five runs per fixture for A, K+, T and TF; four for TF-inline and TF-ref. Includes pass/constraint results, peak context, estimated cost and cache reads. See `PLAN-0002`'s `evidence/floor-comparison/README.md` for results and limitations. |
+| Measurement | Isolated synthetic fixture comparison: five runs per fixture for A, K+, T and TF; four for TF-inline and TF-ref. Budget 16k, tail 3k. Pass / mean peak input / runs over 16k / mean cost: A 10/10, 40.6k, 10/10, USD 0.0547; K+ 8/10, 20.5k, 9/10, 0.0448; T 9/10, 29.1k, 10/10, 0.0355; TF 9/10, 13.4k, 0/10, 0.0398; TF-inline 8/8, 15.1k, 2/8, 0.0378; TF-ref 4/8, 15.4k, 2/8, 0.0406. Samples are too small for a general quality claim. |
 
 ## 14. Adopting legacy sessions
 

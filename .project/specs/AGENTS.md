@@ -1,6 +1,5 @@
-Specifications: architecture, public API, decisions (ADRs). Type `specification`, id `SPEC-NNNN`.
+Specifications: architecture, public API, decisions. Type `specification`, id `SPEC-NNNN` from `../ids.toml`. Name `NNNN-<slug>.md` or `NNNN-<slug>/`.
 
-- Name `NNNN-<slug>.md` or `NNNN-<slug>/`; next free number, never reused.
-- Decided content only; undecided → `../drafts/`.
-- Implementation diverges → update spec in the same change (new revision), or flag the divergence.
-- Cite research/analyses by relative path instead of copying them.
+- Decided content only; undecided → a draft in `drafts/` (create the dir from the template when needed).
+- The spec states what is true now. When implementation or a decision changes, overwrite the section in the same change; no "previously" or "superseded" text.
+- Do not cite transient artifacts (research, analyses, reviews); copy the decided fact into the spec.

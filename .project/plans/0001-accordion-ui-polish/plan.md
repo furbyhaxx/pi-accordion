@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-10T10:56:03+01:00"
+  updated_at: "2026-11-11T17:49:04+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "S1b delivered: task views are tabs of the panel"
-      changes: ["S1 and S1b marked done with results", "attach chord is alt+a", "evidence for task tabs and thinking levels"]
+    - revision: 5
+      reason: "handoff consumed and deleted; protocol number corrected"
+      changes: ["type-check command, live run and traps moved in from the handoff", "base branch is feat/pi-native", "S6 is protocol v24: v23 is taken by task handles"]
 ---
 
 # Accordion UI polish: plan
@@ -25,7 +25,7 @@ implementation must deviate, update the spec in the same change.
 ## Progress
 
 ```
-done  S0  Taskfold visibility unit and task tooling (§4)  feat/taskfold-widget  8c2fb44…HEAD (pushed)
+done  S0  Taskfold visibility unit and task tooling (§4)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
 next  S1c Footer (§8)
@@ -33,7 +33,7 @@ later S2  Settings store, sync, schema (§6.1, §6.3)
 later S3  Settings screen (§6.2)
 later S4  Compaction (§7)
 later S5  Panel screens (§5.3–5.8)
-later S6  Protocol v23 and web app (§9)
+later S6  Protocol v24 and web app (§9)
 ```
 
 Dependencies: S1 → S3, S5. S2 → S3, S4 (compact settings), S6. S4 → S5 (Overview compact entry) and
@@ -41,9 +41,8 @@ S6. S3 and S4 can run in parallel after S2.
 
 ## Branching and environment
 
-- Base: `feat/taskfold-widget` until it is merged into `feat/pi-native`; then `feat/pi-native`.
-  (`origin/devmain` lacks Taskfold and the `tasks` tool, so the `AGENTS.md` default base does not
-  apply to this work.)
+- Base: `origin/feat/pi-native` (S0–S1b are merged there). Never `origin/devmain`: it lacks
+  Taskfold and the `tasks` tool.
 - One worktree and branch per slice under `.pi/worktrees/`:
   `git worktree add .pi/worktrees/<slug> -b <type>/<slug> <base>`. Slice branch names:
   S1 `feat/panel-shell`, S2 `feat/settings-sync`, S3 `feat/settings-screen`,
@@ -51,7 +50,7 @@ S6. S3 and S4 can run in parallel after S2.
 - Dependencies: `extension/node_modules` is per worktree (`npm --prefix extension ci`); the
   root `node_modules` of the main checkout resolves root imports by directory walk.
 - Type check (no project gate exists for `extension/`): run TypeScript 5.9 with a temporary
-  tsconfig over `extension/accordion.ts` (see the handoff for the exact command). The baseline has
+  tsconfig over `extension/accordion.ts` (command below). The baseline has
   pre-existing errors in `conductors/in-process/agedSummaryConductor.ts` (TS2612 ×3) and
   `extension/accordion.ts` (TS2345 ×2 on `origin` in the WebSocket origin check, `unfold`/`recall` execute TS2322 ×2).
   A slice MUST NOT add errors.
@@ -59,6 +58,48 @@ S6. S3 and S4 can run in parallel after S2.
   sets `doorPort: 0` (do not fight the user's running instances for the door), and
   `pig --no-session -ne -e <worktree>/extension/accordion.ts --model deepseek/deepseek-flash`.
 - Commits: Conventional Commits, granular, no AI attribution. Each commit builds and tests green.
+- Do not edit `~/.pig/agent/settings.json`, push, or open PRs without asking the user.
+
+Type check: write this tsconfig outside the repository with `W` set to the worktree path, run
+`npx -y -p typescript@5.9 tsc -p <tsconfig>`, then delete it:
+
+```json
+{ "compilerOptions": { "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler", "strict": true,
+    "noEmit": true, "skipLibCheck": true, "allowImportingTsExtensions": true, "types": ["node"],
+    "typeRoots": ["W/extension/node_modules/@types"], "baseUrl": "W",
+    "paths": { "@earendil-works/*": ["extension/node_modules/@earendil-works/*"], "typebox": ["extension/node_modules/typebox"] } },
+  "files": ["W/extension/accordion.ts"] }
+```
+
+Live run (isolated; never touches the user's Accordion state or door):
+
+```bash
+rm -rf /tmp/acc-home /tmp/acc-proj && mkdir -p /tmp/acc-home/.accordion /tmp/acc-proj && git -C /tmp/acc-proj init -q
+cat > /tmp/acc-home/.accordion/config.json <<'EOF'
+{ "autoArm": true, "defaultConductor": "taskfold", "doorPort": 0,
+  "privacyConsent": { "taskfold": "2026-11-05T08:00:00.000Z" },
+  "taskWidget": { "mode": "auto", "expanded": false, "maxRows": 9, "toggleKey": "alt+t" } }
+EOF
+tmux new-session -d -s acc -x 100 -y 40 \
+  "cd /tmp/acc-proj && ACCORDION_HOME=/tmp/acc-home pig --no-session -ne -e <worktree>/extension/accordion.ts --model deepseek/deepseek-flash"
+tmux capture-pane -p -t acc            # -e for colors; tmux resize-window -t acc -x 36 for widths
+```
+
+Remove `/tmp/acc-home` and `/tmp/acc-proj` afterwards. To force folding, set a budget of about
+6000 and a tail of about 500 in the Settings tab.
+
+Traps:
+
+- PiG does not deliver mouse clicks to extension components (wheel events arrive). Every click
+  action needs a key (SPEC §4.6, §5.8, D9).
+- Fake Pi objects in `extension/smoke*.mjs` must gain any new `pi.*` registration called at load
+  time. Smoke contexts lack `sessionManager`; guard with
+  `typeof ctx.sessionManager?.getSessionId === "function"`.
+- `Group.digest` (`core/types.ts`) holds a group's summary; the conductor view
+  (`core/conductor/contract.ts`, `host.groups()`) calls the same field `summary`.
+- Custom messages reach the model (`convertToLlm` maps `custom` to `user`). Use `pi.appendEntry`
+  with `registerEntryRenderer` for transcript-only cards (SPEC §7.6).
+- Shortcuts register at load, so a changed `taskWidget.toggleKey` applies on the next Pi start.
 
 ## S1: panel shell on the dashboard standard
 
@@ -198,7 +239,7 @@ Implements §5.3–5.8: Overview (landing), Context timeline (`timeline.ts` + te
 list views, Inspector header, Conductors detail/options link, Help, Tasks view sharing the widget
 controller's view state.
 
-## S6: protocol v23 and web app
+## S6: protocol v24 and web app
 
 Implements §9: protocol types and version bump, host handling of the new commands (controller-only
 writes), broadcasts, `liveClient` handling, `SettingsPanel` session-host section, `TasksPanel`,

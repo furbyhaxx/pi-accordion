@@ -240,7 +240,7 @@ nothing was foldable, and the real context grew to 872k before the request abort
 
 The adopted replay uses only what pi persisted (`nestedCalls`) and the list file; the session file
 was read only (sha256 unchanged). Remaining raw tokens are finished tasks below the pressure line,
-which eager folding (PLAN-0004 slice 5) removes.
+which eager folding (SPEC-0002 §8) removes.
 
 Codemode's own call log truncates arguments at 200 characters, so it cannot be the source of task
 events; the `tasks` handler has to record them (SPEC-0002 §5.3).

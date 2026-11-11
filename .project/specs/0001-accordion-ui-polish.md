@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 11
+  revision: 12
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-10T10:56:03+01:00"
+  updated_at: "2026-11-11T17:48:48+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 11
-      reason: "task views became the Tasks and Lists tabs of the panel"
-      changes: ["§4.9, §4.13, §4.14 keys are chords, opened as tabs", "§5.2 tab order, task-tab chords, takeover prompt", "§11 item 0 reduced to locked settings"]
+    - revision: 12
+      reason: "protocol v23 was taken by cross-group task handles"
+      changes: ["§1, §2 D6, §9: the web-parity protocol bump is 23 → 24"]
 ---
 
 # Accordion UI polish
@@ -35,7 +35,7 @@ conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md` and, for th
 | C. Settings | every `config.json` key editable; staged edits saved with `ctrl+s`; cross-instance sync; source and override display; validation errors. |
 | D. Compaction | one compaction entry point with strategies `pass`, `aggressive`, `bake`, `native`; conductor settle wait; `/compact <instructions>`; threshold handling; preview; undo; result card. |
 | E. Footer status | shorter, fitted status segment. |
-| F. Web app | Overview, Settings (server-side), task list, compaction card, matching the TUI semantics through protocol v23. |
+| F. Web app | Overview, Settings (server-side), task list, compaction card, matching the TUI semantics through protocol v24. |
 
 Out of scope: new conductors, changes to folding semantics in `core/truth.ts` beyond what §7 names,
 the desktop (Tauri) shell, the upstream (unforked) Accordion package.
@@ -49,7 +49,7 @@ the desktop (Tauri) shell, the upstream (unforked) Accordion package.
 | D3 | Global settings are staged and saved with `ctrl+s`. Session values (folding, budget, tail) apply immediately. | House standard; session values are Truth commands every surface already shares. |
 | D4 | `bake` compaction is included. | Taskfold records and digests make a structured, permanent summary. |
 | D5 | Task widget follows the user's sketch exactly, collapsed by default. | User decision. |
-| D6 | Web app gets the same surfaces through protocol v23. | User decision: all surfaces. |
+| D6 | Web app gets the same surfaces through protocol v24. | User decision: all surfaces. |
 | D7 | `compactMode` is replaced by a `compact` object; the old key is migrated on load and dropped on the next save. | Three behaviors (manual, threshold, saturation) cannot share one enum. |
 | D8 | Settings sync piggybacks on the existing ~1 s controller poll and uses a SQLite sidecar mutex like `controller.json`. | Reuses a proven primitive; no new timers or watchers. |
 | D9 | Mouse is optional everywhere; every click action has a key or command. | PiG 0.5.3 does not deliver clicks to extension components (§4.6). |
@@ -892,9 +892,9 @@ Threshold passes that cancel quietly append no entry; they update the footer sta
 `acc off`, `acc 81% · taskfold ▲`. The status text moves to the Overview; the one-shot
 `AlertGate` notification is unchanged.
 
-## 9. Area F: web app and protocol v23
+## 9. Area F: web app and protocol v24
 
-`PROTOCOL_VERSION` 22 → 23. Additions (all additive; a v22 client ignores them):
+`PROTOCOL_VERSION` 23 → 24 (v23 is taken by cross-group task handles). Additions (all additive; a v23 client ignores them):
 
 ```ts
 // ServerMessage
