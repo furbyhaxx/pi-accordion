@@ -117,7 +117,7 @@ agent reasons over at full fidelity (the thick-bordered box below the fold line)
 
 A conductor is a strategy for deciding what gets folded. It watches the session and proposes
 edits between turns, and every edit goes through the same rules your own hand folds do, so a
-conductor can never do something you couldn't do yourself. Seven ship today. Pick one from the
+conductor can never do something you couldn't do yourself. Eight ship today. Pick one from the
 header menu, or leave it on None and steer everything by hand.
 
 **[thermocline](conductors/ws/thermocline/)** is the strongest one so far, and the one the
@@ -203,7 +203,7 @@ ask the agent to write a handoff document, kill the session, and paste that docu
 fresh one. This does all three for you without you leaving the session.
 
 **[compaction-naive](conductors/in-process/compaction-naive/)** re-implements the `/compact` you
-already have in Claude Code, ChatGPT and everywhere else. It is the baseline the other six get
+already have in Claude Code, ChatGPT and everywhere else. It is the baseline the other seven get
 measured against, and it makes the point that Accordion covers what exists today before it does
 anything past that.
 
@@ -227,7 +227,7 @@ on each are in **[conductors/](conductors/)**.
   agent can ask to unfold.
 - ✅ Involvement locks — exclusive conductors, the consent gate, freeze-on-detach, and
   agent `recall`.
-- ✅ Seven conductors — automatic fold/unfold between turns, based on context.
+- ✅ Eight conductors — automatic fold/unfold between turns, based on context.
 - ✅ LLM-generated summaries, computed once and cached.
 - ✅ Read-only browsing of saved Claude Code transcripts.
 
@@ -263,7 +263,7 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` in the session to open its context panel (tabs **Context**, **Conductors** and
+Run `/accordion` in the session to open its context panel (tabs **Context**, **Tasks**, **Lists**, **Conductors** and
 **Settings**; `Tab` switches, `F1` lists the keys of the current tab). The Context view shows a
 Claude Code `/context`-style proportional category bar, token savings, and a 2D Spectrum-colored
 Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system).
@@ -283,10 +283,10 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   `provider/*` or `*`: `{ "anthropic/claude-opus-5-5": { "budget": "200k" }, "openai-codex/*": { "budget": "272k" } }`.
 - `/accordion tasks [lists | expand | collapse | hide | show]` browses task lists and controls the taskfold task list above the editor.
 
-The fork is also a Pi package and can be installed from Git once this branch is published:
+The fork is also a Pi package and can be installed from Git:
 
 ```bash
-pi-bolt install git:github.com/furbyhaxx/pi-accordion
+pi-bolt install git:https://github.com/furbyhaxx/pi-accordion@feat/pi-native
 ```
 
 Remove the upstream Accordion package before installing this fork to avoid registering
@@ -329,7 +329,7 @@ Setup, the quality gate, and platform gotchas are in **[CONTRIBUTING.md](CONTRIB
 Our main frontier right now is **better conductors**: researching which context actually
 matters, developing stronger strategies, and testing them against real sessions. We're not
 chasing a long tail of mediocre ones — the goal is one to three conductors that genuinely
-hold up. The seven listed above run against a small, frozen contract
+hold up. The eight listed above run against a small, frozen contract
 (`core/conductor/contract.ts`): a conductor attaches to a host, reacts to context-change
 events, and proposes fold/group edits between turns — clamped by the exact same rules a
 human fold goes through, never a privileged write path. If you don't need that finer-grained event stream, `core/conductor/view.ts`'s
