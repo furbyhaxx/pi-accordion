@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-11T17:56:38+01:00"
+  updated_at: "2026-11-11T18:04:09+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "fix/bounded-recall merged"
-      changes: ["line references follow the merge of bounded recall and step carriers; the prerequisite is met"]
+    - revision: 3
+      reason: "the user chose the extraction model"
+      changes: ["S2 item 4: openai/gpt-6-luna, else openai-codex/gpt-6-luna, as an ordered default"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -222,9 +222,14 @@ Change:
 2. `parseExtraction` takes the first balanced JSON object in the reply.
 3. `CompletionResult` gains `stopReason`; the conductor reports truncation and provider errors as
    such; one retry on a parse failure.
-4. Taskfold declares a default small chat model in the registry (`defaultModels.chat`). Choose it
-   with the user: it sends session content to that model, so the `privacy` declaration and the
-   consent notice must name chat models too.
+4. Taskfold declares a default chat model for extraction in the registry (`defaultModels.chat`):
+   `openai/gpt-6-luna`, else `openai-codex/gpt-6-luna` (user decision, 2026-11-11). The entry is
+   an ordered list: the first spec the host's model registry can resolve is used; when none
+   resolves, extraction falls back to today's behaviour (the session model) and sets a warning
+   status once. `defaultModels` holds one string per type today (`core/conductor/registry.ts`,
+   `resolveModelSpec` in `extension/settings.ts`), so the type and its resolution change. A
+   `models` entry in `~/.accordion/config.json` still wins. Extraction sends session content to
+   that model, so the `privacy` declaration and the consent notice must name chat models too.
 
 Tests: `extension/taskRouting.test.ts` (prose around JSON, truncated reply, retry),
 `extension/tui/*.test.ts` (row tokens), `conductors/in-process/taskfold/taskfold.test.ts`.
