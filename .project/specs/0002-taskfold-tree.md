@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 27
+  revision: 28
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T17:48:48+01:00"
+  updated_at: "2026-11-11T17:56:18+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 27
-      reason: "implementation plans deleted after merge"
-      changes: ["plan references removed", "floor and skill comparison results stated inline (§11, §13)"]
+    - revision: 28
+      reason: "one long open task saturated the session and a handle recall exceeded the provider limit"
+      changes: ["§9 step 6 and §9.4: step carriers inside open tasks under pressure", "§7.3: recall output is bounded, indexed and searchable", "§12: taskfold.steps"]
 ---
 
 # Taskfold
@@ -735,7 +735,11 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
   must contain the handle's exact tag. Cross-group sources are created before the carrier.
 - Handle id: `t:<list>/<id>`. Its fold code is `foldCode("t:<list>/<id>")`, stable across
   recompiles.
-- `resolveRecall` resolves a handle code to its members' raw content.
+- `resolveRecall` resolves a handle code to its members' raw content. The `recall` tool bounds what
+  it returns (`core/recallView.ts`, about 8k tokens per call across all codes): a small fold comes
+  back whole, a large one as an index of subtask codes and `code.N` entries, readable entry by
+  entry, pageable (`page`) and searchable (`query`). Tool details do not copy the text. A handle
+  once returned every member in one result: 1.4M tokens against a 1M provider limit.
 - `resolveUnfold` on a handle code unfolds the carrier and every referenced group and emits a `state-changed` with
   `by:"agent"`. The native tasks UI sends the same handle-bearing operation through the controller
   lease with `by:"you"` and holds the selected blocks open through Truth's sticky human overrides.
@@ -789,7 +793,7 @@ final form and never rewritten.
 
 ## 9. Epoch
 
-Every request after a task finished runs an epoch (eager). Steps 2–6 run only when the projection
+Every request after a task finished runs an epoch (eager). Steps 2–7 run only when the projection
 is ≥ `high·budget`.
 
 ```
@@ -798,7 +802,8 @@ is ≥ `high·budget`.
   3 keep-recent waive the kept root if still above
   4 floor       §9.2, if enabled
   5 untracked   untracked records (§6.4), if enabled
-  6 saturated   status level error, naming the largest unfoldable holder
+  6 steps       §9.4, if enabled
+  7 saturated   status level error, naming the largest unfoldable holder
 → ONE propose
 ```
 
@@ -827,6 +832,14 @@ folds and multiplies rebilled tokens; it exists for experiments only.
 
 When over budget after step 4, runs of at least `taskfold.untracked.minSteps` (default 8)
 assistant steps outside every span and outside the tail become untracked records (§6.4).
+
+### 9.4 Steps of open tasks
+
+When still over budget, runs of at least `taskfold.steps.minSteps` (default 4) old finished steps
+inside a still-open task become step carriers `{"steps":"<key>","label":…,"count":…}`, oldest first,
+grouped per innermost open task. The task's start message, user messages, document reads and the
+tail stay live. When the task finishes, its record absorbs the carriers. Without this, one long
+open task saturated the session.
 
 ## 10. Task widget (amends SPEC-0001 §4.3–4.4)
 
@@ -943,7 +956,8 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
     "recordTokens": 1500,
     "leafForm": "record",
     "floor": false,
-    "untracked": { "enabled": true, "minSteps": 8 }
+    "untracked": { "enabled": true, "minSteps": 8 },
+    "steps": { "enabled": true, "minSteps": 4 }
   }
 }
 ```
