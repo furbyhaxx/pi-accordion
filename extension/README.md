@@ -59,10 +59,16 @@ in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` wit
 Accordion pass.
 
 Conductors that call models out of band route them through `models` in the same file. Set a
-default per model type and override it per conductor id. Chat falls back to the session model.
+default per model type and override it per conductor id. Chat uses its tuned default, else the session model.
 A classifier falls back to the model the conductor is tuned for, if it names one (taskfold uses
 `openrouter/perplexity/pplx-decider-v1.2`); otherwise a conductor that needs one stays degraded
-until you configure it:
+until you configure it.
+
+Taskfold's chat extraction defaults to the first available `openai/gpt-6-luna` or
+`openai-codex/gpt-6-luna`; when neither is installed it uses the session model with a warning.
+Configured chat routes still win. Its privacy notice covers both classifier and chat content,
+and asks again if you previously accepted only classifier use.
+For example:
 
 ```json
 {

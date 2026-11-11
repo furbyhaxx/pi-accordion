@@ -407,7 +407,7 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 					const p = pendingCompletes.get(msg.reqId);
 					if (!p) return;
 					pendingCompletes.delete(msg.reqId);
-					if (msg.ok) p.resolve({ text: msg.text ?? "", model: msg.model ?? "", inputTokens: msg.inputTokens, outputTokens: msg.outputTokens });
+					if (msg.ok) p.resolve({ text: msg.text ?? "", model: msg.model ?? "", inputTokens: msg.inputTokens, outputTokens: msg.outputTokens, ...(msg.stopReason ? { stopReason: msg.stopReason } : {}) });
 					else p.reject(new Error(msg.error ?? "remote conductor: completion failed"));
 					break;
 				}

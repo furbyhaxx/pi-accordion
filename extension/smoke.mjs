@@ -1883,9 +1883,9 @@ await new Promise((r) => setTimeout(r, 50));
 	}
 	await okSession.h.session_shutdown({}, okSession.ctx);
 
-	// (b) failure path: the mocked complete() rejects → one error line, no usage fields.
+	// (b) provider-error stop reason rejects even when the adapter fulfills its promise.
 	const mockCompleteFail = async () => {
-		throw new Error("mock provider failure");
+		return { content: [], stopReason: "error", errorMessage: "mock provider failure" };
 	};
 	const errSession = await spawnClogSession({ complete: mockCompleteFail });
 	const LOG_ERR = errSession.log;

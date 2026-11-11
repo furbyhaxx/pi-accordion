@@ -28,7 +28,7 @@ import type { ClassifierAnswer, ClassifierQuestion, Conductor, ConductorHost, Ho
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { VerdictLedger } from "./verdicts";
-import { taskfoldRouting, type RoutingPort } from "./routing";
+import { RoutingParseError, taskfoldRouting, type RoutingPort } from "./routing";
 import { criteriaTexts, taskEventsIn, type TaskEvent } from "../../../core/taskEvents";
 import { collapsibleMessageKeys, messageKey } from "../../../core/groupShape";
 import { KeelLiteConductor } from "../keel-lite/keel-lite";
@@ -646,10 +646,21 @@ export class TaskfoldConductor implements Conductor {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), ROUTE_TIMEOUT_MS);
 		try {
-			const reply = await host.complete({ system: request.system, prompt: request.prompt, maxOutputTokens: ROUTE_MAX_OUTPUT_TOKENS, signal: controller.signal });
-			if (this.host !== host) return;
-			const result = await port.apply(reply.text, text);
-			this.verdicts.route(id, { ids: result.ids, at: new Date().toISOString() });
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const reply = await host.complete({ system: request.system, prompt: request.prompt, maxOutputTokens: ROUTE_MAX_OUTPUT_TOKENS, signal: controller.signal });
+				if (this.host !== host) return;
+				if (reply.stopReason === "length") throw new Error("extraction truncated at the output limit");
+				if (reply.stopReason === "error" || reply.stopReason === "aborted") throw new Error(`extraction provider ${reply.stopReason}`);
+				try {
+					const result = await port.apply(reply.text, text);
+					if (this.host !== host) return;
+					this.verdicts.route(id, { ids: result.ids, at: new Date().toISOString() });
+					break;
+				} catch (error) {
+					if (!(error instanceof RoutingParseError) || attempt > 0 || controller.signal.aborted) throw error;
+					host.debug?.({ type: "route-retry", id, error: error.message });
+				}
+			}
 		} catch (error) {
 			if (this.host === host) host.setStatus(`Taskfold could not route a message into the task list: ${error instanceof Error ? error.message : String(error)}`, { level: "warning" });
 		} finally {

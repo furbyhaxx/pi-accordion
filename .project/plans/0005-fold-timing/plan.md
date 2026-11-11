@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-11T23:05:00+01:00"
+  updated_at: "2026-11-11T23:15:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "S1 implemented and verified live"
-      changes: ["private diagnostics and bundle", "decline reasons", "live DeepSeek fixture and terminal captures"]
+    - revision: 5
+      reason: "S2 implementation and regression checks"
+      changes: ["snapped row accounting", "extraction retry and stop reasons", "ordered chat defaults and renewed consent"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -26,8 +26,8 @@ the shipped behaviour.
 
 ```
 done  S1  Debug mode and decline reasons
-next  S2  Row accounting and routing fixes
-later S3  Report limits, tool description, record cap unit
+done  S2  Row accounting and routing fixes
+next  S3  Report limits, tool description, record cap unit
 later S4  Timing modes, eager default, cache profile, 20-block rule removed
 later S5  Bracket tail; re-run the simulation on real debug logs
 later S6  Frontier breakpoint (Anthropic), only if S5's logs still show misses
@@ -41,7 +41,13 @@ run (nine request receipts, two committed folds, ~240 estimated tokens saved), S
 36/57/80/140 columns, and validation notes. The live gzip bundle was mode 0600 and its token
 redacted. Automated checks: 556 Bun tests; app check 0 errors/warnings; app tests 1,058 pass,
 21 intentional skips; all three extension smoke suites pass, including enabled-debug
-no-synchronous-write context coverage. Browser assets await the packaging gate in S6/final QA.
+no-synchronous-write context coverage. Browser assets await the packaging gate in final QA.
+
+S2: a real-Truth regression first reproduced a thinking-prefix handle with zero live tokens;
+owned carriers now charge whole groups. Widget/view/dump tests keep additive wire charges.
+Native Vitest route/host/remote tests, routing/settings Bun tests and context/host smoke pass.
+Renewed consent is deliberate: old classifier-only permission does not cover sending list
+context to chat providers. The extension still has only its seven known TypeScript diagnostics.
 
 ## Why
 

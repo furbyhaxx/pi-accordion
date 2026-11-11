@@ -77,6 +77,23 @@ function truthOf(bs = blocks()): Truth {
 }
 
 describe("task views", () => {
+	it("charges a task's whole carrier when snapping places its summary before the handle", () => {
+		const b = blocks();
+		const start = b[3];
+		start.id = start.id.replace(":p0", ":p1");
+		const thinking: TBlock = { ...start, id: start.id.replace(":p1", ":p0"), kind: "thinking", text: "Plan the work", toolName: undefined, callId: undefined, full: 30, live: 30 };
+		const ids = b.slice(3).map((x) => x.id);
+		b.splice(3, 0, thinking);
+		const truth = truthOf(b);
+		const summary = `${foldTag("t:l/1")} {"task":"l/1","title":"Parent","status":"done"}`;
+		truth.apply([{ kind: "group", ids, summary, handles: [{ id: "t:l/1", memberIds: ids }] }], "auto");
+		const group = truth.groups[0];
+		expect(group.memberIds[0]).toBe(thinking.id);
+		const tokens = foldedTaskTokens(list, truth).get("1")!;
+		expect(tokens.live).toBeGreaterThan(0);
+		expect(tokens.live).toBe(truth.calibratedGroupLiveTokens(group));
+		expect(tokens.full).toBe(truth.calibratedGroupFullTokens(group));
+	});
 	it("shows subtask progress, time and folds in the list tree", () => {
 		const nodes = listNodes(list, null, data(null));
 		const rows = flattenTree(nodes, new Map([["l/1", true]]));

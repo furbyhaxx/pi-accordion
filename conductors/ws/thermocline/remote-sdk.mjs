@@ -162,6 +162,12 @@ function groupDigestTokens(group, members) {
 }
 
 // core/wire.ts
+var REASONING_FIELD_MARKERS = /* @__PURE__ */ new Set(["reasoning", "reasoning_content", "reasoning_text"]);
+function thinkingIsSigned(p) {
+  if (p.redacted === true) return true;
+  const s = p.thinkingSignature;
+  return typeof s === "string" && s.trim().length > 0 && !REASONING_FIELD_MARKERS.has(s);
+}
 function blockId(m, i, partIndex) {
   switch (m.role) {
     case "user":
@@ -362,10 +368,27 @@ function applyPlan(messages, ops, groups = []) {
   );
   if (!safeOps.length && !safeGroups.length) return messages;
   const byId = new Map(safeOps.map((o) => [o.id, o]));
-  const { owner, degradeStart } = safeGroups.length ? computeDegradedDropRuns(
-    messages.map((m, i) => ({ ...messageInfo(m, i), role: m.role })),
-    safeGroups
-  ) : { owner: new Array(messages.length).fill(null), degradeStart: /* @__PURE__ */ new Set() };
+  const owner = new Array(messages.length).fill(null);
+  const degradeStart = /* @__PURE__ */ new Set();
+  const transparent = /* @__PURE__ */ new Set();
+  if (safeGroups.length) {
+    const shapes = [];
+    const indices = [];
+    messages.forEach((m, i) => {
+      const info = messageInfo(m, i);
+      const empty = !m.content || Array.isArray(m.content) && m.content.every((p) => p?.type === "text" && p.text === "" || p?.type === "thinking" && p.thinking === "" && !thinkingIsSigned(p));
+      if (!info.ids.length && empty) transparent.add(i);
+      else {
+        shapes.push({ ...info, role: m.role });
+        indices.push(i);
+      }
+    });
+    const decision = computeDegradedDropRuns(shapes, safeGroups);
+    indices.forEach((original, i) => {
+      owner[original] = decision.owner[i];
+      if (decision.degradeStart.has(i)) degradeStart.add(original);
+    });
+  }
   let changed = false;
   const mark = () => {
     changed = true;
@@ -374,16 +397,20 @@ function applyPlan(messages, ops, groups = []) {
   for (let i = 0; i < messages.length; ) {
     const g = owner[i];
     if (g) {
-      let j = i + 1;
-      while (j < messages.length && owner[j] === g) j++;
+      let j = i + 1, runLength = 1;
+      while (j < messages.length && (owner[j] === g || transparent.has(j))) {
+        if (owner[j] === g) runLength++;
+        j++;
+      }
       if (g.summaryText === null && !degradeStart.has(i)) {
         changed = true;
       } else {
-        const role = messages[i].role === "assistant" ? "assistant" : "user";
-        const text = g.summaryText !== null ? g.summaryText : roleFloorRecap(g.id, j - i);
+        const role = g.role ?? (messages[i].role === "assistant" ? "assistant" : "user");
+        const text = g.summaryText !== null ? g.summaryText : roleFloorRecap(g.id, runLength);
         out.push({ role, content: [{ type: "text", text }] });
         changed = true;
       }
+      for (let k = i + 1; k < j; k++) if (transparent.has(k)) out.push(messages[k]);
       i = j;
       continue;
     }
@@ -942,12 +969,11 @@ var Truth = class _Truth {
     if (floor === blocks.length) return blocks.length;
     const targetReal = this.isLocked("tail-size") ? this.activeTailTok : this.protectTokensTarget;
     if (targetReal === 0) return blocks.length;
-    const realCost = (b) => b.tokens * (this.isCalibrated(b) ? this.calibrationMul : 1);
     const cap = targetReal * PROTECT_OVERFLOW_CAP;
-    let sum = realCost(blocks[blocks.length - 1]);
+    let sum = this.realTokens(blocks[blocks.length - 1]);
     if (sum >= targetReal) return blocks.length - 1;
     for (let i = blocks.length - 2; i >= floor; i--) {
-      const next = sum + realCost(blocks[i]);
+      const next = sum + this.realTokens(blocks[i]);
       if (next > cap) return i + 1;
       sum = next;
       if (sum >= targetReal) return i;
@@ -1410,9 +1436,10 @@ var Truth = class _Truth {
    * the session; on plain detach `protectTokens` snaps BACK to the human's larger dial, and the
    * very next housekeep then prunes the (freeze-converted, human-owned) whole-session group and
    * heals the frozen folds — destroying exactly the work `freeze` promised to preserve. With
-   * `inheritTail:true`, the enforced tail is adopted as `protectTokens` BEFORE the lock releases,
-   * so the protected boundary does NOT snap back; the human regains the dial and re-expanding it
-   * later is their own conscious act (normal healing then applies, and F3 makes that heal
+   * `inheritTail:true`, `protectTokens` becomes the largest tail up to the human dial that leaves
+   * every fold and group outside it (never below the enforced tail) BEFORE the lock releases, so
+   * frozen work survives and the dial comes back as far as it safely can; re-expanding it further
+   * is the human's own conscious act (normal healing then applies, and F3 makes that heal
    * complete). Plain `clearLocks()` keeps the legacy snap-back behavior.
    *
    * No protocol change: `protectTokens` already rides `config` events, so the inherited value is
@@ -1422,7 +1449,7 @@ var Truth = class _Truth {
    * silent state fork. Wave 2 wires `LiveConductorHost.detachActive` to pass `{inheritTail:true}`.
    */
   clearLocks(opts) {
-    const inheritedTail = opts?.inheritTail && this.isLocked("tail-size") ? this.activeTailTok : null;
+    const inheritedTail = opts?.inheritTail && this.isLocked("tail-size") ? this.inheritableTail() : null;
     this.activeLocks = [];
     this.holderLabel = null;
     this.activeTailTok = 0;
@@ -1436,6 +1463,24 @@ var Truth = class _Truth {
     const rev = ++this.revCounter;
     for (const id of touched) this.lastChangedRev.set(id, rev);
     this.emit({ type: "locks", locks: this.activeLocks, holder: null, tailTokens: 0, rev });
+  }
+  /** The largest tail up to the human dial that leaves every fold and group outside it, never below the enforced tail. */
+  inheritableTail() {
+    let newest = -1;
+    for (let i = this.blockLog.length - 1; i >= 0; i--) {
+      const b = this.blockLog[i];
+      if (this.isFolded(b) || this.groupOf(b)) {
+        newest = i;
+        break;
+      }
+    }
+    if (newest < 0) return this.protectTokensTarget;
+    let free = 0;
+    for (let i = newest + 1; i < this.blockLog.length; i++) free += this.realTokens(this.blockLog[i]);
+    return Math.max(this.activeTailTok, Math.min(this.protectTokensTarget, Math.floor(free)));
+  }
+  realTokens(b) {
+    return b.tokens * (this.isCalibrated(b) ? this.calibrationMul : 1);
   }
   releaseLockedDomains(locks, touched) {
     const lockHuman = hasLock(locks, "human-steering");
@@ -1833,7 +1878,7 @@ var Truth = class _Truth {
     for (const id of memberIds) if (this.groupOf(this.get(id))) return this.clamp(op, "invalid-group", "overlaps an existing group");
     if (by !== "you" && memberIds.some((id) => this.get(id).override !== null)) return this.clamp(op, "human-override");
     const summary = by === "you" && typeof op.summary === "string" ? stripFoldTags(op.summary).trim() : op.summary;
-    const g = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...by === "auto" ? { autoOrigin: true } : {}, ...op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {} };
+    const g = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...by === "auto" ? { autoOrigin: true } : {}, ...by === "auto" && op.role ? { role: op.role } : {}, ...op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {} };
     if (g.handles && (by !== "auto" || new Set(g.handles.map((h) => h.id)).size !== g.handles.length || g.handles.some((h) => !this.canRecallHandle(g, h)))) return this.clamp(op, "invalid-group", "invalid or inaccessible group handle");
     if (this.classifyGroup(g).carrier === null) return this.clamp(op, "invalid-group", "nothing collapses (all stragglers)");
     this.groupList = [...this.groupList, g];
@@ -1928,10 +1973,44 @@ var Truth = class _Truth {
     return { op, applied: true };
   }
   // ── wire serialization ────────────────────────────────────────────────────
-  /**
-   * Compute fold/group ops from the current state and run them through `applyPlan`. Correctness
-   * over cleverness: it reuses the tested `applyPlan`. A per-message cache is a Phase-B option.
-   */
+  /** Ordered carriers using the same collapse, drop and role-floor decisions as wire serialization. */
+  projectContext(folding = true) {
+    const charges = /* @__PURE__ */ new Map();
+    let fullCovered = 0, fullRaw = 0, liveCovered = 0, liveRaw = 0, previousFull = 0, previousLive = 0;
+    for (const b of this.blockLog) {
+      if (this.isCalibrated(b)) {
+        fullCovered += b.tokens;
+        liveCovered += folding ? this.effTokens(b) : b.tokens;
+      } else {
+        fullRaw += b.tokens;
+        liveRaw += folding ? this.effTokens(b) : b.tokens;
+      }
+      const full = Math.round(fullCovered * this.calibrationMul + fullRaw);
+      const live = Math.round(liveCovered * this.calibrationMul + liveRaw);
+      charges.set(b.id, { id: b.id, full: full - previousFull, live: live - previousLive });
+      previousFull = full;
+      previousLive = live;
+    }
+    const runs = /* @__PURE__ */ new Map();
+    const collapsed = /* @__PURE__ */ new Set();
+    for (const g of this.groupList) {
+      if (!folding || !g.folded) continue;
+      for (const run of this.classifyGroup(g).collapsedRuns) {
+        const text = this.isDropGroup(g) ? this.degradedRunKeys().has(messageKey(run[0].id)) ? roleFloorRecap(g.id, messageCountOfRun(run)) : null : this.groupSummary(g);
+        runs.set(run[0].id, { groupId: g.id, text, members: run.map((b) => charges.get(b.id)) });
+        for (const b of run) collapsed.add(b.id);
+      }
+    }
+    const folds = new Map((folding ? this.computeFoldOps() : []).map((op) => [op.id, op.digestText]));
+    const out = [];
+    for (const b of this.blockLog) {
+      const run = runs.get(b.id);
+      if (run) out.push(run);
+      else if (!collapsed.has(b.id)) out.push({ text: folds.get(b.id) ?? b.text, members: [charges.get(b.id)] });
+    }
+    return out;
+  }
+  /** Apply the current fold/group state through the shared wire serializer. */
   serializeWire(messages) {
     return applyPlan(messages, this.computeFoldOps(), this.computeGroupOps());
   }
@@ -1956,7 +2035,7 @@ var Truth = class _Truth {
       if (!memberIds.length) continue;
       const summaryText = this.isDropGroup(g) ? null : this.groupSummary(g);
       if (summaryText !== null && !summaryText.trim()) continue;
-      out.push({ id: g.id, memberIds, summaryText });
+      out.push({ id: g.id, memberIds, summaryText, ...g.role ? { role: g.role } : {} });
     }
     return out;
   }
@@ -2412,7 +2491,7 @@ function runRemoteConductor(conductor, opts) {
           const p = pendingCompletes.get(msg.reqId);
           if (!p) return;
           pendingCompletes.delete(msg.reqId);
-          if (msg.ok) p.resolve({ text: msg.text ?? "", model: msg.model ?? "", inputTokens: msg.inputTokens, outputTokens: msg.outputTokens });
+          if (msg.ok) p.resolve({ text: msg.text ?? "", model: msg.model ?? "", inputTokens: msg.inputTokens, outputTokens: msg.outputTokens, ...msg.stopReason ? { stopReason: msg.stopReason } : {} });
           else p.reject(new Error(msg.error ?? "remote conductor: completion failed"));
           break;
         }

@@ -455,10 +455,11 @@ describe("runRemoteConductor — completeRequest round trip", () => {
 			model: "claude-x",
 			inputTokens: 10,
 			outputTokens: 5,
+			stopReason: "length",
 		} satisfies CompleteResultMessage);
 
 		const result = await pending;
-		expect(result).toEqual({ text: "a summary", model: "claude-x", inputTokens: 10, outputTokens: 5 });
+		expect(result).toEqual({ text: "a summary", model: "claude-x", inputTokens: 10, outputTokens: 5, stopReason: "length" });
 
 		server.closeClient();
 		await run;

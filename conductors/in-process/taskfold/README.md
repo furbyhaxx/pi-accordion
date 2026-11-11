@@ -97,10 +97,12 @@ none of the 341 that had to stay and 54 of the 139 that could fold, at about $0.
 messages and a 312 ms median. The default classifier is
 `openrouter/perplexity/pplx-decider-v1.2`; `models.defaults.classifier` or
 `models.conductors.taskfold.classifier` in `~/.accordion/config.json` overrides it, and another
-model may need a different threshold. The extractor uses the `chat` model: `models.defaults.chat` or `models.conductors.taskfold.chat`, else the session model. If a
-model runs off this machine, attaching taskfold first asks for a one-time consent, because its
-provider receives your user messages. If the classifier is unreachable, unrouted messages are
-kept and the status line counts the unclassified ones.
+model may need a different threshold. The extractor uses the configured `chat` model, else
+the first available of `openai/gpt-6-luna` and `openai-codex/gpt-6-luna`, else the session model
+with a warning. It accepts JSON surrounded by prose, retries a parse failure once, and reports
+truncation and provider errors explicitly. If either model runs off this machine, attaching
+taskfold asks for consent covering both classifier and chat content; old classifier-only consent
+does not cover chat extraction. If classification fails, unrouted messages stay verbatim.
 
 ## Untracked work
 

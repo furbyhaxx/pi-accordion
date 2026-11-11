@@ -60,6 +60,27 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("chat extraction requires new consent even after classifier-only consent", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.mkdirSync(path.dirname(config), { recursive: true });
+	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
+	fs.writeFileSync(config, JSON.stringify({ autoArm: false, privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
+	const r = runtime();
+	try {
+		let prompt = "";
+		r.ctx.ui.confirm = async (_title, text) => { prompt = text; return false; };
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+		assert.match(prompt, /chat model/);
+		assert.match(prompt, /openai\/gpt-6-luna/);
+		assert.match(prompt, /openai-codex\/gpt-6-luna/);
+		assert.equal(host.settings().privacyConsent["taskfold-chat-v1"], undefined);
+	} finally {
+		r.close();
+		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
+	}
+});
 check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
 	const r = runtime();
 	try {
@@ -249,7 +270,7 @@ check("task context rides in the start result and requests are never rewritten",
 	const config = path.join(configDir, "config.json");
 	fs.mkdirSync(configDir, { recursive: true });
 	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
-	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
+	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" } }));
 	fs.writeFileSync(path.join(dir, "spec.md"), "before");
 	const messages = [{ role: "user", content: "Always use decimal.", timestamp: 1 }];
 	const r = runtime(messages, { cwd: dir, sessionId: "task-context" });

@@ -4,6 +4,9 @@
  * The conductor owns the model call; the port owns the prompt, the parsing and the store writes.
  */
 
+/** A reply that failed parsing before any task-list changes were applied. */
+export class RoutingParseError extends Error {}
+
 /** The extractor prompt for one user message. */
 export interface RoutingRequest {
 	system: string;

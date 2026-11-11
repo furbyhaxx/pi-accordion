@@ -251,11 +251,13 @@ export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
  * conductor's override, then the per-type default, then the conductor's built-in default. Chat falls
  * back to the session model; a classifier has no implicit fallback, so `null` means none is configured.
  */
-export function resolveModelSpec(models: ModelSettings, type: ModelType, conductorId: string | null, requested?: string, builtIn?: string): string | null {
+export function resolveModelSpec(models: ModelSettings, type: ModelType, conductorId: string | null, requested?: string, builtIn?: string | readonly string[], available: (spec: string) => boolean = () => true): string | null {
 	const explicit = requested !== undefined && requested !== "current" ? sanitizeModelSpec(requested, type) : null;
 	if (requested !== undefined && requested !== "current" && !explicit) throw new Error(`invalid ${type} model spec "${requested}" (expected provider/model-id)`);
-	const spec = explicit ?? (conductorId ? models.conductors[conductorId]?.[type] : undefined) ?? models.defaults[type] ?? builtIn;
-	return spec ?? (type === "chat" ? "current" : null);
+	const configured = explicit ?? (conductorId ? models.conductors[conductorId]?.[type] : undefined) ?? models.defaults[type];
+	if (configured) return configured;
+	const tuned = typeof builtIn === "string" ? builtIn : builtIn?.find(available);
+	return tuned ?? (type === "chat" ? "current" : null);
 }
 
 /** Split a canonical spec at its first `/`: `openrouter/google/gemini-x` → provider `openrouter`. */

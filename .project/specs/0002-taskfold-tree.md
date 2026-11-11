@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 29
+  revision: 30
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T23:03:00+01:00"
+  updated_at: "2026-11-11T23:15:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 29
-      reason: "private session diagnostics"
-      changes: ["debug setting and session override", "epoch decline reasons and stale-finished warnings", "private capped log and redacted bundle"]
+    - revision: 30
+      reason: "row accounting and robust extraction"
+      changes: ["snapped carrier charges", "balanced JSON and parse-only retry", "stop reasons", "ordered chat defaults and renewed consent"]
 ---
 
 # Taskfold
@@ -568,6 +568,10 @@ the extension reaches 0.93.
      `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, value, pinKind?}`,
      where `target` is the list, a task id, or an item id (`g2`, `c5`, `p3`, `a1`) for `-`/`~`.
      Questions, approvals and one-off instructions for the next step produce no operations.
+     Parse the first balanced JSON object in the reply, allowing prose and fences and respecting
+     quoted/escaped braces. A parse failure retries once, before any mutation, within one shared
+     45-second deadline. `length` is reported as truncation; provider error/abort stops are reported
+     as failures, never parse failures. Store failures and rejected operations are not retried.
   3. **Apply** through the store with `source: "user"`. A pin must occur verbatim in the message
      (existing quote check) or it is dropped. Removals and renames of started tasks follow the store's
      rules; a refused operation is dropped and logged.
@@ -581,8 +585,11 @@ the extension reaches 0.93.
   inside the task's own intervals, so the agent sees where each instruction went. History entries
   (§6.3) carry no `user` links: the pins they keep are the lasting part, and `recall` returns the
   messages themselves.
-- The extractor sends session content to a model: Taskfold declares `privacy` and attaches through
-  the consent gate.
+- The extractor sends session content to a model: Taskfold declares both `chat` and `classifier`
+  in `privacy`. Chat defaults are tried in order: `openai/gpt-6-luna`, then
+  `openai-codex/gpt-6-luna`, using the host model registry. A configured model wins. If neither
+  default resolves, the session model is used and a warning is shown once per session. The consent
+  notice names both model types; `taskfold-chat-v1` consent replaces classifier-only consent.
 - Proposing the operations to the agent instead was measured and rejected: it applied 71 % of
   proposals, 37 % when some were already applied.
 
@@ -873,6 +880,9 @@ then dropped); glyph and counts are never cut.
   | blank | not finished |
 
   The `(fold …)` marker becomes the trailing `full→live` token pair on folded rows.
+  A task owning a group's summary is charged for the whole group, including message-snapped
+  thinking before its recovery handle. Child handles inside another task's carrier retain their
+  member charges. Wire/dump charges remain additive and are not changed to repair a row.
 - **Progress breakdown** over the subtree's leaves: `7✓ 2☒ 1⊘ 3☐` (done, failed, abandoned, not
   finished; blocked counts as not finished). Zero counts are omitted. `success`/`error`/`dim`/`dim`
   colours. Replaces `(done/total)`.

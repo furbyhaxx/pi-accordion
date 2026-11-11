@@ -7,7 +7,7 @@
 import { PinError, type PinKind, type PinLimits } from "./taskPins";
 import { PIN_KINDS } from "./taskSchema";
 import { symbolFiles, warmSymbols } from "./taskSymbols";
-import type { RoutingResult, TaskfoldRouting } from "../conductors/in-process/taskfold/routing";
+import { RoutingParseError, type RoutingResult, type TaskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { TaskError, runTasksTracked, type TaskList, type TaskStore, type TasksArgs } from "./tasks";
 
 export const ROUTED_KINDS = ["goal", "task", "criterion", "pin", "attach"] as const;
@@ -118,18 +118,27 @@ function shapeOp(raw: unknown): RoutedOp | DroppedOp {
 	return out;
 }
 
-/** Parse the extractor's reply: strict JSON, optionally in a code fence. Throws when it is not a JSON object with `ops`. */
+/** Parse the first balanced JSON object in the extractor's reply; throws without an `ops` array. */
 export function parseExtraction(reply: string): Extraction {
-	let text = reply.trim();
-	const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(text);
-	if (fence) text = fence[1]!;
+	const start = reply.indexOf("{");
+	let end = start, depth = 0, quoted = false, escaped = false;
+	for (; end < reply.length && start >= 0; end++) {
+		const c = reply[end];
+		if (quoted) {
+			if (escaped) escaped = false;
+			else if (c === "\\") escaped = true;
+			else if (c === '"') quoted = false;
+		} else if (c === '"') quoted = true;
+		else if (c === "{") depth++;
+		else if (c === "}" && --depth === 0) { end++; break; }
+	}
 	let data: unknown;
 	try {
-		data = JSON.parse(text);
+		data = JSON.parse(reply.slice(start, end));
 	} catch {
-		throw new Error("the extractor did not return JSON");
+		throw new RoutingParseError("the extractor did not return JSON");
 	}
-	if (!isObj(data) || !Array.isArray(data.ops)) throw new Error('the extractor reply has no "ops" array');
+	if (!isObj(data) || !Array.isArray(data.ops)) throw new RoutingParseError('the extractor reply has no "ops" array');
 	const ops: RoutedOp[] = [];
 	const rejected: DroppedOp[] = [];
 	for (const raw of data.ops.slice(0, MAX_OPS)) {

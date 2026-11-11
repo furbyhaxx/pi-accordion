@@ -774,7 +774,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		for (const type of entry.privacy?.models ?? []) {
 			let m: any;
 			try {
-				m = type === "chat" ? resolveChatModel(entry.id, undefined) : resolveClassifierModel(entry.id, undefined);
+				m = type === "chat" ? resolveChatModel(entry.id, undefined, false) : resolveClassifierModel(entry.id, undefined);
 			} catch {
 				continue; // an unresolvable model receives nothing
 			}
@@ -789,8 +789,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * persisted and attaches the conductor, and a session switch while the dialog is open drops it.
 	 */
 	function selectConductor(id: string | null): boolean {
+		const consentKey = entryById(id)?.privacy?.consentKey ?? id ?? "none";
 		const entry = entryById(id);
-		if (!entry?.privacy || settings.privacyConsent[entry.id] || !leavesMachine(entry)) {
+		if (!entry?.privacy || settings.privacyConsent[consentKey] || !leavesMachine(entry)) {
 			liveHost.select(id);
 			return true;
 		}
@@ -803,7 +804,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy.notice}\n\nAccept once and enable ${entry.label}?`).then(
 			(accepted) => {
 				if (session !== sessionId || !accepted) return;
-				settings = saveSettings(HOME, { ...settings, privacyConsent: { ...settings.privacyConsent, [entry.id]: new Date().toISOString() } });
+				settings = saveSettings(HOME, { ...settings, privacyConsent: { ...settings.privacyConsent, [consentKey]: new Date().toISOString() } });
 				liveHost.select(entry.id);
 			},
 			() => {},
@@ -917,10 +918,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * conductor awaits it off to the side. A process-wide semaphore bounds concurrent spend.
 	 */
 	/** The chat model a conductor's completion resolves to under the user's model routing. */
-	function resolveChatModel(conductorId: string | null, requested: string | undefined): any {
+	const warnedChatFallbacks = new Set<string>();
+	function resolveChatModel(conductorId: string | null, requested: string | undefined, warn = true): any {
 		const ctx = latestCtx;
-		const spec = resolveModelSpec(settings.models, "chat", conductorId, requested, entryById(conductorId)?.defaultModels?.chat);
-		if (spec === "current" || spec === null) return latestModelObj ?? (ctx?.model as any) ?? null;
+		const builtIn = entryById(conductorId)?.defaultModels?.chat;
+		const available = (spec: string) => { const { provider, id } = splitModelSpec(spec); return !!(ctx as any)?.modelRegistry?.find?.(provider, id); };
+		const spec = resolveModelSpec(settings.models, "chat", conductorId, requested, builtIn, available);
+		if (spec === "current" || spec === null) {
+			const configured = requested || (conductorId ? settings.models.conductors[conductorId]?.chat : undefined) || settings.models.defaults.chat;
+			if (warn && conductorId && !configured && Array.isArray(builtIn) && !warnedChatFallbacks.has(conductorId)) {
+				warnedChatFallbacks.add(conductorId);
+				liveHost.setStatus(`${conductorId}: default chat models unavailable; extraction uses the session model.`, { level: "warning" });
+			}
+			return latestModelObj ?? (ctx?.model as any) ?? null;
+		}
 		const { provider, id } = splitModelSpec(spec);
 		const m = (ctx as any)?.modelRegistry?.find?.(provider, id);
 		if (!m) throw new Error(`unknown chat model "${spec}"`);
@@ -932,7 +943,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const registry = (latestCtx as any)?.modelRegistry;
 		if (typeof registry?.findOfType !== "function" || typeof registry?.classify !== "function")
 			throw new Error("this Pi host does not expose classifier models to extensions");
-		const spec = resolveModelSpec(settings.models, "classifier", conductorId, requested, entryById(conductorId)?.defaultModels?.classifier);
+		const available = (spec: string) => { const { provider, id } = splitModelSpec(spec); return !!registry.findOfType("classifier", provider, id); };
+		const spec = resolveModelSpec(settings.models, "classifier", conductorId, requested, entryById(conductorId)?.defaultModels?.classifier, available);
 		if (!spec) throw new Error("no classifier model configured (set models.defaults.classifier in ~/.accordion/config.json)");
 		const { provider, id } = splitModelSpec(spec);
 		const m = registry.findOfType("classifier", provider, id);
@@ -970,6 +982,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// Captured once a model is resolved so the catch block's failure line can report the same
 		// provider/model a success line would have, when available.
 		let mForLog: any = null;
+		let stopReason: string | undefined;
 		try {
 			const ctx = latestCtx;
 			const m = ctx ? resolveChatModel(conductorId, req.model) : null;
@@ -994,6 +1007,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// Consume either outcome for cleanup without changing the result used below.
 			providerSettlement = providerCall.then(() => {}, () => {});
 			const result = await Promise.race([providerCall, deadline]);
+			stopReason = result.stopReason;
+			if (stopReason === "error" || stopReason === "aborted") throw new Error(result.errorMessage || `completion ${stopReason}`);
 			let text = "";
 			if (Array.isArray(result.content))
 				text = result.content.filter((p: any) => p?.type === "text").map((p: any) => (typeof p?.text === "string" ? p.text : "")).join("");
@@ -1016,10 +1031,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				model: result.model,
 				inputTokens: typeof result.usage?.input === "number" ? result.usage.input : undefined,
 				outputTokens: typeof result.usage?.output === "number" ? result.usage.output : undefined,
+				stopReason,
 			};
 		} catch (err) {
 			record({
-				type: "complete", purpose: "chat",
+				type: "complete", purpose: "chat", stopReason,
 				at: startedAt,
 				conductor: conductorId,
 				provider: mForLog?.provider ?? null,
@@ -3014,6 +3030,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		void debugLog?.flush().catch((error: Error) => ctx.ui.notify(`Debug log: ${error.message}`, "warning"));
 		debugLog = null;
 		debugOverride = null;
+		warnedChatFallbacks.clear();
 		releaseTaskClaims();
 		nestedTaskEvents.clear();
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a

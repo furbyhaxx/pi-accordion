@@ -12,6 +12,7 @@ import { UNFOLD_ENTRY, VERDICT_ENTRY, VerdictLedger, unfoldStatesOf, verdictsOf,
 import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
+import { parseExtraction } from "../../../extension/taskRouting";
 import type { ConductorHost } from "../../../core/conductor/contract";
 
 class Session {
@@ -92,6 +93,28 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 	return { s, start, end };
 }
 
+	it("retries parse failures once but reports truncation and provider errors without retrying", async () => {
+		for (const mode of ["recover", "malformed", "length", "error"] as const) {
+			const { s } = oneTask((s) => s.user("Never touch vendor/."));
+			const id = s.blocks.find((b) => b.text === "Never touch vendor/.")!.id;
+			const host = new TestHost(), ledger = new VerdictLedger();
+			host.queueCompletion({ text: "not JSON", stopReason: mode === "length" || mode === "error" ? mode : "stop" });
+			host.queueCompletion({ text: mode === "recover" ? '{"ops":[]}' : "still not JSON", stopReason: "stop" });
+			const port: RoutingPort = { current: {
+				prepare: () => ({ system: "Extract", prompt: "Never touch vendor/." }),
+				apply: async (reply) => { parseExtraction(reply); return { ids: [], applied: 0, dropped: 0 }; },
+			} };
+			new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, port).attach(host);
+			host.appendBlocks(s.blocks);
+			await new Promise((r) => setTimeout(r, 0));
+			expect(host.completeLog).toHaveLength(mode === "recover" || mode === "malformed" ? 2 : 1);
+			if (mode === "recover") expect(ledger.get(id)?.routed).toBeDefined();
+			else {
+				expect(ledger.get(id)?.routed).toBeUndefined();
+				expect(host.statusLog.some((r) => r.text?.includes(mode === "length" ? "truncated" : mode === "error" ? "provider error" : "did not return JSON"))).toBe(true);
+			}
+		}
+	});
 describe("taskfold", () => {
 	it("explains deferred finished tasks and warns once they outlive forty tool results", async () => {
 		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "cache-lookback", "record-cap"] as const) {

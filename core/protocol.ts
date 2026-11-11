@@ -575,6 +575,7 @@ export interface CompleteResultMessage {
 	model?: string;
 	inputTokens?: number;
 	outputTokens?: number;
+	stopReason?: string;
 	error?: string;
 }
 

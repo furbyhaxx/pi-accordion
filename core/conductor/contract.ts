@@ -166,6 +166,8 @@ export interface CompletionResult {
 	inputTokens?: number;
 	/** Host-counted output token usage, when available. */
 	outputTokens?: number;
+	/** Provider stop reason, including `length` for truncated output, when supplied. */
+	stopReason?: string;
 }
 
 /** One typed question for a classifier model (mirrors pi-ai's `ClassifierQuestion`). */
@@ -252,7 +254,7 @@ export interface ConductorHost {
 	 */
 	classify?(req: ClassificationRequest): Promise<ClassificationResult>;
 	/** Queue local planner diagnostics; hosts without diagnostics may omit this capability. */
-	debug?(record: { type: "epoch" | "fold"; [key: string]: unknown }): void;
+	debug?(record: { type: "epoch" | "fold" | "route-retry"; [key: string]: unknown }): void;
 	/**
 	 * Surface display-only conductor status to the human; `null`/empty clears it. A `level` metric of
 	 * `"warning"` or `"error"` marks a degraded state (a failing model call, an unreachable budget, a

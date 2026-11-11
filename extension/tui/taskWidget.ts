@@ -6,7 +6,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { Truth } from "../../core/truth";
-import { scanTaskSpans } from "../../conductors/in-process/taskfold/taskfold";
+import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
 import { fitSegments } from "./chrome";
@@ -246,7 +246,7 @@ export function foldedTaskTokens(list: TaskList, truth: Truth): Map<string, Fold
 		const refs = taskFoldRefs(truth, key);
 		const folded = refs.filter((r) => r.group.folded);
 		if (!folded.length) continue;
-		const ids = new Set(folded.flatMap((r) => r.memberIds));
+		const ids = new Set(folded.flatMap((r) => taskKeyOfSummary(r.group.digest) === key ? r.group.memberIds : r.memberIds));
 		const tokens = [...ids].reduce((n, id) => ({ full: n.full + charges.get(id)!.full, live: n.live + charges.get(id)!.live }), { full: 0, live: 0 });
 		const span = [...spans].reverse().find((s) => s.key === key);
 		const scope = span ? truth.blocks.filter((_b, i) => spanContains(span, i)) : refs.flatMap((r) => r.memberIds.map((id) => truth.get(id)!));

@@ -22,6 +22,14 @@ describe("parseExtraction", () => {
 		expect(e.rejected).toEqual([]);
 	});
 
+	test("takes the first balanced object from prose without treating quoted braces as structure", () => {
+		const object = { ops: [{ op: "+", kind: "goal", target: "list", value: 'Keep {braces}, "quotes" and \\paths' }] };
+		const result = parseExtraction(`Here is the extraction:\n\`\`\`json\n${JSON.stringify(object)}\n\`\`\`\nDone. {"ops":[]}`);
+		expect(result.ops[0]?.value).toBe(object.ops[0].value);
+		expect(() => parseExtraction('Reply: {"ops":[{"value":"unterminated}')).toThrow(/did not return JSON/);
+		expect(() => parseExtraction('Reply: {oops} then {"ops":[]}')).toThrow(/did not return JSON/);
+	});
+
 	test("rejects malformed operations by shape and keeps the rest", () => {
 		const e = parseExtraction(JSON.stringify({ ops: [
 			{ op: "+", kind: "pin", target: "list", value: "x" },

@@ -126,6 +126,16 @@ describe("model routing", () => {
 		expect(resolveModelSpec(none, "classifier", "taskfold", "x/y", "tuned/model")).toBe("x/y");
 	});
 
+	test("tries built-in defaults in order without overriding explicit configuration", () => {
+		const none = sanitizeModelSettings({});
+		const defaults = ["openai/gpt-6-luna", "openai-codex/gpt-6-luna"];
+		expect(resolveModelSpec(none, "chat", "taskfold", undefined, defaults, () => true)).toBe(defaults[0]);
+		expect(resolveModelSpec(none, "chat", "taskfold", undefined, defaults, (s) => s.startsWith("openai-codex/"))).toBe(defaults[1]);
+		expect(resolveModelSpec(none, "chat", "taskfold", undefined, defaults, () => false)).toBe("current");
+		expect(resolveModelSpec(models, "chat", "taskfold", undefined, defaults, () => false)).toBe("openrouter/google/gemini-flash");
+		expect(resolveModelSpec(none, "chat", "taskfold", "custom/model", defaults, () => false)).toBe("custom/model");
+	});
+
 	test("chat falls back to the session model; a classifier has no fallback", () => {
 		const none = sanitizeModelSettings({});
 		expect(resolveModelSpec(none, "chat", null)).toBe("current");

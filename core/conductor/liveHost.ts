@@ -797,6 +797,7 @@ export class LiveConductorHost implements ConductorHost {
 						model: res.model,
 						inputTokens: res.inputTokens,
 						outputTokens: res.outputTokens,
+						stopReason: res.stopReason,
 					}),
 				(err) => this.deps.sendToSocket(from, { type: "completeResult", reqId: req.reqId, ok: false, error: err instanceof Error ? err.message : String(err) }),
 			)
