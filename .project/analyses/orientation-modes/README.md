@@ -11,9 +11,6 @@ document:
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["tier-1 replay results on six real sessions"]
     - revision: 2
       reason: "tier-2 live runs and verdict"
       changes: ["pins arm", "two tier-2 rounds (60 + 36 runs)", "verdict: keep A as default"]

@@ -39,4 +39,5 @@ Before making any changes to the code, **always open a dedicated worktree** — 
    - The main checkout stays on `main` (the stable, registered-binary surface). Never branch from or PR into `main` directly — see CLAUDE.md → *Branching & PR workflow*.
    - Only one worktree may run the UI server on port 1420 at a time (`npm run dev` / `tauri dev`). Other concurrent worktrees should rely on `npm run check` / `npm run test` / `node smoke.mjs`, which claim no port.
    - If the branch is abandoned without merging, still `git worktree remove` it so `.pi/worktrees/` doesn't accumulate stale trees.
-- `.project/` — development artifacts; never in `docs/`; committed. Load skill `dot-project` before writing one. Every Markdown artifact needs `document:` frontmatter (`.project/AGENTS.md`).
+- `.project/` — development artifacts; never in `docs/`; committed. Load skill `dot-project` before writing, revising or deleting one. Only what currently applies or is planned stays; superseded artifacts are deleted with `Artifact-*` commit trailers, never archived. Do not read deleted artifacts from git history unless asked. Open work: root `BACKLOG.md` pointers + `.project/backlog/`; live claims: project-scope `tasks`. Never put drift/TODOs in AGENTS.md.
+- `docs/BACKLOG.md` is upstream's desktop-app backlog, kept identical to `upstream/devmain`. Do not add fork work there.

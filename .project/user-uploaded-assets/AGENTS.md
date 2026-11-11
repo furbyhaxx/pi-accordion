@@ -1,6 +1,4 @@
-Files provided by the user: screenshots, notes, bug lists, references.
+Files provided by the user: screenshots, notes, bug lists. No frontmatter.
 
-- Read-only. Never edit, rename or delete.
-- No frontmatter required.
-- Name new uploads `YYYY-MM-DDTHH:MM±TZ-<slug>.<ext>` or `<slug>/`.
-- Derive work items into plans/analyses; reference the asset by path.
+- Do not edit or rename. Name new uploads `YYYY-MM-DDTHH:MM±TZ-<slug>.<ext>` or `<slug>/`.
+- Process each upload into backlog items or plans, then delete it in that commit. Ask the user before deleting an upload that is not fully processed.

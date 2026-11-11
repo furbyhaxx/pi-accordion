@@ -1,15 +1,19 @@
 ---
-version: 1
-id: "nukular-ai-history-conductor"
-title: "Nukular AI session history and Accordion conductor fit"
-description: "Branch-aware local history profile and conditional conductor recommendation."
-type: "analysis"
-created: "2026-11-01T14:54:36+01:00"
-updated: "2026-11-01T14:54:36+01:00"
-createdBy: "analyst"
-updatedBy: "analyst"
-status: "partially explained"
-confidence: "medium"
+document:
+  type: "analysis"
+  id: "ANA-history-conductor-nukular-ai"
+  title: "Nukular AI session history and Accordion conductor fit"
+  description: "Branch-aware local history profile and conditional conductor recommendation."
+  status: "published"
+  revision: 1
+  created_at: "2026-11-01T14:54:36+01:00"
+  updated_at: "2026-11-01T14:54:36+01:00"
+  created_by: "analyst"
+  updated_by: "analyst"
+  changelog:
+    - revision: 1
+      reason: "document creation"
+      changes: ["document creation"]
 ---
 
 # Nukular AI history and conductor fit

@@ -1,15 +1,19 @@
 ---
-version: 1
-id: "in-core-ai-history-conductor"
-title: "In-core-ai session history and conductor fit"
-description: "Local read-only aggregate and sampled continuity evidence for an Accordion conductor decision."
-type: "analysis"
-created: "2026-11-01T14:56:02+01:00"
-updated: "2026-11-01T15:00:32+01:00"
-createdBy: "analyst"
-updatedBy: "analyst"
-status: "partially explained"
-confidence: "medium"
+document:
+  type: "analysis"
+  id: "ANA-history-conductor-in-core-ai"
+  title: "In-core-ai session history and conductor fit"
+  description: "Local read-only aggregate and sampled continuity evidence for an Accordion conductor decision."
+  status: "published"
+  revision: 1
+  created_at: "2026-11-01T14:56:02+01:00"
+  updated_at: "2026-11-01T15:00:32+01:00"
+  created_by: "analyst"
+  updated_by: "analyst"
+  changelog:
+    - revision: 1
+      reason: "document creation"
+      changes: ["document creation"]
 ---
 
 # In-core-ai session history and conductor fit

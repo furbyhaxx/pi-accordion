@@ -5,41 +5,25 @@ document:
   title: "Taskfold reliability: hold the budget and the task protocol by construction"
   description: "Proposal to make Taskfold keep sessions within budget and keep agents on the tasks protocol for any agent and provider, not only the analysed sessions"
   status: "draft"
-  revision: 8
+  revision: 9
   created_at: "2026-11-05T15:51:30+01:00"
-  updated_at: "2026-11-08T13:15:41+01:00"
+  updated_at: "2026-11-11T17:49:19+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "align with SPEC-0002 r18: no request injection"
-      changes: ["§5.1 HUD replaced by result-borne state and appended notices", "§5.2 bootstrap note is append-only", "header points decided parts to SPEC-0002"]
-    - revision: 2
-      reason: "the task contract is sequential; misuse is fixed by planning and enforcement, not by loosening the contract"
-      changes: ["dropped paused, switch-on-start, complete-from-blocked and interval spans", "added sequential order (§5.4): in-order start, no agent dependency reason, stop-on-block, add … before, scope repair", "planning instructions and required done criterion in the tool text (§6)", "planning metrics; concurrency deferred to subagents"]
-    - revision: 3
-      reason: "delegated work must be a supported block reason for subagents contributed by other extensions"
-      changes: ["block reason delegated, idle-justifying, with optional delegate handle (§5.4, §6.3, §9)"]
-    - revision: 4
-      reason: "done is ambiguous with the done status"
-      changes: ["leaf field renamed from done to goal, described as a checkable end state"]
-    - revision: 5
-      reason: "a single goal string invites vague intentions"
-      changes: ["leaf field goal replaced by acceptanceCriteria, a required list of 1–3 checkable statements on leaves", "record shows the criteria above the outcome", "example and tool text updated"]
-    - revision: 6
-      reason: "user decisions on the open questions"
-      changes: ["decisions table D1–D8", "enforce defaults to coach; gate per model", "orientation allowance 10 calls", "token ratio: lower bound 0.7 only, no upper bound", "stop-on-block, follow-up and large-leaf rules as recommended", "§5.7 configuration: every knob in config.json, per-model where marked"]
-    - revision: 7
-      reason: "spike results"
-      changes: ["§9a spike results", "§3 recount from the pi-auth-plus bus with an anchor rule; its message_end correction does not run under pig", "§4 floor by composition with an R7-off option; unit() counts current member cost", "§9 pi-auth-plus risk replaced by the verified finding"]
+    - revision: 9
+      reason: "delivered parts removed after verifying the code"
+      changes: ["floor, untracked records and their spikes removed: delivered (SPEC-0002 §9.2–9.3)", "slices table reduced to undelivered work", "tracked as B-0001"]
 ---
 
 # Taskfold reliability
 
-Decided parts moved to `.project/specs/0002-taskfold-tree.md`: structured tool results and
-delivered-once context (§3–4), nested `tasks` calls (§5.3), eager folding and history (§8), the
-floor (§9.2) and legacy adoption (§14). This draft keeps only what is still undecided: token truth
-(§3), sequential order and enforcement (§5.3–5.8), prompt engineering (§6) and its evaluation.
+Delivered and specified in `.project/specs/0002-taskfold-tree.md`, and therefore not repeated here:
+structured tool results and delivered-once context, nested `tasks` calls, eager folding and
+history, the floor and untracked records (opt-in), `add … before`, `acceptanceCriteria` and legacy
+adoption. This draft holds what is decided (table below) but not implemented: token truth (§3),
+sequential order and enforcement (§5), prompt engineering (§6) and its evaluation (§7). Tracked as
+`.project/backlog/B-0001-taskfold-reliability.md`.
 
 Evidence: `.project/analyses/2026-11-05-taskfold-session-failures/analysis.md` (ANA). Token
 research: `host:/mnt/Projects/furbyhaxx/pi-auth-plus/.project/analyses/tokens/` and
@@ -128,61 +112,6 @@ particular session.
 
 Contract note: this amends ADR 0025's "no clamp" policy. The lower bound is a validity check on
 the input, not smoothing of k.
-
-## 4. Folding floor (I1, I5)
-
-Taskfold stays the primary policy. Task records are the best fold. It gains a floor, so a session
-cannot outgrow the budget because of how the agent used `tasks`.
-
-1. **Keep-recent by finish order, and waivable.** Keep the most recently finished root open only
-   while the plan reaches the target without it.
-
-The floor is a safety net for the budget, not a licence for bad plans. A well-scoped leaf can
-still be large, for example one big read. Every floor epoch is also reported as a plan signal
-(§5.5), so a list whose leaves are too coarse shows up instead of being absorbed silently.
-
-With sequential order enforced (§5.4), spans cannot overlap. The overlap that made 1.3.4
-unfoldable came from blocking a task and working elsewhere, which §5.4 removes. The span scan
-therefore stays as it is.
-
-2. **Floor ladder.** If the task-record plan plus record aging leaves the projection above the
-   target, run keel-lite's per-block rungs R1–R5 in the same epoch and transaction. They cover
-   everything outside Taskfold's groups and the protected tail: open spans first by age, then
-   untracked runs. Those rungs are thinking fold, stale reads, bash trim, read skeletons, and the
-   deep fold of everything still above 200 tokens. All of them are recoverable, and `recall` and
-   `unfold` keep working.
-   - Reuse keel-lite by composition, as keel-note does: Taskfold owns an unmodified
-     `KeelLiteConductor` attached to a proxy host, and forwards host events to it only after its
-     own epoch has settled, with the same HIGH/LOW band. keel-lite then acts only when the
-     task-record epoch left the context above HIGH. Spike 4 (§9a) found the ladder reads instance
-     state (decisions, pruning, R0 re-assertion), so extracting it would be a refactor of
-     keel-lite. keel-lite already skips every grouped block, so records are never touched. The
-     floor sets `rootSpecPaths: 0`, because keel-lite's roots are SlopCode-specific.
-   - The floor proposes no R7 groups. Whole-step groups would cut across future spans. Grouping
-     belongs to records. This needs one new keel-lite option that turns R7 off
-     (`groupChunkSteps` is validated ≥ 1 today).
-   - When a span later finishes, its record group absorbs the floor-folded members. Spike 5 (§9a)
-     confirmed Truth applies a group over auto-folded and replaced blocks, and that ungrouping
-     restores them. `unit()` must count each member at its current cost
-     (`folded ? foldedTokens : tokens`); today it does that only for members of its own groups,
-     and would overstate the savings. The group
-     takes their folded size, so the saving is still counted.
-3. **Untracked records.** Runs of at least 8 assistant steps that lie outside every span and
-   outside the tail become `[untracked-work]` groups when the floor still falls short. The record
-   holds only deterministic facts from `recordFacts` (changed files, checks run) plus the first
-   line of the assistant text.
-4. **Saturation is visible.** If an epoch still ends above budget, the status level becomes
-   `error`, and the next `tasks` result names what is holding the space (§5.1).
-
-Order within an epoch:
-
-```
-records (oldest finished first) → record aging → floor R1–R5 (open spans, then untracked)
-  → untracked groups → saturated
-```
-
-Each step is skipped once the projection reaches `LOW · budget`, and all ops commit as one
-transaction. Cache economics are unchanged: one break per epoch, at the oldest edit.
 
 ## 5. Protocol enforcement (I3, I4, I6)
 
@@ -320,12 +249,6 @@ editable in the Settings screen (SPEC-0001 §1 C). Keys marked *per model* can a
     "preferRecount": true,         // use a tokenizer recount (pi-auth-plus) when offered
     "priors": { "anthropic": 1.5, "claude": 1.5, "*": 1.15 }   // keys: provider, provider/model or model-family pattern
   },
-  "taskfold": {
-    "high": 0.8, "low": 0.6,       // epoch band (existing TaskfoldOptions)
-    "keepRecentTasks": 1,
-    "floor": true,                 // keel-lite fallback rungs (§4)
-    "untrackedRecords": { "enabled": true, "minSteps": 8 }
-  }
 }
 ```
 
@@ -543,13 +466,12 @@ Metrics, computed from session files (`tasks` calls, `accordion.tasks.idle` entr
 | Slice | Content | Touches | Closes |
 |---|---|---|---|
 | 1 | Token truth: normalization, lower bound, priors, model-change reset, `calibration` settings; read pi-auth-plus corrected usage | `extension/accordion.ts` calibration path, ADR 0025 addendum | I2; S2's DeepSeek phase |
-| 2 | Sequential order: in-order `start`, no agent `dependency`, stop-on-block, `add … before`, required `acceptanceCriteria`; waivable keep-recent | `tasks.ts`, `taskfold.ts`, tool text, views, SPEC-0001 §4.15 | I4, I5; the cause of S2's 147k |
-| 3 | Floor ladder (extracted keel-lite planner) and untracked records; saturation status | `taskfold.ts`, `keel-lite.ts` (extraction), Taskfold README | I1; S2's 180k and 76k |
+| 2 | Sequential order: in-order `start`, no agent `dependency`, stop-on-block, required `acceptanceCriteria` | `tasks.ts`, `taskfold.ts`, tool text, views, SPEC-0001 §4.15 | I4, I5; the cause of S2's 147k |
 | 4 | Availability: consent gates the classifier only; tool-change notices | `selectConductor`, `syncConductorTools` | I3; S1 |
 | 5 | Enforcement: result-borne reminders, bootstrap, coach and gate with fail-open, stop follow-up, lifecycle errors, `tasks` and `taskfold` settings with Settings-screen editing | `taskCoach.ts`, `taskBinding.ts`, `accordion.ts`, `settings.ts` | I4, I6 |
 | 6 | Prompt rewrite, audit script, eval suite and baselines | tool registration, `extension/audit-tasks.mjs` | measurement of §6 |
 
-Slices 1–3 make the budget hold whatever the agent does, so they come first. Slices 4–6 make the
+Slices 1–2 make the budget hold whatever the agent does, so they come first. Slices 4–6 make the
 agent behave so that the floor is rarely needed. Slice 6's eval establishes a baseline before
 slice 5 lands, so the gate's effect is measured, not assumed.
 
@@ -564,15 +486,11 @@ All probes ran under pig with pi-auth-plus 0.5.5 (`55baab6`) on
 | 1 | Accordion sees pi-auth-plus's corrected usage | **No.** A later extension's `message_end` and the persisted message both carry `cacheWrite == input`. Across the 7 most recent sessions, 1,552 of 1,774 Synthetic replies carry the duplicate; the other 222 were not examined further. The bus works: one reply reported 7,397 tokens, source `tokenizer`, where Pi counted 8,413. | §3: Accordion de-duplicates itself and takes recounts from the bus, under the anchor rule. |
 | 2 | PiG delivers `tool_call` blocks and `sendUserMessage` follow-ups to Node extensions | **Yes.** A blocked call became an error tool result whose text is exactly `reason`, and the model retried as instructed. A follow-up from `agent_end` started a new run and is persisted as a user message. | §5.3: the refusal text carries the whole fix. §5.6: the follow-up reads as an Accordion notice, because it appears as a user message. |
 | 3 | The HUD can ride the wire without being persisted | **Yes.** A text part appended in the `context` hook reached the model, which quoted it verbatim, and is absent from the stored message. | §5.1: Accordion appends the HUD inside its own `context` handler, after Truth ingestion and wire serialization, so Truth never sees it. Measured since: a moving suffix rebilled 107M tokens in `01a1b680`, so request injection is rejected (SPEC-0002 §4.5). |
-| 4 | keel-lite's planner can be extracted | **Not cleanly**; composition works. | §4: compose like keel-note, plus one keel-lite option to disable R7. |
-| 5 | A record group can cover floor-folded blocks | **Yes.** In a real-Truth test, live tokens went 5,745 → 4,112 after the floor → 1,934 after the group, and ungrouping restored the floor's fold and replace. | §4: `unit()` savings must count current member cost. |
 
 ## 9. Risks and open questions
 
 - **Gate friction.** A model that keeps calling blocked tools burns turns. Fail-open after three
   refusals bounds this; the eval measures it.
-- **Floor versus record quality.** Per-block folds inside an open span make the agent recall more
-  often while it works. The span-size HUD should keep this rare; the eval reports recall counts.
 - **Sequential order is a contract change.** Store, tool text, widget, tree view and web app
   change together (AGENTS.md). Lists created before it may be out of order. On claim, the store
   reports the first unfinished leaf and lets the agent restructure before starting.

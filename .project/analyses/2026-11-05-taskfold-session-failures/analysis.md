@@ -11,9 +11,6 @@ document:
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["document creation"]
     - revision: 2
       reason: "pi-auth-plus token research resolves B4"
       changes: ["B4: Synthetic reports scaled input units and duplicates cacheWrite; S2's real DeepSeek context reached about 361k against a 272k budget", "remedy 9 points to the reliability proposal"]

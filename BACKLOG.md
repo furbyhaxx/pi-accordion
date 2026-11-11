@@ -1,0 +1,2 @@
+- B-0001 feature P2 — Taskfold reliability: token truth, sequential order, enforcement, prompts → .project/backlog/B-0001-taskfold-reliability.md
+- B-0002 drift P3 — CLAUDE.md states protocol v22 and seven conductors → .project/backlog/B-0002-claude-md-drift.md
