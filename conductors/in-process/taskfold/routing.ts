@@ -11,6 +11,8 @@ export class RoutingParseError extends Error {}
 export interface RoutingRequest {
 	system: string;
 	prompt: string;
+	/** Apply the reply only to the list this request was prepared for. */
+	apply(reply: string, message: string): Promise<RoutingResult>;
 }
 
 /** What applying an extraction changed. */
@@ -24,8 +26,6 @@ export interface RoutingResult {
 export interface TaskfoldRouting {
 	/** The prompt for `message`, or null when no list is attached or nothing can be routed. */
 	prepare(message: string, agentLastTurn: string): RoutingRequest | null;
-	/** Parse the extractor's `reply` and apply it for the user message `message`. Throws when the reply is unusable. */
-	apply(reply: string, message: string): Promise<RoutingResult>;
 }
 
 /** Holds the installed routing port; one Pi session runs per extension process. */

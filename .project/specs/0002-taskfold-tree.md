@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 32
+  revision: 33
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T23:51:00+01:00"
+  updated_at: "2026-11-12T00:16:34+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 32
-      reason: "explicit finished-task timing and provider cache profiles"
-      changes: ["eager/lazy/pressure modes", "removed deep-span veto", "session/model/global timing resolution", "observed cache retention and rewrite estimates"]
+    - revision: 33
+      reason: "live-verified user-message routing integrity"
+      changes: ["reuse identical goal and criterion ids", "bind extraction to its originating list", "classifier fallback when no facts were recorded"]
 ---
 
 # Taskfold
@@ -579,13 +579,18 @@ the extension reaches 0.93.
      as failures, never parse failures. Store failures and rejected operations are not retried.
   3. **Apply** through the store with `source: "user"`. A pin must occur verbatim in the message
      (existing quote check) or it is dropped. Removals and renames of started tasks follow the store's
-     rules; a refused operation is dropped and logged.
+     rules; a refused operation is dropped and logged. Identical goal/criterion additions reuse the
+     existing item id without a write or change notice, including facts the agent recorded while
+     extraction ran. The request is bound to its originating store/list; after asynchronous grammar
+     warming, validate that binding before the synchronous mutation batch. A changed binding fails
+     extraction rather than steering the replacement list.
   4. **Notify** the agent once with a §4.4 `changed` notice carrying `by: "user-message"` and the
      applied operations. The agent may revert any of them with `tasks`.
-- The message's block records `details.routed = {ops: [...ids], at}`. A routed message joins
-  its span's group. An unrouted one (extraction failed, timed out, or no list was attached) falls
+- The message's block records `details.routed = {ops: [...ids], at}` only when an operation applied
+  or an existing fact id was retained. A routed message joins its span's group. An unrouted one
+  (extraction failed, timed out, no list was attached, or all operations were empty/rejected) falls
   back to the classifier gate: it folds only below the loss threshold and otherwise stays raw and
-  ends the run, as before this design.
+  ends the run.
 - Records carry `"user": [{"said": "<first 120 chars>", "ids": ["p7", "c3"]}]` for the routed messages
   inside the task's own intervals, so the agent sees where each instruction went. History entries
   (§6.3) carry no `user` links: the pins they keep are the lasting part, and `recall` returns the

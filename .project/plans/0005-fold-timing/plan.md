@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 7
+  revision: 8
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-12T00:01:00+01:00"
+  updated_at: "2026-11-12T00:16:34+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 7
-      reason: "S4 explicit timing modes verified in real Pi-Bolt"
-      changes: ["eager/lazy/pressure and per-model dials", "provider profiles and observed retention", "Settings/footer controls", "two eager folds within two requests"]
+    - revision: 8
+      reason: "repair routing integrity discovered by S4 live verification"
+      changes: ["idempotent goals and criteria", "request-bound store/list checks", "unrecorded directives stay on classifier fallback", "real two-task replay without duplicate goals"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -62,8 +62,13 @@ conservative. Real Pi-Bolt saves/reset global timing and changes its footer at a
 `evidence/timing-live/` includes inspected redacted captures and ten real request receipts. Both
 finished leaves fold within two subsequent requests (302 estimated tokens saved). Automated
 gates: 278 extension/TUI Bun tests, 64 Taskfold tests, 1,068 app tests, clean Svelte check and all
-extension smoke suites. Browser packaging remains for final QA. The live run also found a
-duplicate routed goal; the project task list tracks its repair before S5.
+extension smoke suites. Browser packaging remains for final QA.
+
+Routing repair: the duplicate goal reproduced in a regression. Identical goals/criteria now reuse
+their ids without writes/notices; in-flight requests cannot target a replacement store/list, and
+empty/rejected extraction does not bypass the classifier. `evidence/routing-repair-live/` captures
+a real Pi-Bolt replay: exactly one goal, two completed tasks and two eager folds (~230 estimated
+tokens saved). All 80 routing/Taskfold regressions and context smoke pass.
 
 ## Why
 

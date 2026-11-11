@@ -37,6 +37,7 @@ export interface DroppedOp {
 
 export interface RoutingOutcome {
 	applied: AppliedOp[];
+	retained: AppliedOp[];
 	dropped: DroppedOp[];
 }
 
@@ -62,6 +63,8 @@ Change kinds:
 - attach: a file the work must use. value is a path, "path#Heading > Subheading" or "path::symbol". target: "list" or a task id.
 
 Record only what the user asked for or stated as lasting. Questions, approvals ("ok", "go ahead"), reports, chit-chat and one-off instructions for the very next step produce no operations. Do not record the user's complaints about the agent's last step. Prefer no operation over a doubtful one. Use the ids in the list; never invent an id. Started tasks cannot be renamed or dropped by you unless the user clearly says so.
+
+Do not add facts already represented in the list. Change an existing item only when the user changes its meaning.
 
 Answer with JSON only: {"class":"chat|answer|directive|correction|scope-change","ops":[{"op":"+|-|~","kind":"goal|task|criterion|pin|attach","target":"list|<task id>","id":"<g1|c2|p3|a4 when removing or editing an item>","value":"<text, path or title>","pinKind":"<only for pins>"}]}`;
 
@@ -191,15 +194,25 @@ function refOf(op: RoutedOp, result: ReturnType<typeof runTasksTracked>["result"
 }
 
 /** Apply `ops` one by one through the store; `said` is the user message every pin must quote. */
-export async function applyRoutedOps(store: TaskStore, slug: string, ops: readonly RoutedOp[], said: string, limits: PinLimits): Promise<RoutingOutcome> {
+export async function applyRoutedOps(store: TaskStore, slug: string, ops: readonly RoutedOp[], said: string, limits: PinLimits, assertCurrent?: () => void): Promise<RoutingOutcome> {
 	const applied: AppliedOp[] = [];
+	const retained: AppliedOp[] = [];
 	const dropped: DroppedOp[] = [];
+	// Keep every write after the binding check in one synchronous span.
+	await warmSymbols(ops.flatMap((op) => symbolFiles(callFor(slug, op, said), null)));
+	assertCurrent?.();
 	for (const op of ops) {
 		try {
-			// Ending a started task is the agent's tool call: spans open and close on those events.
-			if (op.kind === "task" && op.op === "-" && store.read(slug).tasks.find((t) => t.id === op.target)?.status !== "todo") throw new TaskError("invalid_transition", `Task ${op.target} is not a task that has not started; the agent ends started tasks.`);
 			const args = callFor(slug, op, said);
-			await warmSymbols(symbolFiles(args, null));
+			const list = store.read(slug);
+			const task = list.tasks.find((t) => t.id === op.target);
+			const existing = op.op === "+" ? (op.kind === "goal" ? list.goals : op.kind === "criterion" ? task?.acceptanceCriteria : undefined)?.find((item) => item.text === op.value) : undefined;
+			if (existing) {
+				retained.push({ ...op, ref: existing.id });
+				continue;
+			}
+			// Ending a started task is the agent's tool call: spans open and close on those events.
+			if (op.kind === "task" && op.op === "-" && task?.status !== "todo") throw new TaskError("invalid_transition", `Task ${op.target} is not a task that has not started; the agent ends started tasks.`);
 			const run = runTasksTracked(store, args, [said], limits);
 			const ref = refOf(op, run.result);
 			applied.push({ ...op, ...(ref ? { ref } : {}) });
@@ -208,7 +221,7 @@ export async function applyRoutedOps(store: TaskStore, slug: string, ops: readon
 			dropped.push({ op, reason: error.message });
 		}
 	}
-	return { applied, dropped };
+	return { applied, retained, dropped };
 }
 
 export interface RoutingDeps {
@@ -224,17 +237,24 @@ export function createRouting(deps: RoutingDeps): TaskfoldRouting {
 	return {
 		prepare(message, agentLastTurn) {
 			const a = deps.attached();
-			return a ? { system: EXTRACT_SYSTEM, prompt: extractionPrompt(a.list, agentLastTurn, message) } : null;
-		},
-		async apply(reply, message): Promise<RoutingResult> {
-			const extraction = parseExtraction(reply);
-			const a = deps.attached();
-			if (!a) throw new Error("no task list is attached any more");
-			const outcome = await applyRoutedOps(a.store, a.list.slug, extraction.ops, message, deps.limits());
-			outcome.dropped.push(...extraction.rejected);
-			if (outcome.applied.length) deps.applied(a.list.slug, outcome);
-			const ids = outcome.applied.map((o) => o.ref).filter((r): r is string => !!r);
-			return { ids, applied: outcome.applied.length, dropped: outcome.dropped.length };
+			if (!a) return null;
+			return {
+				system: EXTRACT_SYSTEM,
+				prompt: extractionPrompt(a.list, agentLastTurn, message),
+				async apply(reply, said): Promise<RoutingResult> {
+					const extraction = parseExtraction(reply);
+					const assertCurrent = () => {
+						const current = deps.attached();
+						if (!current || current.store !== a.store || current.list.slug !== a.list.slug) throw new Error("the attached task list changed during extraction");
+					};
+					const outcome = await applyRoutedOps(a.store, a.list.slug, extraction.ops, said, deps.limits(), assertCurrent);
+					assertCurrent();
+					outcome.dropped.push(...extraction.rejected);
+					if (outcome.applied.length) deps.applied(a.list.slug, outcome);
+					const ids = [...new Set([...outcome.applied, ...outcome.retained].map((o) => o.ref).filter((r): r is string => !!r))];
+					return { ids, applied: outcome.applied.length, dropped: outcome.dropped.length };
+				},
+			};
 		},
 	};
 }

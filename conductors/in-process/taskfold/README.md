@@ -94,14 +94,17 @@ has been recorded in the task list. For each new message the conductor:
 2. for a message that can carry durable content, asks a context-aware extractor (a `chat` completion) for list operations: goals, tasks, criteria, pins and attachments to add,
    change or remove, given the list, the task in progress and the agent's last reply;
 3. applies them through the same store actions the agent uses. A pin must occur word for word in
-   the message or it is dropped; a refused operation is dropped and logged;
+   the message or it is dropped; a refused operation is dropped and logged. Exact existing
+   goals/criteria reuse their ids without duplicate writes. An in-flight reply never targets a
+   replacement list.
 4. tells the agent once, with a JSON notice, what changed, so it can revert anything.
 
 A message whose content reached the list is *routed* and folds with its span; its record lists
-`user: [{said, ids}]`. A message that was not routed (extraction failed, timed out, or nothing
-attached to route it into) falls back to the classifier: it folds only when its expected `loss`
-(0–3) is below 0.3, otherwise it stays verbatim and ends the run. Harness text such as
-`<system-reminder>` is recognized by pattern. The session's opening message is never sent.
+`user: [{said, ids}]`. A message that was not routed (extraction failed, timed out, nothing was
+attached, or no operation was accepted and no existing fact was retained) falls back to the
+classifier: it folds only when its expected `loss` (0–3) is below 0.3; otherwise it stays verbatim
+and ends that fold run. Harness text such as `<system-reminder>` is recognized by pattern.
+The session's opening message is never sent.
 
 The classifier sees the message, the session's first message, the previous user message and the end
 of the assistant's last reply. On 480 hand-labelled messages from real sessions, the gate folded

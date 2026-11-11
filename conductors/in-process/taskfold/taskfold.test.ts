@@ -100,10 +100,9 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 			const id = s.blocks.find((b) => b.text === "Never touch vendor/.")!.id;
 			const host = new TestHost(), ledger = new VerdictLedger();
 			host.queueCompletion({ text: "not JSON", stopReason: mode === "length" || mode === "error" ? mode : "stop" });
-			host.queueCompletion({ text: mode === "recover" ? '{"ops":[]}' : "still not JSON", stopReason: "stop" });
+			host.queueCompletion({ text: mode === "recover" ? '{"ops":[{"op":"+","kind":"pin","target":"list","value":"Never touch vendor/.","pinKind":"rule"}]}' : "still not JSON", stopReason: "stop" });
 			const port: RoutingPort = { current: {
-				prepare: () => ({ system: "Extract", prompt: "Never touch vendor/." }),
-				apply: async (reply) => { parseExtraction(reply); return { ids: [], applied: 0, dropped: 0 }; },
+				prepare: () => ({ system: "Extract", prompt: "Never touch vendor/.", apply: async (reply) => { const { ops } = parseExtraction(reply); return { ids: ops.length ? ["p1"] : [], applied: ops.length, dropped: 0 }; } }),
 			} };
 			new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, port).attach(host);
 			host.appendBlocks(s.blocks);
@@ -586,11 +585,35 @@ describe("taskfold", () => {
 		expect(g.memberIds).toContain(end);
 	});
 
+	it("uses classifier fallback for empty or rejected extraction, but routes existing facts", async () => {
+		for (const result of [{ ids: [], applied: 0, dropped: 0 }, { ids: [], applied: 0, dropped: 2 }, { ids: ["g1"], applied: 0, dropped: 0 }]) {
+			const { s, start } = oneTask((s) => s.user("Never touch vendor/."));
+			const userId = s.blocks.find((b) => b.text === "Never touch vendor/.")!.id;
+			const ledger = new VerdictLedger(), host = new TestHost();
+			host.classifier = () => ({ answers: { loss: { type: "score", score: 2.9, confidence: 0.9 } }, model: "test/cls" });
+			host.queueCompletion({ text: '{"ops":[]}', model: "test/x" });
+			const port: RoutingPort = { current: { prepare: () => ({ system: "Extract", prompt: "p", apply: async () => result }) } };
+			new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, port).attach(host);
+			host.appendBlocks(s.blocks);
+			host.setProtect(200);
+			await new Promise((r) => setTimeout(r, 0));
+			host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+			await host.commitTurn();
+			if (result.ids.length) {
+				expect(ledger.get(userId)?.routed?.ids).toEqual(["g1"]);
+				expect(groupOf(host, start)?.memberIds).toContain(userId);
+			} else {
+				expect(ledger.get(userId)?.routed).toBeUndefined();
+				expect(groupOf(host, userId)).toBeUndefined();
+			}
+		}
+	});
+
 	it("routes a new user message into the list, then folds it with its span", async () => {
 		const { s, start, end } = oneTask((s) => s.user("Never touch vendor/."));
 		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("vendor"))!.id;
 		const applied: string[] = [];
-		const port: RoutingPort = { current: { prepare: (m, last) => ({ system: "extract", prompt: `${last}|${m}` }), apply: async (reply, m) => { applied.push(`${reply}|${m}`); return { ids: ["p1"], applied: 1, dropped: 0 }; } } as TaskfoldRouting };
+		const port: RoutingPort = { current: { prepare: (m, last) => ({ system: "extract", prompt: `${last}|${m}`, apply: async (reply, message) => { applied.push(`${reply}|${message}`); return { ids: ["p1"], applied: 1, dropped: 0 }; } }) } satisfies TaskfoldRouting };
 		const ledger = new VerdictLedger();
 		const host = new TestHost();
 		host.queueCompletion({ text: '{"ops":[]}', model: "test/x" });
@@ -637,7 +660,7 @@ describe("taskfold", () => {
 	it("keeps the message raw when the extraction fails", async () => {
 		const { s, start, end } = oneTask((s) => s.user("Never touch vendor/."));
 		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("vendor"))!.id;
-		const port: RoutingPort = { current: { prepare: () => ({ system: "extract", prompt: "p" }), apply: async () => { throw new Error("the extractor did not return JSON"); } } };
+		const port: RoutingPort = { current: { prepare: () => ({ system: "extract", prompt: "p", apply: async () => { throw new Error("the extractor did not return JSON"); } }) } };
 		const ledger = new VerdictLedger();
 		const host = new TestHost();
 		host.queueCompletion({ text: "sure", model: "test/x" });

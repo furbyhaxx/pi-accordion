@@ -661,9 +661,9 @@ export class TaskfoldConductor implements Conductor {
 				if (reply.stopReason === "length") throw new Error("extraction truncated at the output limit");
 				if (reply.stopReason === "error" || reply.stopReason === "aborted") throw new Error(`extraction provider ${reply.stopReason}`);
 				try {
-					const result = await port.apply(reply.text, text);
+					const result = await request.apply(reply.text, text);
 					if (this.host !== host) return;
-					this.verdicts.route(id, { ids: result.ids, at: new Date().toISOString() });
+					if (result.applied || result.ids.length) this.verdicts.route(id, { ids: result.ids, at: new Date().toISOString() });
 					break;
 				} catch (error) {
 					if (!(error instanceof RoutingParseError) || attempt > 0 || controller.signal.aborted) throw error;
