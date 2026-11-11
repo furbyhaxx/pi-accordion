@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-11T17:51:45+01:00"
+  updated_at: "2026-11-11T17:56:38+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["decided fold-timing proposal turned into slices; code facts re-verified on 37f220e"]
+    - revision: 2
+      reason: "fix/bounded-recall merged"
+      changes: ["line references follow the merge of bounded recall and step carriers; the prerequisite is met"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -91,10 +91,10 @@ payload: `pig-auth-plus` edits `cache_control` in `internal/hooks/hooks.go`. Re-
 
 ### Why eager folding does not run today
 
-- `conductors/in-process/taskfold/taskfold.ts:743-745` (`deep()`) defers a finished span that starts
-  more than `CACHE_LOOKBACK = 20` (line 118) blocks before the end while the cache is warm and
+- `conductors/in-process/taskfold/taskfold.ts:747-749` (`deep()`) defers a finished span that starts
+  more than `CACHE_LOOKBACK = 20` (line 121) blocks before the end while the cache is warm and
   there is no pressure. The distance is measured before the fold, so it is the task's own length.
-- A record may not end the request (`taskfold.ts:942`, `finalMessageFrom`), so a fold lands one
+- A record may not end the request (`taskfold.ts:988`, `finalMessageFrom`), so a fold lands one
   step after the closing message at the earliest.
 - One step later the previous sibling's fold has already landed inside the current task. No request
   ever ended at the boundary before the current task with its present content, so no cache entry
@@ -134,8 +134,6 @@ are approximated; three sessions.
 
 ## Branching and environment
 
-- Prerequisite: `fix/bounded-recall` is merged or dropped. It changes `taskfold.ts`, `records.ts`,
-  `extension/accordion.ts` and `extension/settings.ts`; starting before that guarantees conflicts.
 - Base `origin/feat/pi-native`; one worktree and branch per slice under `.pi/worktrees/`:
   S1 `feat/accordion-debug`, S2 `fix/task-rows-routing`, S3 `feat/report-limits`,
   S4 `feat/fold-timing`, S5 `feat/bracket-tail`, S6 `feat/frontier-breakpoint`.
@@ -154,15 +152,16 @@ are approximated; three sessions.
 - A mode change never unfolds anything.
 - Do not change task end states or block reasons; that contract is not part of this plan.
 - Do not add a per-provider timing default: decision 2.
+- Step carriers of open tasks (SPEC §9.4) are a pressure measure and keep running in every mode.
 
 ## S1: debug mode and decline reasons
 
 Current: no debug setting exists (`extension/settings.ts`). Out-of-band completions can be logged
-through the `ACCORDION_COMPLETION_LOG` environment variable (`extension/accordion.ts:901-910`,
+through the `ACCORDION_COMPLETION_LOG` environment variable (`extension/accordion.ts:902-911`,
 `logCompletion`). The planner declines a fold silently on about ten paths
-(`taskfold.ts:745`, `915-1018`: `deep`, protected tail, prefill guard, message still classified or
+(`taskfold.ts:749`, `unit()` from line 939: `deep`, protected tail, prefill guard, message still classified or
 routing, record over the cap, a visible handle not covered, `keepRecentTasks`); only saturation
-sets a status. `ZOMBIE_STEPS = 40` (`taskfold.ts:116`) is used for stale spans only.
+sets a status. `ZOMBIE_STEPS = 40` (`taskfold.ts:119`) is used for stale spans only.
 
 Change:
 
@@ -210,9 +209,9 @@ Current:
 - `parseExtraction` (`extension/taskRouting.ts:119-131`) accepts only bare or fully fenced JSON.
 - The host's `complete()` (`extension/accordion.ts`, about 940–1030) returns text, model and token
   counts but no `stopReason`, so a truncated reply looks like a parse failure. `routeOne`
-  (`taskfold.ts:630-653`) does not retry.
+  (`taskfold.ts:634-657`) does not retry.
 - With no `models` configured, extraction runs on the session's main model
-  (`resolveChatModel`, `extension/accordion.ts:922-931`); the registry declares only a classifier
+  (`resolveChatModel`, `extension/accordion.ts:923-932`); the registry declares only a classifier
   default for Taskfold (`core/conductor/registry.ts:191`).
 
 Change:
@@ -237,9 +236,9 @@ Done: no `→ 0` row on a folded task in a live session; SPEC §4.6 and §10.2 u
 Current: `extension/tasks.ts:118-122` (`TITLE_MAX 200`, `OUTCOME_MAX 600`, `ITEM_MAX 240`,
 `ITEMS_MAX 8`), `extension/taskSchema.ts:25-26` (`CRITERIA_MAX 8`, `CRITERION_MAX 120`).
 `cleanReport` (`tasks.ts:161-179`) throws on the first violation. The tool description says "one
-or two sentences" and names no number (`extension/accordion.ts:4040`); the schema has no
+or two sentences" and names no number (`extension/accordion.ts:4041`); the schema has no
 `maxLength`. `HISTORY_OUTCOME_CHARS = 160` (`conductors/in-process/taskfold/records.ts:46`).
-`recordTokens` is compared through `host.countTokens` (`taskfold.ts:1014-1015`), which is
+`recordTokens` is compared through `host.countTokens` (`taskfold.ts:1060-1061`), which is
 calibrated (`core/conductor/liveHost.ts:225`); the multiplier absorbs tool-schema overhead, so the
 cap tightens as the wire shrinks, and a task whose own report exceeds it stays raw.
 
