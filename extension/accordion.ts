@@ -104,6 +104,7 @@ import {
 import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHost";
 import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
 import { attachPolicy, revocationEffect } from "./privacyGate";
+import { toolSetNotice } from "./toolSetNotice";
 import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel, type PanelTabId } from "./tui/panel";
@@ -923,11 +924,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// Conductor-declared tools are active only while that conductor is attached.
 	const conductorTools = new Set(catalogMeta().flatMap((e) => entryById(e.id)?.tools ?? []));
 	let activeConductorTools = "";
+	/** Conductor-tool changes wait for the next prompt, never a mid-turn surprise. */
+	let pendingToolNotice: string | null = null;
 	function syncConductorTools(): void {
 		const want = entryById(liveHost.activeMeta()?.id ?? null)?.tools ?? [];
 		const sig = want.join(",");
 		if (sig === activeConductorTools) return;
+		const before = activeConductorTools ? activeConductorTools.split(",") : [];
 		activeConductorTools = sig;
+		// The agent cannot see the toolbox changing, so the change is announced with its next prompt.
+		const notice = toolSetNotice(before, want);
+		if (notice) pendingToolNotice = notice;
 		try {
 			const keep = pi.getActiveTools().filter((t) => !conductorTools.has(t));
 			pi.setActiveTools([...keep, ...want]);
@@ -3136,6 +3143,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		warnedChatFallbacks.clear();
 		releaseTaskClaims();
 		nestedTaskEvents.clear();
+		pendingToolNotice = null;
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
 		// session swap invalidates the whole context state (a fresh Truth is authoritative). Detach
 		// any attached conductor first (kills a spawned runner, clears its locks off the old Truth,
@@ -3333,7 +3341,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
 	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
-		const content = await taskSession?.takeNotice();
+		const list = await taskSession?.takeNotice();
+		const tool = pendingToolNotice;
+		pendingToolNotice = null;
+		const content = [tool, list].filter(Boolean).join("\n\n");
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
 
@@ -3642,6 +3653,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		pendingToolNotice = null;
 		const flush = debugLog?.flush();
 		const shutdownCtx = latestCtx;
 		debugLog = null;

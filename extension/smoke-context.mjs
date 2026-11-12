@@ -24,8 +24,11 @@ function runtime(messages = [], options = {}) {
 	const entries = options.entries ?? [];
 	let host;
 	let command;
+	let activeTools = [];
 	const pi = {
 		on: (name, fn) => { handlers[name] = fn; },
+		getActiveTools: () => activeTools.slice(),
+		setActiveTools: (next) => { activeTools = next.slice(); },
 		registerFlag() {}, getFlag() {}, registerTool(tool) { tools[tool.name] = tool; },
 		appendEntry: (customType, data) => entries.push({ type: "custom", customType, data }),
 		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
@@ -52,6 +55,7 @@ function runtime(messages = [], options = {}) {
 	handlers.session_start({ reason: "resume" }, ctx);
 	return {
 		handlers, ctx, tools, entries,
+		activeTools: () => activeTools.slice(),
 		open: async () => { await command("", ctx); return host; },
 		command: args => command(args, ctx),
 		request: async input => {
@@ -236,6 +240,49 @@ check("revoking consent gates a deferred conductor's model work and keeps its to
 		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
 	}
 });
+check("a stale consent answer never attaches a conductor into the replacement session", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current" } } }));
+	let answer;
+	const r = runtime();
+	r.ctx.model = { ...r.ctx.model, baseUrl: "https://privacy-model.invalid/v1" };
+	r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+	r.ctx.ui.confirm = () => new Promise(resolve => { answer = resolve; });
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		assert.equal(host.activeConductor()?.id, "taskfold", "the deferred conductor attaches before the answer");
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(typeof answer, "function", "the consent dialog is open");
+		r.ctx.sessionManager.getSessionId = () => "replacement-session";
+		r.entries.length = 0;
+		await r.handlers.session_start({ reason: "new" }, r.ctx);
+		await r.open();
+		answer(true);
+		await new Promise(resolve => setTimeout(resolve, 20));
+		assert.equal(host.activeConductor(), null, "the answer from the previous session must not attach anything");
+	} finally { r.close(); fs.rmSync(config, { force: true }); }
+});
+
+check("a conductor's tools appear and vanish with one append-only notice each", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" } }));
+	const r = runtime();
+	try {
+		const host = await r.open();
+		assert.deepEqual(r.activeTools(), [], "no conductor means no conductor tools");
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		assert.deepEqual(r.activeTools(), ["tasks"], "attaching Taskfold activates its tool");
+		const added = await r.handlers.before_agent_start({}, r.ctx);
+		assert.match(added?.message?.content ?? "", /Tool availability changed: `tasks` is available now\./);
+		assert.equal(await r.handlers.before_agent_start({}, r.ctx), undefined, "the notice is delivered once");
+		host.command({ kind: "selectConductor", id: null });
+		assert.deepEqual(r.activeTools(), [], "detaching removes it again");
+		const removed = await r.handlers.before_agent_start({}, r.ctx);
+		assert.match(removed?.message?.content ?? "", /`tasks` is no longer available/);
+	} finally { r.close(); fs.rmSync(config, { force: true }); }
+});
+
 check("a local conductor stays attached on revocation but a new remote route needs consent", async () => {
 	const config = path.join(home, ".accordion", "config.json");
 	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current" } }, privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" } }));

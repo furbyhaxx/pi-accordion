@@ -176,7 +176,9 @@ conductors still detach.
 messages stay unverdicted in `consentQueue`), a `resync` that classifies the whole block list so
 an opened gate reaches what it held, and a consent grant that dispatches that resync to the SAME
 instance — reattaching would have created a fresh conductor and silently dropped the queue.
-Spec §6.4 and AGENTS.md updated. Verified by 697 unit
+A conductor's tools appear and vanish with one append-only notice on the next prompt
+(`extension/toolSetNotice.ts`), cleared on a session swap; a consent answer that arrives after a
+session switch attaches nothing. Spec §6.4 and AGENTS.md updated. Verified by 700 unit
 tests, the smoke suites and a live Pi-Bolt run (`evidence/deferred-consent-live.json`: phase A ran
 the `tasks` tool with no consent and made zero model calls; phase B granted consent mid-session
 and the classifier request followed), plus `evidence/deferred-consent-drain-live.json` for the
