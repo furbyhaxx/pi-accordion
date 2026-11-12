@@ -2,6 +2,13 @@ import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { auditSession } from "./audit-tasks.mjs";
 
+function taskSession(calls) {
+	return calls.flatMap((args, i) => [
+		{ type: "message", id: `a${i}`, parentId: i ? `r${i - 1}` : null, message: { role: "assistant", content: [{ type: "toolCall", id: `t${i}`, name: "tasks", arguments: args }] } },
+		{ type: "message", id: `r${i}`, parentId: `a${i}`, message: { role: "toolResult", toolCallId: `t${i}`, toolName: "tasks" } },
+	]);
+}
+
 test("unpaired usage and diagnostics never become passing budget observations", () => {
 	const session = [{ type: "message", id: "a", parentId: null, message: { role: "assistant", content: [], usage: { input: 999999 } } }];
 	const result = auditSession(session, [{ type: "request", realInput: 999999 }]);
@@ -104,4 +111,62 @@ test("preserves recorded nested lifecycle events when call metadata was dropped"
 	assert.equal(result.incompleteNested, 1);
 	assert.equal(result.rejectionsPer100, null);
 	assert.equal(result.callsBeforeFirstStart, null);
+});
+
+test("detects a start before the first unfinished leaf in a fully observed list", () => {
+	const calls = [
+		{ action: "create", list: "l", tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] },
+		{ action: "start", list: "l", id: "1.2" },
+		{ action: "complete", list: "l", id: "1.2" },
+		{ action: "start", list: "l", id: "1.1" },
+	];
+	const result = auditSession(taskSession(calls));
+	assert.equal(result.orderEvaluatedStarts, 2);
+	assert.equal(result.orderViolationsObserved, 1);
+	assert.equal(result.outOfOrderStarts, 1);
+});
+
+test("distinguishes explicit replacements from ordinary list edits", () => {
+	const calls = [
+		{ action: "add", list: "l", tasks: [{ title: "new" }] },
+		{ action: "add", list: "l", tasks: [{ title: "replacement", supersedes: "1" }] },
+		{ action: "abandon", list: "l", id: "2", supersededBy: "3" },
+	];
+	const result = auditSession(taskSession(calls));
+	assert.equal(result.planChanges, 3);
+	assert.equal(result.explicitRepairActions, 2);
+	assert.equal(result.planRepairs, null);
+});
+
+test("leaves order unknown after a list edit whose renumbering is not observed", () => {
+	const result = auditSession(taskSession([
+		{ action: "create", list: "l", tasks: [{ title: "A" }] },
+		{ action: "add", list: "l", before: "1", tasks: [{ title: "B" }] },
+		{ action: "start", list: "l", id: "1" },
+	]));
+	assert.equal(result.orderUnknownStarts, 1);
+	assert.equal(result.outOfOrderStarts, null);
+});
+
+test("accepts sequential leaf starts in a fully reconstructed list", () => {
+	const result = auditSession(taskSession([
+		{ action: "create", list: "l", tasks: [{ title: "A" }, { title: "B" }] },
+		{ action: "start", list: "l", id: "1" },
+		{ action: "complete", list: "l", id: "1" },
+		{ action: "start", list: "l", id: "2" },
+	]));
+	assert.equal(result.orderEvaluatedStarts, 2);
+	assert.equal(result.outOfOrderStarts, 0);
+});
+
+test("does not infer lifecycle order from multiple nested call records", () => {
+	const session = taskSession([{ action: "create", list: "l", tasks: [{ title: "A" }, { title: "B" }] }]);
+	session.push({ type: "message", id: "a", parentId: "r0", message: { role: "assistant", content: [{ type: "toolCall", id: "c", name: "codemode" }] } });
+	session.push({ type: "message", id: "r", parentId: "a", message: { role: "toolResult", toolCallId: "c", toolName: "codemode", nestedCalls: { complete: true, calls: [
+		{ name: "tasks", status: "ok", arguments: { action: "start", list: "l", id: "1" } },
+		{ name: "tasks", status: "ok", arguments: { action: "complete", list: "l", id: "1" } },
+	] } } });
+	const result = auditSession(session);
+	assert.equal(result.orderUnknownStarts, 1);
+	assert.equal(result.outOfOrderStarts, null);
 });

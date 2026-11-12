@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
+import { compareIds } from "./taskSchema.ts";
 
 const exempt = new Set(["tasks", "unfold", "recall"]);
 const terminal = new Set(["complete", "fail", "abandon"]);
@@ -32,12 +33,53 @@ function taskKey(args) {
 	return typeof args?.list === "string" && typeof args?.id === "string" ? `${args.list}/${args.id}` : null;
 }
 
+function hasReplacement(items) {
+	return Array.isArray(items) && items.some((item) => item && typeof item === "object" && (typeof item.supersedes === "string" || hasReplacement(item.subtasks)));
+}
+
+function initialOrder(inputs) {
+	if (!Array.isArray(inputs)) return null;
+	const nodes = new Map();
+	function visit(items, parent = "") {
+		return items.every((item, index) => {
+			if (!item || typeof item !== "object" || (item.subtasks !== undefined && !Array.isArray(item.subtasks))) return false;
+			const id = parent ? `${parent}.${index + 1}` : String(index + 1);
+			nodes.set(id, "todo");
+			return item.subtasks === undefined || visit(item.subtasks, id);
+		});
+	}
+	return visit(inputs) ? nodes : null;
+}
+
+function orderStep(nodes, action, id) {
+	if (!nodes?.has(id)) return null;
+	if (action === "start") {
+		const leaves = [...nodes.keys()].filter((key) => ![...nodes.keys()].some((other) => other.startsWith(`${key}.`))).sort(compareIds);
+		const pending = leaves.filter((key) => !["done", "failed", "abandoned"].includes(nodes.get(key)));
+		const first = pending[0];
+		if (!first || pending.some((key) => nodes.get(key) === "blocked" || [...nodes.keys()].some((parent) => key.startsWith(`${parent}.`) && nodes.get(parent) === "blocked"))) return null;
+		const violation = first !== id;
+		nodes.set(id, "doing");
+		return violation;
+	}
+	if (action === "block") nodes.set(id, "blocked");
+	if (terminal.has(action)) {
+		nodes.set(id, action === "complete" ? "done" : action === "fail" ? "failed" : "abandoned");
+		if (action !== "complete") for (const key of nodes.keys()) if (key.startsWith(`${id}.`)) nodes.set(key, "abandoned");
+	}
+	return false;
+}
+
 /** Aggregate recorded protocol activity; no message content is returned. */
 export function auditSession(entries, diagnostics = []) {
 	const calls = new Map();
 	const active = new Set();
 	const blocked = new Set();
 	const seenLists = new Set();
+	const orders = new Map();
+	let orderViolations = 0;
+	let orderUnknownStarts = 0;
+	let orderEvaluatedStarts = 0;
 	let bound = null;
 	let firstStart = false;
 	let beforeStartAmbiguous = false;
@@ -54,6 +96,7 @@ export function auditSession(entries, diagnostics = []) {
 	let blocks = 0;
 	let resumes = 0;
 	let repairs = 0;
+	let explicitRepairActions = 0;
 	let prompts = 0;
 	let prematureStops = 0;
 	let modelChanges = 0;
@@ -61,17 +104,30 @@ export function auditSession(entries, diagnostics = []) {
 
 	function task(args, ok, ambiguous = false) {
 		taskCalls++;
-		if (ok === null) { incompleteTasks++; stateKnown = false; return; }
+		if (ok === null) { incompleteTasks++; stateKnown = false; orders.clear(); return; }
 		if (!ok) { rejected++; return; }
 		const action = args?.action;
 		const list = args?.list;
 		const key = taskKey(args);
+		if (typeof list === "string") {
+			if (action === "create") orders.set(list, ambiguous ? null : initialOrder(args.tasks ?? []));
+			else if (["claim", "add", "move"].includes(action)) orders.set(list, null);
+			else if (key && ["start", "block", ...terminal].includes(action)) {
+				const state = ambiguous ? null : orderStep(orders.get(list), action, args.id);
+				if (action === "start") {
+					if (state === null) orderUnknownStarts++;
+					else { orderEvaluatedStarts++; if (state) orderViolations++; }
+				}
+				if (state === null) orders.set(list, null);
+			}
+		}
 		if (typeof list === "string" && ["create", "claim", "add", "start", "block", "complete", "fail", "abandon"].includes(action)) {
 			bound = list;
 			seenLists.add(list);
 		}
 		if (action === "release" && list === bound) bound = null;
 		if (["add", "move", "update", "abandon"].includes(action)) repairs++;
+		if ((action === "abandon" && typeof args.supersededBy === "string") || (action === "add" && hasReplacement(args.tasks))) explicitRepairActions++;
 		if (!key) return;
 		if (action === "start") {
 			stateKnown = !ambiguous;
@@ -106,6 +162,7 @@ export function auditSession(entries, diagnostics = []) {
 			blocked.clear();
 			stateKnown = false;
 			bound = typeof entry.data?.slug === "string" ? entry.data.slug : null;
+			if (bound && orders.has(bound)) orders.set(bound, null);
 			if (bound) seenLists.add(bound);
 		}
 		if (entry.type === "custom" && entry.customType === "accordion.tasks.idle" && ["in-progress", "pending"].includes(entry.data?.state)) prematureStops++;
@@ -130,14 +187,16 @@ export function auditSession(entries, diagnostics = []) {
 		const nested = message.nestedCalls;
 		if (Array.isArray(nested?.calls) && nested.complete === true) {
 			const lifecycle = concurrent.has(message.toolCallId) || nested.calls.some((item) => item?.name === "tasks" && ["start", "block", ...terminal].includes(item.arguments?.action) && item.status === "ok");
+			const taskOrderUnknown = concurrent.has(message.toolCallId) || nested.calls.filter((item) => item?.name === "tasks" && item.status === "ok").length > 1;
 			if (!firstStart && lifecycle && nested.calls.some((item) => typeof item?.name === "string" && !exempt.has(item.name))) beforeStartAmbiguous = true;
 			for (const item of nested.calls) {
-				if (item?.name === "tasks") task(item.arguments, item.status === "ok" ? true : item.status === "error" ? false : null, concurrent.has(message.toolCallId));
+				if (item?.name === "tasks") task(item.arguments, item.status === "ok" ? true : item.status === "error" ? false : null, taskOrderUnknown);
 				else if (typeof item?.name === "string") nonExempt(item.name, lifecycle);
 			}
 		} else {
 			const name = message.toolName ?? call?.name ?? "unknown";
 			if (name === "codemode" || Array.isArray(message.details?.taskEvents)) {
+				orders.clear();
 				incompleteNested++;
 				for (const event of Array.isArray(message.details?.taskEvents) ? message.details.taskEvents : []) {
 					if (event && typeof event.action === "string" && typeof event.list === "string" && typeof event.id === "string") task(event, true, true);
@@ -150,8 +209,9 @@ export function auditSession(entries, diagnostics = []) {
 	return {
 		prompts, requests, modelChanges, lists: seenLists.size,
 		taskCalls, rejected, incompleteTasks, rejectionsPer100: taskCalls && !incompleteTasks && !incompleteNested ? 100 * rejected / taskCalls : null,
-		outOfOrderStarts: null,
-		planRepairs: null,
+		outOfOrderStarts: orderUnknownStarts || incompleteNested || incompleteTasks ? null : orderViolations,
+		orderViolationsObserved: orderViolations, orderEvaluatedStarts, orderUnknownStarts,
+		planRepairs: null, explicitRepairActions,
 		workResults: work, trackedResults: tracked, uncertainResults: uncertain, incompleteNested,
 		trackedFraction: work && !uncertain && !incompleteNested ? tracked / work : null,
 		callsBeforeFirstStart: firstStart && !beforeStartAmbiguous && !incompleteNested ? beforeFirstStart : null,

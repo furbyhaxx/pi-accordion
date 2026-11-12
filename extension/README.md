@@ -258,8 +258,10 @@ the session ID, but that alone does not pair its records to requests. Mixed or i
 batches, concurrent calls and attachments to an unknown task state make attribution unknown.
 Counts accompanied by `incompleteNested` or `incompleteTasks` are partial. Provider receipts and
 current diagnostics do not provide trusted, paired token counts, so budget and leaf-token metrics
-remain unknown. Out-of-order starts and plan repairs are also unknown; `planChanges` counts
-successful list edits, not necessarily repairs. `callsBeforeFirstStart` counts non-exempt results.
+remain unknown. Out-of-order starts are counted only while the whole task tree can be reconstructed;
+`orderViolationsObserved` remains a lower bound when any start is unknown. Explicit superseding
+actions are counted separately from `planChanges`; neither proves the total number of semantic plan
+repairs. `callsBeforeFirstStart` counts non-exempt results.
 
 ## Skills included
 
