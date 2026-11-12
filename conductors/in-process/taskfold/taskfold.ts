@@ -3,9 +3,9 @@
  *
  * The agent marks its work with the `tasks` tool (registered by the extension while this conductor
  * is attached). A SPAN runs from a successful `tasks start <id>` call through the successful
- * `complete` / `fail` / `abandon` result of the same task. Once the context crosses HIGH·budget,
- * one epoch folds the oldest finished spans, outermost first, until the projection reaches
- * LOW·budget. Each folded span becomes a group whose summary is a fixed-shape record:
+ * `complete` / `fail` / `abandon` result of the same task. The timing policy selects safe finished
+ * spans, outermost first; pressure additionally triggers relief down to LOW·budget. Each span
+ * becomes a group whose summary is a fixed-shape record:
  *
  *   {#code FOLDED} {"task":"<list>/<id>","title":…,"status":"done","outcome":…,"changed":[…],"children":[…]}
  *
@@ -13,13 +13,12 @@
  * `verified` are derived from the span's own tool calls; `children` composes finished subtasks. A
  * finished top-level task becomes a one-line history entry instead (records.ts, SPEC-0002 §6.3).
  *
- * User messages inside a span stay verbatim unless a classifier scores that losing them costs the
- * later work nothing (approvals, status checks, step steering, consumed facts, harness notices).
- * Kept user messages split the span into several groups; the record rides on the last one. No
- * classifier (none reachable, or the host cannot run one) means every user message is kept.
+ * User messages stay verbatim unless routed into the list or classified as low loss. Kept
+ * messages split the span into several groups; the record rides on the last one. Without a
+ * classifier, unrouted messages stay verbatim.
  *
- * Cache economics: nothing is proposed below HIGH, and an epoch commits as ONE transaction, so the
- * prompt cache breaks once per epoch at the oldest folded span, never once per completed task.
+ * An epoch commits as one transaction. Eager timing shortens the rewritten suffix but cannot
+ * guarantee that the provider already cached its unchanged prefix.
  *
  * Folding proposes `group`, plus `ungroup` of absorbed child groups. Child handles remain recoverable
  * across group boundaries; a handle-based unfold reopens the task and recompiles its siblings.
@@ -51,6 +50,8 @@ export interface TaskfoldOptions {
 	keepRecentTasks?: number;
 	/** Fold eagerly, on a cold/expired cache or pressure (lazy), or only under pressure. Default eager. */
 	timing?: FoldTiming;
+	/** Keep the closing call/result raw around a report-free carrier. Default record. */
+	leafForm?: "record" | "bracket";
 	/** Raw token budget for descendant records; deepest children become history, own fields stay whole. */
 	recordTokens?: number;
 	/** Apply recoverable per-block pressure relief before folding untracked work. */
@@ -67,6 +68,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	maxLoss: 0.3,
 	keepRecentTasks: 0,
 	timing: "eager",
+	leafForm: "record",
 	recordTokens: 1500,
 	floor: false,
 	untracked: { enabled: true, minSteps: 8 },
@@ -140,6 +142,8 @@ export interface TaskSpan {
 	start: number;
 	/** The finishing result's index, or the last block for an open span. */
 	end: number;
+	/** Explicit finishing call; absent for automatically closed tasks. */
+	closingCall?: number;
 	/** Inclusive periods belonging to this task, separated by blocks and resumes. */
 	intervals: { start: number; end: number }[];
 	/** Index of the call that last started, resumed or blocked this task. */
@@ -188,10 +192,10 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 		s.active = null;
 		s.waiting = false;
 	};
-	const finish = (s: State, status: Span["status"], report: TaskSpan["report"], end: number) => {
+	const finish = (s: State, status: Span["status"], report: TaskSpan["report"], end: number, closingCall?: number) => {
 		closeInterval(s, end);
 		open.delete(s.key);
-		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end, intervals: s.intervals, lastEvent: s.lastEvent });
+		out.push({ key: s.key, list: s.list, id: s.id, title: s.title, status, report, acceptanceCriteria: s.acceptanceCriteria, pins: s.pins, start: s.start, end, ...(closingCall === undefined ? {} : { closingCall }), intervals: s.intervals, lastEvent: s.lastEvent });
 	};
 	const metadata = (s: State, source: unknown) => {
 		if (!source || typeof source !== "object") return;
@@ -243,7 +247,7 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 			const s = open.get(key);
 			if (!s) return;
 			metadata(s, ev.task);
-			finish(s, FINISH[ev.action], ev.task?.report ?? {}, end);
+			finish(s, FINISH[ev.action], ev.task?.report ?? {}, end, at);
 		}
 	};
 	blocks.forEach((b, i) => {
@@ -343,7 +347,7 @@ export function scanTaskSpans<B extends SpanBlock>(blocks: readonly B[], textOf:
 			if (!s) return;
 			const report = (args.report && typeof args.report === "object" ? args.report : {}) as TaskSpan["report"];
 			updateMetadata(s);
-			finish(s, FINISH[action], report, ri);
+			finish(s, FINISH[action], report, ri, i);
 		}
 	});
 	for (const s of open.values()) {
@@ -771,7 +775,24 @@ export class TaskfoldConductor implements Conductor {
 		const spans = allSpans.filter((s) => !open.some((key) => s.key === key || s.key.startsWith(`${key}.`) || key.startsWith(`${s.key}.`)));
 		// Outermost finished spans are the fold units; finished descendants fold inside them.
 		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
-		const foldedKeys = new Set(this.groupKeys(host).values());
+		const groupKeys = this.groupKeys(host);
+		const foldedKeys = new Set(groupKeys.values());
+		const foldedHandles = host.groups().flatMap((g) => {
+			if (!groupKeys.has(g.id) || !g.folded || typeof g.summary !== "string") return [];
+			const shown = visibleTags(g.summary);
+			return (g.handles ?? []).filter((h) => h.id.startsWith("t:") && shown.has(foldTag(h.id))).map((h) => ({ key: h.id.slice(2), members: new Set(h.memberIds) }));
+		});
+		for (const span of spans) {
+			if (foldedKeys.has(span.key)) continue;
+			let last = span.end;
+			if (this.k.leafForm === "bracket" && span.closingCall !== undefined) {
+				last = span.closingCall;
+				while (last > 0 && messageKey(blocks[last - 1].id) === messageKey(blocks[span.closingCall].id)) last--;
+				last--;
+			}
+			if (!span.intervals.some((r) => r.start <= last)) continue;
+			if (foldedHandles.some((h) => (span.key === h.key || span.key.startsWith(`${h.key}.`)) && span.intervals.every((r) => blocks.slice(r.start, Math.min(r.end, last) + 1).every((b) => h.members.has(b.id))))) foldedKeys.add(span.key);
+		}
 		const reasons = new Map<string, string>(allSpans.filter((s) => !spans.includes(s)).map((s) => [s.key, "unfolded-by-agent"]));
 		const recent = new Set([...roots].sort((a, b) => b.end - a.end).slice(0, this.k.keepRecentTasks).map((s) => s.key));
 		const candidates = recompose ? roots.filter((s) => [...recompose].some((key) => s.key.startsWith(`${key}.`))) : roots.filter((s) => !recent.has(s.key));
@@ -1006,7 +1027,11 @@ export class TaskfoldConductor implements Conductor {
 		})) return { declined: "held-boundary" };
 		const sameMsg = (i: number, j: number) => messageKey(blocks[i].id) === messageKey(blocks[j].id);
 		let lo = span.start;
-		let hi = span.end;
+		const closingCall = this.k.leafForm === "bracket" ? span.closingCall : undefined;
+		const bracket = closingCall !== undefined;
+		let hi = closingCall === undefined ? span.end : closingCall - 1;
+		while (closingCall !== undefined && hi >= lo && sameMsg(hi, closingCall)) hi--;
+		if (hi < lo) return { declined: "no-whole-message" };
 		// Snap outward to whole messages, exactly like Truth's group snap, so the group id is predictable.
 		while (lo > 0 && sameMsg(lo - 1, lo)) lo--;
 		while (hi < blocks.length - 1 && sameMsg(hi + 1, hi)) hi++;
@@ -1073,18 +1098,22 @@ export class TaskfoldConductor implements Conductor {
 		const ours = host.groups().filter((g) => owns(g.id) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
 
 		const included = new Set(viable.flatMap((r) => r.map((b) => b.id)));
-		const spanHandle = (task: Span) => ({ id: `t:${task.key}`, memberIds: blocks.filter((_b, i) => task.intervals.some((r) => r.start <= i && i <= r.end)).map((b) => b.id) });
+		const hidden = new Set(viable.flatMap((run) => {
+			const keys = collapsibleMessageKeys(run, true);
+			return run.filter((b) => keys.has(messageKey(b.id))).map((b) => b.id);
+		}));
+		const spanHandle = (task: Span) => ({ id: `t:${task.key}`, memberIds: blocks.filter((_b, i) => task.intervals.some((r) => r.start <= i && i <= r.end) && (!bracket || i <= hi)).map((b) => b.id) });
 		const covered = (h: { memberIds: string[] }) => h.memberIds.every((id) => included.has(id) || members.some((b) => b.id === id && b.kind === "user" && !this.folds(b)));
 		const rootHandle = spanHandle(span);
-		const handles = [...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle), ...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] })))];
+		const handles = [...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] }))), ...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle)];
 		const unique = [...new Map(handles.map((h) => [h.id, h])).values()];
 		// A handle the carrier cannot fully own is dropped, not a veto: its child keeps a record without a recall code, or none when the carrier holds none of it.
-		const usable = unique.filter(covered);
+		const usable = unique.filter((h) => h.memberIds.length > 0 && covered(h));
 		const reach = new Map<string, "full" | "partial" | "none">();
 		for (const child of children) {
 			if (!child.intervals.length) continue;
 			const h = spanHandle(child);
-			reach.set(child.key, covered(h) ? "full" : h.memberIds.some((id) => included.has(id)) ? "partial" : "none");
+			reach.set(child.key, h.memberIds.length > 0 && covered(h) ? "full" : h.memberIds.some((id) => included.has(id)) ? "partial" : "none");
 		}
 		const prior = new Map<string, RecordObj | HistoryObj>();
 		for (const g of ours) {
@@ -1092,10 +1121,18 @@ export class TaskfoldConductor implements Conductor {
 			const entry = key && typeof g.summary === "string" ? priorEntry(g.summary) : null;
 			if (key && entry) prior.set(key, entry);
 		}
+		// Preserve nested history reductions when rebuilding their ancestors.
+		for (const entry of prior.values()) {
+			if (isHistory(entry)) continue;
+			for (const child of entry.children ?? []) {
+				const key = isHistory(child) ? child.history : child.task;
+				if (!prior.has(key)) prior.set(key, child);
+			}
+		}
 		const rootCovered = covered(rootHandle);
 		const lastRun = viable[viable.length - 1];
 		const tag = rootCovered ? foldTag(`t:${span.key}`) : foldTag(`g:${lastRun[0].id}`);
-		const entry = this.record(span, blocks, children, prior, included, reach);
+		const entry = this.record(span, blocks, children, prior, included, reach, hidden);
 		const isRoot = !span.id.includes(".");
 		const carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
 		while (!isHistory(carrier) && estTokens(JSON.stringify(carrier.children ?? [])) > this.k.recordTokens) {
@@ -1119,9 +1156,10 @@ export class TaskfoldConductor implements Conductor {
 		return { ops, restore, saved, key: span.key };
 	}
 
-	/** A span's record as an object, with descendant records kept intact. */
-	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>, reach?: ReadonlyMap<string, "full" | "partial" | "none">): RecordObj {
+	/** A span's record, omitting bracket reports whose closing calls remain visible. */
+	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>, reach?: ReadonlyMap<string, "full" | "partial" | "none">, hidden?: ReadonlySet<string>): RecordObj {
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
+		const reportVisible = (task: Span) => this.k.leafForm === "bracket" && hidden && task.closingCall !== undefined && !hidden.has(blocks[task.closingCall].id);
 		const own = blocks.filter((b, i) => (!included || included.has(b.id)) && inside(span, i) && !children.some((c) => inside(c, i)));
 		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
 		const user = own.flatMap((b) => {
@@ -1131,15 +1169,19 @@ export class TaskfoldConductor implements Conductor {
 		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)) && reach?.get(c.key) !== "none");
 		const entries = direct.map((child): RecordObj | HistoryObj => {
 			const recallable = !reach || (reach.get(child.key) ?? "full") === "full";
-			const existing = prior.get(child.key);
-			if (existing) {
-				if (!recallable) return Object.fromEntries(Object.entries(existing).filter(([k]) => k !== "recall")) as RecordObj | HistoryObj;
+			const previous = prior.get(child.key);
+			if (previous && isHistory(previous)) {
+				const existing = { ...previous, outcome: reportVisible(child) ? undefined : previous.outcome ?? child.report.outcome };
+				if (!recallable) {
+					delete existing.recall;
+					return existing;
+				}
 				return !existing.recall && child.intervals.length ? { ...existing, recall: foldTag(`t:${child.key}`) } : existing;
 			}
-			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included, reach);
+			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included, reach, hidden);
 			return child.intervals.length && recallable ? { task: full.task, title: full.title, status: full.status, recall: foldTag(`t:${child.key}`), ...rest(full) } : full;
 		});
-		const { outcome, decisions, open } = span.report;
+		const { outcome, decisions, open } = reportVisible(span) ? {} : span.report;
 		return {
 			task: span.key,
 			title: span.title,

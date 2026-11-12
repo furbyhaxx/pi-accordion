@@ -15,6 +15,7 @@ import type { Block } from "../../../core/types";
 import { parseExtraction } from "../../../extension/taskRouting";
 import type { ConductorHost, FoldTiming } from "../../../core/conductor/contract";
 import { cacheProfileFor } from "../../../core/cacheProfiles";
+import type { TaskEvent } from "../../../core/taskEvents";
 
 class Session {
 	readonly blocks: Block[] = [];
@@ -116,6 +117,197 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 		}
 	});
 describe("taskfold", () => {
+	it("keeps a closing message shared with the next start intact in bracket form", async () => {
+		const s = new Session();
+		s.user("Build two.");
+		const start = s.start("1", "First").call;
+		s.work(2, "first");
+		const boundary = s.batch([["tasks", { action: "complete", list: "work", id: "1", report: { outcome: "First done" } }, "done"], ["tasks", { action: "start", list: "work", id: "2" }, 'Started work/2 "Second".']]);
+		const host = setup(s, 2), c = new TaskfoldConductor({ leafForm: "bracket" });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		await host.departWire();
+		expect(groupOf(host, start)).toBeDefined();
+		for (const id of [...boundary.calls, ...boundary.results]) expect(groupOf(host, id)).toBeUndefined();
+		c.detach();
+	});
+
+	it("keeps automatically assembled reports in the carrier when there is no original closing call", async () => {
+		const s = new Session();
+		s.user("Build the tree.");
+		const start = s.start("1", "Root").call;
+		s.start("1.1", "Child");
+		s.work(2, "child");
+		s.finish("1.1", { outcome: "Child done" });
+		s.call("tasks", { action: "start", list: "work", id: "2" }, 'Started work/2 "Next".', false, { closed: [{ id: "1", title: "Root", status: "done", report: { outcome: "Automatically assembled" } }] });
+		const host = setup(s, 2), c = new TaskfoldConductor({ leafForm: "bracket" });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		await host.departWire();
+		expect(carrier(groupOf(host, start))).toMatchObject({ outcome: "Automatically assembled" });
+		c.detach();
+	});
+	it("bracket folds at the first request after completion and keeps the report in the raw closing call", async () => {
+		for (const leafForm of ["record", "bracket"] as const) {
+			const s = new Session();
+			s.user("Build it.");
+			const start = s.start("1", "Build").call;
+			s.work(2, "body");
+			const finish = s.finish("1", { outcome: "Whole outcome", decisions: ["Use one path"], open: ["Check rollout"] });
+			const host = setup(s, 2);
+			const c = new TaskfoldConductor({ leafForm });
+			host.truth.setLocks(c.locks, c.label, c.tailTokens);
+			c.attach(host);
+			await host.departWire();
+			const group = groupOf(host, start);
+			if (leafForm === "record") expect(group).toBeUndefined();
+			else {
+				expect(group).toBeDefined();
+				expect(groupOf(host, finish.call)).toBeUndefined();
+				expect(groupOf(host, finish.result)).toBeUndefined();
+				expect(carrier(group)).not.toHaveProperty("outcome");
+				expect(carrier(group)).not.toHaveProperty("decisions");
+				expect(carrier(group)).not.toHaveProperty("open");
+				expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
+			}
+			c.detach();
+		}
+	});
+
+	it("absorbs bracket closing tails into the parent and restores full child reports and handles", async () => {
+		const s = new Session();
+		s.user("Build the tree.");
+		s.start("1", "Root");
+		const parent = s.start("1.1", "Parent").call;
+		const child = s.start("1.1.1", "Child").call;
+		s.work(2, "child");
+		const close = s.finish("1.1.1", { outcome: "Child outcome", decisions: ["Child decision"], open: ["Child follow-up"] });
+		const host = setup(s, 2), c = new TaskfoldConductor({ leafForm: "bracket" });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		await host.departWire();
+		expect(groupOf(host, child)).toBeDefined();
+		expect(groupOf(host, close.call)).toBeUndefined();
+		const before = s.blocks.length;
+		s.work(1, "parent");
+		const parentClose = s.finish("1.1", { outcome: "Parent outcome" });
+		host.appendBlocks(s.blocks.slice(before));
+		await host.departWire();
+		const group = groupOf(host, parent)!;
+		expect(carrier(group).children).toEqual([expect.objectContaining({ task: "work/1.1.1", outcome: "Child outcome", decisions: ["Child decision"], open: ["Child follow-up"] })]);
+		expect(group.memberIds).toContain(close.call);
+		expect(group.memberIds).toContain(close.result);
+		expect(groupOf(host, parentClose.call)).toBeUndefined();
+		const recalled = resolveRecall(host.truth, [foldCode("t:work/1.1.1")]);
+		expect(recalled.missing).toEqual([]);
+		expect(recalled.restored[0].ids).toContain(close.result);
+		c.detach();
+	});
+	it("keeps shared child reports in the visible closing tail until an ancestor absorbs it", async () => {
+		for (const prefoldChild of [false, true]) {
+			const s = new Session();
+			s.user("Build the tree.");
+			s.start("1", "Root");
+			const grand = s.start("1.1", "Grandparent").call;
+			const parent = s.start("1.1.1", "Parent").call;
+			const child = s.start("1.1.1.1", "Child").call;
+			s.work(2, "child");
+			const host = setup(s, 2), c = new TaskfoldConductor({ leafForm: "bracket" });
+			host.truth.setLocks(c.locks, c.label, c.tailTokens);
+			c.attach(host);
+			const before = s.blocks.length;
+			const boundary = s.batch([
+				["tasks", { action: "complete", list: "work", id: "1.1.1.1", report: { outcome: "Child outcome", decisions: ["Child decision"], open: ["Child follow-up"] } }, "done"],
+				["tasks", { action: "complete", list: "work", id: "1.1.1", report: { outcome: "Parent outcome" } }, "done"],
+			]);
+			const split = prefoldChild ? s.blocks.findIndex((b) => b.id === boundary.results[0]) + 1 : before;
+			if (prefoldChild) {
+				host.appendBlocks(s.blocks.slice(before, split));
+				await host.departWire();
+				expect(groupOf(host, child)).toBeDefined();
+			}
+			host.appendBlocks(s.blocks.slice(split));
+			await host.departWire();
+			const record = carrier(groupOf(host, parent));
+			for (const field of ["outcome", "decisions", "open"]) expect(record.children[0]).not.toHaveProperty(field);
+			for (const id of [...boundary.calls, ...boundary.results]) expect(groupOf(host, id)).toBeUndefined();
+			expect(resolveRecall(host.truth, [foldCode("t:work/1.1.1.1")]).missing).toEqual([]);
+			const after = s.blocks.length;
+			s.work(1, "grandparent");
+			s.finish("1.1", { outcome: "Grandparent outcome" });
+			host.appendBlocks(s.blocks.slice(after));
+			await host.departWire();
+			const absorbed = carrier(groupOf(host, grand)).children[0];
+			expect(absorbed.outcome).toBe("Parent outcome");
+			expect(absorbed.children[0]).toMatchObject({ outcome: "Child outcome", decisions: ["Child decision"], open: ["Child follow-up"] });
+			c.detach();
+		}
+	});
+	it("keeps a child wholly inside a visible closing call raw without an empty handle", async () => {
+		const s = new Session();
+		s.user("Build a tree.");
+		const start = s.start("1", "Root").call;
+		s.work(1, "parent");
+		const childReport = { outcome: "Child work done" }, rootReport = { outcome: "Root done" };
+		const events: TaskEvent[] = [
+			{ action: "start", list: "work", id: "1.1", task: { id: "1.1", title: "Child", status: "doing" }, started: [{ id: "1.1", title: "Child", status: "doing" }] },
+			{ action: "complete", list: "work", id: "1.1", task: { id: "1.1", title: "Child", status: "done", report: childReport } },
+			{ action: "complete", list: "work", id: "1", task: { id: "1", title: "Root", status: "done", report: rootReport } },
+		];
+		const code = events.map((event, i) => `${i === 1 ? 'await tools.bash({command:"printf child-work-visible"}); ' : ""}await tools.tasks(${JSON.stringify({ action: event.action, list: event.list, id: event.id, ...(event.task?.report ? { report: event.task.report } : {}) })});`).join("\n");
+		const closing = s.call("codemode", { code }, "child-work-visible", false, { taskEvents: events });
+		const host = setup(s, 2), c = new TaskfoldConductor({ leafForm: "bracket" });
+		const diagnostics: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
+		Object.assign(host, { debug: (event: typeof diagnostics[number]) => diagnostics.push(event) });
+		host.truth.setLocks(c.locks, c.label, c.tailTokens);
+		c.attach(host);
+		await host.departWire();
+		const group = groupOf(host, start);
+		expect(group).toBeDefined();
+		expect(group!.handles?.every((h) => h.memberIds.length > 0)).toBe(true);
+		expect(groupOf(host, closing.call)).toBeUndefined();
+		expect(groupOf(host, closing.result)).toBeUndefined();
+		expect(host.blocks().find((b) => b.id === closing.result)?.text).toBe("child-work-visible");
+		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([foldCode("t:work/1.1")]);
+		const before = s.blocks.length;
+		host.setBudget(1_000_000);
+		s.work(41, "later");
+		host.appendBlocks(s.blocks.slice(before));
+		await host.departWire();
+		const tasks = diagnostics.filter((e) => e.type === "epoch").at(-1)!.tasks as { key: string; reason: string }[];
+		expect(tasks.find((task) => task.key === "work/1.1")?.reason).toBe("no-whole-message");
+		expect(host.statusLog.some((status) => status.text?.includes("work/1.1 still raw"))).toBe(true);
+		c.detach();
+	});
+	it("does not warn that absorbed descendants are raw after forty later tool results", async () => {
+		for (const leafForm of ["record", "bracket"] as const) {
+			const s = new Session();
+			s.user("Build a tree.");
+			s.start("1", "Root");
+			s.start("1.1", "Child");
+			s.start("1.1.1", "Grandchild");
+			s.work(2, "body");
+			s.finish("1.1.1", { outcome: "Grandchild done" });
+			s.finish("1.1", { outcome: "Child done" });
+			s.finish("1", { outcome: "Root done" });
+			s.work(1, "tail");
+			const host = setup(s, 2), c = new TaskfoldConductor({ leafForm });
+			const events: Parameters<NonNullable<ConductorHost["debug"]>>[0][] = [];
+			Object.assign(host, { debug: (event: typeof events[number]) => events.push(event) });
+			host.truth.setLocks(c.locks, c.label, c.tailTokens);
+			c.attach(host);
+			await host.departWire();
+			host.setBudget(1_000_000);
+			const before = s.blocks.length;
+			s.work(41, "later");
+			host.appendBlocks(s.blocks.slice(before));
+			await host.departWire();
+			const tasks = events.filter((e) => e.type === "epoch").at(-1)!.tasks as { key: string; reason: string }[];
+			for (const key of ["work/1.1", "work/1.1.1"]) expect(tasks.find((t) => t.key === key)?.reason).toBe("already-folded");
+			expect(host.statusLog.some((status) => status.text?.includes("still raw"))).toBe(false);
+			c.detach();
+		}
+	});
 	it("explains deferred finished tasks and warns once they outlive forty tool results", async () => {
 		for (const reason of ["prefill-guard", "held-boundary", "keep-recent-tasks", "timing-pressure"] as const) {
 			const s = new Session();

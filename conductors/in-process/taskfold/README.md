@@ -19,9 +19,17 @@ or reports. A crash or forced kill still relies on the stale-claim timeout or an
 ## When it folds
 
 By default (`taskfold.timing: "eager"`) a finished task folds at the first safe request, whatever
-its length or the pressure. The closing result needs a following message, so the record never ends
-the request. Pending user-message classification/routing can also delay it. Each epoch commits as
-one transaction; eager folding keeps its rewritten suffix short but does not guarantee a cache hit.
+its length or the pressure. Record form needs a message after the closing result, so the carrier
+never ends the request. Pending user-message classification/routing can also delay it. Each epoch
+commits as one transaction; eager folding keeps its rewritten suffix short but cannot guarantee a cache hit.
+
+Set `taskfold.leafForm` to `"bracket"` in `~/.accordion/config.json` to fold at the first request
+after completion while keeping the entire closing message and its results verbatim. The opening
+call folds normally. Own report fields are omitted from the carrier while still visible in the
+closing call, then restored when a parent actually absorbs it. Shared child/parent closing
+messages do not duplicate reports. A task wholly inside the retained message stays raw without an
+empty recovery handle. Automatic closures without a finishing call use record form. The default
+remains `"record"`.
 
 `/accordion fold eager|lazy|pressure` sets timing for this session and model. Resolution is session
 value → `modelDefaults` exact model → provider wildcard → `*` → global `taskfold.timing`.
@@ -63,7 +71,8 @@ raw; raising it delays folds and multiplies rebilled tokens.
 Enable `/accordion debug on` to explain finished tasks that remain raw. Epoch records name
 the declining path (timing mode, protected tail, prefill guard, held boundary, pending
 classification/routing or keep-recent). Committed folds include their savings and
-changed frontier. A finished task still raw after 40 tool results raises a warning.
+changed frontier. A finished task still raw after 40 tool results raises a warning; work already
+covered by an ancestor's recovery handle is not raw.
 
 ## The record
 
@@ -78,8 +87,8 @@ order and no empty keys.
 and `verified` come from the task's own `edit`/`write` calls and check-like `bash` commands,
 excluding child spans. `user` links each routed user message inside the span to the list items it
 produced. Each child carries its own tag in `recall`. One code per task is derived from its id, so
-it stays stable when the planner recompiles. `recall` returns the task's raw intervals;
-`unfold` opens them, and while taskfold stays attached it re-folds eligible siblings around the
+it stays stable when the planner recompiles. `recall` returns its folded source; bracket tails
+remain visible rather than being duplicated. `unfold` opens that source, and taskfold re-folds siblings around the
 requested child. `taskfold.recordTokens` (default 1,500) budgets raw-estimated descendant content,
 not the task's own report: deepest children become history until it fits or none remain.
 Outcomes (up to 2,000 chars) stay whole, including in history; decision/open lists each allow

@@ -650,6 +650,7 @@ check("debug records receipts and rejected tasks without synchronous writes on t
 	const r = runtime([], { sessionId: "debug-smoke" });
 	try {
 		await r.command("debug on");
+		await r.command("fold pressure");
 		const writes = ["writeFileSync", "appendFileSync", "mkdirSync", "renameSync"];
 		const originals = new Map(writes.map(key => [key, fsDefault[key]]));
 		try {
@@ -668,7 +669,7 @@ check("debug records receipts and rejected tasks without synchronous writes on t
 		assert.deepEqual(r.entries.filter(e => e.customType === "accordion.debug").map(e => e.data.enabled), [true, false]);
 	} finally { await r.close(); }
 	const rows = fs.readFileSync(path.join(home, ".accordion/debug/debug-smoke.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
-	assert.ok(rows.some(row => row.type === "request" && row.realInput === 230 && row.cacheRead === 10));
+	assert.ok(rows.some(row => row.type === "request" && row.realInput === 230 && row.cacheRead === 10 && row.timing === "pressure"));
 	assert.ok(rows.some(row => row.type === "tasks" && row.error));
 	assert.ok(rows.some(row => row.type === "cache-profile" && row.cache.ttlMs === 43_200_000));
 });

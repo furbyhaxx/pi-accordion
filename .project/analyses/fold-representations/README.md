@@ -3,17 +3,17 @@ document:
   type: "analysis"
   id: "ANA-fold-representations"
   title: "Fold representations, fold timing and user-message routing: evaluation"
-  description: "Offline cache/token simulation of folded-task representations and fold timing, plus the design of the live comprehension and user-message routing evaluations"
+  description: "Cache/token simulation of folded-task representations and timing, paired live Anthropic traces, and comprehension/routing evaluation design"
   status: "draft"
-  revision: 5
+  revision: 6
   created_at: "2026-11-08T11:26:48+01:00"
-  updated_at: "2026-11-11T23:51:00+01:00"
+  updated_at: "2026-11-12T01:20:02+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 5
-      reason: "real-session audit corrects the lookback-based timing conclusion"
-      changes: ["distinguished cache lookup from prior writes", "accounted for the following-message guard", "recorded eager/lazy/pressure implementation and conservative cache profiles"]
+    - revision: 6
+      reason: "verify closing-only brackets and isolate the remaining record-prefix cache miss"
+      changes: ["24 numbered calls verified per form", "successful original-report recall", "aggregate hits distinguished from task-prefix reuse", "record-mode frontier verification remains necessary"]
 ---
 
 # Fold representations, timing and user-message routing
@@ -340,5 +340,13 @@ Findings and current decision:
    overriding the table. Unknown providers use a conservative 5-minute prefix profile. Debug logs
    distinguish timing declines, actual request receipts and frontier-based rewrite estimates.
 
-Next evidence: PLAN-0005 S5 replays real debug logs with bracket tails. Its cache misses decide
-whether the provider-specific frontier breakpoint of S6 is necessary; lookback alone cannot decide.
+PLAN-0005 S5 now implements a closing-only bracket variant (the original opening call folds).
+Its serial live pair verifies 24 numbered calls and matching outputs per form, with successful
+original-report recall. The first trial's unequal counts and summary-comprehension errors remain
+explicit counterexamples, not evidence of a cost winner. Record stays the default.
+
+At the second fold, record mode falls back to the pre-first-task cache entry (26,601 tokens);
+bracket reuses its exact pre-second-task prefix (27,536). Near-99% overall hits hide the remaining
+record-prefix rewrite. S6 must test marker-hash stability before adding an Anthropic frontier;
+lookback and aggregate hit ratios alone cannot decide. Evidence:
+`.project/plans/0005-fold-timing/evidence/form-live/`.

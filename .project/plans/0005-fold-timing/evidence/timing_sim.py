@@ -78,7 +78,9 @@ def carrier(msgs, t, bracket=False):
     """Record for a non-root, history for a root (SPEC-0002 section 8). Children appear as short entries."""
     rep = t["report"]
     if t["parent"] is None:
-        h = dict(history=t["key"], status=t.get("status"), outcome=(rep.get("outcome") or "")[:160], children={k["id"]: dict(title="x" * 40, recall="{#abc123 FOLDED}") for k in t["kids"]})
+        h = dict(history=t["key"], status=t.get("status"), children={k["id"]: dict(title="x" * 40, recall="{#abc123 FOLDED}") for k in t["kids"]})
+        if not bracket and rep.get("outcome"):
+            h["outcome"] = rep["outcome"]
         return "{#abc123 FOLDED} " + json.dumps(h, separators=(",", ":"))
     inner = set()
     for k in t["kids"]: inner.update(range(k["s"], k["e"] + 1))
@@ -95,7 +97,8 @@ def carrier(msgs, t, bracket=False):
             if rep.get(f): r[f] = rep[f]
     if changed: r["changed"] = changed[:20]
     if verified: r["verified"] = verified
-    if t["kids"]: r["children"] = {k["id"]: dict(title="x" * 40, outcome=(k["report"].get("outcome") or "")[:160], recall="{#abc123 FOLDED}") for k in t["kids"]}
+    if t["kids"]:
+        r["children"] = {k["id"]: dict(title="x" * 40, outcome=k["report"].get("outcome") or "", recall="{#abc123 FOLDED}") for k in t["kids"]}
     return "{#abc123 FOLDED} " + json.dumps(r, separators=(",", ":"), ensure_ascii=False)
 
 def render(msgs, lo, hi, nodes, folded, out, bracket):
@@ -150,10 +153,8 @@ def simulate(msgs, roots, policy, k, S, budget, ttl, lookback, frontier=0, brack
         chosen = []
         if policy == "pressure": chosen = ready if pressure else []
         elif policy == "eager": chosen = ready
-        elif policy == "lazy":   # shipped rule: inside the lookback, cold cache, or pressure; plus an expired cache counts as cold
-            nblocks = sum(x["blocks"] for x in msgs[:a])
-            def near(t): return sum(x["blocks"] for x in msgs[t["s"]:a]) <= 20
-            chosen = ready if (pressure or cold) else [t for t in ready if near(t)]
+        elif policy == "lazy":
+            chosen = ready if pressure or cold else []
         elif policy == "shipped":  # as lazy, but only a never-sent cache counts as cold
             def near(t): return sum(x["blocks"] for x in msgs[t["s"]:a]) <= 20
             chosen = ready if (pressure or prev_t is None) else [t for t in ready if near(t)]

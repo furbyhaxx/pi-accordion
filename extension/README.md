@@ -114,6 +114,7 @@ attaches):
 {
   "taskfold": {
     "timing": "eager",
+    "leafForm": "record",
     "high": 0.8, "low": 0.6,
     "keepRecentTasks": 0, "recordTokens": 1500,
     "floor": false,
@@ -133,8 +134,11 @@ core profile (unknown backends: 5-minute prefix cache).
 
 A finished root becomes stable whole-outcome history; records inside an open root become history
 under pressure (`high`, `low`). Taskfold holds the protected-tail lock so finished spans need not
-leave a token tail; your locked tail dial still limits pressure folding. The following-message
-guard and pending user routing can delay a fold, but there is no cache-lookback veto. The first
+leave a token tail; your locked tail dial still limits pressure folding. Record form waits for a
+following message. Set `taskfold.leafForm` to `"bracket"` to fold immediately while keeping the
+closing message/result and its report raw; the opening call still folds. A parent restores child
+reports only when it absorbs their closing calls. Pending user routing can delay either form,
+but there is no cache-lookback veto. The first
 request waits for the epoch. `keepRecentTasks` delays folds intentionally. Under pressure, `steps`
 groups old finished steps of a still-open task into a
 recallable step carrier, so one long task cannot fill the context; the task's start message, user

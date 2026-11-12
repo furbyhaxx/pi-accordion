@@ -1,0 +1,40 @@
+ ✓ recall #sw8ocu · 1 recalled
+
+ ✓ recall #akqdvn · 1 recalled
+
+ Thinking...
+
+ Verdict: the transcript does not support completion, so I'm not ending with CACHE-FORM-DONE.
+
+ What the two folds contain
+ - First sample, #akqdvn (child 1.1): 12 separate bash {"command":"printf cache-sample"} calls, each followed by one cache-sample output.
+   That is 12 calls and 12 outputs, between the start for 1.1 and its complete.
+ - Root, #sw8ocu: the same 12 first-sample calls, then a second block of 12 printf cache-sample calls. That block has only 11 cache-sample
+   outputs, and they aren't paired with their calls. Three calls come first, then 2 outputs, then 9 more calls, then 8 outputs.
+ - Total: 24 calls recorded, 23 outputs.
+
+ First-child completion report, verbatim from the recall
+
+ ```
+   tasks {"action":"complete","list":"cache-check","id":"1.1","report":{"outcome":"First sample printed twelve
+ times","decisions":["Sequential calls preserve cache evidence"],"open":["Second sample remains"]}}
+ ```
+
+ Why completion isn't supported
+ 1. No second-child completion: the recalled root fold contains no complete call for 1.2 and none for the parent.
+ 2. Contradictory narration inside the fold: after the 1.1 completion, the fold has text saying I "never actually started step 1.1 and
+    skipped its 12 bash calls". That contradicts the 12 recorded 1.1 calls. I can't tell which is accurate.
+ 3. Missing outputs: the second block has 11 outputs for 12 calls.
+ 4. My visible context: the printf cache-sample calls aren't in it. The only calls I can see in this session are the create, the two
+    complete calls and printf cache-verified.
+
+ I didn't rerun any commands or change any task lists.
+
+► Tasks Cache check 3/3 (≡1) · 36s · 1.7k → 247 tok
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[Provider account status redacted]
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/cache-forms/bracket/project (feat/backlog-completion)
+↑48 ↓4.2k R565k W32k CH93.7% $0.000 (sub) 7.2%/425k (auto)                                                  (claude) claude-sonnet-5-5 • low
+accordion · Taskfold · eager · Epoch 3: applied 1 fold operation(s), ~7…

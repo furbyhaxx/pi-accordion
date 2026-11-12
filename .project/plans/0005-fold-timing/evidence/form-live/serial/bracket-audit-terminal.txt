@@ -1,0 +1,40 @@
+   ├──────┼─────────────────┤
+   │ 06   │ cache-sample-06 │
+   ├──────┼─────────────────┤
+   │ 07   │ cache-sample-07 │
+   ├──────┼─────────────────┤
+   │ 08   │ cache-sample-08 │
+   ├──────┼─────────────────┤
+   │ 09   │ cache-sample-09 │
+   ├──────┼─────────────────┤
+   │ 10   │ cache-sample-10 │
+   ├──────┼─────────────────┤
+   │ 11   │ cache-sample-11 │
+   ├──────┼─────────────────┤
+   │ 12   │ cache-sample-12 │
+   └──────┴─────────────────┘
+
+ - Closing report:
+     - Outcome: "First sample printed twelve numbered outputs"
+     - Decisions: ["Sequential calls preserve cache evidence"]
+     - Open: ["Second sample remains"]
+
+ - The tool returned next: 1.2.
+
+ Child 1.2, Second sample
+ - It was started with tasks start.
+ - Twelve bash calls ran, printf cache-sample-01 through printf cache-sample-12, and they printed cache-sample-01 through cache-sample-12
+   in the same order as 1.1.
+ - Its closing report had only the outcome, "Second sample printed twelve numbered outputs", with no decisions or open items. The tool
+   returned parentReady: 1.
+
+ I changed no lists and ran no shell commands for this check.
+
+► Tasks Cache check 3/3 (≡2) · 49s · 2.2k → 172 tok
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[Provider account status redacted]
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/cache-forms/bracket-serial/project (feat/backlog-completion)
+↑78 ↓3.6k R994k W26k CH96.0% $0.000 (sub) 6.9%/425k (auto)                                                  (claude) claude-sonnet-5-5 • low
+accordion · Taskfold · eager · Epoch 3: applied 1 fold operation(s), ~9…

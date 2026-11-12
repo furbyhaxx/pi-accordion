@@ -2875,7 +2875,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		lastEstWireTokens = est;
 		truth.setCalibration(real / est, throughOrder);
 		debug({ type: "request", model: modelSpec(), estimate: est, realInput: real, cacheRead, cacheWrite, k: truth.calibration,
-			liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: "shipped" });
+			liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: currentDials()?.timing ?? settings.taskfold.timing });
 	}
 
 	/**

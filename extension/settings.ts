@@ -11,7 +11,7 @@ import * as crypto from "node:crypto";
 import { DOOR_PORT } from "../core/protocol";
 import { REGISTRY_DIR } from "../app/src/lib/live/registry";
 import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
-import { TASKFOLD_DEFAULTS } from "../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_DEFAULTS, type TaskfoldOptions } from "../conductors/in-process/taskfold/taskfold";
 import { isFoldTiming, type FoldTiming } from "../core/conductor/contract";
 
 export type CompactMode = "accordion" | "suppress" | "native";
@@ -51,6 +51,7 @@ export interface TaskSettings {
 
 export interface TaskfoldSettings {
 	timing: FoldTiming;
+	leafForm: NonNullable<TaskfoldOptions["leafForm"]>;
 	high: number;
 	low: number;
 	keepRecentTasks: number;
@@ -98,7 +99,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
-	taskfold: { timing: TASKFOLD_DEFAULTS.timing, high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
+	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
 	modelDefaults: {},
 };
 
@@ -239,7 +240,8 @@ export function sanitizeTaskfoldSettings(value: unknown): TaskfoldSettings {
 	const untracked = raw.untracked && typeof raw.untracked === "object" && !Array.isArray(raw.untracked) ? raw.untracked as Record<string, unknown> : {};
 	const steps = raw.steps && typeof raw.steps === "object" && !Array.isArray(raw.steps) ? raw.steps as Record<string, unknown> : {};
 	const timing = isFoldTiming(raw.timing) ? raw.timing : defaults.timing;
-	return { timing, high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
+	const leafForm = raw.leafForm === "record" || raw.leafForm === "bracket" ? raw.leafForm : defaults.leafForm;
+	return { timing, leafForm, high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
 }
 
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {

@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 8
+  revision: 9
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-12T00:16:34+01:00"
+  updated_at: "2026-11-12T01:20:02+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "repair routing integrity discovered by S4 live verification"
-      changes: ["idempotent goals and criteria", "request-bound store/list checks", "unrecorded directives stay on classifier fallback", "real two-task replay without duplicate goals"]
+    - revision: 9
+      reason: "implement bracket tails and evaluate both forms live"
+      changes: ["opt-in bracket compiler and recovery", "shared-tail report accounting", "absorbed-task diagnostics", "verified serial Anthropic traces", "record-prefix misses require S6"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -29,8 +29,8 @@ done  S1  Debug mode and decline reasons
 done  S2  Row accounting and routing fixes
 done  S3  Report limits, tool description, record cap unit
 done  S4  Timing modes, eager default, cache profile, 20-block rule removed
-next  S5  Bracket tail; re-run the simulation on real debug logs
-later S6  Frontier breakpoint (Anthropic), only if S5's logs still show misses
+done  S5  Opt-in bracket tail; paired serial Anthropic traces and replay
+next  S6  Frontier breakpoint: record mode still misses the updated sibling prefix
 ```
 
 S1 comes first because S4–S6 are judged from its log. S2 and S3 are independent of each other and
@@ -69,6 +69,16 @@ their ids without writes/notices; in-flight requests cannot target a replacement
 empty/rejected extraction does not bypass the classifier. `evidence/routing-repair-live/` captures
 a real Pi-Bolt replay: exactly one goal, two completed tasks and two eager folds (~230 estimated
 tokens saved). All 80 routing/Taskfold regressions and context smoke pass.
+
+S5: `taskfold.leafForm` persists `record` (default) or `bracket`. Brackets keep the closing
+message/result raw, fold on the first post-completion request, and restore child reports only
+when those closing calls are actually absorbed. Shared closing messages do not duplicate reports;
+ancestor handles prevent already-absorbed descendants from producing stale-raw warnings.
+`evidence/form-live/` retains a rejected initial trial and a verified serial pair: 24 numbered
+calls with matching outputs per form, no batched calls, all completions, and successful child
+recall audits. Both simulators ran. Overall post-fold hit ratios near 99% mask the remaining
+record-mode sibling-prefix miss; S6 proceeds. Record remains the default, not an inferred winner
+from one pair with differing model reasoning.
 
 ## Why
 
@@ -345,27 +355,24 @@ each task completion.
 
 ## S5: bracket tail
 
-SPEC §6.2 specifies `taskfold.leafForm = "bracket"`; no code implements it.
+Implemented: `taskfold.leafForm = "record" | "bracket"`, default `record`.
 
-Change: the carrier replaces the span up to, not including, its closing `tasks` call. The closing
-call and its result stay verbatim.
+- The bracket carrier replaces the span before its entire closing assistant message; that
+  message and its results remain verbatim. The opening call is folded normally.
+- The wire ends on the original tool result, allowing the first post-completion request to fold.
+- `outcome`, `decisions` and `open` are omitted while their closing call stays visible. When a
+  parent absorbs the call, the child's report returns, subject to normal history reduction.
+- A child sharing its parent's closing message retains its raw report without a duplicate record;
+  a later ancestor restores it only once that message is actually collapsed.
+- Automatically closed tasks without an explicit closing call keep record form. Stable prefix
+  handles remain recoverable; parent absorption extends eligible child handles through their tail.
 
-- The wire then ends on a tool result, so the fold lands at the first request after completion and
-  the entry written by the request before the task started is still valid.
-- The report stays on the wire word for word in the closing call. The record omits `outcome`,
-  `decisions` and `open` while the closing call is visible, so nothing is sent twice.
-- A closing call batched with the next task's start already stays in that message.
-- When the parent folds, the children's closing calls go into the parent's span and the child
-  records carry their reports again.
+Decision: keep bracket opt-in. The serial live pair verifies execution and recovery but is too
+small, with different model reasoning and request counts, to establish a default or cost guarantee.
 
-Decide at the start of the slice whether bracket becomes the default form or stays behind
-`leafForm`; the simulation favours it, the SPEC default is `record`.
-
-Then run two live sessions with debug on (one per form) and re-run `evidence/timing_sim.py` against
-them. Store the outputs in `evidence/`.
-
-Done: SPEC §6.2 and §8 describe the implemented form; the measurement is in `evidence/` and its
-result decides S6.
+`evidence/form-live/README.md` describes both trials, raw-count checks, cache receipts and
+simulator outputs. The first trial is retained as a prompt-evaluation counterexample, not used as
+a causal cost comparison. SPEC §6.2/§8 now describe implemented behavior.
 
 ## S6: frontier breakpoint (Anthropic only)
 
@@ -374,6 +381,12 @@ breakpoint on the last block before the innermost open task's start. With an OAu
 replaces the breakpoint on the identity system block, which the system prompt's breakpoint already
 covers. Verify live first that moving a marker alone does not change the prefix hash. If S5 makes
 it unnecessary, record that here and close the plan.
+
+S5 decision: proceed for the default record form. At the second leaf fold, record mode reads
+the same 26,601-token entry from before the first leaf, not the unchanged preceding record.
+Bracket mode reads 27,536 tokens, exactly its pre-second-leaf cacheable prefix. The short trial's
+near-99% aggregate hit ratio hides the small remaining working-prefix miss; more retained records
+would amplify it. Verify marker-hash stability live before introducing a record-mode frontier.
 
 ## Done
 

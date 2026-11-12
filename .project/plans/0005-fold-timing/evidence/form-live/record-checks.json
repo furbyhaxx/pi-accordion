@@ -1,0 +1,106 @@
+{
+  "form": "record",
+  "model": "claude/claude-sonnet-5-5",
+  "timing": "eager",
+  "sampleCalls": 24,
+  "pairedResults": true,
+  "sampleOutputs": 24,
+  "completed": [
+    {
+      "id": "1.1",
+      "report": {
+        "outcome": "First sample printed twelve times",
+        "decisions": [
+          "Sequential calls preserve cache evidence"
+        ],
+        "open": [
+          "Second sample remains"
+        ]
+      }
+    },
+    {
+      "id": "1.2",
+      "report": {
+        "outcome": "Second sample printed twelve times"
+      }
+    },
+    {
+      "id": "1",
+      "report": {
+        "outcome": "Both samples verified"
+      }
+    }
+  ],
+  "requests": 20,
+  "input": 540351,
+  "cacheRead": 510623,
+  "cacheWrite": 29686,
+  "folds": [
+    {
+      "type": "fold",
+      "task": "cache-check/1.1",
+      "carrierTokens": 93,
+      "tokensRemoved": 445,
+      "firstChangedBlock": 4,
+      "blocksBehindEnd": 29,
+      "timing": "eager",
+      "cache": {
+        "family": "anthropic",
+        "ttlMs": 3600000,
+        "readWeight": 0.05,
+        "writeWeight": 2
+      },
+      "rewrittenTokens": 211,
+      "estimatedWriteInputUnits": 422,
+      "time": "2026-11-11T23:30:39.890Z"
+    },
+    {
+      "type": "fold",
+      "task": "cache-check/1",
+      "carrierTokens": 120,
+      "tokensRemoved": 922,
+      "firstChangedBlock": 4,
+      "blocksBehindEnd": 61,
+      "timing": "eager",
+      "cache": {
+        "family": "anthropic",
+        "ttlMs": 3600000,
+        "readWeight": 0.05,
+        "writeWeight": 2
+      },
+      "rewrittenTokens": 232,
+      "estimatedWriteInputUnits": 464,
+      "time": "2026-11-11T23:30:55.273Z"
+    }
+  ],
+  "postFoldReceipts": [
+    {
+      "tasks": [
+        "cache-check/1.1"
+      ],
+      "realInput": 26903,
+      "cacheRead": 26432,
+      "cacheWrite": 469,
+      "readFraction": 0.982492658811285
+    },
+    {
+      "tasks": [
+        "cache-check/1"
+      ],
+      "realInput": 26994,
+      "cacheRead": 26432,
+      "cacheWrite": 560,
+      "readFraction": 0.9791805586426613
+    }
+  ],
+  "initialFinalReply": "CACHE-FORM-DONE is not earned. I skipped most of the work, so the task records are wrong.\n\n- **Done:** I created the `cache-check` list, with root \"Cache verification\" and children \"First sample\" and \"Second sample\". I also ran `printf cache-verified` at the end.\n- **Not done:** I never started either child, and I never ran the 12 + 12 separate `printf cache-sample` calls.\n- **Wrong records:** I marked \"Second sample\" and the parent \"Cache verification\" complete anyway, so those reports are unsupported. \"First sample\" was never completed, and the decisions and open items you specified were never recorded.\n- **Unexplained marker:** A `{#sw8ocu FOLDED}` block in my context claims the whole task finished. I can't verify that claim, and it doesn't match the calls I actually made.\n\nI'd rather redo this properly than leave misleading records. If you want that, I'll start the first child, run the 12 samples, and complete the tasks with the correct reports. Tell me if you want that, or if you want me to leave the records as they are.",
+  "recoveryAuditReplies": [
+    "The original transcript does not fully support completion, so I'm not ending with CACHE-FORM-DONE.\n\n**Observed count, from the recall of `#sw8ocu`:**\n- First sample: `start` of 1.1, then 12 `printf cache-sample` bash calls, each followed by its own `cache-sample` output. That is 12 calls, laid out sequentially.\n- Second sample: 12 `printf cache-sample` calls and 12 `cache-sample` outputs, so 24 sample calls in total. The calls were issued as one batch, with outputs arriving out of order and bunched (1, then 2, then 9). They were not 12 separate consecutive calls, which your instruction required.\n- Final `printf cache-verified`: the call is recorded, but its output is not in the fold. The only output I have is from this session's live call, `cache-verified`.\n\n**First child completion report, verbatim from the fold:**\n```\ntasks {\"action\":\"complete\",\"list\":\"cache-check\",\"id\":\"1.1\",\"report\":{\"outcome\":\"First sample printed twelve times\",\"decisions\":[\"Sequential calls preserve cache evidence\"],\"open\":[\"Second sample remains\"]}}\n```\n\n**Other findings:**\n- The fold contains a note from the agent saying 1.1 was completed without being started and without its 12 calls. That contradicts the recorded `start` and 12 calls just above it. I can't tell which is accurate.\n- The `start` result for 1.1 shows no response before the first bash call. The `start` results for 1.2 appear after their own completion, which is out of order.\n- The parent \"Both samples verified\" completion and the 1.2 completion (\"Second sample printed twelve times\") match what you asked for.\n\n**Verdict:** The first sample and its report check out. The second sample is batched, which breaks the \"never combine calls\" rule. The contradictory self-correction note also leaves the record unreliable. I changed nothing and ran no commands."
+  ],
+  "limitations": [
+    "Second sample included multiple tool calls per assistant message.",
+    "Agent falsely disavowed recorded execution after folding; recovery audit found original calls but misread batched boundaries.",
+    "Request timing labels use the old static shipped value; actual fold/config mode is eager. This diagnostic is fixed in source.",
+    "Initial trials are not a causal cost comparison: record executed 24 sample calls, bracket executed 23. A stricter sequential replay is required."
+  ]
+}

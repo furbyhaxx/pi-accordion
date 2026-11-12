@@ -1,0 +1,47 @@
+messages 53 requests 20 tasks 3 finished 3 crossing 0 leaves 2 | fit S=25428 k=4.113 (first fold at message 33)
+REAL  input 0.5M read 0.5M write 0.03M mean 27018
+
+== anthropic-1h (ttl 3600s, lookback 20) ==
+policy | frontier bp | bracket | fold events | mean input | peak | read M | write M | cost M (sonnet/opus 5.5) | cost M (standard)
+none | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08 | 0.11
+pressure | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08 | 0.11
+shipped | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08 | 0.11
+lazy | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08 | 0.11
+eager | 0 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.09 | 0.11
+eager | 1 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.09 | 0.11
+eager | 2 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.09 | 0.11
+eager | 0 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.09 | 0.11
+eager | 1 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.09 | 0.11
+
+== anthropic-5m (ttl 300s, lookback 20) ==
+policy | frontier bp | bracket | fold events | mean input | peak | read M | write M | cost M (sonnet/opus 5.5) | cost M (standard)
+none | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+pressure | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+shipped | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+lazy | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 0 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 1 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 2 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 0 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 1 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.06 | 0.09
+
+== openai-30m (ttl 1800s, lookback 40) ==
+policy | frontier bp | bracket | fold events | mean input | peak | read M | write M | cost M (gpt-6.1) | cost M (standard)
+none | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+pressure | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+shipped | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+lazy | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 0 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 1 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 2 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 0 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.06 | 0.09
+eager | 1 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.06 | 0.09
+
+== prefix-lcp (ttl 1800s, lookback n/a) ==
+policy | frontier bp | bracket | fold events | mean input | peak | read M | write M | cost M (no write charge)
+none | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08
+pressure | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08
+shipped | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08
+lazy | 0 | no | 0 | 27358 | 29545 | 0.5 | 0.03 | 0.08
+eager | 0 | no | 2 | 27115 | 28690 | 0.5 | 0.03 | 0.08
+eager | 0 | yes | 2 | 27070 | 28550 | 0.5 | 0.03 | 0.08

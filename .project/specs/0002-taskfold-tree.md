@@ -5,20 +5,20 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 33
+  revision: 34
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-12T00:16:34+01:00"
+  updated_at: "2026-11-12T01:20:02+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 33
-      reason: "live-verified user-message routing integrity"
-      changes: ["reuse identical goal and criterion ids", "bind extraction to its originating list", "classifier fallback when no facts were recorded"]
+    - revision: 34
+      reason: "implement opt-in bracket tails with recoverable composed records"
+      changes: ["closing-message brackets", "report omission and restoration follow actual collapse", "first-request bracket folding", "absorbed descendants are not raw zombies"]
 ---
 
 # Taskfold
 
-Implemented and merged into `feat/pi-native`; the implementation plans are deleted.
+The Taskfold tree is implemented; active changes are tracked in project task lists and `BACKLOG.md`.
 
 This spec amends SPEC-0001 §4.3, §4.4, §4.10, §4.11 and §4.15. Each slice that changes one of those
 behaviours updates SPEC-0001 in the same commit.
@@ -692,9 +692,15 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
   the raw `core/tokens.ts` estimate. Deepest full child records become history entries (§6.3)
   until the child budget fits or none remain. Own fields and pins never veto a fold; even a
   minimum history subtree may exceed the cap rather than losing text or recovery handles.
-- `taskfold.leafForm = "record" | "bracket"` (default `record`). `bracket` (B→S) keeps a leaf's
-  original `tasks start` and finishing call/result pairs around a record without `outcome`, and
-  becomes a plain record once its parent folds. Comprehension equal, cost ≤2 % higher.
+- `taskfold.leafForm = "record" | "bracket"` (default `record`). `bracket` folds before the
+  finishing call's entire assistant message, leaving that message and its results verbatim. The
+  opening call folds normally. The carrier omits its own `outcome`, `decisions` and `open` because
+  they remain in the original closing call; root history also omits that duplicate outcome.
+- When a parent absorbs a child's closing call, that child's report returns, subject to normal
+  history reduction. If child and parent share a visible closing message, the report stays raw
+  without a duplicate in the record. Recovery handles cover folded prefixes, then extend through
+  absorbed closing tails. Automatically closed tasks without an explicit closing call use record.
+  A task entirely inside a retained closing message stays raw and gets no empty recovery handle.
 
 ### 6.3 History (H)
 
@@ -778,7 +784,7 @@ is written once in its final form and never rewritten.
 
 | Event | Effect at the first eligible request (timing below) |
 |---|---|
-| a task finishes inside an open parent | its span becomes a record (§6.2) once another message follows its closing message and none of its user messages is still being classified (a folded span is never re-extended, so it folds whole or not yet) |
+| a task finishes inside an open parent | its span becomes a record (§6.2) once another message follows its closing message, or immediately with a bracket tail; pending user-message classification/routing must settle first |
 | a non-root parent finishes | its span becomes one record composing its children's records |
 | a root finishes | its whole span becomes history (§6.3) |
 | pressure ≥ `high` inside an open root | finished subtrees, oldest first, become history until `low` |
@@ -790,8 +796,8 @@ is written once in its final form and never rewritten.
   tail). While attached, the user's tail dial is locked; Taskfold applies its value to pressure folds
   of open and untracked work (§9.2, §9.3). On detach the dial returns as far as it leaves every fold
   outside the tail.
-- **A record never ends the request.** A span whose last message is the newest message waits one
-  step, so the wire never ends on an assistant carrier.
+- **A carrier never ends the request.** Record form waits for a following message. Bracket form
+  retains the original closing call/result, so it can fold at the first post-completion request.
 - **The first request after load waits for the epoch.** Taskfold declares `holdWireUpToMs`, and its
   `wire-departing` handler returns the epoch that is still committing. After a resume, restart or
   model change the host fires that epoch on attach; the hold makes the first request carry its folds
@@ -800,7 +806,7 @@ is written once in its final form and never rewritten.
 - **Finished-task timing is explicit.** `eager` (default for every provider) folds at the first safe
   request, regardless of span length. `lazy` folds only when the cache is cold/expired or pressure
   reaches `high`. `pressure` folds only at `high`. There is no 20-block or deep-span eligibility veto.
-  Safety gates still apply, including the following-message guard and pending user-message routing.
+  Safety gates still apply, including the record following-message guard and pending user routing.
   A mode change applies at the next epoch and never unfolds existing groups. Pressure relief for
   open tasks and untracked work continues in every mode.
 - **Cache facts are host-scoped.** `core/cacheProfiles.ts` resolves exact model, provider wildcard,
@@ -1011,7 +1017,8 @@ Records: `request` (model, estimate, actual input/cache receipt, k and full/live
 `cache-profile` (main-provider retention observation), `complete` (model, purpose, usage/cost,
 stop reason, first 2,000 reply characters or error), `route-retry`, `tasks` (rejected call) and
 `truth` (rebuild/resync). Rewrite estimates are not observed cache billing. A finished task still
-raw after 40 tool results warns with its key and reason.
+raw after 40 tool results warns with its key and reason. Tasks covered by an ancestor's visible
+recovery handle count as folded, including descendants not individually named in root history.
 
 Writes yield off the calling hook and use asynchronous filesystem APIs. Files are mode 0600,
 bounded to 50 MiB; at overflow, the oldest half is discarded on whole JSONL boundaries.
