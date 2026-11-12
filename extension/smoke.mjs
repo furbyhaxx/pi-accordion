@@ -18,6 +18,7 @@
 import { createJiti } from "jiti";
 import { WebSocket } from "ws";
 import * as fs from "node:fs";
+import dns from "node:dns";
 import { spawn, spawnSync } from "node:child_process";
 import * as http from "node:http";
 import * as net from "node:net";
@@ -1749,6 +1750,86 @@ await new Promise((r) => setTimeout(r, 50));
 	Y.h.session_shutdown({}, Y.ctx);
 	Z.h.session_shutdown({}, Z.ctx);
 	await new Promise((resolve) => foreign.close(resolve));
+	const config = path.join(HOME, ".accordion", "config.json");
+	const previousConfig = fs.existsSync(config) ? fs.readFileSync(config) : undefined;
+	const previousPoll = process.env.ACCORDION_CONTROLLER_POLL_MS;
+	delete process.env.ACCORDION_DOOR_PORT;
+	process.env.ACCORDION_CONTROLLER_POLL_MS = "10";
+	try {
+		const retiredPort = await freePort();
+		const originalLookup = dns.lookup;
+		const pending = [];
+		let delayed;
+		dns.lookup = (hostname, options, callback) => {
+			if (hostname !== "pending-door.test") return originalLookup(hostname, options, callback);
+			pending.push(() => callback(null, [{ address: "127.0.0.1", family: 4 }]));
+		};
+		try {
+			fs.writeFileSync(config, JSON.stringify({ bindHost: "pending-door.test", doorPort: retiredPort }));
+			delayed = makeExtension();
+			delayed.h.session_start({ type: "session_start", reason: "startup" }, delayed.ctx);
+			if (!(await waitForAsync(() => pending.length > 0, 500))) fails.push("door rebind: deferred DNS fixture did not reach a lookup");
+			fs.writeFileSync(config, JSON.stringify({ bindHost: "127.0.0.1", doorPort: 0 }));
+			await new Promise(resolve => setTimeout(resolve, 50));
+			for (const release of pending.splice(0)) release();
+			await new Promise(resolve => setTimeout(resolve, 50));
+			if (await doorMeta(retiredPort)) fails.push("door rebind: a retired DNS-pending listener survived disabling the door");
+		} finally {
+			dns.lookup = originalLookup;
+			for (const release of pending.splice(0)) release();
+			await new Promise(resolve => setTimeout(resolve, 10));
+			delayed?.h.session_shutdown({}, delayed.ctx);
+		}
+
+		let retiredResponse;
+		let retiredClosed = false;
+		const retired = http.createServer((_request, response) => {
+			retiredResponse = response;
+			response.once("close", () => { retiredClosed = true; });
+		});
+		let peer, moving;
+		await new Promise((resolve, reject) => { retired.once("error", reject); retired.listen(0, "127.0.0.1", resolve); });
+		const occupiedPort = retired.address().port;
+		try {
+			const targetPort = await freePort();
+			process.env.ACCORDION_DOOR_PORT = String(targetPort);
+			peer = makeExtension();
+			peer.h.session_start({ type: "session_start", reason: "startup" }, peer.ctx);
+			if (!(await waitForAsync(async () => (await doorMeta(targetPort))?.served === true, 1000))) fails.push("door rebind: target peer did not start");
+			const peerId = (await doorMeta(targetPort))?.sessionId;
+			delete process.env.ACCORDION_DOOR_PORT;
+			fs.writeFileSync(config, JSON.stringify({ bindHost: "127.0.0.1", doorPort: occupiedPort }));
+			moving = makeExtension();
+			moving.h.session_start({ type: "session_start", reason: "startup" }, moving.ctx);
+			if (!(await waitForAsync(() => !!retiredResponse, 500))) fails.push("door rebind: retired occupancy probe did not start");
+			fs.writeFileSync(config, JSON.stringify({ bindHost: "127.0.0.1", doorPort: targetPort }));
+			if (!(await waitForAsync(() => retiredClosed, 250))) fails.push("door rebind: reconfiguration did not cancel the retired occupancy probe");
+			if (retiredResponse && !retiredResponse.destroyed) retiredResponse.end(JSON.stringify({ served: false }));
+			await new Promise(resolve => setTimeout(resolve, 50));
+			peer.h.session_shutdown({}, peer.ctx); peer = undefined;
+			if (!(await waitForAsync(async () => { const meta = await doorMeta(targetPort); return meta?.served === true && meta.sessionId !== peerId; }, 2000)))
+				fails.push("door rebind: a retired foreign result disabled takeover at the new port");
+			retiredResponse = undefined; retiredClosed = false;
+			fs.writeFileSync(config, JSON.stringify({ bindHost: "127.0.0.1", doorPort: occupiedPort }));
+			if (!(await waitForAsync(() => !!retiredResponse, 500))) fails.push("door shutdown: occupancy probe did not start");
+			moving.h.session_shutdown({}, moving.ctx);
+			if (!(await waitForAsync(() => retiredClosed, 250))) fails.push("door shutdown: pending occupancy probe was not cancelled");
+			retired.closeAllConnections();
+			await new Promise(resolve => retired.close(resolve));
+			await new Promise(resolve => setTimeout(resolve, 350));
+			if (await doorMeta(occupiedPort)) fails.push("door shutdown: a retired callback restarted the listener");
+		} finally {
+			peer?.h.session_shutdown({}, peer.ctx);
+			moving?.h.session_shutdown({}, moving.ctx);
+			retired.closeAllConnections();
+			if (retired.listening) await new Promise(resolve => retired.close(resolve));
+		}
+	} finally {
+		if (previousConfig === undefined) fs.rmSync(config, { force: true });
+		else fs.writeFileSync(config, previousConfig);
+		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
+		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
+	}
 	process.env.ACCORDION_DOOR_PORT = "0";
 	await new Promise((r) => setTimeout(r, 200));
 }

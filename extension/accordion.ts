@@ -614,6 +614,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// The additional fixed-port listeners this extension binds IFF it currently holds the door.
 	let doorServer: http.Server | null = null;
 	let doorWss: WebSocketServer | null = null;
+	let doorAttempt: AbortController | null = null;
 	let doorHeld = false;      // we successfully bound and hold the door port
 	let doorBinding = false;   // a bind attempt is in flight (guards concurrent tryBindDoor)
 	let doorForeign = false;   // the door port is held by NON-Accordion software -> stood down permanently
@@ -1970,7 +1971,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * mismatched-version Accordion is "transient", NOT foreign: a busy or momentarily-unavailable peer
 	 * must never trigger a PERMANENT door stand-down. Bounded (DOOR_PROBE_MS); never on the hook path.
 	 */
-	function probeDoor(): Promise<DoorProbe> {
+	function probeDoor(signal?: AbortSignal): Promise<DoorProbe> {
 		const dp = resolvedDoorPort();
 		if (dp === null) return Promise.resolve("transient");
 		const probeHost = isLoopbackHost(activeBindHost()) || activeBindHost() === "0.0.0.0" || activeBindHost() === "::" ? "127.0.0.1" : activeBindHost();
@@ -1985,7 +1986,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			};
 			// A timeout means we never got a completed response — AMBIGUOUS (a busy/slow peer), not foreign.
 			const deadline = setTimeout(() => { request?.destroy(); finish("transient"); }, DOOR_PROBE_MS);
-			request = http.get({ hostname: probeHost, port: dp, path: "/__accordion/meta" }, (response) => {
+			request = http.get({ hostname: probeHost, port: dp, path: "/__accordion/meta", signal }, (response) => {
 				if (probeHost === "127.0.0.1" && !isLoopbackPeer(response.socket.remoteAddress)) { response.destroy(); finish("transient"); return; }
 				// A COMPLETED non-200 HTTP response is a live server that isn't our (ungated, always-200)
 				// /meta contract — definitive foreign software.
@@ -2051,6 +2052,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// /accordion print path must never see doorHeld=true with an empty secret. ensureDoorSecret's
 		// bounded retry re-invokes this the moment the secret resolves.
 		if (!doorSecret) { ensureDoorSecret(); if (!doorSecret) return; }
+		doorAttempt?.abort();
+		const attempt = new AbortController();
+		doorAttempt = attempt;
 		doorBinding = true;
 		let server: http.Server;
 		let dwss: WebSocketServer;
@@ -2062,14 +2066,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			scheduleDoorRetry();
 			return;
 		}
+		doorServer = server;
+		doorWss = dwss;
 		dwss.on("connection", onWsConnection);
 		dwss.on("error", () => { /* best-effort: a door WS error runs headless, like the ephemeral one */ });
-		server.once("error", (err: NodeJS.ErrnoException) => {
-			doorBinding = false;
+		server.on("error", (err: NodeJS.ErrnoException) => {
 			try { dwss.close(); } catch { /* ignore */ }
 			try { server.close(); } catch { /* ignore */ }
+			if (doorServer !== server) return;
+			doorServer = null; doorWss = null; doorHeld = false; doorBinding = false;
 			if (err?.code === "EADDRINUSE") {
-				void probeDoor().then((result) => {
+				void probeDoor(attempt.signal).then((result) => {
+					if (attempt.signal.aborted) return;
 					if (result === "accordion") {
 						scheduleDoorRetry(); // a matching live Accordion door holds it -> stand by, re-check
 					} else if (result === "foreign") {
@@ -2092,21 +2100,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// listen(PORT, "127.0.0.1") do NOT both bind — the loser cleanly gets EADDRINUSE (no SO_REUSEADDR
 		// hijack). So the EADDRINUSE probe path above is the sole arbitration; no lockfile is needed.
 		server.listen(dp, activeBindHost(), () => {
+			if (doorServer !== server) return;
 			doorBinding = false;
-			doorServer = server;
-			doorWss = dwss;
 			doorHeld = true;
-			// A post-listen server error (rare) drops the door -> reset + let the retry timer reclaim it.
-			server.on("error", () => {
-				try { dwss.close(); } catch { /* ignore */ }
-				try { server.close(); } catch { /* ignore */ }
-				doorServer = null; doorWss = null; doorHeld = false;
-				scheduleDoorRetry();
-			});
 		});
 	}
 
 	function closeDoor(): void {
+		doorAttempt?.abort();
+		doorAttempt = null;
 		if (doorRetryTimer) { clearTimeout(doorRetryTimer); doorRetryTimer = null; }
 		if (doorSecretRetryTimer) { clearTimeout(doorSecretRetryTimer); doorSecretRetryTimer = null; }
 		doorSecretTries = 0;

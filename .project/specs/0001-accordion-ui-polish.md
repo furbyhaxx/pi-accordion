@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 17
+  revision: 18
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T05:03:42+01:00"
+  updated_at: "2026-11-12T05:21:23+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 17
-      reason: "propagate shared token rotation without retaining stale bearer aliases"
-      changes: ["secret polling is independent of config parsing", "session startup re-reads the shared secret", "invalid replacement bytes retain the valid cache", "token rotation preserves independent trust paths and existing sockets"]
+    - revision: 18
+      reason: "retire door listener and occupancy-probe attempts on reconfiguration or shutdown"
+      changes: ["own pending listeners before DNS resolves", "cancel retired probe HTTP requests", "ignore stale listener and probe callbacks"]
 ---
 
 # Accordion UI polish
@@ -784,6 +784,9 @@ export class SettingsStore {
 | `conductorOptions.<id>` | if `<id>` is attached, re-select it (detach + attach) |
 | `modelDefaults.*` | re-resolve budget/tail for the current model, preserving session-set values |
 | others | none (apply at next session start) |
+
+Listener ownership is recorded before DNS resolves. Rebind and shutdown close pending listeners,
+cancel probe HTTP requests and prevent retired callbacks from changing flags or scheduling retries.
 
 ### 6.4 Privacy changes
 

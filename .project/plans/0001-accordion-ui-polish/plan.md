@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 14
+  revision: 15
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T05:03:42+01:00"
+  updated_at: "2026-11-12T05:21:23+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 14
-      reason: "propagate generated shared token rotations across sessions"
-      changes: ["independent secret polling and stale alias replacement", "startup adopts rotations before polling", "HTTP cookie and browser WebSocket checks", "clarify token rotation trust boundaries"]
+    - revision: 15
+      reason: "cancel stale door binds and occupancy probes"
+      changes: ["pending DNS listeners are owned before listening", "probe requests cancel on rebind and shutdown", "retired callbacks cannot disable replacement listeners or restart a stopped door", "real loopback regression coverage"]
 ---
 
 # Accordion UI polish: plan
@@ -220,12 +220,15 @@ stale per-session aliases. Real loopback HTTP/cookie and WebSocket handshakes ve
 acceptance and old bearer rejection; malformed secret bytes retain the valid token. Replacement
 startup adopts rotations before its first poll. Trusted local/native paths and existing sockets
 are intentionally not revoked by rotation; the confirmation and README make that limit explicit.
+
+Door attempts now own their listeners before DNS resolves, cancel retired probe requests, and
+ignore stale callbacks. Loopback regressions reproduce and protect disabled-door resurrection,
+an old foreign result blocking takeover at a new port, and retries returning after shutdown.
 All 167 settings, dials, lock and TUI tests, native smokes, clean Svelte check and 1,077 app tests
 pass (21 existing skips). Expanded strict checking still reports the seven unchanged diagnostics:
 three TS2612 conductor declarations, two optional URL arguments and two tool-result `details`
 signatures.
-Pending: safe rebind lifecycle,
-conductor option declarations and the live two-Pi sync check. Settings WebSocket frames belong
+Pending: conductor option declarations and the live two-Pi sync check. Settings WebSocket frames belong
 to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:
