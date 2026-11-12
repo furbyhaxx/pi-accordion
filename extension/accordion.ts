@@ -62,7 +62,7 @@ import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
 import { observedCacheTtl } from "./cacheRetention";
 import { taskCacheFrontier } from "./taskCache";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
-import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
+import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach, type CoachPolicy } from "./taskCoach";
 import { deliverContext, deliveryKey, liveDeliveryKeys, PIN_LIMITS, PinError } from "./taskPins";
 import { symbolFiles, warmSymbols } from "./taskSymbols";
 import { taskEventOf } from "./taskEvents";
@@ -3285,6 +3285,27 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// on the outer call's persisted result instead (SPEC-0002 §5.3).
 	const nestedTaskEvents = new TaskEventQueue();
 
+	/** Tool calls that never count as work: the protocol's own tools read state, they do not change it. */
+	const PROTOCOL_TOOLS = new Set(["tasks", "unfold", "recall"]);
+
+	// The gate refuses, before the call runs, work that belongs to no task — with the call that repairs it.
+	pi.on("tool_call", (event, ctx: ExtensionContext) => {
+		if (!tasksToolActive() || PROTOCOL_TOOLS.has(event.toolName) || latestCtx?.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()) return undefined;
+		try {
+			taskCoach.setList(attachedList(taskStoreFor(ctx).claimedBySession()));
+		} catch {
+			/* an unreadable list directory just means no gate */
+		}
+		taskCoach.setPolicy(coachPolicy());
+		const decision = taskCoach.callStarted(!!event.parentToolCallId);
+		if (decision.opened) {
+			const text = `accordion tasks: the gate opened for the rest of this run after ${settings.tasks.gateFailOpenAfter} refusals; continue, but this work is not recorded under any task.`;
+			ctx.ui.notify(text, "warning");
+			broadcast({ type: "notice", text });
+		}
+		return decision.refuse ? { block: true, reason: decision.refuse } : undefined;
+	});
+
 	// Coaching on the task protocol rides on tool results: work outside any task gets a reminder.
 	pi.on("tool_result", (event, ctx: ExtensionContext) => {
 		const details = event.parentToolCallId ? null : withTaskEvents(event.details, nestedTaskEvents.take(event.toolCallId));
@@ -3297,7 +3318,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			/* an unreadable list directory just means no coaching */
 		}
 		taskCoach.setList(list);
-		taskCoach.setPolicy({ orientationCalls: settings.tasks.orientationCalls });
+		taskCoach.setPolicy(coachPolicy());
 		void flushTaskNotices(ctx);
 		const note = taskCoach.toolResult(!!event.parentToolCallId);
 		return note ? { ...withDetails, content: [...event.content, { type: "text" as const, text: note }] } : withDetails;
@@ -3352,6 +3373,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const content = [tool, bootstrap, list].filter(Boolean).join("\n\n");
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
+
+	function coachPolicy(): CoachPolicy {
+		return {
+			orientationCalls: settings.tasks.orientationCalls,
+			enforce: settings.tasks.enforce,
+			gateFailOpenAfter: settings.tasks.gateFailOpenAfter,
+		};
+	}
 
 	/** Bootstrap the protocol once per session: tools are there, but no list is attached yet. */
 	let bootstrapShown = false;

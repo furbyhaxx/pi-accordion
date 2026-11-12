@@ -11,9 +11,22 @@ import { currentBlock, IDLE_REASONS, type BlockReason, type Task, type TaskList 
  */
 export const DEFAULT_ORIENTATION_CALLS = 10;
 
-/** The coach's configuration; the extension re-reads it from settings on every result. */
+/** `coach` reminds, `gate` refuses with the repair, `off` says nothing. */
+export type EnforceMode = "coach" | "gate" | "off";
+
+/** The coach's configuration; the extension re-reads it from settings on every call. */
 export interface CoachPolicy {
 	orientationCalls: number;
+	enforce: EnforceMode;
+	/** Consecutive refusals after which the gate stays open for the rest of the run. */
+	gateFailOpenAfter: number;
+}
+
+/** What the gate decided about one call: block it, and/or report that it gave up. */
+export interface CallDecision {
+	refuse?: string;
+	/** The gate opened after `gateFailOpenAfter` refusals; the extension notifies once. */
+	opened?: boolean;
 }
 
 function ancestors(id: string): string[] {
@@ -81,9 +94,12 @@ export const TEXT_WORK_CHARS = 40;
 
 export class TaskCoach {
 	private list: TaskList | null = null;
-	private policy: CoachPolicy = { orientationCalls: DEFAULT_ORIENTATION_CALLS };
+	private policy: CoachPolicy = { orientationCalls: DEFAULT_ORIENTATION_CALLS, enforce: "coach", gateFailOpenAfter: 3 };
 	/** Non-exempt calls since the last user prompt. */
 	private calls = 0;
+	/** Refusals in this run, and whether the gate already gave up on it. */
+	private refusals = 0;
+	private opened = false;
 	/** Once per run each: a reminder that repeats is noise, and gate mode carries the refusal. */
 	private remindedNoList = false;
 	private remindedNoLeaf = false;
@@ -102,6 +118,8 @@ export class TaskCoach {
 	/** A new user prompt starts a fresh run: the orientation allowance and the reminders reset. */
 	userPrompt(): void {
 		this.calls = 0;
+		this.refusals = 0;
+		this.opened = false;
 		this.remindedNoList = false;
 		this.remindedNoLeaf = false;
 	}
@@ -111,6 +129,26 @@ export class TaskCoach {
 		// A tool call batched with the start may report before it, and a resumed task keeps its work.
 		for (const id of ids) if (!this.work.has(`${slug}/${id}`)) this.work.set(`${slug}/${id}`, 0);
 		this.calls = 0;
+	}
+
+	/**
+	 * A non-exempt tool call is about to run. Nested calls count as work but are never refused, so a
+	 * blocking decision always belongs to an outer call the model can see.
+	 */
+	callStarted(nested: boolean): CallDecision {
+		this.calls++;
+		const policy = this.policy;
+		if (policy.enforce !== "gate") return {};
+		const list = this.list;
+		if (list && innermostDoing(list)) return {};
+		if (this.calls <= policy.orientationCalls || nested || this.opened) return {};
+		// The configured number of refusals is honoured, then the gate gives up rather than argue.
+		if (this.refusals >= policy.gateFailOpenAfter) {
+			this.opened = true;
+			return { opened: true };
+		}
+		this.refusals++;
+		return { refuse: list ? noLeafRefusal(list, this.calls) : noListRefusal(this.calls) };
 	}
 
 	private countWork(list: TaskList, current: Task): void {
@@ -124,6 +162,14 @@ export class TaskCoach {
 	assistantText(chars: number): void {
 		const current = this.list && innermostDoing(this.list);
 		if (current && chars > TEXT_WORK_CHARS) this.countWork(this.list!, current);
+	}
+
+	/** Work still counts while coaching is off or gated; only the reminders are suppressed. */
+	private countOnly(): null {
+		const list = this.list;
+		const current = list && innermostDoing(list);
+		if (list && current) this.countWork(list, current);
+		return null;
 	}
 
 	/** Work counted inside a task's span, or undefined when this process did not see it start. */
@@ -141,7 +187,7 @@ export class TaskCoach {
 	 * another tool) count as work but never carry a reminder of their own.
 	 */
 	toolResult(nested: boolean): string | null {
-		this.calls++;
+		if (this.policy.enforce !== "coach") return this.countOnly();
 		const list = this.list;
 		if (list) {
 			const current = innermostDoing(list);
@@ -180,4 +226,18 @@ export function emptySpanRefusal(slug: string, id: string, previous: string | nu
 /** The reminder for work that belongs to no list at all. */
 export function noListReminder(calls: number): string {
 	return `[accordion tasks] ${calls} tool calls ran with no task list attached, so this work belongs to no record. If it is more than a one-step errand, create or claim a list before continuing: tasks create {list: "<slug>", title: "<title>", goals: ["<end state>"], tasks: [{title: "<first outcome>", acceptanceCriteria: ["<checkable statement>"]}]}.`;
+}
+
+/** The refusal for work that belongs to no list at all, naming the exact call that repairs it. */
+export function noListRefusal(calls: number): string {
+	return `[accordion tasks] Blocked: ${calls} tool calls ran with no task list attached, so this work would belong to no record. Create or claim a list first — tasks create {list: "<slug>", title: "<title>", goals: ["<end state>"], tasks: [{title: "<first outcome>", acceptanceCriteria: ["<checkable statement>"]}]} — or, if this really is a one-step errand, say so and use tasks.enforce off for this session.`;
+}
+
+/** The refusal for a list that exists while no leaf is in progress. */
+export function noLeafRefusal(list: TaskList, calls: number): string {
+	const pick = nextTask(list);
+	if (!pick) return `[accordion tasks] Blocked: every task of "${list.slug}" is finished, failed or abandoned. Add the next task before continuing — tasks add {list: "${list.slug}", tasks: [{title: "<next outcome>", acceptanceCriteria: ["<checkable statement>"]}]}.`;
+	const next = pick.task;
+	const why = pick.resume ? `resume ${next.id} "${next.title}", which was waiting for ${currentBlock(next)?.on}` : `start ${next.id} "${next.title}"`;
+	return `[accordion tasks] Blocked: ${calls} tool calls ran while no task of "${list.slug}" is in progress. Repair it with tasks start {list: "${list.slug}", id: "${next.id}"} (${why}) before running more work.`;
 }

@@ -9,7 +9,7 @@ describe("task coach", () => {
 	test("reminds once after the orientation allowance, naming the next task", () => {
 		const c = new TaskCoach();
 		c.setList(list([t("1", "done"), t("2", "todo", "Wire it")]));
-		const notes = Array.from({ length: 20 }, () => c.toolResult(false));
+		const notes = Array.from({ length: 20 }, () => { c.callStarted(false); return c.toolResult(false); });
 		expect(notes.map((n, i) => (n ? i + 1 : 0)).filter(Boolean)).toEqual([11]);
 		expect(notes[10]).toContain('next to do: 2 "Wire it"');
 	});
@@ -17,32 +17,34 @@ describe("task coach", () => {
 	test("a new user prompt restores the allowance and the reminder", () => {
 		const c = new TaskCoach();
 		c.setList(list([t("1", "todo", "Wire it")]));
-		c.setPolicy({ orientationCalls: 2 });
-		expect([1, 2, 3].map(() => c.toolResult(false)).filter(Boolean)).toHaveLength(1);
+		c.setPolicy({ orientationCalls: 2, enforce: "coach", gateFailOpenAfter: 3 });
+		const call = () => { c.callStarted(false); return c.toolResult(false); };
+		expect([1, 2, 3].map(call).filter(Boolean)).toHaveLength(1);
 		c.userPrompt();
-		expect([1, 2, 3].map(() => c.toolResult(false)).filter(Boolean)).toHaveLength(1);
+		expect([1, 2, 3].map(call).filter(Boolean)).toHaveLength(1);
 	});
 
 	test("reminds once about work that belongs to no list at all", () => {
 		const c = new TaskCoach();
-		c.setPolicy({ orientationCalls: 1 });
-		expect(c.toolResult(false)).toBeNull();
-		const note = c.toolResult(false);
-		expect(note).toContain("no task list attached");
-		expect(c.toolResult(false)).toBeNull();
+		c.setPolicy({ orientationCalls: 1, enforce: "coach", gateFailOpenAfter: 3 });
+		const call = () => { c.callStarted(false); return c.toolResult(false); };
+		expect(call()).toBeNull();
+		expect(call()).toContain("no task list attached");
+		expect(call()).toBeNull();
 		c.userPrompt();
-		expect(c.toolResult(false)).toBeNull();
-		expect(c.toolResult(false)).toContain("no task list attached");
+		expect(call()).toBeNull();
+		expect(call()).toContain("no task list attached");
 	});
 
 	test("stays quiet inside a task, for nested calls, and when nothing is left to do", () => {
 		const c = new TaskCoach();
+		const call = (nested = false) => { c.callStarted(nested); return c.toolResult(nested); };
 		c.setList(list([t("1", "doing")]));
-		expect([1, 2, 3, 4].map(() => c.toolResult(false))).toEqual([null, null, null, null]);
+		expect([1, 2, 3, 4].map(() => call())).toEqual([null, null, null, null]);
 		c.setList(list([t("1", "todo")]));
-		expect([1, 2, 3].map(() => c.toolResult(true))).toEqual([null, null, null]);
+		expect([1, 2, 3].map(() => call(true))).toEqual([null, null, null]);
 		c.setList(list([t("1", "done")]));
-		expect([1, 2, 3].map(() => c.toolResult(false))).toEqual([null, null, null]);
+		expect([1, 2, 3].map(() => call())).toEqual([null, null, null]);
 	});
 
 	test("counts span work for the task and its ancestors, including long assistant text", () => {
@@ -92,5 +94,57 @@ describe("task coach", () => {
 		expect(idleVerdict(l([t("1", "doing"), t("1.1", "doing")]))).toEqual({ state: "in-progress", task: "1.1" });
 		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "todo")]))).toEqual({ state: "pending", next: "2" });
 		expect(idleVerdict(l([t("1", "done"), t("2", "abandoned")]))).toEqual({ state: "finished" });
+	});
+});
+
+describe("gate", () => {
+	const gate = () => {
+		const c = new TaskCoach();
+		c.setPolicy({ orientationCalls: 1, enforce: "gate", gateFailOpenAfter: 3 });
+		return c;
+	};
+
+	test("refuses with the exact repair once the allowance is spent", () => {
+		const c = gate();
+		c.setList(list([t("1", "todo", "Wire it")]));
+		expect(c.callStarted(false)).toEqual({});
+		const first = c.callStarted(false);
+		expect(first.refuse).toContain('tasks start {list: "w", id: "1"}');
+		expect(first.opened).toBeUndefined();
+	});
+
+	test("names a create when no list is attached", () => {
+		const c = gate();
+		c.callStarted(false);
+		expect(c.callStarted(false).refuse).toContain("tasks create");
+	});
+
+	test("counts nested calls but only refuses the outer one", () => {
+		const c = gate();
+		expect(c.callStarted(true)).toEqual({});
+		expect(c.callStarted(false).refuse).toBeDefined();
+	});
+
+	test("opens for the rest of the run after repeated refusals, and a prompt closes it", () => {
+		const c = gate();
+		c.callStarted(false);
+		for (let i = 0; i < 3; i++) expect(c.callStarted(false).refuse).toBeDefined();
+		expect(c.callStarted(false)).toEqual({ opened: true });
+		expect(c.callStarted(false).refuse).toBeUndefined();
+		c.userPrompt();
+		c.callStarted(false);
+		expect(c.callStarted(false).refuse).toBeDefined();
+	});
+
+	test("stays silent inside a task and in coach or off mode", () => {
+		const inside = gate();
+		inside.setList(list([t("1", "doing")]));
+		inside.callStarted(false);
+		expect(inside.callStarted(false)).toEqual({});
+		for (const enforce of ["coach", "off"] as const) {
+			const c = new TaskCoach();
+			c.setPolicy({ orientationCalls: 0, enforce, gateFailOpenAfter: 3 });
+			expect(c.callStarted(false)).toEqual({});
+		}
 	});
 });

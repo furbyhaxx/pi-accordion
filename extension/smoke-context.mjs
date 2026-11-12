@@ -255,7 +255,10 @@ check("bootstrap and coaching honour the orientation allowance", async () => {
 		const first = await r.handlers.before_agent_start({}, r.ctx);
 		assert.match(first?.message?.content ?? "", /No task list is attached to this session/, "the protocol is introduced once");
 		assert.equal(await r.handlers.before_agent_start({}, r.ctx), undefined, "and never again");
-		const result = () => r.handlers.tool_result({ toolName: "bash", toolCallId: `c${Math.random()}`, content: [{ type: "text", text: "ok" }] }, r.ctx);
+		const result = () => {
+			r.handlers.tool_call({ toolName: "bash", toolCallId: `c${Math.random()}`, input: {} }, r.ctx);
+			return r.handlers.tool_result({ toolName: "bash", toolCallId: `c${Math.random()}`, content: [{ type: "text", text: "ok" }] }, r.ctx);
+		};
 		// An untouched result comes back undefined: the handler only returns content when it adds a note.
 		const size = (reply) => reply?.content?.length ?? 0;
 		assert.equal(size(result()), 0, "the first call is orientation");
@@ -263,6 +266,36 @@ check("bootstrap and coaching honour the orientation allowance", async () => {
 		const third = result();
 		assert.match(third?.content?.at(-1)?.text ?? "", /no task list attached/, "the reminder rides on the result");
 		assert.equal(size(result()), 0, "a reminder repeats only after the next prompt");
+	} finally { r.close(); fs.rmSync(config, { force: true }); }
+});
+
+check("gate mode refuses unrecorded work, counts nested calls and opens after repeated refusals", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({
+		defaultConductor: "none",
+		privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" },
+		tasks: { bootstrapNote: false, enforce: "gate", orientationCalls: 1, gateFailOpenAfter: 3 },
+	}));
+	const r = runtime();
+	const notices = [];
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		r.ctx.ui.notify = (text) => notices.push(text);
+		const call = (toolName = "bash", nested = false) => r.handlers.tool_call({ toolName, toolCallId: `c${Math.random()}`, parentToolCallId: nested ? "parent" : undefined, input: {} }, r.ctx);
+		assert.equal(call(), undefined, "the first call is orientation");
+		const refused = call();
+		assert.equal(refused?.block, true, "the second call is blocked");
+		assert.match(refused?.reason ?? "", /tasks create/, "and names the repair");
+		assert.equal(call("bash", true), undefined, "a nested call counts but is never refused");
+		assert.equal(call()?.block, true, "the gate still refuses the outer call");
+		const third = call();
+		assert.equal(third?.block, true, "a third refusal is still a refusal");
+		assert.deepEqual(call(), undefined, "and the gate opens after the configured refusals");
+		assert.equal(notices.filter((n) => /gate opened/.test(n)).length, 1, "the user hears it once");
+		assert.equal(call()?.block, undefined, "stays open for the run");
+		assert.equal(call("unfold"), undefined, "protocol tools never count");
+		assert.equal(call("tasks"), undefined);
 	} finally { r.close(); fs.rmSync(config, { force: true }); }
 });
 
