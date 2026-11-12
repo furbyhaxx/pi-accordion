@@ -48,11 +48,11 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as http from "node:http";
 import * as crypto from "node:crypto";
-import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { Type } from "typebox";
 import { BLOCK_REASONS, TASK_ACTIONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
+import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
@@ -2139,33 +2139,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return { lease: next, changed };
 	}
 
-	// The permanent sidecar is a mutex, not lease storage; never unlink or replace it.
-	// SQLite releases its OS lock on close/crash. Upstream writers do not honor this lock.
 	function withControllerLeaseLock(action: () => void): "done" | "busy" | "failed" {
-		let db: DatabaseSync | undefined;
-		try {
-			fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
-			db = new DatabaseSync(`${CONTROLLER_PATH}.lock.sqlite`);
-			db.exec("BEGIN IMMEDIATE");
-			action();
-			return "done";
-		} catch (error) {
-			if (error instanceof Error && "errcode" in error && error.errcode === 5) return "busy";
-			return "failed";
-		} finally {
-			try { db?.close(); } catch { /* ignore */ }
-		}
+		return withSidecarLock(CONTROLLER_PATH, action).status;
 	}
 
 	async function claimWithControllerLeaseLock(action: () => void, active: () => boolean): Promise<boolean> {
-		const deadline = Date.now() + 5_000;
-		while (active() && Date.now() < deadline) {
-			const result = withControllerLeaseLock(action);
-			if (result === "done") return true;
-			if (result === "failed") return false;
-			await new Promise<void>((resolve) => setTimeout(resolve, 25));
-		}
-		return false;
+		return (await withSidecarLockRetry(CONTROLLER_PATH, action, { active, timeoutMs: 5000 })).status === "done";
 	}
 
 	/** Atomic write-rename of controller.json (same pattern as a registry entry). Updates the in-memory

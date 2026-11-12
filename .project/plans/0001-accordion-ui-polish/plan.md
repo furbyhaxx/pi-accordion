@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-11T17:49:04+01:00"
+  updated_at: "2026-11-12T03:22:08+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 5
-      reason: "handoff consumed and deleted; protocol number corrected"
-      changes: ["type-check command, live run and traps moved in from the handoff", "base branch is feat/pi-native", "S6 is protocol v24: v23 is taken by task handles"]
+    - revision: 6
+      reason: "start the shared settings foundation before configurable reliability controls"
+      changes: ["sidecar mutex extracted and verified", "S2–S3 precede the independent footer work"]
 ---
 
 # Accordion UI polish: plan
@@ -28,9 +28,9 @@ implementation must deviate, update the spec in the same change.
 done  S0  Taskfold visibility unit and task tooling (§4)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
-next  S1c Footer (§8)
-later S2  Settings store, sync, schema (§6.1, §6.3)
-later S3  Settings screen (§6.2)
+now   S2  Settings store, sync, schema (§6.1, §6.3): shared mutex done; schema next
+next  S3  Settings screen (§6.2)
+later S1c Footer (§8)
 later S4  Compaction (§7)
 later S5  Panel screens (§5.3–5.8)
 later S6  Protocol v24 and web app (§9)
@@ -191,6 +191,8 @@ Result: 227 bun tests and smoke pass. The control takeover prompt lists `Open re
 `thinking-high/`: the rules carry the same color as the editor border at both levels.
 
 ## S2: settings store, sync and schema
+
+Delivered: the shared permanent SQLite mutex; five focused tests, strict typecheck and native smoke pass.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted
