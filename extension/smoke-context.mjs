@@ -673,6 +673,71 @@ check("debug records receipts and rejected tasks without synchronous writes on t
 	assert.ok(rows.some(row => row.type === "tasks" && row.error));
 	assert.ok(rows.some(row => row.type === "cache-profile" && row.cache.ttlMs === 43_200_000));
 });
+check("Anthropic task frontiers are request-local, opt-in and session-bound", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-cache-frontier-"));
+	const messages = [{ role: "user", content: [{ type: "text", text: "Exercise task frontiers." }], timestamp: 1 }];
+	const r = runtime(messages, { cwd: dir, sessionId: "frontier-smoke" });
+	const run = args => r.tools.tasks.execute("frontier-start", args, undefined, undefined, r.ctx);
+	try {
+		r.ctx.model = { ...r.ctx.model, provider: "claude", id: "claude-sonnet-5-5", api: "anthropic-messages" };
+		r.ctx.modelRegistry = { isUsingOAuth: () => true, getAvailable: () => [], find: () => undefined, getApiKey: async () => undefined };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		const host = await r.open();
+		await host.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+		await r.command("debug on");
+		await run({ action: "create", list: "frontier", title: "Frontier", goals: ["Keep a stable prefix"], tasks: [{ title: "Parent", subtasks: [{ title: "Child" }] }] });
+		const args = { action: "start", list: "frontier", id: "1.1" };
+		const started = await run(args);
+		messages.push({ role: "assistant", responseId: "frontier-start-message", timestamp: 2, content: [
+			{ type: "thinking", thinking: "Plan a frontier.", thinkingSignature: "frontier-opening-seal" },
+			{ type: "toolCall", id: "frontier-start", name: "tasks", arguments: args },
+		] }, { role: "toolResult", toolCallId: "frontier-start", toolName: "tasks", timestamp: 3, ...started, isError: false });
+		await r.request(messages);
+		const control = { type: "ephemeral", ttl: "1h" };
+		const payload = {
+			model: r.ctx.model.id,
+			tools: [{ name: "tasks", input_schema: {}, cache_control: control }],
+			system: [{ type: "text", text: "Instructions", cache_control: control }],
+			messages: [
+				{ role: "user", content: [{ type: "text", text: "Exercise task frontiers." }] },
+				{ role: "assistant", content: [{ type: "thinking", thinking: "Plan a frontier.", signature: "frontier-opening-seal" }, { type: "tool_use", id: "frontier-start", name: "tasks", input: args }] },
+				{ role: "user", content: [{ type: "tool_result", tool_use_id: "frontier-start", content: started.content, cache_control: control }] },
+			],
+		};
+		const original = structuredClone(payload), rev = host.truth().rev;
+		const edited = r.handlers.before_provider_request({ payload }, r.ctx);
+		assert.ok(edited, "armed Anthropic Taskfold adds a frontier");
+		assert.deepEqual(edited.messages[0].content[0], { type: "text", text: "Exercise task frontiers.", cache_control: control });
+		assert.deepEqual(edited.messages[1], payload.messages[1], "sealed opening reasoning stays whole");
+		assert.deepEqual(edited.system, [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." }, payload.system[0]]);
+		assert.deepEqual(payload, original, "the original request remains unchanged");
+		assert.equal(host.truth().rev, rev, "a cache hint never mutates Truth");
+		assert.equal(r.handlers.before_provider_request({ payload: { ...payload, model: "another-model" } }, r.ctx), undefined);
+		const anthropic = r.ctx.model;
+		r.ctx.model = { ...anthropic, api: "openai-completions" };
+		assert.equal(r.handlers.before_provider_request({ payload }, r.ctx), undefined, "the Anthropic optimization does not steer other APIs");
+		r.ctx.model = anthropic;
+		await host.command({ kind: "setFolding", value: false });
+		assert.equal(r.handlers.before_provider_request({ payload }, r.ctx), undefined, "folding off means passthrough");
+		await host.command({ kind: "setFolding", value: true });
+		await host.command({ kind: "selectConductor", id: "keel-lite" });
+		assert.equal(r.handlers.before_provider_request({ payload }, r.ctx), undefined, "other conductors keep their policy");
+		await r.handlers.session_shutdown({}, r.ctx);
+		messages.splice(0, messages.length, { role: "user", content: "A new session", timestamp: 9 });
+		r.entries.length = 0;
+		r.ctx.sessionManager.getSessionId = () => "frontier-replacement";
+		await r.handlers.session_start({ reason: "new" }, r.ctx);
+		const replacement = await r.open();
+		await replacement.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+		await r.request(messages);
+		assert.equal(r.handlers.before_provider_request({ payload }, r.ctx), undefined, "old task starts cannot steer a replacement session");
+	} finally { await r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+	const rows = fs.readFileSync(path.join(home, ".accordion/debug/frontier-smoke.jsonl"), "utf8").trim().split("\n").map(JSON.parse);
+	assert.ok(rows.some(row => row.type === "cache-frontier" && row.reason === "applied" && row.task === "frontier/1.1" && row.markers === 4));
+	assert.ok(rows.filter(row => row.type === "cache-frontier").every(row => !("payload" in row)));
+});
 let failures = 0;
 try {
 	for (const { name, fn } of checks) {

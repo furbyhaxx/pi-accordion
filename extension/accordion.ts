@@ -59,6 +59,7 @@ import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens,
 import { cacheProfileFor } from "../core/cacheProfiles";
 import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
 import { observedCacheTtl } from "./cacheRetention";
+import { taskCacheFrontier } from "./taskCache";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach } from "./taskCoach";
 import { deliverContext, deliveryKey, liveDeliveryKeys, PIN_LIMITS, PinError } from "./taskPins";
@@ -3618,12 +3619,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return flush?.catch((error: Error) => shutdownCtx?.ui.notify(`Debug log: ${error.message}`, "warning"));
 	});
 
-	pi.on("before_provider_request", (event) => {
+	pi.on("before_provider_request", (event, ctx) => {
 		if (!sessionId) return;
 		const spec = modelSpec() ?? "*";
-		observedTtl = observedCacheTtl(event.payload, cacheProfileFor(spec).family);
+		const family = cacheProfileFor(spec).family;
+		let payload = event.payload;
+		const requestModel = payload && typeof payload === "object" && "model" in payload ? payload.model : undefined;
+		if (foldingEnabled && truth && liveHost.activeMeta()?.id === "taskfold" && family === "anthropic"
+			&& ctx.model?.api === "anthropic-messages" && requestModel === ctx.model.id) {
+			const { payload: edited, ...frontier } = taskCacheFrontier(payload, truth.blocks, lastMessages,
+				ctx.model.provider === "claude" && ctx.modelRegistry.isUsingOAuth(ctx.model));
+			debug({ type: "cache-frontier", ...frontier });
+			if (edited) payload = edited;
+		}
+		observedTtl = observedCacheTtl(payload, family);
 		lastRequestAt = Date.now();
 		debug({ type: "cache-profile", model: spec, cache: cacheProfileFor(spec, observedTtl) });
+		return payload === event.payload ? undefined : payload;
 	});
 
 	async function handleAccordionWebCommand(ctx: ExtensionCommandContext): Promise<void> {

@@ -41,6 +41,12 @@ Cache profiles live in `core/cacheProfiles.ts`; observable main-provider retenti
 TTL. Model/session changes start cold. Unknown backends use a 5-minute prefix profile without an
 assumed discount. Debug cost estimates are diagnostic, not provider invoices.
 
+For Anthropic Messages, the armed native extension adds a cache breakpoint just before the
+innermost open task's opening message. This lets later folds reuse an unchanged sibling record.
+It preserves content, TTL order and the four-marker limit, reusing only a redundant OAuth identity
+marker; unsafe or missing boundaries are skipped. Debug `cache-frontier` records explain each edit
+or skip. Other provider APIs are unchanged; a cache hit is still not guaranteed.
+
 | Event | What replaces the span |
 |---|---|
 | a task finishes inside an open parent | a record (below) |

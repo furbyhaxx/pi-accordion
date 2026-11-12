@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 34
+  revision: 35
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-12T01:20:02+01:00"
+  updated_at: "2026-11-12T02:39:46+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 34
-      reason: "implement opt-in bracket tails with recoverable composed records"
-      changes: ["closing-message brackets", "report omission and restoration follow actual collapse", "first-request bracket folding", "absorbed descendants are not raw zombies"]
+    - revision: 35
+      reason: "anchor the Anthropic cache at the active task frontier"
+      changes: ["request-local frontier compiler", "bounded OAuth marker replacement", "content and TTL preservation", "live sibling-prefix reuse"]
 ---
 
 # Taskfold
@@ -814,6 +814,15 @@ is written once in its final form and never rewritten.
   family, TTL, read/write weights. The last main-provider payload overrides TTL when its retention
   is observable; a model/session change clears that observation and starts cold. `lazy` compares
   the last request's age with this TTL; mixed breakpoints conservatively use the longest retention.
+- **Anthropic task frontier.** While folding is armed and Taskfold is attached, the native
+  `before_provider_request` hook adds a breakpoint before the innermost open task's whole opening
+  message. It matches the actual provider blocks, including merged assistant messages and sealed
+  reasoning, then selects the preceding cacheable block. It changes no Truth or message content.
+  The verified post-hook Claude OAuth transport gets its existing identity seeded without a marker;
+  otherwise only a redundant identity marker covered by an equivalent later system marker is reused.
+  Existing system/tool/tail markers and TTL order are preserved within four slots. Disabled caching,
+  missing/ambiguous/uncacheable boundaries, unsupported controls or exhausted slots leave the payload
+  unchanged. This applies only to Anthropic Messages requests, not other provider APIs.
 - No other aging. A history entry is never rewritten, merged or shortened. (Merging all history
   under pressure was measured: up to 20× more rebilled tokens on the nukular session.)
 - History within an open root rewrites from the oldest affected subtree onward: it happens only
@@ -1014,8 +1023,9 @@ default. Logs live in `~/.accordion/debug/<sessionId>.jsonl` (under `ACCORDION_H
 Records: `request` (model, estimate, actual input/cache receipt, k and full/live tokens), `epoch`
 (timing, cold/pressure state, cache profile, planned units and a reason per finished task), `fold`
 (key, carrier tokens, savings, changed frontier and frontier-based rewrite/cost estimates),
-`cache-profile` (main-provider retention observation), `complete` (model, purpose, usage/cost,
-stop reason, first 2,000 reply characters or error), `route-retry`, `tasks` (rejected call) and
+`cache-profile` (main-provider retention observation), `cache-frontier` (task, physical position,
+marker count or skip reason), `complete` (model, purpose, usage/cost, stop reason, first 2,000 reply
+characters or error), `route-retry`, `tasks` (rejected call) and
 `truth` (rebuild/resync). Rewrite estimates are not observed cache billing. A finished task still
 raw after 40 tool results warns with its key and reason. Tasks covered by an ancestor's visible
 recovery handle count as folded, including descendants not individually named in root history.

@@ -132,6 +132,11 @@ Settings stages the global value until `ctrl+s`; the footer shows the resolved m
 unfold existing groups. Cache TTL comes from the last provider payload when observable, else the
 core profile (unknown backends: 5-minute prefix cache).
 
+Armed Anthropic Taskfold requests also place a cache breakpoint before the innermost open task.
+The request-local edit preserves content, TTL order and four slots, replacing a redundant OAuth
+identity marker when needed. Missing/unsafe boundaries are skipped; `cache-frontier` debug records
+name the edit or skip reason. Other APIs are unchanged, and cache hits are not guaranteed.
+
 A finished root becomes stable whole-outcome history; records inside an open root become history
 under pressure (`high`, `low`). Taskfold holds the protected-tail lock so finished spans need not
 leave a token tail; your locked tail dial still limits pressure folding. Record form waits for a

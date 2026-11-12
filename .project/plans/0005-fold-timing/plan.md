@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 9
+  revision: 10
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-12T01:20:02+01:00"
+  updated_at: "2026-11-12T02:41:28+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 9
-      reason: "implement bracket tails and evaluate both forms live"
-      changes: ["opt-in bracket compiler and recovery", "shared-tail report accounting", "absorbed-task diagnostics", "verified serial Anthropic traces", "record-prefix misses require S6"]
+    - revision: 10
+      reason: "complete and verify the Anthropic task-frontier breakpoint"
+      changes: ["marker-only hash probe", "pure bounded frontier compiler", "gated native hook", "live updated-sibling prefix reuse"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -30,7 +30,7 @@ done  S2  Row accounting and routing fixes
 done  S3  Report limits, tool description, record cap unit
 done  S4  Timing modes, eager default, cache profile, 20-block rule removed
 done  S5  Opt-in bracket tail; paired serial Anthropic traces and replay
-next  S6  Frontier breakpoint: record mode still misses the updated sibling prefix
+done  S6  Anthropic frontier; marker-only stability and updated-sibling reuse verified live
 ```
 
 S1 comes first because S4–S6 are judged from its log. S2 and S3 are independent of each other and
@@ -79,6 +79,19 @@ calls with matching outputs per form, no batched calls, all completions, and suc
 recall audits. Both simulators ran. Overall post-fold hit ratios near 99% mask the remaining
 record-mode sibling-prefix miss; S6 proceeds. Record remains the default, not an inferred winner
 from one pair with differing model reasoning.
+
+S6: `evidence/frontier-live/` proves that moving only a marker preserves all 37,470 cached tokens,
+while a text-change control misses. The native hook now adds a safe frontier before the active
+task's opening message, preserving content, reasoning, TTL order and four slots after OAuth
+transport shaping. A live record replay executed all 24 numbered calls and all completions:
+36 HTTP-200 requests, no fifth marker, and a second fold reading the updated sibling prefix
+(26,698 cached tokens versus the old 26,603-token boundary). This is a targeted correctness
+result, not a cost/latency benchmark. Implementation is complete; packaging/integration and merge
+remain tracked in project tasks, so this unmerged plan and its evidence stay present.
+
+S6 gates: 600 targeted Bun tests, 1,076 app tests (21 existing skips), clean Svelte check and all
+native smoke suites pass. The custom extension TypeScript check retains seven baseline errors;
+it is not a passing gate. Browser production packaging remains in final integration.
 
 ## Why
 
@@ -178,9 +191,8 @@ are approximated; three sessions.
 
 ## Branching and environment
 
-- Base `origin/feat/pi-native`; one worktree and branch per slice under `.pi/worktrees/`:
-  S1 `feat/accordion-debug`, S2 `fix/task-rows-routing`, S3 `feat/report-limits`,
-  S4 `feat/fold-timing`, S5 `feat/bracket-tail`, S6 `feat/frontier-breakpoint`.
+- Base `origin/feat/pi-native`; active implementation uses `feat/backlog-completion` in
+  `.pi/worktrees/backlog-completion`, with granular Conventional Commits per slice.
 - `npm --prefix extension ci` per worktree.
 - Gates for every slice: `bun test conductors/in-process/taskfold/*.test.ts extension/*.test.ts
   extension/tui/*.test.ts core/*.test.ts`, `npm --prefix extension run smoke`,
@@ -376,17 +388,23 @@ a causal cost comparison. SPEC §6.2/§8 now describe implemented behavior.
 
 ## S6: frontier breakpoint (Anthropic only)
 
-Only if S5's logs still show cache misses at folds. Through `before_provider_request`, add a
-breakpoint on the last block before the innermost open task's start. With an OAuth token it
-replaces the breakpoint on the identity system block, which the system prompt's breakpoint already
-covers. Verify live first that moving a marker alone does not change the prefix hash. If S5 makes
-it unnecessary, record that here and close the plan.
+Implemented in `extension/taskCache.ts` and the native `before_provider_request` hook. Only armed
+Anthropic Messages requests with Taskfold attached participate. The compiler uniquely locates
+the complete opening assistant message against actual provider content, including merged messages
+and sealed/redacted reasoning. It adds a breakpoint on the preceding cacheable block without
+rewriting content, changing Truth, dropping other useful markers or violating mixed-TTL order.
+Unsupported/ambiguous/absent boundaries and exhausted marker slots are explicit safe skips.
 
-S5 decision: proceed for the default record form. At the second leaf fold, record mode reads
-the same 26,601-token entry from before the first leaf, not the unchanged preceding record.
-Bracket mode reads 27,536 tokens, exactly its pre-second-leaf cacheable prefix. The short trial's
-near-99% aggregate hit ratio hides the small remaining working-prefix miss; more retained records
-would amplify it. Verify marker-hash stability live before introducing a record-mode frontier.
+The known Claude OAuth transport adds its identity after this hook. Seeding that same identity
+without a marker prevents a fifth slot; an already-visible redundant identity marker is removed
+only when an equivalent later system marker covers it. API-key requests gain no identity text.
+The three-request marker probe and final-fetch observer verify these transport assumptions live.
+
+Tests cover physical merged-message boundaries, preserved reasoning/content, TTL order, slot
+limits, disabled caching, pause/resume and native lifecycle/API/conductor gating. The record replay
+verifies all 24 numbered outputs, all three completions, 36 HTTP-200 requests and no more than four
+final OAuth markers. The second fold reuses the 95-token updated sibling prefix that S5 missed;
+`evidence/frontier-live/README.md` explains the receipts and local material hashes.
 
 ## Done
 
