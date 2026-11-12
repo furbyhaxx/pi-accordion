@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 18
+  revision: 19
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T05:21:23+01:00"
+  updated_at: "2026-11-12T07:51:51+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 18
-      reason: "retire door listener and occupancy-probe attempts on reconfiguration or shutdown"
-      changes: ["own pending listeners before DNS resolves", "cancel retired probe HTTP requests", "ignore stale listener and probe callbacks"]
+    - revision: 19
+      reason: "keep confirmation choices visible above Pi's reserved footer rows"
+      changes: ["reserve confirmation body space for question and choices", "move clipped facts to the description", "scroll choices with selection"]
 ---
 
 # Accordion UI polish
@@ -513,7 +513,8 @@ The nine lines of the dashboard standard, on every screen:
   key: results plain, refusals `▲` (warning), failures `✗` (error). A read-only panel prefixes
   `read-only · reopen /accordion`.
 - Drill-in screens (Inspector, inline editor, confirm, scope prompt, help) keep the tab bar and add
-  a breadcrumb level. A confirm lists the safe choice first.
+  a breadcrumb level. A confirm lists the safe choice first and reserves body space for question
+  and choices; clipped facts use the description. Extra choices scroll with the selection.
 
 | Key | Action |
 |---|---|

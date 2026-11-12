@@ -89,7 +89,10 @@ def _wait(condition: Callable[[], bool], *, timeout: float = 5) -> None:
 def _selected(name: str) -> str | None:
     for line in _screen(name).splitlines():
         for row in ROWS:
-            if re.match(r"\s*→ " + re.escape(row) + r"\s", line):
+            labels = [row] if len(row) <= 16 else [row, row[:15] + "…"]
+            if any(
+                re.match(r"\s*→ " + re.escape(label) + r"\s", line) for label in labels
+            ):
                 return row
     return None
 
@@ -225,7 +228,10 @@ def _control(name: str) -> None:
 def _tab(name: str, title: str) -> None:
     for _ in range(5):
         before = _screen(name)
-        if f"Accordion › {title}" in before:
+        if any(
+            line.startswith("──") and f"› {title} " in line
+            for line in before.splitlines()
+        ):
             return
         _tmux("send-keys", "-t", f"{name}:0.0", "Tab")
 

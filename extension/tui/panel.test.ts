@@ -22,7 +22,7 @@ const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.do
 const K = { up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
 const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
-function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
+function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, terminalRows = 24) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
 	let currentTruth: Truth | null = truth;
@@ -94,7 +94,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 	let confirmations: string[] = [];
 	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
 		finish = () => { component?.dispose?.(); resolve(undefined); };
-		component = factory({ terminal: { rows: 24 }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value, inverse: (value: string) => value }, { matches: (data: string, action: string) => matchesKey(data, BINDINGS[action] as Parameters<typeof matchesKey>[1]), getKeys: (action: string) => [BINDINGS[action]] }, (value: unknown) => { component?.dispose?.(); resolve(value); });
+		component = factory({ terminal: { rows: terminalRows }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value, inverse: (value: string) => value }, { matches: (data: string, action: string) => matchesKey(data, BINDINGS[action] as Parameters<typeof matchesKey>[1]), getKeys: (action: string) => [BINDINGS[action]] }, (value: unknown) => { component?.dispose?.(); resolve(value); });
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
@@ -605,11 +605,13 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
-	test("a new token is generated only after confirming", async () => {
-		const s = setup(false, "settings");
+	test.each([24, 16])("a new token needs visible confirmation with %i terminal rows", async (terminalRows) => {
+		const s = setup(false, "settings", undefined, terminalRows);
 		for (let i = 0; i < 8; i++) s.panel.handleInput(K.down);
 		expect(s.cursor()).toContain("kave4ton");
 		s.panel.handleInput(K.alt("r"));
+		expect(s.screen(36)).toContain("Generate a new web access token?");
+		expect(s.screen(36)).toContain("Generate new token");
 		expect(s.cursor()).toContain("Keep token");
 		s.panel.handleInput(K.enter);
 		expect(s.cursor()).toContain("kave4ton");

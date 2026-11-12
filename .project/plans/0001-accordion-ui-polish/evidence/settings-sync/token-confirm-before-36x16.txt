@@ -1,0 +1,16 @@
+
+── … › New token ───────────────────
+ …❱ Conductors ❱ Settings  5/5
+ ⌕
+
+  Generate a new web access token?
+  Use the new URL for browser acces…
+  This applies at once and is not s…
+
+────────────────────────────────────
+ The first choice is the safe one.
+ ↑↓ move · enter choose · esc cancel
+────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accord...
+$0.000 (sub) 0.0%/372k (auto)  gpt-6
+accordion off
