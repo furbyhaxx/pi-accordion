@@ -336,6 +336,24 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("model picker and privacy confirmation fit narrow and wide terminals", async () => {
+		const s = setup(false, "settings");
+		s.host.models = async () => [{ provider: "vendor", id: "model", name: "wide 界 \u001b]0;unsafe\u0007" }];
+		s.settings().privacyConsent = { "remote-consent": "2026-11-12T08:00:00Z" };
+		const check = () => {
+			for (const width of [20, 36, 57, 80, 140]) {
+				const lines = s.panel.render(width);
+				expect(lines).toHaveLength(12 + CHROME_ROWS);
+				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+				expect(lines.join("")).not.toContain("\u001b]");
+				expect(lines.join("")).not.toContain("\u0007");
+			}
+		};
+		selectSetting(s, "Chat model"); s.panel.handleInput(K.enter); await tick(); check();
+		s.panel.handleInput(K.esc); selectSetting(s, "remote-consent"); s.panel.handleInput(K.alt("d")); check();
+		s.panel.handleInput(K.esc); s.close(); await s.opening;
+	});
+
 	test("does not open custom UI in headless mode", async () => {
 		const s = setup();
 		let called = false;
@@ -428,7 +446,7 @@ describe("accordion panel", () => {
 		const reach: Record<string, string[]> = {
 			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1],
 			conductors: [K.tab], consent: [K.tab, K.down, K.enter],
-			settings: [K.tab, K.tab], confirm: [K.tab, K.tab], timing: [K.tab, K.tab], picker: [K.tab, K.tab],
+			settings: [K.tab, K.tab], confirm: [K.tab, K.tab], timing: [K.tab, K.tab], picker: [K.tab, K.tab], modelpicker: [K.tab, K.tab],
 		};
 		for (const [name, path] of Object.entries(reach)) {
 			const s = setup();
@@ -437,6 +455,7 @@ describe("accordion panel", () => {
 			if (name === "confirm") { selectSetting(s, "Web access token"); s.panel.handleInput(K.alt("r")); }
 			if (name === "timing") selectSetting(s, "Task fold timing");
 			if (name === "picker") { selectSetting(s, "Default conductor"); s.panel.handleInput(K.enter); }
+			if (name === "modelpicker") { s.host.models = async () => [{ provider: "vendor", id: "example", name: "Example" }]; selectSetting(s, "Chat model"); s.panel.handleInput(K.enter); await tick(); }
 			const rule = s.panel.render(100)[0];
 			for (const key of printable) s.panel.handleInput(key);
 			await tick();
