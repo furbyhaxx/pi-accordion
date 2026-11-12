@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 35
+  revision: 36
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-12T02:39:46+01:00"
+  updated_at: "2026-11-12T03:02:28+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 35
-      reason: "anchor the Anthropic cache at the active task frontier"
-      changes: ["request-local frontier compiler", "bounded OAuth marker replacement", "content and TTL preservation", "live sibling-prefix reuse"]
+    - revision: 36
+      reason: "point the remaining reliability scope to executable work"
+      changes: ["reliability evidence and exclusions point to PLAN-0006", "rejected request HUD removed from the future scope"]
 ---
 
 # Taskfold
@@ -26,17 +26,17 @@ behaviours updates SPEC-0001 in the same commit.
 Evidence it builds on:
 - `.project/analyses/orientation-modes/README.md` (experiments from branch `exp/orientation-modes`)
 - `.project/analyses/2026-11-05-taskfold-session-failures/analysis.md` and
-  `.project/drafts/taskfold-reliability.md` (from branch `fix/failing-sessions`)
+  `.project/plans/0006-taskfold-reliability/plan.md` (reliability decisions from branch `fix/failing-sessions`)
 
-Only these artifacts were copied from the two branches. Their code is ported, not merged, except
+The evidence originated in those branches; their code is ported, not merged, except
 commit `f04f39d`.
 
 ## 1. Scope
 
 | In | Out (separate changes) |
 |---|---|
-| Task list file v3 (nested, `goals`, `acceptanceCriteria`, item ids, pins, attachments) and v1/v2 migration | Synthetic usage units and calibration bounds (fixed upstream; accepted as wrong for now) |
-| Store actions `update`, `move`, `add before/after`, `pin`/`unpin`, `attach`/`detach` | Sequential-order enforcement, `delegated`, HUD, gate, consent decoupling, prompt rewrite (`DRAFT-taskfold-reliability` §5–6) |
+| Task list file v3 (nested, `goals`, `acceptanceCriteria`, item ids, pins, attachments) and v1/v2 migration | Synthetic usage units and calibration bounds (PLAN-0006) |
+| Store actions `update`, `move`, `add before/after`, `pin`/`unpin`, `attach`/`detach` | Sequential order, `delegated`, coaching/gate, consent decoupling and measured prompt rewrite (PLAN-0006) |
 | Span intervals, structured span facts, cascade nodes | Making `acceptanceCriteria` required |
 | Tree planner, flat compiler, composed records, `Group.handles` | Orientation typed fold, agent orientation task, doorman, keel-note note |
 | Aging by task age, keep-recent by finish order | |

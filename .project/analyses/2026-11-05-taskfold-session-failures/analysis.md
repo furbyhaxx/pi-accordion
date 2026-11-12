@@ -5,15 +5,15 @@ document:
   title: "Why two Taskfold sessions misused the tasks tool and ran over budget"
   description: "Root causes of tasks-tool misuse and Taskfold budget overruns in two real pig sessions, with replay evidence and ranked remedies"
   status: "draft"
-  revision: 2
+  revision: 3
   created_at: "2026-11-05T15:24:12+01:00"
-  updated_at: "2026-11-05T15:51:30+01:00"
+  updated_at: "2026-11-12T03:02:28+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "pi-auth-plus token research resolves B4"
-      changes: ["B4: Synthetic reports scaled input units and duplicates cacheWrite; S2's real DeepSeek context reached about 361k against a 272k budget", "remedy 9 points to the reliability proposal"]
+    - revision: 3
+      reason: "promote decided reliability work to an executable plan"
+      changes: ["calibration remedy points to PLAN-0006"]
 ---
 
 # Taskfold session failures (2026-11-05)
@@ -132,7 +132,7 @@ Claude's input fell from 267k to 73k between two consecutive requests: S1 lines 
 | 6 | **Coach with no list attached.** Once `tasks` is active and N tool calls have run with no claimed list, remind the agent once to create or claim one. | A1, B3 | Shorter untracked preludes. |
 | 7 | **Actionable lifecycle errors and complete-from-blocked.** Every rejection names the exact next valid call. Allow `complete` on a blocked task, which closes the block. | A3 | Removes the four-rejection loop and false "abandoned" records. |
 | 8 | **Choose the kept task by finish order, and waive it under pressure.** Keep the most recently *finished* root, and fold it too when the context is still over budget after every other candidate. | B2.2 | Prevents one large recent span from pinning the budget. |
-| 9 | **Bound calibration.** Reject an implausible k, de-duplicate `cacheWrite == input`, and prefer a tokenizer recount (pi-auth-plus) over provider units. Superseded by the proposal in `.project/drafts/taskfold-reliability.md`. | B4 | Folding would have started on DeepSeek before line 364. |
+| 9 | **Bound calibration.** Reject an implausible k, de-duplicate `cacheWrite == input`, and prefer a tokenizer recount (pi-auth-plus) over provider units. Implementation: `.project/plans/0006-taskfold-reliability/plan.md`. | B4 | Folding would have started on DeepSeek before line 364. |
 | 10 | **Surface idle verdicts.** On an `in-progress` or `pending` stop, show the user a notice and give the agent a short note on its next prompt. | A4 | Makes premature stops visible. |
 
 Remedies 1–3 are conductor changes in `conductors/in-process/taskfold/taskfold.ts`. Remedies 4, 6 and 10 belong in `extension/taskCoach.ts`, 5 in `extension/accordion.ts` (`selectConductor`, `syncConductorTools`), and 7 in `extension/tasks.ts` together with the tool description. These are SPEC-0001 §4.15 contract changes: change the store, the tool text, the span scan and the views together. The S2 replay is a ready-made regression fixture, but it cannot be committed as is because the session content is private. A scrubbed or synthetic equivalent is needed.
