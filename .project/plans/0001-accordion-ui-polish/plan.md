@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 10
+  revision: 11
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T04:08:00+01:00"
+  updated_at: "2026-11-12T04:25:28+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 10
-      reason: "adopt revisioned partial saves in the native runtime and panel"
-      changes: ["all native writes use the store", "lease and session cancellation", "staged conflicts and override locks", "real terminal locks and partial-save verification at four widths"]
+    - revision: 11
+      reason: "adopt cross-instance hot-policy changes through the shared poll"
+      changes: ["shared adoption path for saves and polling", "retain valid state on read errors", "hot widget row limits", "native polling regression and automated gates"]
 ---
 
 # Accordion UI polish: plan
@@ -203,12 +203,16 @@ All native writes now use partial store saves; the old unlocked writer is remove
 panel retains staged edits and their original revision after errors/conflicts, displays override
 locks, and awaits default saves and token rotation. Waiting writes cancel on session/controller
 replacement. Real Pi verifies env/flag locks, refused locked edits, preserved unrelated fields
-and responsive renders at 36/57/80/140 columns (`evidence/settings-native/`). The 161 settings,
-lock and TUI tests pass, as do native smokes, clean Svelte check and 1,076 app tests (21 existing
-skips). Expanded strict checking reports seven diagnostics in unchanged code: three TS2612
-conductor declarations, two optional URL arguments and two tool-result `details` signatures.
-Pending: cross-instance polling/runtime effects, conductor option declarations and the live
-two-Pi sync check. Aggressive/bake execution remains in S4.
+and responsive renders at 36/57/80/140 columns (`evidence/settings-native/`). Polling now uses
+the same adoption path as native saves; hot compaction policies and widget mode/row limits update
+without restart. Malformed or unreadable files warn once per failure and retain the valid cache;
+repairing the file resumes adoption. The 162 settings, lock and TUI tests pass, as do native smokes,
+clean Svelte check and 1,076 app tests (21 existing skips). Expanded strict checking still reports
+the seven unchanged diagnostics: three TS2612 conductor declarations, two optional URL arguments
+and two tool-result `details` signatures.
+Pending: model-default and privacy effects, door-secret adoption and safe rebind lifecycle,
+conductor option declarations and the live two-Pi sync check. Settings WebSocket frames belong
+to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

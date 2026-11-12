@@ -3,6 +3,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Task, TaskList } from "../tasks";
 import { buildTaskTree, layoutTaskTree, summarizeTasks, type TaskRow } from "./taskTree";
 import { TaskWidgetController, TaskWidgetComponent, applyTaskWidgetHit, foldedTaskIds, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
+import type { TaskWidgetSettings } from "../settings";
 
 const T0 = Date.parse("2026-11-05T08:00:00Z");
 const at = (s: number) => new Date(T0 + s * 1000).toISOString();
@@ -240,6 +241,28 @@ describe("task widget", () => {
 		controller.detach();
 	});
 
+	test("adopts hot row limits and mode without replacing the session's expansion", () => {
+		const prefs: TaskWidgetSettings = { mode: "auto", expanded: true, maxRows: 50, toggleKey: "alt+t" };
+		let component: TaskWidgetComponent | null = null;
+		const controller = new TaskWidgetController({ lists: () => [list(secrets())], session: () => "s1", truth: () => null, enabled: () => true, settings: () => prefs, saveExpanded() {} });
+		controller.attach({ setWidget: (_key, factory) => { component = factory?.({ requestRender() {} }, plain) ?? null; } });
+		const render = () => (component as TaskWidgetComponent | null)?.render(100) ?? [];
+		const before = render();
+		prefs.maxRows = 9;
+		prefs.expanded = false;
+		controller.sync();
+		const after = render();
+		expect(after.length).toBeLessThan(before.length);
+		expect(after[0]).toStartWith("▼ Tasks");
+		expect(after.join("\n")).toContain("… 6 upcoming");
+		prefs.mode = "off";
+		controller.sync();
+		expect(render()).toEqual([]);
+		prefs.mode = "auto";
+		controller.sync();
+		expect(render()[0]).toStartWith("▼ Tasks");
+		controller.detach();
+	});
 	test("remembers the expanded state for later sessions", () => {
 		const prefs = { mode: "auto" as const, expanded: false, maxRows: 12, toggleKey: "alt+t" };
 		const make = () =>

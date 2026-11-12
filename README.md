@@ -277,6 +277,9 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   reversible folding while falling back to native compaction only if a hard overflow is already saturated.
 - Settings saves preserve other writers' unrelated edits and keep conflicting changes staged.
   Environment and flag overrides lock their fields; flags win.
+- Running Pi instances reload settings about once a second. Compaction policies and task-widget
+  visibility/row limits apply immediately; startup defaults wait for a new session.
+  Malformed or unreadable files leave the last valid settings active and produce a warning.
 - `/accordion sessions` selects another live Pi session on the same machine.
 - Budget and protected tail (rows in the Settings tab, or `/accordion budget 200k`, `/accordion tail 20k`)
   accept `200k`, `1M`, `0.5M` or `85%` of the context window. They apply to the session, which

@@ -43,6 +43,15 @@ function valueAt(object: unknown, parts: readonly string[]): unknown {
 	return value;
 }
 
+/** Paths whose effective values or provenance differ, including removed dynamic entries. */
+export function changedSettingPaths(before: SettingsSnapshot, next: SettingsSnapshot): SettingPath[] {
+	const names = new Set([...settingPaths(before.settings), ...settingPaths(next.settings)]);
+	return [...names].filter(name => {
+		const parts = settingParts(name);
+		return parts && (!isDeepStrictEqual(valueAt(before.settings, parts), valueAt(next.settings, parts)) || before.sources[name] !== next.sources[name]);
+	});
+}
+
 function setAt(object: Record<string, unknown>, parts: readonly string[], value: unknown): void {
 	const [key, ...rest] = parts;
 	if (!rest.length) {
@@ -119,11 +128,7 @@ export class SettingsStore {
 		const disk = readDisk(this.file);
 		if (disk.error) throw new Error(disk.error);
 		const next = this.capture(disk);
-		const names = new Set([...settingPaths(this.snapshot.settings), ...settingPaths(next.settings)]);
-		const changed = [...names].filter(name => {
-			const parts = settingParts(name);
-			return parts && (!isDeepStrictEqual(valueAt(this.snapshot.settings, parts), valueAt(next.settings, parts)) || this.snapshot.sources[name] !== next.sources[name]);
-		});
+		const changed = changedSettingPaths(this.snapshot, next);
 		this.snapshot = next;
 		return changed;
 	}

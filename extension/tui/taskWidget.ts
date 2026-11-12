@@ -410,6 +410,7 @@ export class TaskWidgetController {
 
 	/** Show, hide or redraw for the current state; cheap, safe to call on every change. */
 	sync(): void {
+		this.view.maxRows = this.deps.settings().maxRows;
 		const want = !!this.ui && !this.hidden && this.suspensions.size === 0 && (!!this.list || !!this.problem) && this.deps.settings().mode === "auto" && this.deps.enabled();
 		if (want && !this.installed && !this.installing) {
 			if (this.view.showLegend) this.legendSeen = true;

@@ -118,7 +118,7 @@ import {
 	isLoopbackUrl,
 	type AccordionSettings,
 } from "./settings";
-import { SettingsStore, type SettingsFlags, type SettingsSaveResult } from "./settingsStore";
+import { changedSettingPaths, SettingsStore, type SettingsFlags, type SettingsSaveResult, type SettingsSnapshot } from "./settingsStore";
 import type { SettingsPatch } from "./settingsValidation";
 import {
 	REGISTRY_PROTOCOL,
@@ -441,7 +441,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		return flags;
 	});
-	let settings: AccordionSettings = settingsStore.current().settings;
+	let settingsSnapshot = settingsStore.current();
+	let settings: AccordionSettings = settingsSnapshot.settings;
+	let settingsPollFailure: string | null = null;
 	let debugOverride: boolean | null = null;
 	let debugLog: DebugLog | null = null;
 	function debug(record: DebugRecord): void {
@@ -454,20 +456,41 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	function resolvedDoorPort(): number | null { return settings.doorPort > 0 ? settings.doorPort : null; }
 
+	function adoptSettingsSnapshot(next: SettingsSnapshot): void {
+		const changed = changedSettingPaths(settingsSnapshot, next);
+		const before = settings;
+		settingsSnapshot = next;
+		settings = next.settings;
+		if (!changed.length) return;
+		if (settings.customToken !== before.customToken) webToken = settings.customToken ?? generateMemorableToken();
+		if (settings.bindHost !== before.bindHost || settings.doorPort !== before.doorPort) {
+			closeDoor();
+			doorForeign = false;
+			tryBindDoor();
+		}
+		notifyNative();
+	}
+
+	function pollSettingsFile(): void {
+		try { settingsStore.poll(); }
+		catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (message !== settingsPollFailure) {
+				const text = `Accordion settings not reloaded: ${message}`;
+				latestCtx?.ui.notify(text, "warning");
+				broadcast({ type: "notice", text });
+			}
+			settingsPollFailure = message;
+			return;
+		}
+		settingsPollFailure = null;
+		adoptSettingsSnapshot(settingsStore.current());
+	}
+
 	async function saveSettingsPatch(patch: SettingsPatch, baseRev = settingsStore.current().rev, active?: () => boolean): Promise<SettingsSaveResult> {
 		const openedSession = sessionId;
 		const result = await settingsStore.save(patch, baseRev, { active: () => sessionId === openedSession && (!active || active()) });
-		if (result.ok) {
-			const before = settings;
-			settings = settingsStore.current().settings;
-			if (settings.customToken !== before.customToken) webToken = settings.customToken ?? generateMemorableToken();
-			if (settings.bindHost !== before.bindHost || settings.doorPort !== before.doorPort) {
-				closeDoor();
-				doorForeign = false;
-				tryBindDoor();
-			}
-			notifyNative();
-		}
+		if (result.ok) adoptSettingsSnapshot(settingsStore.current());
 		return result;
 	}
 
@@ -2172,6 +2195,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (changed) maybeBroadcastController();
 		const fresh = !!controllerLease && isFreshLease(controllerLease, Date.now());
 		if (fresh !== controllerWasFresh) { controllerWasFresh = fresh; notifyNative(); }
+		pollSettingsFile();
 	}
 
 	/** Refresh a connected holder only after revalidating under the cross-process writer lock. */
@@ -3051,7 +3075,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// resync it — connected clients are NOT dropped across a session_start, so without this a
 		// client's toggle could silently drift from the true (now-reset) internal state.
 		settingsStore.poll();
-		settings = settingsStore.current().settings;
+		adoptSettingsSnapshot(settingsStore.current());
 		setFolding(false);
 		latestCtx = ctx;
 		if (typeof ctx.sessionManager?.getSessionId === "function") taskStoreFor(ctx);

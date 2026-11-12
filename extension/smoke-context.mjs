@@ -123,6 +123,45 @@ check("native settings saves preserve unrelated fields and report same-field con
 		assert.equal(conflict.conflict, true);
 	} finally { r.close(); fs.rmSync(config, { force: true }); }
 });
+check("native polling adopts hot policies, retains valid state on errors and recovers", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	const previousPoll = process.env.ACCORDION_CONTROLLER_POLL_MS;
+	process.env.ACCORDION_CONTROLLER_POLL_MS = "10";
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", compact: { manual: "pass" } }));
+	const r = runtime();
+	const notices = [];
+	r.ctx.ui.notify = text => notices.push(text);
+	try {
+		const host = await r.open();
+		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx).cancel, true);
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", compact: { manual: "native" } }));
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.settings().settings.compact.manual, "native");
+		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
+		const rev = host.settings().rev;
+		fs.writeFileSync(config, '{"customToken":"poll-private-tripwire",');
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.settings().rev, rev, "malformed files must not replace the valid cache");
+		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
+		assert.equal(notices.filter(text => text.startsWith("Accordion settings not reloaded:")).length, 1);
+		assert.doesNotMatch(notices.join("\n"), /poll-private-tripwire/);
+		fs.rmSync(config); fs.mkdirSync(config);
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.settings().rev, rev, "unreadable files must not replace the valid cache");
+		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
+		assert.equal(notices.filter(text => text.startsWith("Accordion settings not reloaded:")).length, 2);
+		fs.rmSync(config, { recursive: true });
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "taskfold", compact: { manual: "pass" } }));
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.settings().settings.compact.manual, "pass");
+		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx).cancel, true);
+		assert.equal(host.activeConductor(), null, "startup defaults must not attach a conductor mid-session");
+	} finally {
+		r.close(); fs.rmSync(config, { force: true, recursive: true });
+		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
+		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
+	}
+});
 check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
 	const r = runtime();
 	try {
