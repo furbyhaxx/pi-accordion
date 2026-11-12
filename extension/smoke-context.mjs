@@ -40,7 +40,7 @@ function runtime(messages = [], options = {}) {
 	};
 	const ctx = {
 		mode: "tui", hasUI: true, cwd: options.cwd ?? home, model,
-		ui: { notify() {}, setStatus() {}, confirm: async () => true, select: async (_title, options) => options.at(-1), theme: { fg: (_c, s) => s } },
+		ui: { notify: (...args) => options.notify?.(...args), setStatus() {}, confirm: async () => true, select: async (_title, options) => options.at(-1), theme: { fg: (_c, s) => s } },
 		sessionManager: {
 			getSessionId: () => options.sessionId ?? "context-test-session",
 			getBranch: () => [...messages.map(message => ({ type: "message", message })), ...entries],
@@ -851,6 +851,34 @@ check("a session starts from its model's prior, and a receipt never lowers the u
 		assert.equal(t.calibration, 1);
 		assert.equal(t.isCalibrated(ordinary()), false);
 		assert.equal(t.calibrationPrior, 1.2);
+	} finally { r.close(); }
+});
+check("an implausible receipt is announced once per provider episode and never moves k", async () => {
+	const notices = [];
+	const r = runtime(history(2), { notify: (text, level) => notices.push({ text, level }) });
+	try {
+		const host = await r.open();
+		const t = host.truth();
+		await r.request(history(2));
+		const bad = { ...history(2)[1], usage: { input: 5, output: 5, cacheRead: 0, cacheWrite: 0 } };
+		r.handlers.message_end({ message: { ...bad, responseId: "bad-1" } }, r.ctx);
+		assert.equal(t.calibration, 1, "a refused receipt must not move the multiplier");
+		const warnings = () => notices.filter(n => n.level === "warning" && /implausible token receipt/.test(n.text));
+		assert.equal(warnings().length, 1);
+		assert.match(warnings()[0].text, /openrouter/);
+
+		// A second bad receipt in the same episode stays silent.
+		await r.request(history(2));
+		r.handlers.message_end({ message: { ...bad, responseId: "bad-2" } }, r.ctx);
+		assert.equal(warnings().length, 1);
+
+		// Switching provider opens a new episode, so the next refusal is announced again.
+		r.ctx.model = { ...r.ctx.model, id: "other", provider: "deepseek" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		await r.request(history(2));
+		r.handlers.message_end({ message: { ...bad, responseId: "bad-3" } }, r.ctx);
+		assert.equal(warnings().length, 2);
+		assert.match(warnings()[1].text, /deepseek/);
 	} finally { r.close(); }
 });
 check("session replacement without a model clears the old window", async () => {
