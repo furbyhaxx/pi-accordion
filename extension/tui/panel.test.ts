@@ -11,7 +11,7 @@ import { openAccordionPanel, type PanelTabId } from "./panel";
 import type { TaskTabsHost } from "./screens/tasks";
 import type { TaskList } from "../tasks";
 import { DEFAULT_SETTINGS } from "../settings";
-import { settingPaths, type SettingsPatch } from "../settingsValidation";
+import { settingPaths, validateSettingsPatch, type SettingsPatch } from "../settingsValidation";
 import type { SettingsSaveResult, SettingsSnapshot } from "../settingsStore";
 
 function block(id: string, order: number): Block {
@@ -577,6 +577,46 @@ describe("accordion panel", () => {
 		expect(s.saveRevisions).toEqual([]);
 		expect(s.settings()).toMatchObject({ autoArm: true, defaultConductor: "keel-lite" });
 		expect(s.screen()).not.toContain("▲ 1 staged");
+		s.close(); await s.opening;
+	});
+
+	test("conductor watermarks validate before staging and together at save", async () => {
+		const s = setup(false, "settings");
+		const patches: SettingsPatch[] = [];
+		s.host.updateSettings = (patch) => {
+			patches.push(patch);
+			const result = validateSettingsPatch(patch, s.settings());
+			return result.ok ? { ok: true, snapshot: s.host.settings!() } : result;
+		};
+		selectSetting(s, "High water");
+		s.panel.handleInput(K.enter); s.panel.handleInput("\x15"); s.panel.handleInput("2");
+		expect(s.screen()).toContain("✗ conductorOptions.taskfold.high");
+		s.panel.handleInput(K.enter);
+		expect(s.screen()).toContain("✗ conductorOptions.taskfold.high");
+		s.panel.handleInput("\x15"); s.panel.handleInput("0.85"); s.panel.handleInput(K.enter);
+		selectSetting(s, "Low water");
+		s.panel.handleInput(K.enter); s.panel.handleInput("\x15"); s.panel.handleInput("0.9"); s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.screen()).toContain("must be less than conductorOptions.taskfold.high");
+		expect(s.screen()).toContain("▲ 2 staged");
+		s.panel.handleInput(K.enter); s.panel.handleInput("\x15"); s.panel.handleInput("0.5"); s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(patches.at(-1)).toEqual({ "conductorOptions.taskfold.high": 0.85, "conductorOptions.taskfold.low": 0.5 });
+		expect(s.screen()).toContain("Saved 2 settings");
+		s.close(); await s.opening;
+	});
+
+	test("resetting a conductor option removes its override instead of persisting the default", async () => {
+		const s = setup(false, "settings");
+		s.settings().conductorOptions = { taskfold: { high: 0.9 } };
+		let saved: SettingsPatch | undefined;
+		s.host.updateSettings = (patch) => { saved = patch; return { ok: true, snapshot: s.host.settings!() }; };
+		selectSetting(s, "High water");
+		expect(s.cursor()).toContain("0.9");
+		s.panel.handleInput(K.alt("u"));
+		expect(s.cursor()).toContain("0.8");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(saved).toEqual({ "conductorOptions.taskfold.high": undefined });
 		s.close(); await s.opening;
 	});
 
