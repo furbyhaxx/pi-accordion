@@ -327,6 +327,10 @@ steer at a time; the others are read-only until they take control. Fork sessions
 SQLite sidecar lock to coordinate controller claims and heartbeats; unmodified upstream
 sessions do not honor that lock and may race. Avoid running both versions concurrently.
 
+Generated Web UI token rotations reach other fork instances on their next poll (about one
+second). Old shared tokens and cookies stop being valid credentials; already-authenticated
+WebSockets and trusted local/native access are not revoked by token rotation.
+
 The in-process conductors need no separate server. Thermocline and Triptych run as
 separate processes; Triptych also needs its local tree-sitter dependencies installed.
 See [the conductor catalog](conductors/README.md).

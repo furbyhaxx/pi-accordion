@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 13
+  revision: 14
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T04:48:38+01:00"
+  updated_at: "2026-11-12T05:03:42+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 13
-      reason: "enforce consent revocation and resolved model privacy"
-      changes: ["local and peer revocation detach only when needed", "new remote routes cannot reuse local exemptions", "cancel pending auth before provider work", "chat and classifier cancellation coverage"]
+    - revision: 14
+      reason: "propagate generated shared token rotations across sessions"
+      changes: ["independent secret polling and stale alias replacement", "startup adopts rotations before polling", "HTTP cookie and browser WebSocket checks", "clarify token rotation trust boundaries"]
 ---
 
 # Accordion UI polish: plan
@@ -214,11 +214,17 @@ unrelated consent keys and fully local models do not detach. New remote routes n
 Runtime regressions reproduce and protect two privacy gaps: a chat adapter starting after
 revocation during authentication, and both model-call types reusing a local attachment's consent
 exemption after a session model change. The host test verifies both cancellation signals.
+
+Shared secret polling now adopts valid rotations independently of config parsing and replaces
+stale per-session aliases. Real loopback HTTP/cookie and WebSocket handshakes verify new bearer
+acceptance and old bearer rejection; malformed secret bytes retain the valid token. Replacement
+startup adopts rotations before its first poll. Trusted local/native paths and existing sockets
+are intentionally not revoked by rotation; the confirmation and README make that limit explicit.
 All 167 settings, dials, lock and TUI tests, native smokes, clean Svelte check and 1,077 app tests
 pass (21 existing skips). Expanded strict checking still reports the seven unchanged diagnostics:
 three TS2612 conductor declarations, two optional URL arguments and two tool-result `details`
 signatures.
-Pending: door-secret adoption and safe rebind lifecycle,
+Pending: safe rebind lifecycle,
 conductor option declarations and the live two-Pi sync check. Settings WebSocket frames belong
 to S6's protocol work. Aggressive/bake execution remains in S4.
 

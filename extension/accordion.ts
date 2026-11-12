@@ -609,9 +609,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let activeCompletions = 0;
 
 	// -- the door (ADR 0024) --
-	// The shared browser bearer secret (32 hex bytes), read/created at startServer from
-	// ~/.accordion/door-secret. EVERY extension accepts it wherever the per-session webToken is
-	// accepted, which makes the door URL session-independent. Empty until loaded.
+	// All sessions accept the shared bearer; startup and polling adopt rotations from other instances.
 	let doorSecret = "";
 	// The additional fixed-port listeners this extension binds IFF it currently holds the door.
 	let doorServer: http.Server | null = null;
@@ -1853,15 +1851,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	// -- door secret: the shared browser bearer (ADR 0024 §8) --
-	// One value, written EXACTLY once, stable for as long as any extension has it cached. Creation is
-	// atomic-WITH-CONTENT: write the full secret to a same-dir tmp file (0600), then
-	// fs.linkSync(tmp, DOOR_SECRET_PATH) -- the destination appears with COMPLETE bytes or not at all,
-	// and EEXIST means a racer won (adopt theirs). This replaces the earlier "wx" open-then-write,
-	// whose open->write gap let a racer read empty/partial bytes and cache "" with NO retry, and whose
-	// crash window (creator dies between open and write) left a permanently invalid file on disk.
-	// (Still deliberately NOT write-rename like controller.json: a rename would clobber an in-use
-	// secret out from under every extension that already cached + handed it out. link/EEXIST keeps
-	// first-writer-wins; the tmp step just guarantees the winner's bytes are complete.)
+	// First creation is first-writer-wins; only explicit rotation replaces a valid existing secret.
 	// Reader side: an absent/invalid read schedules a BOUNDED re-attempt on an unref'd timer (never a
 	// one-shot give-up), and an invalid file whose mtime is older than DOOR_SECRET_STALE_MS is a
 	// crashed creator's artifact -- unlinked and re-created (two extensions both recovering converge
@@ -1942,9 +1932,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * session swap re-arms it via startServer. Never on the context hook path.
 	 */
 	function ensureDoorSecret(): void {
-		if (doorSecret) return;
 		const existing = readValidDoorSecret();
 		if (existing !== null) { doorSecret = existing; doorSecretTries = 0; return; }
+		if (doorSecret) return;
 		reapStaleInvalidDoorSecret();
 		tryCreateDoorSecret();
 		if (!doorSecret) {
@@ -2116,9 +2106,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		});
 	}
 
-	/** Close the door listener if we hold it (releases the port for a standing-by extension). Also
-	 *  stops any pending secret-ensure retry and resets its budget (a session swap re-arms both via
-	 *  startServer). The cached doorSecret itself is kept -- it is stable for the process lifetime. */
 	function closeDoor(): void {
 		if (doorRetryTimer) { clearTimeout(doorRetryTimer); doorRetryTimer = null; }
 		if (doorSecretRetryTimer) { clearTimeout(doorSecretRetryTimer); doorSecretRetryTimer = null; }
@@ -2221,6 +2208,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const fresh = !!controllerLease && isFreshLease(controllerLease, Date.now());
 		if (fresh !== controllerWasFresh) { controllerWasFresh = fresh; notifyNative(); }
 		pollSettingsFile();
+		const secret = readValidDoorSecret();
+		if (secret !== null && secret !== doorSecret) {
+			if (webToken === doorSecret) webToken = secret;
+			doorSecret = secret;
+			notifyNative();
+		}
 	}
 
 	/** Refresh a connected holder only after revalidating under the cross-process writer lock. */

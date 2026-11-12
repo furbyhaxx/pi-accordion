@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 16
+  revision: 17
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T04:48:38+01:00"
+  updated_at: "2026-11-12T05:03:42+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 16
-      reason: "enforce privacy changes through detach and at the resolved provider boundary"
-      changes: ["canonical consent keys and local exemptions", "remote route changes require consent", "pending authentication respects cancellation", "resolved chat and classifier destinations enforce consent"]
+    - revision: 17
+      reason: "propagate shared token rotation without retaining stale bearer aliases"
+      changes: ["secret polling is independent of config parsing", "session startup re-reads the shared secret", "invalid replacement bytes retain the valid cache", "token rotation preserves independent trust paths and existing sockets"]
 ---
 
 # Accordion UI polish
@@ -769,8 +769,10 @@ export class SettingsStore {
   (`sanitizeBindHost` etc. keep their load-time leniency; the store uses strict variants).
 - `poll` runs inside the existing controller poll tick (~1 s). On change: replace `settings`, apply
   runtime effects (table below), `notifyNative()`, broadcast `settings` (§9).
-- Door secret: the same poll compares `~/.accordion/door-secret` content with `doorSecret`; on
-  change it adopts it (fixes stale tokens after another instance regenerates).
+- Door secret: the same poll independently adopts valid `~/.accordion/door-secret` replacements,
+  even when config parsing fails, replacing any per-session alias of the old bearer. Startup
+  re-reads it before advertising a replacement session; invalid bytes retain the last valid cache.
+  Rotation does not revoke existing sockets or independent trusted local/native access.
 
 | Changed path | Runtime effect in every instance |
 |---|---|

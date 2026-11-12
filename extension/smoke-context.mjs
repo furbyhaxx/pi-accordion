@@ -7,6 +7,7 @@ import * as path from "node:path";
 import { createJiti } from "jiti";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { DatabaseSync } from "node:sqlite";
+import { WebSocket } from "ws";
 const { buildSystemPrompt } = await import(new URL("./core/system-prompt.js", import.meta.resolve("@earendil-works/pi-coding-agent")));
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-context-"));
@@ -330,6 +331,63 @@ check("resolved remote models cannot reuse the consent exemption from a local at
 		await new Promise(resolve => setImmediate(resolve));
 		assert.deepEqual(calls, { chat: 1, classifier: 1 }, "granting consent allows both actual model-call paths");
 	} finally { r.close(); fs.rmSync(config, { force: true }); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+check("peer secret rotation updates browser auth even while the settings file is invalid", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	const secret = path.join(home, ".accordion", "door-secret");
+	const previousPoll = process.env.ACCORDION_CONTROLLER_POLL_MS;
+	process.env.ACCORDION_CONTROLLER_POLL_MS = "10";
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none" }));
+	const r = runtime();
+	let original;
+	try {
+		const host = await r.open();
+		await new Promise(resolve => setTimeout(resolve, 25));
+		const port = host.webInfo().port;
+		assert.ok(port > 0);
+		original = fs.readFileSync(secret, "utf8");
+		const old = original.trim(), next = old === "newdoor1" ? "newdoor2" : "newdoor1";
+		const origin = `http://127.0.0.1:${port}`;
+		const httpStatus = async (token, cookie = false) => {
+			const response = await fetch(`${origin}/__accordion/sessions${cookie ? "" : `?token=${token}`}`, { headers: cookie ? { Cookie: `accordion_door=${token}` } : {} });
+			await response.arrayBuffer();
+			return response.status;
+		};
+		const upgradeStatus = token => new Promise((resolve, reject) => {
+			const socket = new WebSocket(`ws://127.0.0.1:${port}/?token=${token}`, { headers: { Origin: "https://untrusted.invalid" }, handshakeTimeout: 1000 });
+			socket.once("error", reject);
+			socket.once("open", () => { socket.close(); resolve(101); });
+			socket.once("unexpected-response", (_request, response) => { response.resume(); resolve(response.statusCode); socket.terminate(); });
+		});
+		assert.equal(await httpStatus(old), 200);
+		assert.equal(await upgradeStatus(old), 101);
+		fs.writeFileSync(secret, "incomplete");
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.ok(host.webInfo().token === old, "invalid secret bytes must not replace the valid bearer");
+		fs.writeFileSync(config, "{incomplete");
+		fs.writeFileSync(secret, next);
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.ok(host.webInfo().token === next, "the shared token must update independently of config parsing");
+		assert.equal(await httpStatus(next), 200);
+		assert.equal(await httpStatus(old), 403, "the per-session token alias must not keep the old shared bearer alive");
+		assert.equal(await httpStatus(next, true), 200);
+		assert.equal(await httpStatus(old, true), 403);
+		assert.equal(await upgradeStatus(next), 101);
+		assert.equal(await upgradeStatus(old), 403);
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none" }));
+		r.handlers.session_shutdown({}, r.ctx);
+		fs.writeFileSync(secret, "latertok");
+		process.env.ACCORDION_CONTROLLER_POLL_MS = "100000";
+		r.ctx.sessionManager.getSessionId = () => "restarted-secret-session";
+		await r.handlers.session_start({ reason: "new" }, r.ctx);
+		const restarted = await r.open();
+		assert.ok(restarted.webInfo().token === "latertok", "replacement sessions adopt rotations before their first poll");
+	} finally {
+		r.close(); fs.rmSync(config, { force: true });
+		if (original !== undefined) fs.writeFileSync(secret, original);
+		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
+		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
+	}
 });
 check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
 	const r = runtime();

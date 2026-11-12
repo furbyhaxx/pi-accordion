@@ -249,7 +249,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				const regenerate = host.regenerateToken;
 				shell.confirm({
 					crumb: "New token",
-					title: "Generate a new web access token?\nOpen browser tabs must reconnect with the new URL.\nThis applies at once and is not staged.",
+					title: "Generate a new web access token?\nUse the new URL for browser access; existing connections stay open.\nThis applies at once and is not staged.",
 					options: ["Keep token", "Generate new token"],
 					then: (choice) => {
 						if (choice !== 1) return;
