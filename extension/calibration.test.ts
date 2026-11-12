@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	CALIBRATION_DEFAULTS,
 	conservativeRatio,
+	shouldWarnUntrusted,
 	judgeReceipt,
 	priorFor,
 	sanitizeCalibrationSettings,
@@ -103,5 +104,22 @@ describe("settings", () => {
 		const settings = sanitizeCalibrationSettings({ minRatio: 0.7, maxRatio: 3 });
 		expect(settings.maxRatio).toBe(3);
 		expect(judgeReceipt({ estimate: 1000, input: 2600 }, settings).kind).toBe("measured");
+	});
+});
+
+describe("degraded episodes", () => {
+	test("one announcement per provider episode, never one per turn", () => {
+		expect(shouldWarnUntrusted(null, "anthropic")).toBe(true);
+		expect(shouldWarnUntrusted("anthropic", "anthropic")).toBe(false);
+		expect(shouldWarnUntrusted("anthropic", "deepseek")).toBe(true);
+		expect(shouldWarnUntrusted(null, "anthropic")).toBe(true); // a new session/episode announces again
+	});
+
+	test("a refused receipt keeps the conservative estimate instead of adopting its ratio", () => {
+		const verdict = judgeReceipt({ estimate: 20000, input: 900 }); // 0.045: not a per-token pairing
+		expect(verdict).toEqual({ kind: "unusable", reason: "below-min" });
+		// The caller keeps whatever it already had; the prior is only a floor, never lowered by this.
+		expect(conservativeRatio(1.15, 1.4)).toBe(1.4);
+		expect(conservativeRatio(1.15, null)).toBe(1.15);
 	});
 });

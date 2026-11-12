@@ -115,6 +115,16 @@ export function judgeReceipt(receipt: Receipt, settings: CalibrationSettings = C
 	return { kind: "measured", ratio, real, deduped };
 }
 
+/**
+ * Whether an unusable receipt should be announced NOW. A degraded provider is reported once per
+ * episode: repeating it every turn would bury the transcript, while staying silent would hide a
+ * systematically unmeasurable session. A different provider (or a cleared episode state) announces
+ * again.
+ */
+export function shouldWarnUntrusted(warnedProvider: string | null, provider: string): boolean {
+	return warnedProvider !== provider;
+}
+
 /** The conservative multiplier used while no trustworthy receipt has landed for this model. */
 export function conservativeRatio(prior: number, lastTrusted: number | null): number {
 	const trusted = lastTrusted !== null && positive(lastTrusted) ? lastTrusted : 0;

@@ -56,7 +56,7 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
-import { conservativeRatio, judgeReceipt, priorFor } from "./calibration";
+import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
 import { cacheProfileFor } from "../core/cacheProfiles";
 import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
 import { observedCacheTtl } from "./cacheRetention";
@@ -2901,7 +2901,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// A rejected receipt never moves the dial: the session keeps its conservative prior, and the
 			// user hears about the pairing once per degraded episode instead of every turn.
 			const provider = splitModelSpec(modelSpec() ?? "*").provider;
-			if (untrustedEpisode !== provider) {
+			if (shouldWarnUntrusted(untrustedEpisode, provider)) {
 				untrustedEpisode = provider;
 				const text = `Accordion ignored an implausible token receipt from ${provider} (${verdict.reason}); estimates stay on the conservative prior.`;
 				try { latestCtx?.ui.notify(text, "warning"); } catch { /* UI may be unavailable */ }
