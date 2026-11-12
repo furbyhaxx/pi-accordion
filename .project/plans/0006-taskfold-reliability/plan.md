@@ -41,6 +41,10 @@ are evaluated against actual model behavior, not merely successful unit tests.
   tried wording fixed it without side effects, so the shipped carrier shape stands.
 - Done since: consent decoupling (S4) and the coaching gate (S5) — bootstrap, the orientation
   allowance, gate mode with a bounded fail-open, and one continuation offer per typed prompt.
+- Done: S7 re-ran the four scenarios on the current source in coach and gate
+  (`evidence/prompts/shipped-reevaluation.json`). Coach tracks 76/135 (56%) against a 95% target and
+  the pre-enforcement baseline tracked 54/118 with GPT alone at 49/49; coaching raised tracking for
+  the families that never tracked and lowered it for GPT. B-0001 stays open on that target.
 - Blocked: the Kimi baseline needs a funded route (task 5).
 
 ## Current behavior and evidence
