@@ -4011,6 +4011,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					clients: clients.size,
 				}),
 				settings: () => settingsStore.current(),
+				models: async (type) => (await ctx.modelRegistry.getAvailableOfType(type)).map(({ provider, id, name }) => ({ provider, id, name })),
 				updateSettings: (patch, baseRev) => saveSettingsPatch(patch, baseRev, () => {
 					refreshControllerNow();
 					return holdsControl(surfaceId, openedSessionId);
@@ -4063,6 +4064,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						thinkingLevel: () => localHost.thinkingLevel?.() ?? null,
 						webInfo: () => localHost.webInfo!(),
 						settings: () => localHost.settings!(),
+						models: (type) => localHost.models!(type),
 						updateSettings: (patch, baseRev) => localHost.updateSettings!(patch, baseRev),
 						regenerateToken: () => localHost.regenerateToken!(),
 						listSessions: () => localHost.listSessions!(),

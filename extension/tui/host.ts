@@ -21,6 +21,12 @@ export interface AccordionConductorStatus {
 	metrics?: Record<string, number | string | boolean>;
 }
 
+export interface AccordionModelChoice {
+	provider: string;
+	id: string;
+	name: string;
+}
+
 export interface AccordionTuiHost {
 	truth(): Truth | null;
 	sessionLabel?(): string;
@@ -36,6 +42,7 @@ export interface AccordionTuiHost {
 	thinkingLevel?(): string | null;
 	webInfo?(): AccordionWebInfo;
 	settings?(): SettingsSnapshot;
+	models?(type: "chat" | "classifier"): Promise<readonly AccordionModelChoice[]>;
 	updateSettings?(patch: SettingsPatch, baseRev: string): SettingsSaveResult | Promise<SettingsSaveResult>;
 	regenerateToken?(): string | Promise<string>;
 	/** Budget and tail as resolved for this session's model, with where each value comes from. */
