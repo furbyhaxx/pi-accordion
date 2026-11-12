@@ -173,11 +173,15 @@ conductors still detach.
 
 **Shipped.** `privacy.deferred` on the registry entry, `attachPolicy`/`revocationEffect` in
 `extension/privacyGate.ts`, the Taskfold model gate (`allowModel` ctor argument; skipped user
-messages stay unverdicted in `consentQueue` and drain on the first permitted pass), the host
-re-asking and reattaching on consent, spec §6.4 and AGENTS.md updated. Verified by 697 unit
+messages stay unverdicted in `consentQueue`), a `resync` that classifies the whole block list so
+an opened gate reaches what it held, and a consent grant that dispatches that resync to the SAME
+instance — reattaching would have created a fresh conductor and silently dropped the queue.
+Spec §6.4 and AGENTS.md updated. Verified by 697 unit
 tests, the smoke suites and a live Pi-Bolt run (`evidence/deferred-consent-live.json`: phase A ran
 the `tasks` tool with no consent and made zero model calls; phase B granted consent mid-session
-and the classifier request followed). This extends classifier-only consent decoupling to the newer chat
+and the classifier request followed), plus `evidence/deferred-consent-drain-live.json` for the
+draining itself (a steering message queued while gated is classified after consent, with no new
+prompt). This extends classifier-only consent decoupling to the newer chat
 surface; it never authorizes an external model call without consent. Change the registry,
 selection gate, revocation effect, browser picker and spec wording together.
 

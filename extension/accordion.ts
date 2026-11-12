@@ -482,9 +482,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					: `${active.label} detached: ${hadConsent ? "privacy consent revoked" : "privacy consent required for remote model"}`;
 				latestCtx?.ui.notify(text, "warning");
 				broadcast({ type: "notice", text });
-			} else if (active?.privacy.deferred && settings.privacyConsent[key] && !before.privacyConsent[key]) {
-				// Consent arrived: a fresh pass drains the classification and routing that waited.
-				liveHost.select(active.id);
+			} else if (liveHost.activeMeta()?.id === active?.id && settings.privacyConsent[key] && !before.privacyConsent[key]) {
+				// Consent arrived: refresh the same instance so the pass that holds the waiting
+				// messages is the one that now may classify them.
+				liveHost.dispatchResync();
 			}
 		}
 		if (!gated && active && liveHost.activeMeta()?.id === active.id && active.options?.some(spec =>

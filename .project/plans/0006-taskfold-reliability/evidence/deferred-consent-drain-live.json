@@ -1,0 +1,18 @@
+{
+  "what": "Live proof that the deferred-consent backlog drains: messages arriving while gated are classified after consent, with no new prompt.",
+  "how": "One Pi-Bolt RPC session (deepseek/deepseek-flash, autoArm, defaultConductor taskfold, debug on). Prompt 1 created a list with `tasks` (the session's opening message is never classified). Prompt 2 sent a steering message while the model gate was closed. Then `privacyConsent.taskfold-chat-v1` was written into the settings file and nothing else happened for six seconds.",
+  "counts": {
+    "classifierCallsAfterPrompt1": 0,
+    "classifierCallsAfterPrompt2_whileGated": 0,
+    "classifierCallsAfterConsentWithoutNewPrompt": 1
+  },
+  "calls": [
+    {
+      "purpose": "classifier",
+      "model": "perplexity/pplx-decider-v1.2",
+      "stopReason": "stop",
+      "error": null
+    }
+  ],
+  "conclusion": "No model call ran while the gate was closed, and the single classifier request that followed consent can only belong to the message that had been waiting, because no new user message was sent."
+}

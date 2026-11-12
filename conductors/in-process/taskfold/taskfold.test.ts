@@ -124,9 +124,11 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 		expect(ledger.get(steering)).toBeUndefined();
 		expect(host.statusLog.at(-1)?.text).toContain("classifier: awaiting consent");
 		allowed = true;
-		host.appendBlocks([{ ...s.blocks.at(-1)!, id: "a:signal:0", kind: "text", text: "continue" }]);
+		// Consent alone must reach the queued message: a resync is what the host fires when the gate opens.
+		await host.resync();
 		await new Promise((r) => setTimeout(r, 0));
 		expect(ledger.get(steering)).toBeDefined();
+		expect(host.statusLog.at(-1)?.text ?? "").not.toContain("awaiting consent");
 		conductor.detach();
 		expect(!!groupOf(host, start)).toBe(false);
 	});

@@ -530,6 +530,8 @@ export class TaskfoldConductor implements Conductor {
 		if (!this.host) return;
 		switch (e.type) {
 			case "resync":
+				// A resync is also how a gate that just opened reaches the messages it held back.
+				this.classifyNew(this.host.blocks());
 				return this.evaluate();
 			case "wire-departing": {
 				const host = this.host;

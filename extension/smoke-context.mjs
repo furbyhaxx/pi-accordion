@@ -328,7 +328,9 @@ check("resolved remote models cannot reuse the consent exemption from a local at
 		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": "2026-01-01T00:00:00Z" }, host.settings().rev)).ok, true);
 		await r.request([...messages, { role: "user", content: "Keep every generated file under build/.", timestamp: 3 }]);
 		await new Promise(resolve => setImmediate(resolve));
-		assert.deepEqual(calls, { chat: 1, classifier: 1 }, "granting consent allows both actual model-call paths");
+		// One classifier call drains the message that waited through the gate, one serves the new move,
+		// and the chat router runs once for the message that had not yet reached the wire.
+		assert.deepEqual(calls, { chat: 1, classifier: 2 }, "granting consent drains the gated backlog and allows both model-call paths");
 	} finally { r.close(); fs.rmSync(config, { force: true }); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 check("peer secret rotation updates browser auth even while the settings file is invalid", async () => {
