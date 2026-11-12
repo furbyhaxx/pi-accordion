@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 18
+  revision: 19
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T06:58:27+01:00"
+  updated_at: "2026-11-12T07:12:01+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 18
-      reason: "verify native privacy lifecycle and peer revocation in real Pi sessions"
-      changes: ["native and peer consent revocation detach", "local routes and unrelated keys retain attachment", "unsafe remote routes detach and require renewed consent", "declining consent restores the panel"]
+    - revision: 19
+      reason: "verify live browser credential rotation and malformed-file recovery"
+      changes: ["two-server bearer and cookie retirement", "custom and generated token changes", "secret adoption despite malformed settings", "document independent trusted-origin WebSocket authorization"]
 ---
 
 # Accordion UI polish: plan
@@ -240,7 +240,13 @@ Native and peer privacy revocation, local-route and unrelated-key exemptions, un
 route detachment, renewed consent and panel restoration also pass live. The fixture uses
 fail-closed routing metadata and sends no provider requests; this does not claim a live backend
 or in-flight-stream evaluation (`evidence/settings-sync/privacy-result.json`).
-Pending: live token and stale-panel checks, plus conductor option declarations.
+Live HTTP bearer/cookie retirement and WebSocket bearer retirement also pass for both servers,
+including custom tokens and secret rotation during malformed config. Valid settings stay cached,
+invalid-file saves refuse without echoing or overwriting it, and recovery succeeds. WebSocket
+bearer probes isolate credentials with an untrusted Origin: a trusted served origin authorizes
+independently. Browser assets are not built in this source-only fixture (404); clean-production
+installation and authenticated asset gates remain required in S6/final verification.
+See `evidence/settings-sync/tokens-result.json`. Pending: stale-panel checks and conductor options.
 Settings WebSocket frames belong to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:

@@ -1,0 +1,40 @@
+  live-extension.ts
+
+
+ Reloaded keybindings, extensions, skills, prompts, themes, and context files
+
+ Warning: Accordion settings not reloaded: config.json is not valid JSON; repair it before saving
+
+ Warning: Accordion settings not reloaded: config.json is not valid JSON; repair it before saving
+
+── Accordion › Settings ───────────────────────────────────────────────────────── READ-ONLY · 14.5k/180.0k tok · ● folding · no conductor ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+→ Folding               [x] armed                                                                                                    session
+  Token budget          180k                                                                                    default openai/gpt-6.1-terra
+  Protected tail        10k                                                                                     default openai/gpt-6.1-terra
+ All sessions · ~/.accordion/config.json · staged until saved
+  Arm on startup        [x] on                                                                                                          user
+  Default conductor     ‹ none ›                                                                                                        user
+  /compact behavior     ‹ native ›                                                                                                      user
+  Web UI address        127.0.0.1                                                                                                    default
+  Web UI door port      0                                                                                                               user
+  Web access token      [TOKEN] (generated)                                                                                            user
+  Debug log             [ ] off                                                                                                         user
+  Task fold timing      ‹ pressure ›                                                                                                    user
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ read-only · reopen /accordion · Armed: Accordion rewrites the outgoing context. Off: messages pass through untouched. Applies at once.
+ enter toggle · tab next tab · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/settings-sync/project-a (dev) • settings-sync-a
+$0.000 (sub) 0.0%/372k (auto)                                                                                 (openai) gpt-6.1-terra • xhigh
+accordion · no conductor

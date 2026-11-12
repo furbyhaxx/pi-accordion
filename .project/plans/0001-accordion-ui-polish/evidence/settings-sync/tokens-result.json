@@ -1,0 +1,28 @@
+{
+  "servers": 2,
+  "browserLikeOriginUsed": true,
+  "httpBearerAndIssuedCookies": {
+    "accepted": 200,
+    "retired": 403
+  },
+  "websocketBearerWithUntrustedOrigin": {
+    "accepted": 101,
+    "retired": 403
+  },
+  "websocketCookieOriginGate": {
+    "servedOrigin": 101,
+    "untrustedOrigin": 403
+  },
+  "assetEntryStatuses": {
+    "a": 404,
+    "b": 404
+  },
+  "nativeRotationPeerAdoptionMs": 182,
+  "customTokenChangesAdoptedAndRetired": true,
+  "generatedRotationClearsCustomToken": true,
+  "badConfigSecretAdoptionMs": 942,
+  "badConfigRetainsLastValidSettings": true,
+  "badConfigSaveRefusedWithoutEchoOrOverwrite": true,
+  "validConfigRecoveryVerified": true,
+  "finalGeneratedTokenLength": 8
+}

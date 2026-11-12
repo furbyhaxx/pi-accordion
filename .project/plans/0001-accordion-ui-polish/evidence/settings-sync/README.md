@@ -82,6 +82,21 @@ observation. A stale observation initially skipped takeover; the native write gu
 cancelled that fixture save before it could write.
 Check `live.py`, `runtime.py` and `privacy.py` with Ruff and strict mypy.
 
+## Browser credentials and bad-config recovery
+
+Run `uv run --no-project python -B -m tokens` after privacy. `tokens-result.json` records
+real HTTP and WebSocket probes against both Pi servers: native generated-secret rotation,
+custom-token replacement, issued-cookie retirement, secret adoption despite malformed config,
+refused invalid-file saves and valid-file recovery. Credentials remain private and captures
+are redacted. Check all four Python drivers with Ruff and strict mypy.
+
+WebSocket bearer probes use an **untrusted Origin** to isolate bearer authorization. An initial
+served-origin negative probe was wrong: the verified Accordion-origin path independently
+authorizes a connection. HTTP probes isolate cookie retirement; WebSocket probes verify that
+valid cookies work with the served Origin but do not authorize an untrusted Origin. This does
+not claim that rotation revokes trusted-origin access or existing sockets. The source-only
+fixture has no built browser assets (404); the final clean-production install/asset gate remains.
+
 ## Cleanup
 
 Stop only the Pi processes from this run, wait for them to exit, then remove their owned tmux
