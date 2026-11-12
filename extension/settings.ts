@@ -321,7 +321,11 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 	} catch {
 		/* ignore malformed config file */
 	}
+	return resolveSettings(fileData, env, hasFile);
+}
 
+/** Resolve one already-read file snapshot without racing another disk read. */
+export function resolveSettings(fileData: Record<string, unknown>, env: Record<string, string | undefined>, hasFile: boolean): AccordionSettings {
 	// If running under an isolated test home (`ACCORDION_HOME` set) without an explicit config file
 	// or `ACCORDION_AUTO_ARM`, preserve upstream's `autoArm: false` baseline so existing protocol
 	// smoke tests that assert folding starts off do not need to rewrite their assumptions.

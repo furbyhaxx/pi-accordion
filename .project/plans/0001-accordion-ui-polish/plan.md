@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 8
+  revision: 9
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T03:39:38+01:00"
+  updated_at: "2026-11-12T03:50:26+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "define strict settings save validation"
-      changes: ["field-specific rejection instead of coercion", "opaque dynamic keys", "atomic watermark checks", "141 settings and TUI tests pass"]
+    - revision: 9
+      reason: "deliver the revisioned settings store"
+      changes: ["locked re-read and partial merge", "async contention retry and field provenance", "cross-process Node and Bun race checks", "157 native tests and all existing app and smoke gates pass"]
 ---
 
 # Accordion UI polish: plan
@@ -28,7 +28,7 @@ implementation must deviate, update the spec in the same change.
 done  S0  Taskfold visibility unit and task tooling (§4)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
-now   S2  Settings store, sync, schema (§6.1, §6.3): shared mutex done; schema next
+now   S2  Settings store, sync, schema (§6.1, §6.3): store done; runtime sync next
 next  S3  Settings screen (§6.2)
 later S1c Footer (§8)
 later S4  Compaction (§7)
@@ -201,7 +201,14 @@ smokes, clean Svelte check and 1,076 app tests pass. Aggressive/bake execution r
 `extension/settingsValidation.ts` now validates flat field edits without load-time coercion,
 including unknown keys, malformed values and coupled watermarks. Dynamic model ids retain dots.
 All 141 settings/TUI tests pass; the isolated strict typecheck reports only the three known
-`agedSummaryConductor.ts` TS2612 baseline diagnostics. The store integration is next.
+`agedSummaryConductor.ts` TS2612 baseline diagnostics.
+The revisioned `SettingsStore` now hashes exact file bytes, resolves defaults/file/env/flag sources,
+merges stale disjoint field edits under the shared lock, and rejects overlapping edits, locked
+fields and broken files. It preserves unrelated data, never writes runtime overrides, and uses
+atomic private writes. All 157 settings/lock/TUI tests, native smokes, clean Svelte check and
+1,076 app tests pass (21 existing skips). Independent Node 26 writers and Bun writers merge
+concurrent saves from one baseline (`evidence/settings-store/node-race.json`). Runtime integration
+and the live two-Pi session check remain next.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

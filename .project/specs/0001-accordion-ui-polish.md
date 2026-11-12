@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 12
+  revision: 13
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-11T17:48:48+01:00"
+  updated_at: "2026-11-12T03:50:26+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 12
-      reason: "protocol v23 was taken by cross-group task handles"
-      changes: ["§1, §2 D6, §9: the web-parity protocol bump is 23 → 24"]
+    - revision: 13
+      reason: "make settings saves yield during mutex contention"
+      changes: ["async save result", "typed native flag paths", "opaque dynamic keys and guarded malformed-file handling"]
 ---
 
 # Accordion UI polish
@@ -740,10 +740,10 @@ New module `extension/settingsStore.ts`:
 ```ts
 export interface SettingsSnapshot { settings: AccordionSettings; sources: Record<SettingPath, "default" | "file" | "env" | "flag">; rev: string }
 export class SettingsStore {
-  constructor(homeDir: string, env: NodeJS.ProcessEnv, flags: () => Partial<Record<SettingPath, string>>);
+  constructor(homeDir: string, env: NodeJS.ProcessEnv, flags: () => SettingsFlags);
   current(): SettingsSnapshot;
   /** Apply a patch to the latest file content under the lock; rejects invalid values and stale baseRev. */
-  save(patch: SettingsPatch, baseRev: string): { ok: true; snapshot: SettingsSnapshot } | { ok: false; error: string; conflict?: boolean };
+  save(patch: SettingsPatch, baseRev: string): Promise<{ ok: true; snapshot: SettingsSnapshot } | { ok: false; error: string; conflict?: boolean }>;
   /** Re-read the file; returns the changed paths (empty when unchanged). */
   poll(): SettingPath[];
 }
@@ -757,6 +757,11 @@ export class SettingsStore {
   patched path changed on disk, return `conflict`; else merge the patch into the **file** content
   (not the in-memory copy), validate every patched value (errors name the field and the rule),
   write atomically (tmp + rename, mode 0600), return the new snapshot.
+  Retry waits yield to the event loop. `SettingsFlags` covers the three actual native flags:
+  `bindHost`, `doorPort`, `customToken`; flags win over environment variables and lock the field.
+  Patches use flat field paths; dots inside a dynamic model/conductor key remain part of that key.
+  Unseen base revisions conflict. Invalid JSON or a non-object file rejects initialization or polling
+  (the last valid cache stays intact), and saves return an error without echoing file content.
 - Validation functions return `{ ok: false, error }` instead of substituting defaults
   (`sanitizeBindHost` etc. keep their load-time leniency; the store uses strict variants).
 - `poll` runs inside the existing controller poll tick (~1 s). On change: replace `settings`, apply

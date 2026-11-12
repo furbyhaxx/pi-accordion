@@ -1,0 +1,16 @@
+{
+  "at": "2026-11-12T02:49:09.963Z",
+  "runtime": "v26.13.0",
+  "independentWriters": 2,
+  "sharedBaseline": true,
+  "bothSavesAccepted": true,
+  "merged": {
+    "doorPort": 0,
+    "unrelated": "retained",
+    "taskWidget": {
+      "maxRows": 20
+    },
+    "autoArm": false
+  },
+  "privateMode": 384
+}
