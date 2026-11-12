@@ -428,7 +428,7 @@ describe("accordion panel", () => {
 		const reach: Record<string, string[]> = {
 			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1],
 			conductors: [K.tab], consent: [K.tab, K.down, K.enter],
-			settings: [K.tab, K.tab], confirm: [K.tab, K.tab], timing: [K.tab, K.tab],
+			settings: [K.tab, K.tab], confirm: [K.tab, K.tab], timing: [K.tab, K.tab], picker: [K.tab, K.tab],
 		};
 		for (const [name, path] of Object.entries(reach)) {
 			const s = setup();
@@ -436,6 +436,7 @@ describe("accordion panel", () => {
 			for (const key of path) s.panel.handleInput(key);
 			if (name === "confirm") { selectSetting(s, "Web access token"); s.panel.handleInput(K.alt("r")); }
 			if (name === "timing") selectSetting(s, "Task fold timing");
+			if (name === "picker") { selectSetting(s, "Default conductor"); s.panel.handleInput(K.enter); }
 			const rule = s.panel.render(100)[0];
 			for (const key of printable) s.panel.handleInput(key);
 			await tick();
@@ -541,6 +542,46 @@ describe("accordion panel", () => {
 		s.panel.handleInput(K.esc); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		await s.opening;
 		expect(s.settings().defaultConductor).toBe("taskfold");
+	});
+
+	test("conductor picker searches by name and stages only the selected conductor", async () => {
+		const s = setup(false, "settings");
+		selectSetting(s, "Default conductor");
+		s.panel.handleInput(K.enter);
+		expect(s.screen()).toContain("Taskfold · taskfold");
+		for (const ch of "taskfold") s.panel.handleInput(ch);
+		expect(s.screen()).not.toContain("None");
+		expect(s.settings().defaultConductor).toBe("keel-lite");
+		s.panel.handleInput(K.enter);
+		expect(s.cursor()).toContain("‹ taskfold ›");
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.settings().defaultConductor).toBe("taskfold");
+		s.close(); await s.opening;
+	});
+
+	test("model pickers use typed catalogues and stage the chosen routes", async () => {
+		const s = setup(false, "settings");
+		const requests: string[] = [];
+		let saved: SettingsPatch | undefined;
+		s.host.models = async (type) => {
+			requests.push(type);
+			return type === "chat" ? [{ provider: "vendor", id: "beta", name: "Beta chat" }] : [{ provider: "vendor", id: "judge", name: "Judge" }];
+		};
+		s.host.updateSettings = (patch) => { saved = patch; return { ok: true, snapshot: s.host.settings!() }; };
+		selectSetting(s, "Chat model"); s.panel.handleInput(K.enter); await tick();
+		expect(s.screen()).toContain("Current session model");
+		for (const ch of "beta") s.panel.handleInput(ch);
+		expect(s.screen()).toContain("vendor/beta");
+		s.panel.handleInput(K.enter);
+		expect(s.cursor()).toContain("vendor/beta");
+		selectSetting(s, "Classifier model"); s.panel.handleInput(K.enter); await tick();
+		expect(s.screen()).not.toContain("Current session model");
+		for (const ch of "judge") s.panel.handleInput(ch);
+		s.panel.handleInput(K.enter); s.panel.handleInput(K.ctrlS); await tick();
+		expect(requests).toEqual(["chat", "classifier"]);
+		expect(saved).toEqual({ "models.defaults.chat": "vendor/beta", "models.defaults.classifier": "vendor/judge" });
+		s.close(); await s.opening;
 	});
 
 	test("retains staged edits and their original revision when a save conflicts", async () => {

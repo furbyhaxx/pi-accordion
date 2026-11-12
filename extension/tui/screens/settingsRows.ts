@@ -7,7 +7,7 @@ export interface SettingsRow {
 	section: string;
 	label: string;
 	description: string;
-	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor";
+	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor" | "model";
 	choices?: readonly string[];
 	defaultValue?: number | boolean;
 }
@@ -19,6 +19,8 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Compaction", path: "compact.manual", label: "/compact behavior", kind: "choice", choices: ["pass", "aggressive", "bake", "native"], description: "Strategy for manual compaction when folding is armed." },
 	{ section: "Compaction", path: "compact.threshold", label: "Threshold compact", kind: "choice", choices: ["pass", "native"], description: "Strategy for threshold-triggered compaction." },
 	{ section: "Compaction", path: "compact.onSaturated", label: "When saturated", kind: "choice", choices: ["native", "bake", "warn"], description: "What to do if Accordion cannot reduce the context enough." },
+	{ section: "Models", path: "models.defaults.chat", label: "Chat model", kind: "model", description: "Default model for out-of-band chat; unset uses the session model." },
+	{ section: "Models", path: "models.defaults.classifier", label: "Classifier model", kind: "model", description: "Default classifier for structured out-of-band calls." },
 	{ section: "Taskfold", path: "taskfold.timing", label: "Task fold timing", kind: "choice", choices: FOLD_TIMINGS, description: "Choose eager, cold-cache or pressure-triggered task folding." },
 	{ section: "Taskfold", path: "taskfold.leafForm", label: "Leaf form", kind: "choice", choices: ["record", "bracket"], description: "Choose task record or recoverable bracket folds." },
 	{ section: "Taskfold", path: "taskfold.recordTokens", label: "Record token limit", kind: "number", description: "Maximum estimated tokens in a task record." },

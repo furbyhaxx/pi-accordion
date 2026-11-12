@@ -12,6 +12,8 @@ interface SessionRow {
 	description: string;
 }
 type Row = SessionRow | SettingsRow;
+interface PickerItem { value: string | undefined; label: string; description: string }
+interface Picker { row: SettingsRow; items: PickerItem[]; filter: string; selected: number }
 const CONFIG_PATH = "~/.accordion/config.json";
 const SESSION_ROWS: SessionRow[] = [
 	{ id: "folding", label: "Folding", description: "Armed: Accordion rewrites the outgoing context. Off: messages pass through untouched. Applies at once." },
@@ -46,6 +48,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	let staged: SettingsPatch = {};
 	let baseRev = "";
 	let input: { row: Row; text: string } | null = null;
+	let picker: Picker | null = null;
 
 	const saved = (row: SettingsRow): unknown => settingValue(host.settings?.().settings ?? DEFAULT_SETTINGS, row.path);
 	const defaultValue = (row: SettingsRow): unknown => row.defaultValue ?? settingValue(DEFAULT_SETTINGS, row.path);
@@ -76,6 +79,33 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		stage(row, choices[(choices.indexOf(String(value(row))) + step + choices.length) % choices.length]);
 		return true;
 	};
+	const filtered = () => picker?.items.filter((item) => `${item.label} ${item.description}`.toLowerCase().includes(picker!.filter.toLowerCase())) ?? [];
+	const openPicker = (row: SettingsRow) => {
+		const show = (items: PickerItem[]) => {
+			const current = value(row);
+			picker = { row, items, filter: "", selected: Math.max(0, items.findIndex((item) => item.value === current)) };
+		};
+		if (row.kind === "conductor") {
+			show([
+				{ value: "none", label: "None", description: "No conductor attached on startup." },
+				...host.conductors().filter((entry) => entry.id !== "none" && validateSetting(row.path, entry.id).ok).map((entry) => ({
+					value: entry.id, label: `${entry.label} · ${entry.id}`,
+					description: entry.readiness.state === "ready" ? "Ready" : `Unavailable: ${entry.readiness.reason}`,
+				})),
+			]);
+			return;
+		}
+		if (!host.models) return shell.say("Available models are not exposed by this session");
+		const type = row.path.endsWith(".classifier") ? "classifier" : "chat";
+		void shell.run("Loading models…", async () => {
+			const models = await host.models!(type);
+			const items: PickerItem[] = [{ value: undefined, label: "Use default", description: "Remove this model override." }];
+			if (type === "chat") items.push({ value: "current", label: "Current session model", description: "Resolve to the session's chat model at call time." });
+			items.push(...models.map((model) => ({ value: `${model.provider}/${model.id}`, label: `${model.provider}/${model.id}`, description: model.name })));
+			show(items);
+			return "";
+		});
+	};
 	const stats = () => host.truth()?.stats();
 	const dialNow = (kind: NumericDialKind) => kind === "budget" ? stats()?.budget : stats()?.protectTokens;
 	const shown = (row: Row): { value: string; source: string } => {
@@ -91,6 +121,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		const current = value(row);
 		if (row.kind === "toggle") return { value: current ? "[x] on" : "[ ] off", source };
 		if (row.kind === "choice" || row.kind === "conductor") return { value: `‹ ${clean(String(current))} ›`, source };
+		if (row.kind === "model") return { value: clean(String(current ?? "default")), source };
 		if (row.path === "customToken") return { value: current === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(String(current)), source };
 		return { value: clean(row.kind === "list" ? JSON.stringify(current) : String(current ?? "")), source };
 	};
@@ -141,6 +172,14 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		id: "settings", title: "Settings",
 		view(width, bodyRows) {
 			const theme = shell.theme(), keys = shell.keys();
+			if (picker) {
+				const items = filtered();
+				picker.selected = Math.max(0, Math.min(picker.selected, items.length - 1));
+				const top = Math.max(0, Math.min(picker.selected - bodyRows + 1, items.length - bodyRows));
+				const body = items.slice(top, top + bodyRows).map((item, i) => truncateToWidth(`${i + top === picker!.selected ? theme.fg("accent", "→") : " "} ${clean(item.label)}  ${theme.fg("dim", clean(item.description))}`, width, "…"));
+				return { body: body.length ? body : [theme.fg("dim", "  No matching choices")], crumbs: [picker.row.label], description: items[picker.selected]?.description ?? "Type to filter choices.",
+					hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", "select", 1)], above: top, below: Math.max(0, items.length - top - bodyRows) };
+			}
 			if (input) {
 				const { row, text } = input;
 				const parsed = isGlobal(row) ? parseInput(row, text) : row.id === "folding" ? { error: "not editable" } : parseTokens(text, stats()?.contextWindow ?? null);
@@ -168,7 +207,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			top = Math.max(0, Math.min(top, display.length - bodyRows));
 			const row = rows[selected], web = host.webInfo?.();
 			const webNote = isGlobal(row) && ["bindHost", "doorPort", "customToken"].includes(row.path) ? ` Browser URL: ${web?.url ?? "starting…"} (${web?.clients ?? 0} connected).` : "";
-			const action = !isGlobal(row) ? row.id === "folding" ? "toggle" : "edit" : row.kind === "choice" || row.kind === "conductor" ? "next value" : row.kind === "toggle" ? "toggle" : "edit";
+			const action = !isGlobal(row) ? row.id === "folding" ? "toggle" : "edit" : row.kind === "choice" ? "next value" : row.kind === "toggle" ? "toggle" : row.kind === "conductor" || row.kind === "model" ? "choose" : "edit";
 			return { body: display.slice(top, top + bodyRows), crumbs: [], description: `${row.description}${webNote}`,
 				hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2), ...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
 					...(isGlobal(row) && (row.kind === "choice" || row.kind === "conductor") ? [rawHint(theme, "←→", "change", 3)] : []),
@@ -177,6 +216,16 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		},
 		key(data) {
 			const keys = shell.keys();
+			if (picker) {
+				const items = filtered();
+				if (keys.matches(data, "tui.select.up")) picker.selected = Math.max(0, picker.selected - 1);
+				else if (keys.matches(data, "tui.select.down")) picker.selected = Math.min(Math.max(0, items.length - 1), picker.selected + 1);
+				else if (keys.matches(data, "tui.select.confirm")) {
+					const item = items[picker.selected], row = picker.row;
+					if (item) { picker = null; stage(row, item.value); }
+				} else return false;
+				return true;
+			}
 			if (input) {
 				if (matchesKey(data, "backspace")) input.text = [...input.text].slice(0, -1).join("");
 				else if (matchesKey(data, "ctrl+u")) input.text = "";
@@ -204,12 +253,14 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				if (!isGlobal(row) && row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
 				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`);
 				else if (isGlobal(row) && row.kind === "toggle") stage(row, !value(row));
+				else if (isGlobal(row) && (row.kind === "conductor" || row.kind === "model")) openPicker(row);
 				else if (!cycle(row, 1)) input = { row, text: !isGlobal(row) ? "" : row.kind === "list" ? JSON.stringify(value(row)) : String(value(row) ?? "") };
 			} else return false;
 			return true;
 		},
-		typing: () => input !== null, query: () => null, setFilter() {},
-		back() { if (!input) return false; input = null; return true; },
+		typing: () => input !== null, query: () => picker?.filter ?? null,
+		setFilter(query) { if (picker) { picker.filter = query; picker.selected = 0; } },
+		back() { if (input) { input = null; return true; } if (picker) { picker = null; return true; } return false; },
 		dirty: () => Object.keys(staged).length, discard() { staged = {}; },
 		legend: () => [
 			"[x] / [ ] toggles, ‹ value › is changed with Left and Right, ▲ staged marks a value not saved yet.",
