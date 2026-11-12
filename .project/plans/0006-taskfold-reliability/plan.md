@@ -5,15 +5,15 @@ document:
   title: "Taskfold reliability: token truth, ordered work and measured coaching"
   description: "Implement the remaining D1–D8 reliability decisions, preserving the shipped fold-timing and append-only context contracts"
   status: "draft"
-  revision: 1
+  revision: 2
   created_at: "2026-11-12T02:56:59+01:00"
-  updated_at: "2026-11-12T02:56:59+01:00"
+  updated_at: "2026-11-12T10:17:32+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "promote the decided reliability remainder into executable work"
-      changes: ["D1–D8 and verification preserved", "shared settings prerequisites ordered first", "newer report limits and consent surfaces reconciled"]
+    - revision: 2
+      reason: "record settings prerequisites and baseline tooling progress"
+      changes: ["settings foundation completed", "protocol audit and bounded synthetic scenarios added"]
 ---
 
 # Taskfold reliability
@@ -29,9 +29,9 @@ are evaluated against actual model behavior, not merely successful unit tests.
 
 ## Progress
 
-- Done: source inventory and D1–D8 reconciliation; executable work ordered by prerequisites.
-- Now: shared settings foundation, owned by the existing UI plan's S2–S3.
-- Next: protocol audit and original-behavior live baseline, then token truth and store order.
+- Done: source inventory, executable plan, shared settings foundation and Settings screen.
+- Now: protocol audit and original-behavior live baseline; synthetic scenarios and runner exist.
+- Next: token truth and store order; connect trustworthy paired audit measurements when available.
 - Later: consent decoupling, coaching/gate, span reminders, isolated prompt comparison and final gates.
 
 ## Current behavior and evidence
