@@ -1,0 +1,16 @@
+ Reloaded keybindings, extensions, skills, prompts, themes, and context files
+── Accordion › Settings ───── 14.5k/180.0k tok · ○ folding off · no conductor ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+→ Folding               [ ] off                                          session
+  Token budget          180k                        default openai/gpt-6.1-terra
+  Protected tail        10k                         default openai/gpt-6.1-terra
+────────────────────────────────────────────────────────────────────────────────
+ Armed: Accordion rewrites the outgoing context. Off: messages pass through unt…
+ enter toggle · tab next tab · f1 help · esc close
+─────────────────────────────────── ↓ 9 more ───────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/set...
+$0.000 (sub) 0.0%/372k (auto)                     (openai) gpt-6.1-terra • xhigh
+accordion off

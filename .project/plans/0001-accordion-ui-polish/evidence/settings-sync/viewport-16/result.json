@@ -1,0 +1,32 @@
+{
+  "matrix": [
+    {
+      "columns": 36,
+      "rows": 16,
+      "states": 6,
+      "passed": true
+    },
+    {
+      "columns": 57,
+      "rows": 16,
+      "states": 6,
+      "passed": true
+    },
+    {
+      "columns": 80,
+      "rows": 16,
+      "states": 6,
+      "passed": true
+    },
+    {
+      "columns": 140,
+      "rows": 16,
+      "states": 6,
+      "passed": true
+    }
+  ],
+  "configurationUnchanged": true,
+  "dialsAndTruthUnchanged": true,
+  "providerCalls": 0,
+  "screenshotsRendered": 24
+}

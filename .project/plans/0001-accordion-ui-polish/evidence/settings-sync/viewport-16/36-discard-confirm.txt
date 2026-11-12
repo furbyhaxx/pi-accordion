@@ -1,0 +1,16 @@
+ context files
+── … › Discard ─────── ▲ 1 staged ──
+ …❱ Conductors ❱ Settings  5/5
+ ⌕
+
+  Discard 1 staged setting?
+  Staged values are lost; saved val…
+ → Keep editing
+   Discard changes
+────────────────────────────────────
+ The first choice is the safe one.
+ ↑↓ move · enter choose · esc cancel
+────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accord...
+$0.000 (sub) 0.0%/372k (auto)  gpt-6
+accordion off

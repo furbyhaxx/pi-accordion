@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 21
+  revision: 22
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T07:51:51+01:00"
+  updated_at: "2026-11-12T08:08:51+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 21
-      reason: "repair invisible confirmation choices observed in a real sixteen-row Pi terminal"
-      changes: ["reproduce and fix footer-constrained confirmations", "preserve safe and destructive choices", "retain default dialog behavior", "record exact live before and after"]
+    - revision: 22
+      reason: "complete the live sixteen-row Settings evaluation after repairing confirmation layout"
+      changes: ["six Settings paths at 36/57/80/140 columns", "review all 24 rendered screenshots", "prove config and dials unchanged by cancellation", "leave conductor options as the next S2 result"]
 ---
 
 # Accordion UI polish: plan
@@ -28,7 +28,7 @@ implementation must deviate, update the spec in the same change.
 done  S0  Taskfold visibility unit and task tooling (§4)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
-now   S2  Settings store, sync, schema (§6.1, §6.3): runtime sync delivered; live checks/options next
+now   S2  Settings store, sync, schema (§6.1, §6.3): runtime sync and live checks delivered; options next
 next  S3  Settings screen (§6.2)
 later S1c Footer (§8)
 later S4  Compaction (§7)
@@ -250,7 +250,7 @@ See `evidence/settings-sync/tokens-result.json`. Stale controller callbacks, a S
 save during takeover and old-session callbacks after `/new` also pass; the replacement session
 can still save (`evidence/settings-sync/guards-result.json`). Pi reactivation had reset the
 initial fixture's old-host cache, so it now preserves and verifies the actual old callback.
-No product guard fix was required. Pending: 16-row settings captures and conductor options.
+No product guard fix was required. Native stale guards pass; conductor options remain pending.
 Settings WebSocket frames belong to S6's protocol work. Aggressive/bake execution remains in S4.
 
 The 36×16 terminal exposed confirmation facts taking every body row and hiding both choices.
@@ -258,7 +258,10 @@ Shared confirms now reserve question/choice rows, move clipped facts to the desc
 scroll extra choices. The exact live replay and a regression for 16/24 terminal rows pass;
 native settings/TUI tests: 146 passed; app checks clean; app tests: 1,077 passed, 21 existing
 skips; native smokes pass. Evidence: `settings-sync/token-confirm-{before,fixed}-36x16.*`.
-The full width matrix remains pending.
+The six-path Settings matrix now passes at 36/57/80/140 columns by 16 rows. All 24 PNGs were
+reviewed: selected rows, caret, validation, safe/destructive choices, staged/locked cues and
+primary hints remain readable. Captures and `result.json` / `visual-review.json` are in
+`evidence/settings-sync/viewport-16/`; cancellation preserves config, dials and Truth.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

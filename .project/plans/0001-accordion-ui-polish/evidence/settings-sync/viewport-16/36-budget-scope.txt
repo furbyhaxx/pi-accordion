@@ -1,0 +1,16 @@
+ context files
+── … › Scope ─── 14.5k/180.0k tok ──
+ …❱ Conductors ❱ Settings  5/5
+ ⌕
+
+  Where does 175k apply?
+  This session: until the session e…
+ → This session
+   This session and default for ope…
+────────────────────────────────────
+ Default: also stored in ~/.accordi…
+ ↑↓ move · enter choose · esc cancel
+────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accord...
+$0.000 (sub) 0.0%/372k (auto)  gpt-6
+accordion off

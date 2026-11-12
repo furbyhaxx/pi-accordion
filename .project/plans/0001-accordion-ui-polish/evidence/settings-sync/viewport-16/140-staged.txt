@@ -1,0 +1,16 @@
+ Reloaded keybindings, extensions, skills, prompts, themes, and context files
+── Accordion › Settings ───────────────────── ↑ 6 more ───────────────────── ▲ 1 staged · 14.5k/180.0k tok · ○ folding off · no conductor ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+  Default conductor     ‹ none ›                                                                                                        user
+→ /compact behavior     ‹ pass ›                                                                                                    ▲ staged
+  Web UI address        127.0.0.1                                                                                                    default
+  Web UI door port      0                                                                                                      flag · locked
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ What Pi's /compact does while folding is armed: pass (one Accordion pass), or native.
+ enter next value · ctrl+s save · ←→ change · alt+u default · tab next tab · f1 help · esc close
+───────────────────────────────────────────────────────────────── ↓ 3 more ─────────────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/settings-sync/project-b (dev)
+$0.000 (sub) 0.0%/372k (auto)                                                                                 (openai) gpt-6.1-terra • xhigh
+accordion off

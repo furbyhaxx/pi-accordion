@@ -111,6 +111,22 @@ activation identities before exercising it. No product guard change was needed. 
 strict mypy on all five drivers; standalone TypeScript retains only the seven documented
 baseline diagnostics, none in the fixture.
 
+## Sixteen-row Settings matrix
+
+Run `uv run --no-project python -B -m viewports` after the guard evaluation. The driver uses
+the source-loaded `b` session, resizes its real terminal to 36/57/80/140 columns by 16 rows,
+and exercises Settings, the budget editor, budget scope, token confirmation, a staged edit and
+discard confirmation. It checks widths and unchanged config/dials/Truth, then renders 24 PNGs
+through the terminal-testing skill. Review the PNGs; `viewport-16/visual-review.json` records
+the observed selection, caret, hints, confirmations, staging and lock cues.
+
+The initial narrow run exposed confirmation facts hiding both choices. The shared layout now
+reserves question/choice rows and moves clipped facts to the description; the exact before/after
+captures and the 16/24-row regression protect that behavior. Navigation recognizes clipped
+labels and breadcrumbs without assuming the frame starts at the terminal's first row.
+Run Ruff and strict mypy on all six Python drivers. Review copies may be scaled locally;
+the original evidence PNGs remain unchanged. No provider request or persistent edit is made.
+
 ## Cleanup
 
 Stop only the Pi processes from this run, wait for them to exit, then remove their owned tmux

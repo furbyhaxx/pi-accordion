@@ -1,0 +1,16 @@
+ Reloaded keybindings, extensions, skills, prompts, themes, and context files
+── Accordion › Settings › Scope ───────────────────────────────────────────────────────── 14.5k/180.0k tok · ○ folding off · no conductor ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+  Where does 175k apply?
+  This session: until the session ends or you change it.
+ → This session
+   This session and default for openai/gpt-6.1-terra
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Default: also stored in ~/.accordion/config.json for openai/gpt-6.1-terra.
+ ↑↓ move · enter choose · esc cancel
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/settings-sync/project-b (dev)
+$0.000 (sub) 0.0%/372k (auto)                                                                                 (openai) gpt-6.1-terra • xhigh
+accordion off
