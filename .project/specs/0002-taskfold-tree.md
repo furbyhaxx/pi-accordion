@@ -239,7 +239,8 @@ tasks({ action: "status", list: "auth" })
 ```
 State only: no tree, no finished tasks, no pins or content. `next` is the first `todo` leaf in
 document order that is not blocked and whose dependencies are finished. `done`/`total` count
-finished tasks (done, failed, abandoned) over all tasks.
+finished tasks (done, failed, abandoned) over all tasks. `criteriaMissing` appears when the
+criteria policy is on and an unfinished leaf outside a branch still needs some.
 
 #### claim
 
@@ -398,6 +399,14 @@ list is not something outside the agent's control — it works on that task, or 
 behind it. `delegated` needs a `delegate` handle, counts as work in flight, and its result must
 return to this session, which resumes and integrates it before ending. A `detail` is stored
 verbatim; the tool never appends punctuation.
+
+**Criteria policy.** While `tasks.acceptanceCriteria.required` is on, `create` and `add` refuse a
+new leaf that carries fewer than `min` (default 1) or more than `max` (default 3) criteria, or one
+longer than `maxChars` (default 300, never above the format's 300), naming the call that fixes it.
+Lists written before the policy keep loading: `status` and `claim` report `criteriaMissing:
+[{id, title, has}]` for unfinished leaves outside a branch, started or in-progress leaves excluded,
+and `update {acceptanceCriteria: {add: [...]}}` adds them. A required policy never refuses work over
+an old leaf.
 
 **Stopping policy.** With `tasks.stopOnBlock` (default `true`) a block ends the run: `start` of
 anything but the waiting task itself (or its subtasks) is refused with `The run is stopped: <id>

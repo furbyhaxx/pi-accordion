@@ -5,8 +5,14 @@ import * as path from "node:path";
 import { warmSymbols } from "./taskSymbols";
 import { CLAIM_STALE_MS, TaskError, TaskStore, blockLabel, claimState, cleanReport, runTasks, slugFor, taskFingerprint, type TasksArgs } from "./tasks";
 
-function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), stopOnBlock = true) {
-	return { dir, s: new TaskStore(dir, () => session, () => undefined, () => ({ stopOnBlock })) };
+function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), stopOnBlock = true, criteriaRequired = false) {
+	return {
+		dir,
+		s: new TaskStore(dir, () => session, () => undefined, () => ({
+			stopOnBlock,
+			criteria: { required: criteriaRequired, min: 1, max: 3, maxChars: 300 },
+		})),
+	};
 }
 
 const report = { outcome: "Done." };
@@ -152,7 +158,7 @@ describe("tasks", () => {
 
 	test("claims carry the session name, and claim state ages from held to stale", () => {
 		const { dir } = store();
-		const s = new TaskStore(dir, () => "s1", () => "Auth work");
+		const s = new TaskStore(dir, () => "s1", () => "Auth work", () => ({ stopOnBlock: true, criteria: { required: false, min: 1, max: 3, maxChars: 300 } }));
 		const list = s.create("w", "W", ["G"], [{ title: "A" }]);
 		expect(list.claim).toMatchObject({ session: "s1", name: "Auth work" });
 		const at = Date.parse(list.claim!.at);
@@ -563,5 +569,27 @@ expect(run(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acc
 		expect(run(open.s, { action: "start", list: "sb", id: "1" })).toEqual({ ok: true, resumed: [{ id: "1", title: "A" }] });
 		const a = open.s.read("sb").tasks[0];
 		expect(a.blocks).toEqual([expect.objectContaining({ reason: "user-decision", resumedAt: expect.any(String) })]);
+	});
+
+	test("required criteria refuse new leaves with the exact repair, and older lists only report them", () => {
+		const { s, dir } = store("s1", fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), true, true);
+		expect(() => runTasks(s, { action: "create", list: "cr", title: "CR", goals: ["G"], tasks: [{ title: "A" }] }))
+			.toThrow(/create: leaf 1 "A" has 0 acceptance criteria; give 1–3 checkable statements, e\.g\. tasks add \{list: "cr", tasks: \[\{title: "…", acceptanceCriteria: \["…"\]\}\]\}/);
+		expect(() => runTasks(s, { action: "create", list: "cr", title: "CR", goals: ["G"], tasks: [{ title: "P", subtasks: [{ title: "A" }] }] }))
+			.toThrow(/leaf 1\.1 "A" has 0 acceptance criteria/);
+		expect(() => runTasks(s, { action: "create", list: "cr", title: "CR", goals: ["G"], tasks: [{ title: "A", acceptanceCriteria: ["a", "b", "c", "d"] }] }))
+			.toThrow(/has 4 acceptance criteria; keep at most 3/);
+		runTasks(s, { action: "create", list: "cr", title: "CR", goals: ["G"], tasks: [{ title: "P", acceptanceCriteria: ["p holds"], subtasks: [{ title: "A", acceptanceCriteria: ["a holds"] }] }] });
+		expect(() => runTasks(s, { action: "add", list: "cr", tasks: [{ title: "B" }] })).toThrow(/^.*add: leaf 1 "B" has 0 acceptance criteria/);
+
+		// A list written before the policy keeps loading, and status names what is missing.
+		fs.mkdirSync(path.join(dir, ".pig/tasks"), { recursive: true });
+		const raw = { version: 3, slug: "old", title: "Old", goals: ["G"], tasks: [{ title: "Legacy" }, { title: "Done", status: "done", report: { outcome: "ok" }, acceptanceCriteria: ["x"] }] };
+		fs.writeFileSync(path.join(dir, ".pig/tasks/old.json"), JSON.stringify(raw));
+		expect(run(s, { action: "claim", list: "old" }).criteriaMissing).toEqual([{ id: "1", title: "Legacy", has: 0 }]);
+		expect(run(s, { action: "status", list: "old" }).criteriaMissing).toEqual([{ id: "1", title: "Legacy", has: 0 }]);
+		expect(run(s, { action: "start", list: "old", id: "1" })).toEqual({ ok: true, started: [{ id: "1", title: "Legacy" }] });
+		runTasks(s, { action: "update", list: "old", id: "1", acceptanceCriteria: { add: ["legacy still works"] } });
+		expect(run(s, { action: "status", list: "old" }).criteriaMissing).toBeUndefined();
 	});
 });

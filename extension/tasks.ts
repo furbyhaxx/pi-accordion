@@ -285,6 +285,24 @@ function nodesOf(inputs: unknown, at: string, links: [Task, string][]): Node[] {
 }
 
 /**
+ * Refuse new leaves that ignore the configured criteria policy, naming the call that fixes it.
+ * A leaf that already carries a matching text is left alone; only its absence is refused.
+ */
+function checkLeafCriteria(nodes: Node[], policy: TaskStoreProtocol["criteria"], list: string, where: string): void {
+	if (!policy.required) return;
+	const walk = (n: Node, path: string) => {
+		if (!n.kids.length) {
+			const count = n.task.acceptanceCriteria?.length ?? 0;
+			if (count < policy.min) throw new TaskError("invalid_args", `${where}: leaf ${path} "${n.task.title}" has ${count} acceptance criteria; give ${policy.min}–${policy.max} checkable statements, e.g. tasks add {list: "${list}", tasks: [{title: "…", acceptanceCriteria: ["…"]}]}.`);
+			if (count > policy.max) throw new TaskError("invalid_args", `${where}: leaf ${path} "${n.task.title}" has ${count} acceptance criteria; keep at most ${policy.max}.`);
+			for (const c of n.task.acceptanceCriteria ?? []) if (c.text.length > policy.maxChars) throw new TaskError("invalid_args", `${where}: an acceptance criterion of "${n.task.title}" is ${c.text.length} chars; keep each to ${policy.maxChars}.`);
+		}
+		n.kids.forEach((k, i) => walk(k, `${path}.${i + 1}`));
+	};
+	nodes.forEach((n, i) => walk(n, String(i + 1)));
+}
+
+/**
  * Give every task the id of its position and write the tree back into `list.tasks`. Refuses, before
  * anything is changed, a layout that would renumber a started task. Rewrites references to
  * renumbered tasks and returns the renamings.
@@ -332,14 +350,19 @@ function isWithin(id: string, ancestor: string): boolean {
 export interface TaskStoreProtocol {
 	/** A block in this list ends the run instead of letting later leaves run. */
 	stopOnBlock: boolean;
+	/** Leaf criteria policy, already bounded by the public format caps. */
+	criteria: { required: boolean; min: number; max: number; maxChars: number };
 }
+
+/** The format's own floor: leaf criteria are the settings' opinion, so a bare store does not require them. */
+const DEFAULT_PROTOCOL: TaskStoreProtocol = { stopOnBlock: true, criteria: { required: false, min: 1, max: 3, maxChars: CRITERION_MAX } };
 
 export class TaskStore {
 	constructor(
 		private readonly projectDir: string,
 		private readonly session: () => string,
 		private readonly sessionName: () => string | undefined = () => undefined,
-		private readonly protocol: () => TaskStoreProtocol = () => ({ stopOnBlock: true }),
+		private readonly protocol: () => TaskStoreProtocol = () => DEFAULT_PROTOCOL,
 	) {}
 
 	/** The session this store acts for. */
@@ -465,6 +488,17 @@ export class TaskStore {
 	}
 
 	/** Create and claim a list with its goals. */
+	/** The protocol in force, with the format's floor filling anything the caller leaves out. */
+	private protocolValue(): Required<TaskStoreProtocol> {
+		const value = this.protocol();
+		return { stopOnBlock: value.stopOnBlock ?? DEFAULT_PROTOCOL.stopOnBlock, criteria: { ...DEFAULT_PROTOCOL.criteria, ...value.criteria } };
+	}
+
+	/** The criteria policy in force, for callers that report repairs (`statusOf`). */
+	protocolCriteria(): TaskStoreProtocol["criteria"] {
+		return this.protocolValue().criteria;
+	}
+
 	create(slug: string, title: string, goals: unknown, tasks: unknown, userTexts: readonly string[] = [], limits: PinLimits = PIN_LIMITS): TaskList {
 		if (fs.existsSync(this.file(slug))) throw new TaskError("invalid_args", `Task list "${slug}" already exists. Use "claim" to work on it, or pick another slug.`);
 		const at = now();
@@ -473,6 +507,7 @@ export class TaskStore {
 		const links: [Task, string][] = [];
 		const roots = nodesOf(tasks ?? [], at, links);
 		if (links.length) throw new TaskError("invalid_args", '"supersedes" points at a task in the same list, so it only works with "add".');
+		checkLeafCriteria(roots, this.protocolValue().criteria, slug, "create");
 		renumber(list, roots);
 		assignItems(list, roots);
 		this.prepareReferences(list, roots, userTexts, limits);
@@ -650,6 +685,7 @@ export class TaskStore {
 			throw new TaskError("invalid_transition", `Task ${spot.parent} is ${this.task(list, spot.parent).status}; add the new work at the top level or under an open task.`);
 		const links: [Task, string][] = [];
 		const requested = nodesOf(tasks, at, links);
+		checkLeafCriteria(requested, this.protocolValue().criteria, slug, "add");
 		// The user's message may have been routed into the list while the agent adds the same work: a bare
 		// repeat of an unstarted sibling reuses it instead of creating a twin.
 		const planned = new Set(links.map(([by]) => by));
@@ -787,7 +823,7 @@ export class TaskStore {
 				`Task ${blocking.map((t) => `${t.id} "${t.title}"`).join(", ")} is still in progress. Complete, fail or abandon it with a report before starting ${id}, or start one of its subtasks.`,
 			);
 		const task0 = this.task(list, id);
-		const stopping = this.protocol().stopOnBlock
+		const stopping = this.protocolValue().stopOnBlock
 			? list.tasks.find((t) => {
 				const b = currentBlock(t);
 				if (!b || !IDLE_REASONS.has(b.reason)) return false;
@@ -1089,6 +1125,8 @@ export interface TaskResult {
 	noGoal?: true;
 	doing?: string[];
 	blocked?: { id: string; reason: BlockReason; detail: string; on?: string }[];
+	/** Unfinished leaves that still need acceptance criteria, with the call that adds them. */
+	criteriaMissing?: { id: string; title: string; has: number }[];
 }
 
 /** Run one `tasks` call and return its JSON result text. Rejections throw `TaskError`. */
@@ -1104,13 +1142,21 @@ export function runTasksTracked(store: TaskStore, args: TasksArgs, userTexts: re
 }
 
 /** Finished tasks over all tasks, and the state an agent re-orients by (SPEC-0002 §3.4 status). */
-export function statusOf(list: TaskList): Pick<TaskResult, "done" | "total" | "noGoal" | "doing" | "blocked" | "next"> {
+export function statusOf(list: TaskList, criteria?: TaskStoreProtocol["criteria"]): Pick<TaskResult, "done" | "total" | "noGoal" | "doing" | "blocked" | "next" | "criteriaMissing"> {
 	const blocked = list.tasks.flatMap((t) => {
 		const b = currentBlock(t);
 		return b ? [{ id: t.id, reason: b.reason, detail: b.detail, ...(b.on ? { on: b.on } : {}) }] : [];
 	});
 	const doing = list.tasks.filter((t) => t.status === "doing").map((t) => t.id);
 	const next = nextTaskOf(list);
+	// Older lists predate the policy: report what is missing, never refuse work over it.
+	const missing = criteria?.required
+		? list.tasks
+			.filter((t) => !FINISHED.has(t.status) && t.status !== "doing" && !list.tasks.some((o) => o.id !== t.id && isWithin(o.id, t.id)))
+			.map((t) => ({ t, has: t.acceptanceCriteria?.length ?? 0 }))
+			.filter(({ has }) => has < criteria.min)
+			.map(({ t, has }) => ({ id: t.id, title: t.title, has }))
+		: [];
 	return {
 		done: list.tasks.filter((t) => FINISHED.has(t.status)).length,
 		total: list.tasks.length,
@@ -1118,6 +1164,7 @@ export function statusOf(list: TaskList): Pick<TaskResult, "done" | "total" | "n
 		...(doing.length ? { doing } : {}),
 		...(blocked.length ? { blocked } : {}),
 		...(next ? { next } : {}),
+		...(missing.length ? { criteriaMissing: missing } : {}),
 	};
 }
 
@@ -1179,7 +1226,7 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			return { ok: true, lists };
 		}
 		case "claim":
-			return { ok: true, ...statusOf(store.claim(need("list"), args.force === true)) };
+			return { ok: true, ...statusOf(store.claim(need("list"), args.force === true), store.protocolCriteria()) };
 		case "release":
 			store.release(need("list"));
 			return ok;
@@ -1230,7 +1277,7 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			return ancestors.length ? { ok: true, alsoBlocked: ancestors.map((t) => t.id) } : ok;
 		}
 		case "status":
-			return { ok: true, ...statusOf(store.read(need("list"))) };
+			return { ok: true, ...statusOf(store.read(need("list")), store.protocolCriteria()) };
 		case "start": {
 			const { task, autoStarted, autoClosed, resumed } = store.start(need("list"), need("id"));
 			track.started = [...autoStarted.map((t) => t.id), task.id];

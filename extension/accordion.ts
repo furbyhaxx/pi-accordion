@@ -3028,7 +3028,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const key = JSON.stringify([project, session]);
 		const existing = taskStores.get(key);
 		if (existing) return existing.store;
-		const store = new TaskStore(project, () => session, () => pi.getSessionName(), () => ({ stopOnBlock: settings.tasks.stopOnBlock }));
+		const store = new TaskStore(project, () => session, () => pi.getSessionName(), () => ({
+			stopOnBlock: settings.tasks.stopOnBlock,
+			criteria: {
+				required: settings.tasks.acceptanceCriteria.required,
+				min: Math.min(settings.tasks.acceptanceCriteria.min, CRITERIA_MAX),
+				max: Math.min(settings.tasks.acceptanceCriteria.max, CRITERIA_MAX),
+				maxChars: Math.min(settings.tasks.acceptanceCriteria.maxChars, CRITERION_MAX),
+			},
+		}));
 		taskStores.set(key, { session, store });
 		return store;
 	}
@@ -4164,7 +4172,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"- abandon: stopped on purpose without a verdict (no longer wanted, replaced, the user changed course). Works on unstarted and blocked tasks too. Pass supersededBy when another task replaces it.\n" +
 			"- block: you cannot continue because of something outside your control; the task stays open and resumes with start. reason is one of user-decision (the user must choose), user-input (information, credentials or access only the user can give), third-party (an external service, review or release), delegated (you handed the work to another agent or channel; give delegate). detail says exactly what is awaited. A wait on another task in the list is not a block reason: work on that task, or move this one behind it. A block ends the run while tasks.stopOnBlock is on; with it off, later leaves may run and the blocked interval stays closed.\n" +
 			"Rules: leaves run in list order — start accepts only the task \"next\" names (a blocked leaf may also be resumed with start), a parent refuses with its next leaf's call and starts with it, and any other id is refused with the valid call. Only one branch is in progress at a time. A parent completes only when none of its subtasks is unstarted or blocked; fail or abandon those first. fail/abandon on a parent abandons its unstarted and blocked subtasks. complete and fail are refused when nothing ran inside the task since its start.\n" +
-			"Every list has 1–5 goals: together the end state the whole list delivers. A task may add up to 3 goals of its own. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
+			"Every list has 1–5 goals: together the end state the whole list delivers. A task may add up to 3 goals of its own. Give leaf tasks 1–3 acceptanceCriteria, checkable statements that are true when the task is finished; `create`/`add` refuse a leaf without them while `tasks.acceptanceCriteria.required` is on, and `status` lists older leaves that still need some (`criteriaMissing`) with the `update … acceptanceCriteria` call that adds them. Ids follow position; inserting or moving renumbers only tasks not started yet, and ids of started tasks never change.\n" +
 			"Limits: title 200 chars; report.outcome 2,000 chars; decisions/open at most 12 items each, 1,000 chars per item; acceptance criteria at most 8 items, 300 chars each. Reports over a limit are rejected with every violation, never truncated.\n" +
 			"Results are one-line JSON: {\"ok\":true,…} with only what the tool decided, or {\"ok\":false,\"error\":<code>,\"message\"} when refused. Goals, criteria, pins and attachments carry ids (g1, c1, p1, a1) that stay fixed; results return the ids they assign. start returns the list goals and each entering task's goals, criteria, pins and attachment content once (parents: those of tasks already in progress above it that you can no longer see); keep them in mind, later results do not repeat them. claim returns the same for tasks already in progress. next: the task to start next (resume: true means start it again to resume). parentReady: all subtasks of that task are finished, so complete it now with its own report. resumable: a blocked parent can continue. alsoBlocked: parents that now wait too. After a user-decision, user-input or third-party block, tell the user exactly what you need.\n" +
 			"Actions: create {list, title, goals: [texts], tasks}, list, claim {list, force?}, release {list}, add {list, parent?, before?|after?, tasks[{title, goals?, acceptanceCriteria?, subtasks?, supersedes?}]}, update {list, id?, title?, goals? (list without id, task with id), acceptanceCriteria? (task)} where goals/acceptanceCriteria take {add?: [texts], remove?: [ids], edit?: [{id, text}]}, move {list, id, parent?, before?|after?} (unstarted tasks only), pin|attach {list, id?, items}, unpin {list, id?, pins: [ids]}, detach {list, id?, attachments: [ids]}, status {list}, start {list, id}, block {list, id, reason, detail, delegate?}, complete|fail|abandon {list, id, report, supersededBy? (abandon)}.",
