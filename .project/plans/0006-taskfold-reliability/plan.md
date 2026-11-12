@@ -247,7 +247,8 @@ Keep descriptions short; do not create per-model prompt forks without measured n
 At a fixed runtime, compare old and candidate prompts in both coach and gate on all four
 scenarios for each enabled family. Record actual before/after metrics; revert wording that
 adds cost without improving behavior. Done 2026-11-12: the candidate was reverted
-(`evidence/prompts/comparison.json`). Audit folded-history comprehension too: a completed
+(`evidence/prompts/comparison.json`); the shipped wording is unchanged, so no doc or skill
+update follows from it. Audit folded-history comprehension too: a completed
 record is evidence of recorded work, not proof that hidden execution never occurred. Exercise
 `recall` and batched tool boundaries before disavowing it. The record/bracket live observations
 are in `.project/plans/0005-fold-timing/evidence/form-live/bracket-checks.json`.
