@@ -680,6 +680,31 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("reload asks before discarding and retains edits if reading disk fails", async () => {
+		const s = setup(false, "settings");
+		let reads = 0;
+		s.host.reloadSettings = () => { reads++; throw new Error("invalid config"); };
+		selectSetting(s, "Arm on startup"); s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.alt("r"));
+		expect(s.cursor()).toContain("Keep editing");
+		s.panel.handleInput(K.enter);
+		expect(reads).toBe(0);
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter); await tick();
+		expect(reads).toBe(1);
+		expect(s.screen()).toContain("invalid config");
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.host.reloadSettings = () => { reads++; s.externalSettings({ debug: true }); return s.host.settings!(); };
+		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter); await tick();
+		expect(reads).toBe(2);
+		expect(s.settings().debug).toBe(true);
+		expect(s.cursor()).toContain("[x] on");
+		expect(s.screen()).not.toContain("▲ 1 staged");
+		s.panel.handleInput(K.enter); s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.saveRevisions.at(-1)).toBe("1");
+		s.close(); await s.opening;
+	});
+
 	test("shows override locks and refuses toggles, cycling and resets", async () => {
 		const s = setup(false, "settings");
 		const snapshot = s.host.settings!();

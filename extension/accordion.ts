@@ -4011,6 +4011,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					clients: clients.size,
 				}),
 				settings: () => settingsStore.current(),
+				reloadSettings: () => {
+					refreshControllerNow();
+					if (!holdsControl(surfaceId, openedSessionId)) throw new Error("Session or controller changed; reopen the panel");
+					settingsStore.poll();
+					const snapshot = settingsStore.current();
+					adoptSettingsSnapshot(snapshot);
+					return snapshot;
+				},
 				models: async (type) => (await ctx.modelRegistry.getAvailableOfType(type)).map(({ provider, id, name }) => ({ provider, id, name })),
 				updateSettings: (patch, baseRev) => saveSettingsPatch(patch, baseRev, () => {
 					refreshControllerNow();
@@ -4064,6 +4072,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						thinkingLevel: () => localHost.thinkingLevel?.() ?? null,
 						webInfo: () => localHost.webInfo!(),
 						settings: () => localHost.settings!(),
+						reloadSettings: () => localHost.reloadSettings!(),
 						models: (type) => localHost.models!(type),
 						updateSettings: (patch, baseRev) => localHost.updateSettings!(patch, baseRev),
 						regenerateToken: () => localHost.regenerateToken!(),

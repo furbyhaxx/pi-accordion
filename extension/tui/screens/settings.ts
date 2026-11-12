@@ -204,6 +204,19 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			return `Saved ${n} setting${n === 1 ? "" : "s"} to ${CONFIG_PATH}`;
 		});
 	};
+	const reload = () => {
+		if (!host.reloadSettings) return shell.say("Settings cannot be reloaded from this session");
+		const reloadSettings = host.reloadSettings;
+		const run = () => void shell.run("Reloading settings…", async () => {
+			await reloadSettings();
+			staged = {};
+			newPatterns.clear();
+			return `Reloaded ${CONFIG_PATH}`;
+		});
+		if (!Object.keys(staged).length) return run();
+		shell.confirm({ crumb: "Reload", title: "Discard staged settings and reload from disk?\nSaved settings are unchanged.",
+			options: ["Keep editing", "Discard and reload"], then: (choice) => { if (choice === 1) run(); } });
+	};
 
 	return {
 		id: "settings", title: "Settings",
@@ -249,7 +262,8 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			return { body: display.slice(top, top + bodyRows), crumbs: [], description: `${row.description}${webNote}`,
 				hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2), ...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
 					...(isGlobal(row) && (row.kind === "choice" || row.kind === "conductor") ? [rawHint(theme, "←→", "change", 3)] : []),
-					...(isGlobal(row) && row.kind !== "add-pattern" ? [rawHint(theme, "alt+u", "default", 6)] : []), ...(isGlobal(row) && row.path === "customToken" && row.kind !== "add-pattern" ? [rawHint(theme, "alt+r", "new token", 5)] : [])],
+					...(isGlobal(row) && row.kind !== "add-pattern" ? [rawHint(theme, "alt+u", "default", 6)] : []),
+					rawHint(theme, "alt+r", isGlobal(row) && row.path === "customToken" && row.kind !== "add-pattern" ? "new token" : "reload", 5)],
 				above: top, below: Math.max(0, display.length - top - bodyRows) };
 		},
 		key(data) {
@@ -287,7 +301,8 @@ export function createSettingsTab(shell: Shell): PanelTab {
 					options: ["Keep token", "Generate new token"], then: (choice) => { if (choice !== 1) return; void shell.run("Generating token…", async () => {
 						await regenerate(); delete staged.customToken; return "New token generated; reconnect using the Web UI URL";
 					}); } });
-			} else if (keys.matches(data, "tui.select.confirm")) {
+			} else if (matchesKey(data, "alt+r")) reload();
+			else if (keys.matches(data, "tui.select.confirm")) {
 				if (!isGlobal(row) && row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
 				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`);
 				else if (isGlobal(row) && row.kind === "toggle") stage(row, !value(row));
