@@ -1,9 +1,10 @@
 # Taskfold protocol evaluation harness
 
 `scenarios.mjs` creates four independent, synthetic Node projects. The discount scenario's
-money helper is an implicit prerequisite; the decision scenario withholds its answer until
-an observed `user-decision` task block. The verifier checks behavior separately from the
-model's self-report. For bug, docs and decision scenarios the runner also reverts the relevant
+money helper is an implicit prerequisite. After the decision scenario's first stop, the runner
+records whether a user-decision block remains open and whether the fix was already implemented,
+then supplies the scripted answer even if the block was missing. The verifier checks behavior
+separately from the model's self-report. For bug, docs and decision scenarios the runner also reverts the relevant
 implementation in a disposable copy and checks that the submitted tests fail against it.
 
 From the repository root, with Pi-Bolt, bubblewrap and the configured pi-auth-plus installation:

@@ -3,7 +3,7 @@ import { strict as assert } from "node:assert";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createScenario, scenarios, verifyScenario } from "./scenarios.mjs";
-import { evaluate, run } from "./run.mjs";
+import { evaluate, observedDecisionBlock, run } from "./run.mjs";
 
 const scratch = join(process.cwd(), ".pi");
 
@@ -57,4 +57,17 @@ test("unavailable model is recorded as a failure", async () => {
     assert.equal(result.behaviorPassed, false);
     assert.equal(result.metrics, null);
   } finally { await rm(base, { recursive: true, force: true }); }
+});
+
+test("only a successful unresolved user-decision block counts as waiting", () => {
+  const action = (id, args, isError = false) => [
+    { message: { role: "assistant", content: [{ type: "toolCall", id, name: "tasks", arguments: { list: "l", id: "1", ...args } }] } },
+    { message: { role: "toolResult", toolCallId: id, isError } },
+  ];
+  const block = action("a", { action: "block", reason: "user-decision" });
+  assert.equal(observedDecisionBlock([]), false);
+  assert.equal(observedDecisionBlock(action("a", { action: "block", reason: "user-decision" }, true)), false);
+  assert.equal(observedDecisionBlock(block), true);
+  assert.equal(observedDecisionBlock([...block, ...action("b", { action: "start" })]), false);
+  assert.equal(observedDecisionBlock(action("a", { action: "block", reason: "third-party" })), false);
 });

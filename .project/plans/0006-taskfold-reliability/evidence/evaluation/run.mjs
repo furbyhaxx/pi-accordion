@@ -26,10 +26,14 @@ async function runCheck(args, cwd, timeout = 15000, mounts = []) {
   return result;
 }
 
-export async function evaluate(name, project, base) {
+async function behavior(name, project) {
   const script = `import { verifyScenario } from '/eval/scenarios.mjs'; process.exit(await verifyScenario(process.argv[1], process.cwd()) ? 0 : 1)`;
   const mounts = ["--dir", "/eval", "--ro-bind", fileURLToPath(new URL("./scenarios.mjs", import.meta.url)), "/eval/scenarios.mjs"];
-  const behaviorPassed = (await runCheck(["--input-type=module", "-e", script, name], project, 15000, mounts)).code === 0;
+  return (await runCheck(["--input-type=module", "-e", script, name], project, 15000, mounts)).code === 0;
+}
+
+export async function evaluate(name, project, base) {
+  const behaviorPassed = await behavior(name, project);
   const testsPassed = (await runCheck(["--test"], project)).code === 0;
   let regressionDetected = null;
   if (testsPassed && name !== "refactor") {
@@ -60,20 +64,24 @@ async function sessionFile(dir) {
   return join(dir, files[0]);
 }
 
-function observedDecisionBlock(entries) {
-  const blockCalls = new Set();
-  let blocked = false;
+export function observedDecisionBlock(entries) {
+  const calls = new Map();
+  const blocked = new Set();
+  function apply(args) {
+    if (typeof args?.list !== "string" || typeof args?.id !== "string") return;
+    const key = `${args.list}/${args.id}`;
+    if (args.action === "block") {
+      if (args.reason === "user-decision") blocked.add(key); else blocked.delete(key);
+    } else if (["start", "complete", "fail", "abandon"].includes(args.action)) blocked.delete(key);
+  }
   for (const entry of entries) {
     const message = entry.message;
-    if (message?.role === "assistant") {
-      for (const item of message.content ?? []) {
-        if (item?.type === "toolCall" && item.name === "tasks" && item.arguments?.action === "block" && item.arguments?.reason === "user-decision") blockCalls.add(item.id);
-      }
-    }
-    if (message?.role === "toolResult" && blockCalls.has(message.toolCallId) && !message.isError) blocked = true;
-    for (const call of message?.nestedCalls?.calls ?? []) if (call?.name === "tasks" && call.status === "ok" && call.arguments?.action === "block" && call.arguments?.reason === "user-decision") blocked = true;
+    if (message?.role === "assistant") for (const item of message.content ?? []) if (item?.type === "toolCall" && item.name === "tasks") calls.set(item.id, item.arguments);
+    if (message?.role !== "toolResult") continue;
+    if (!message.isError && calls.has(message.toolCallId)) apply(calls.get(message.toolCallId));
+    if (message.nestedCalls?.complete === true) for (const call of message.nestedCalls.calls ?? []) if (call.name === "tasks" && call.status === "ok") apply(call.arguments);
   }
-  return blocked;
+  return blocked.size > 0;
 }
 
 export async function run({ model, scenario: name, output, prompt = scenarios[name]?.prompt, timeoutMs = 360000, maxRequests = 30 }) {
@@ -107,6 +115,7 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
   let capped = false;
   let requests = 0;
   let phases = 0;
+  let decisionImplementedEarly = null;
   let decisionBlocked = false;
   let decisionAnswered = false;
   let processing = Promise.resolve();
@@ -124,7 +133,10 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
       phases++;
       if (name === "decision" && phases === 1) {
         try { decisionBlocked = observedDecisionBlock(await readJsonLines(await sessionFile(sessions))); } catch { decisionBlocked = false; }
-        if (decisionBlocked) { decisionAnswered = true; send(child, "answer", scenarios[name].answer); return; }
+        decisionImplementedEarly = await behavior(name, project);
+        decisionAnswered = true;
+        send(child, "answer", scenarios[name].answer);
+        return;
       }
       child.stdin.end();
     });
@@ -141,7 +153,7 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
     metrics = auditSession(entries);
   } catch { /* A failed startup may not create a session. */ }
   const evaluation = await evaluate(name, project, base);
-  const summary = { scenario: name, model, timeoutMs, maxRequests, requests, phases, decisionBlocked, decisionAnswered, timedOut, capped, process: result, ...evaluation, metrics };
+  const summary = { scenario: name, model, timeoutMs, maxRequests, requests, phases, decisionBlocked, decisionAnswered, decisionImplementedEarly, timedOut, capped, process: result, ...evaluation, metrics };
   await writeFile(join(base, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
   return summary;
 }
