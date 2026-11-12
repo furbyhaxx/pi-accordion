@@ -77,8 +77,9 @@ describe("tasks", () => {
 	test("only the innermost open branch may start", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
-		runTasks(s, { action: "start", list: "w", id: "1" });
+		expect(() => runTasks(s, { action: "start", list: "w", id: "1" })).toThrow(/Task 1 is a parent; parents start with their next leaf\. Call start \{ list: "w", id: "1\.1" \}/);
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
+		expect(s.read("w").tasks.map((t) => t.status)).toEqual(["doing", "doing", "todo"]);
 		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/1.1 "A1".*still in progress/);
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report })).toThrow(/Subtask 1.1/);
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
@@ -263,6 +264,11 @@ describe("tasks", () => {
 		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "bored" as never, detail: "x" })).toThrow(/needs "reason"/);
 		expect(run(s, { action: "block", list: "w", id: "1.1", reason: "user-decision", detail: "Postgres or SQLite" })).toEqual({ ok: true, alsoBlocked: ["1"] });
 		expect(run(s, { action: "status", list: "w" })).toEqual({ ok: true, done: 0, total: 4, blocked: [{ id: "1", reason: "dependency", detail: "subtask 1.1 is blocked", on: "1.1" }, { id: "1.1", reason: "user-decision", detail: "Postgres or SQLite" }], next: { id: "1.2", title: "A2" } });
+		// Order is still the list's: the next leaf is 1.2, not the unrelated task 2.
+		expect(() => runTasks(s, { action: "start", list: "w", id: "2" })).toThrow(/id: "1\.2"/);
+		// Starting the sibling leaf does not lift the parent's wait on the still-blocked 1.1.
+		expect(run(s, { action: "start", list: "w", id: "1.2" })).toEqual({ ok: true, started: [{ id: "1.2", title: "A2" }] });
+		runTasks(s, { action: "complete", list: "w", id: "1.2", report });
 		expect(run(s, { action: "start", list: "w", id: "2" })).toEqual({ ok: true, started: [{ id: "2", title: "B" }] });
 		runTasks(s, { action: "complete", list: "w", id: "2", report });
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1.1", report })).toThrow(/is blocked. Resume it with start/);
@@ -284,16 +290,17 @@ describe("tasks", () => {
 
 	test("a parent completes only when no subtask is unstarted or blocked; fail and abandon take them along", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B", subtasks: [{ title: "B1" }] }] });
+		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B", subtasks: [{ title: "B1" }, { title: "B2" }] }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		runTasks(s, { action: "complete", list: "w", id: "1.1", report });
 		expect(() => runTasks(s, { action: "complete", list: "w", id: "1", report })).toThrow(/Subtask 1.2 \(not started\) of 1 is unfinished/);
 		runTasks(s, { action: "abandon", list: "w", id: "1.2", report: { outcome: "Not needed." } });
 		expect(run(s, { action: "complete", list: "w", id: "1", report })).toEqual({ ok: true, next: { id: "2.1", title: "B1" } });
-		runTasks(s, { action: "start", list: "w", id: "2" });
-		expect(run(s, { action: "fail", list: "w", id: "2", report: { outcome: "x" } })).toEqual({ ok: true, cascaded: ["2.1"] });
-		expect(s.read("w").tasks.find((t) => t.id === "2.1")?.status).toBe("abandoned");
-		expect(() => runTasks(s, { action: "fail", list: "w", id: "2.1", report })).toThrow(/abandoned, not in progress/);
+		runTasks(s, { action: "start", list: "w", id: "2.1" });
+		runTasks(s, { action: "complete", list: "w", id: "2.1", report });
+		expect(run(s, { action: "fail", list: "w", id: "2", report: { outcome: "x" } })).toEqual({ ok: true, cascaded: ["2.2"] });
+		expect(s.read("w").tasks.find((t) => t.id === "2.2")?.status).toBe("abandoned");
+		expect(() => runTasks(s, { action: "fail", list: "w", id: "2.2", report })).toThrow(/abandoned, not in progress/);
 	});
 
 	test("supersededBy links an abandoned task to its replacement, from abandon or from add", () => {
@@ -470,9 +477,13 @@ expect(run(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acc
 		runTasks(s, { action: "move", list: "d", id: "2", parent: "1.1.1.1" });
 		runTasks(s, { action: "add", list: "d", parent: "1.1.1.1.1.1", tasks: [{ title: "X", subtasks: [{ title: "Y" }] }] });
 		expect(s.read("d").tasks.at(-2)?.id).toBe("1.1.1.1.1.1.1.1");
-		runTasks(s, { action: "start", list: "d", id: "2" });
-		runTasks(s, { action: "complete", list: "d", id: "2", report });
-		expect(() => runTasks(s, { action: "move", list: "d", id: "1.1.1.1.1.1", parent: "2" })).toThrow(/Task 2 is done/);
+		// B moved under A111, so ids follow the tree; only the deepest leaf may start first.
+		expect(() => runTasks(s, { action: "start", list: "d", id: "1.1.1.1.1" })).toThrow(/Task 1.1.1.1.1 is a parent/);
+		runTasks(s, { action: "start", list: "d", id: "1.1.1.1.1.1.1.1" });
+		runTasks(s, { action: "complete", list: "d", id: "1.1.1.1.1.1.1.1", report });
+		for (const id of ["1.1.1.1.1.1.1", "1.1.1.1.1.1", "1.1.1.1.1"]) runTasks(s, { action: "complete", list: "d", id, report });
+		const loose = s.read("d").tasks.find((t) => t.status === "todo" && !t.id.includes("."))!;
+		expect(() => runTasks(s, { action: "move", list: "d", id: loose.id, parent: "1.1.1.1.1" })).toThrow(new RegExp(`1\.1\.1\.1\.1 is done; move ${loose.id} under an open task or to the top level`));
 		const deep = store();
 		let task: { title: string; subtasks?: unknown[] } = { title: "Leaf" };
 		for (let i = 1; i < 32; i++) task = { title: `Level ${i}`, subtasks: [task] };
@@ -482,5 +493,36 @@ expect(run(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acc
 		fs.writeFileSync(file, JSON.stringify({ ...before, tasks: before.tasks }));
 		runTasks(deep.s, { action: "update", list: "deep", goals: { add: ["Migrated"] } });
 		expect(deep.s.read("deep").tasks).toEqual(before.tasks);
+	});
+
+	test("leaves start in list order and a parent refuses with the next leaf's call", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "o", title: "O", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		expect(() => runTasks(s, { action: "start", list: "o", id: "1" })).toThrow(/Task 1 is a parent; parents start with their next leaf\. Call start \{ list: "o", id: "1\.1" \}/);
+		expect(() => runTasks(s, { action: "start", list: "o", id: "1.2" })).toThrow(/Task 1\.2 is not next: leaves start in list order\. Call start \{ list: "o", id: "1\.1" \}\. Finish 1\.1 "A1" first/);
+		expect(() => runTasks(s, { action: "start", list: "o", id: "2" })).toThrow(/Call start \{ list: "o", id: "1\.1" \}/);
+		expect(run(s, { action: "start", list: "o", id: "1.1" })).toEqual({ ok: true, started: [{ id: "1", title: "A" }, { id: "1.1", title: "A1" }] });
+		expect(() => runTasks(s, { action: "start", list: "o", id: "2" })).toThrow(/1\.1 "A1", 1 "A" is still in progress/);
+		// Nothing changed on any refusal: no claim moved, no status changed.
+		expect(s.read("o").tasks.map((t) => t.status)).toEqual(["doing", "doing", "todo", "todo"]);
+	});
+
+	test("a blocked leaf may be resumed while its siblings wait in order", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "b", title: "B", goals: ["G"], tasks: [{ title: "A" }, { title: "B" }] });
+		runTasks(s, { action: "start", list: "b", id: "1" });
+		runTasks(s, { action: "block", list: "b", id: "1", reason: "user-input", detail: "need the API token" });
+		// The next task is startable while the wait is open, and resuming the wait is startable too.
+		expect(run(s, { action: "start", list: "b", id: "2" })).toEqual({ ok: true, started: [{ id: "2", title: "B" }] });
+		runTasks(s, { action: "complete", list: "b", id: "2", report });
+		expect(run(s, { action: "start", list: "b", id: "1" })).toEqual({ ok: true, resumed: [{ id: "1", title: "A" }] });
+	});
+
+	test("status names the next task the store will accept", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "n", title: "N", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
+		const next = (run(s, { action: "status", list: "n" }) as { next?: { id: string } }).next;
+		expect(next?.id).toBe("1.1");
+		expect(run(s, { action: "start", list: "n", id: next!.id })).toEqual({ ok: true, started: [{ id: "1", title: "A" }, { id: "1.1", title: "A1" }] });
 	});
 });

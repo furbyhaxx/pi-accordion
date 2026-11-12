@@ -105,7 +105,6 @@ describe("applyRoutedOps", () => {
 	});
 	test("drops a pin that is not a quote of the message and a rename of a finished task, applying the rest", async () => {
 		const { store } = fixture();
-		runTasks(store, { action: "start", list: "w", id: "1" });
 		runTasks(store, { action: "start", list: "w", id: "1.1" });
 		runTasks(store, { action: "complete", list: "w", id: "1.1", report: { outcome: "x" } });
 		const out = await apply(store, [
@@ -148,7 +147,6 @@ describe("applyRoutedOps", () => {
 describe("extraction context", () => {
 	test("shows open tasks with item ids and finished tasks by title only", () => {
 		const { store } = fixture();
-		runTasks(store, { action: "start", list: "w", id: "1" });
 		runTasks(store, { action: "start", list: "w", id: "1.1" });
 		runTasks(store, { action: "complete", list: "w", id: "1.1", report: { outcome: "x" } });
 		const ctx = routingContext(store.read("w")) as { doing: string[]; tasks: { id: string; criteria?: unknown; status: string }[] };
@@ -212,6 +210,9 @@ describe("createRouting", () => {
 
 	test("never ends a started task", async () => {
 		const { store } = fixture();
+		// "Build" only becomes next once the draft leaf is done, so start it there.
+		runTasks(store, { action: "start", list: "w", id: "1.1" });
+		runTasks(store, { action: "complete", list: "w", id: "1.1", report: { outcome: "x" } });
 		runTasks(store, { action: "start", list: "w", id: "2" });
 		const out = await apply(store, [{ op: "-", kind: "task", target: "2" }], "drop the build");
 		expect(out.applied).toEqual([]);

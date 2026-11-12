@@ -158,7 +158,7 @@ type Err = { ok: false; error: ErrorCode; message: string; fix?: string };
 | `no_goal` | `start`/`add`/`move` on a list without goals | `update {list, goals: {add: [...]}}` |
 | `claimed_by_other` | list claimed by another session | `claim {force: true}` after asking the user |
 | `frozen` | edit of a started id, finished title/criteria | the call that works, e.g. `add … after` |
-| `invalid_transition` | e.g. complete a todo task, start a finished one | |
+| `invalid_transition` | e.g. complete a todo task, start a finished one, start out of order (§3.4) | the next valid `start` or `move` call |
 | `open_subtasks` | complete a parent with unstarted/blocked subtasks | ids to fail or abandon |
 | `empty_span` | §3.5 | block or abandon call |
 | `cap_exceeded` | pin/attachment caps (§4.1, §4.2) | |
@@ -367,7 +367,16 @@ Resume after its delivery folded, with a changed attachment:
 {"ok": true, "resumed": [{"id": "1.2", "title": "Review interface", "attachments": [{"id": "a3", "ref": "docs/auth.md#Interface", "state": "changed", "content": "…"}]}]}
 ```
 `started` / `resumed` hold `TaskContext` (or the bare id when nothing is missing), outermost first,
-for every task that enters `doing` with this call. `parents` holds the `TaskContext` of ancestors
+for every task that enters `doing` with this call.
+
+**Order is part of the contract.** `start` accepts only the task the list's `next` names — the first
+unfinished leaf in depth-first list order — or any blocked leaf, which `start` resumes. A parent is
+refused with its next leaf's call (`Task 3 is a parent; parents start with their next leaf. Call
+start { list: "auth", id: "3.1.1.1" }.`) and starts with that leaf. Any other id is refused with the
+valid call and how to make room (`Finish 3.1.1.1 "get()" first, or block it when it waits on
+something, or "move" this task ahead of it.`). A blocked task whose next sibling is still `todo`
+stays the parent's open wait: starting the sibling does not resume the parent. Refusals change
+nothing — no claim, no status. `parents` holds the `TaskContext` of ancestors
 already `doing` whose goals, criteria, pins or attachments are no longer live (a fold hid the
 result that carried them), outermost first; absent when nothing is missing. `list` appears when list context is missing.
 Each item is included only if it is not live (§4.3). An attachment whose content changed since it
@@ -406,9 +415,12 @@ tasks({ action: "abandon", list: "auth", id: "5", report: { outcome: "Docs moved
 - `cascaded`: subtasks abandoned with a failed/abandoned parent.
 The report is not echoed.
 
-### 3.5 Lifecycle rules (unchanged)
+### 3.5 Lifecycle rules
 
 Insert and move, empty-span refusal, the review gate and the resume note keep their behavior:
+- **Sequential:** leaves start in list order (§3.4 start). Repairing a bad order is `complete` for
+  achieved scope, `abandon` for unwanted scope, then `add`/`move` for the rest — never a fabricated
+  completion to make the order fit.
 - **Only `todo` subtrees move or renumber.** Started ids are frozen because spans, records, folds
   and verdicts refer to them. Moving under a finished parent or into its own subtree is refused.
   Renumbering rewrites `blocks[].on`, `supersededBy` and `supersedes` in the same write.

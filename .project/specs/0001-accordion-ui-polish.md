@@ -306,7 +306,8 @@ The agent's task spans are only as good as its calls, so the store repairs struc
 extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.ts`.
 
 - **Auto-started parents.** `start <id>` starts every unstarted ancestor first; the result adds
-  `Also started parent <id> "<title>" so its span covers this subtask.` per ancestor.
+  `Also started parent <id> "<title>" so its span covers this subtask.` per ancestor (§4.10
+  ordering: only the list's next leaf, or a blocked leaf being resumed, may start).
 - **Parent ready.** Finishing the last open subtask of an open parent appends
   `All subtasks of <id> "<title>" are finished: complete <id> now with its own report, or add more
   subtasks to it.`

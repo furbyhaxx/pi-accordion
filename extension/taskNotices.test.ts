@@ -90,8 +90,9 @@ describe("notice text", () => {
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		runTasks(s, { action: "block", list: "w", id: "1.1", reason: "user-decision", detail: "Approve?" });
 		expect(JSON.parse(waitingNotice(s.read("w"))!)).toEqual({ tasks: "w", waiting: [{ id: "1.1", reason: "user-decision", detail: "Approve?" }] });
-		runTasks(s, { action: "start", list: "w", id: "2" });
-		runTasks(s, { action: "block", list: "w", id: "2", reason: "third-party", detail: "CI" });
+		// Order is the list's, so the sibling leaf runs before the third-party task.
+		runTasks(s, { action: "start", list: "w", id: "1.2" });
+		runTasks(s, { action: "block", list: "w", id: "1.2", reason: "third-party", detail: "CI" });
 		expect(JSON.parse(waitingNotice(s.read("w"))!).waiting.map((w: { id: string }) => w.id)).toEqual(["1.1"]);
 	});
 });

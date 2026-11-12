@@ -778,13 +778,27 @@ export class TaskStore {
 			} else blocking.push(t);
 		}
 		if (blocking.length)
-			throw new TaskError("open_subtasks", 
+			throw new TaskError("open_subtasks",
 				`Task ${blocking.map((t) => `${t.id} "${t.title}"`).join(", ")} is still in progress. Complete, fail or abandon it with a report before starting ${id}, or start one of its subtasks.`,
 			);
 		const started: Task[] = [];
 		for (let p = parentOf(id); p !== null; p = parentOf(p)) {
 			const anc = list.tasks.find((t) => t.id === p);
-			if (anc?.status === "todo" || anc?.status === "blocked") started.unshift(anc);
+			if (anc?.status !== "todo" && anc?.status !== "blocked") continue;
+			// A parent blocked on a subtask this start does not resume keeps its wait open: finishing a
+			// sibling must not lift the parent's dependency while that subtask still waits.
+			const wait = currentBlock(anc);
+			const target = wait?.on ? list.tasks.find((t) => t.id === wait.on) : undefined;
+			if (target && target.id !== id && !started.includes(target) && !FINISHED.has(target.status) && target.status === "blocked") continue;
+			started.unshift(anc);
+		}
+		// Leaves run in list order. A parent never starts by itself — starting its next leaf starts it.
+		const startable = startableTasks(list);
+		if (!startable.some((t) => t.id === id)) {
+			const call = startable[0] ? ` Call ${startCall(list, startable[0])}.` : "";
+			if (childrenOf(list, id).length) throw new TaskError("invalid_transition", `Task ${id} is a parent; parents start with their next leaf.${call}`);
+			const next = nextTaskOf(list);
+			throw new TaskError("invalid_transition", `Task ${id} is not next: leaves start in list order.${call}${next ? ` Finish ${next.id} "${next.title}" first, or block it when it waits on something, or "move" this task ahead of it.` : ""}`);
 		}
 		started.push(task);
 		const resumed = new Set<Task>();
@@ -861,6 +875,32 @@ export class TaskStore {
 		const parentReady = parentTask?.status === "doing" && siblings.every((t) => FINISHED.has(t.status)) ? parentTask : undefined;
 		return { list, task, parentReady, cascaded, blockedParents };
 	}
+}
+
+/** The task children of `id`, in list order. */
+function childrenOf(list: TaskList, id: string | null): Task[] {
+	return list.tasks.filter((t) => (id === null ? !t.id.includes(".") : parentOf(t.id) === id));
+}
+
+/**
+ * The tasks a session may start right now: the list's next task (§3.4), plus resuming any blocked
+ * leaf — ending a wait is what resuming is for. Takes must be recomputed after an auto-close.
+ */
+export function startableTasks(list: TaskList): Task[] {
+	const out = new Map<string, Task>();
+	const next = nextTaskOf(list);
+	const nextTask = next ? list.tasks.find((t) => t.id === next.id) : undefined;
+	if (nextTask) out.set(nextTask.id, nextTask);
+	for (const t of list.tasks) {
+		if (t.status !== "blocked" || childrenOf(list, t.id).length) continue;
+		if (currentBlock(t)) out.set(t.id, t);
+	}
+	return [...out.values()];
+}
+
+/** How to name a start call in a refusal. */
+function startCall(list: TaskList, t: Task): string {
+	return `start { list: "${list.slug}", id: "${t.id}" }`;
 }
 
 const FINISHED: ReadonlySet<TaskStatus> = new Set(["done", "failed", "abandoned"]);

@@ -30,8 +30,10 @@ Work done outside any task is never folded as a unit, so put real work inside a 
    **at least two to three levels**: area, then feature, then step. There is no fixed maximum depth. The
    volume of work decides the useful depth; only a genuinely small change gets a flat
    list. Never split a step that has no result of its own just to add a level.
-4. **Order by dependency and finish in order.** Complete each child before the next one starts so
-   each can fold. Put verification of the whole parent in its own last child.
+4. **Order by dependency and finish in order.** The list's order *is* the schedule: `start` accepts
+   only the next leaf it reports, so a wrongly ordered plan is repaired with `move` before work
+   touches it. Complete each child before the next one starts so each can fold. Put verification of
+   the whole parent in its own last child.
 5. **Keep leaves small enough to finish in one sitting.** If a leaf turns out broader than
    expected, add children before continuing. Only unstarted tasks can be moved or renumbered.
 6. **Keep titles short.** A title names the outcome. Details belong in `acceptanceCriteria`, pins
