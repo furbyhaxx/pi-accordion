@@ -638,6 +638,29 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("a peer adding model defaults does not move the selected setting", async () => {
+		const s = setup(false, "settings");
+		selectSetting(s, "Task fold timing");
+		s.settings().modelDefaults = { "vendor/*": { budget: "100k" } };
+		s.update();
+		expect(s.cursor()).toContain("Task fold timing");
+		s.panel.handleInput(K.right);
+		expect(s.cursor()).toContain("lazy");
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.close(); await s.opening;
+	});
+
+	test("model catalogue failures are surfaced without staging a route", async () => {
+		const s = setup(false, "settings");
+		s.host.models = async () => { throw new Error("catalogue unavailable"); };
+		selectSetting(s, "Chat model"); s.panel.handleInput(K.enter); await tick();
+		expect(s.screen()).toContain("catalogue unavailable");
+		expect(s.cursor()).toContain("Chat model");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.saveRevisions).toEqual([]);
+		s.close(); await s.opening;
+	});
+
 	test("retains staged edits and their original revision when a save conflicts", async () => {
 		const s = setup(false, "settings");
 		for (let i = 0; i < 3; i++) s.panel.handleInput(K.down);
