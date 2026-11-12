@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { entryById } from "../../../../../core/conductor/registry.ts";
 import accordion from "../../../../../extension/accordion.ts";
 import { openAccordionPanel } from "../../../../../extension/tui/panel.ts";
 import type { AccordionTuiHost } from "../../../../../extension/tui/host.ts";
@@ -18,6 +19,8 @@ export default function settingsSyncFixture(pi: ExtensionAPI): void {
 	let panelOpen = false;
 	let busy = false;
 	let timer: ReturnType<typeof setInterval> | undefined;
+	let providerCalls = 0;
+	const unexpectedRequest = (): never => { providerCalls++; throw new Error("This routing fixture must not call a provider"); };
 	const write = (name: string, value: unknown) => {
 		const file = path.join(channel, name);
 		fs.writeFileSync(`${file}.tmp`, JSON.stringify(value), { mode: 0o600 });
@@ -27,7 +30,8 @@ export default function settingsSyncFixture(pi: ExtensionAPI): void {
 		const snapshot = host?.settings?.();
 		const web = host?.webInfo?.();
 		write("state.json", {
-			at: Date.now(), pid: process.pid, panelOpen, sessionId: host?.sessionId?.(), canSteer: host?.canSteer?.(),
+			at: Date.now(), pid: process.pid, fixtureVersion: 2, providerCalls, panelOpen, sessionId: host?.sessionId?.(), canSteer: host?.canSteer?.(),
+			consentKey: entryById("taskfold")?.privacy?.consentKey,
 			settings: snapshot && safeSnapshot(snapshot), dials: host?.dials?.(), stats: host?.truth()?.stats(),
 			folding: host?.folding(), conductor: host?.activeConductor()?.id,
 			web: web && { port: web.port, doorPort: web.doorPort, bindHost: web.bindHost, tokenHash: createHash("sha256").update(web.token).digest("hex") },
@@ -58,11 +62,26 @@ export default function settingsSyncFixture(pi: ExtensionAPI): void {
 					if (!("patch" in request) || !request.patch || typeof request.patch !== "object" || Array.isArray(request.patch) || !("baseRev" in request) || typeof request.baseRev !== "string") throw new Error("Invalid save request");
 					const target = request.action === "saveOld" ? firstHost : host;
 					if (!target?.updateSettings) throw new Error("Open the native panel first");
-					const saved = await target.updateSettings(request.patch as SettingsPatch, request.baseRev);
+					const remove = "remove" in request ? request.remove : [];
+					if (!Array.isArray(remove) || !remove.every((key: unknown) => typeof key === "string")) throw new Error("Invalid removed fields");
+					const patch = { ...request.patch, ...Object.fromEntries(remove.map(key => [key, undefined])) };
+					const saved = await target.updateSettings(patch as SettingsPatch, request.baseRev);
 					result = saved.ok ? { ...saved, snapshot: safeSnapshot(saved.snapshot) } : saved;
 				} else if (request.action === "rotate") {
 					if (!host?.regenerateToken) throw new Error("Open the native panel first");
 					result = { ok: true, tokenHash: createHash("sha256").update(await host.regenerateToken()).digest("hex") };
+				} else if (request.action === "registerRoutes") {
+					for (const [provider, baseUrl] of [["settings-local", "http://127.0.0.1:9"], ["settings-remote", "https://settings-fixture.invalid"]] as const) {
+						pi.registerProvider(provider, {
+							baseUrl, apiKey: "fixture-unused", api: "openai-completions", streamSimple: unexpectedRequest,
+							classifiers: { "settings-fixture-classifier": { classify: async () => unexpectedRequest() } },
+							models: [
+								{ type: "chat", id: "chat", name: `${provider} chat`, reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 16000, maxTokens: 100 },
+								{ type: "classifier", id: "classifier", name: `${provider} classifier`, api: "settings-fixture-classifier", input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 16000 },
+							],
+						});
+					}
+					result = { ok: true };
 				} else throw new Error("Unsupported fixture action");
 			} catch (error) { result = { ok: false, error: error instanceof Error ? error.message : String(error) }; }
 			write("response.json", { id: request.id, result });

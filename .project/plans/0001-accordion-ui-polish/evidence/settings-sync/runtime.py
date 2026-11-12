@@ -8,10 +8,14 @@ import time
 import live
 
 
-def _save(patch: dict[str, object]) -> None:
-    revision = live._at(live._current_state("b"), "settings", "rev")
+def _save(
+    patch: dict[str, object], *, name: str = "b", remove: tuple[str, ...] = ()
+) -> None:
+    revision = live._at(live._current_state(name), "settings", "rev")
     assert isinstance(revision, str)
-    result = live._request("b", "save", patch=patch, baseRev=revision)
+    result = live._request(
+        name, "save", patch=patch, remove=list(remove), baseRev=revision
+    )
     assert result["ok"] is True, result.get("error")
 
 

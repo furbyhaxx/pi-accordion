@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 17
+  revision: 18
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T06:37:48+01:00"
+  updated_at: "2026-11-12T06:58:27+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 17
-      reason: "verify model-default updates without resetting native session dials"
-      changes: ["peer budget and tail adoption in 761 ms", "native session-only values survive shared saves", "Truth and resolution sources agree with persisted defaults"]
+    - revision: 18
+      reason: "verify native privacy lifecycle and peer revocation in real Pi sessions"
+      changes: ["native and peer consent revocation detach", "local routes and unrelated keys retain attachment", "unsafe remote routes detach and require renewed consent", "declining consent restores the panel"]
 ---
 
 # Accordion UI polish: plan
@@ -236,7 +236,11 @@ and loads explicit TypeScript paths rather than an old generated JavaScript entr
 The live runtime probe also verifies inherited budget/tail adoption in 761 ms while the other
 session keeps values entered through its native session-only editors. Exported sources, Truth
 counters and saved defaults agree (`evidence/settings-sync/dials-result.json`).
-Pending: live privacy/token and stale-panel checks, plus conductor option declarations.
+Native and peer privacy revocation, local-route and unrelated-key exemptions, unsafe remote
+route detachment, renewed consent and panel restoration also pass live. The fixture uses
+fail-closed routing metadata and sends no provider requests; this does not claim a live backend
+or in-flight-stream evaluation (`evidence/settings-sync/privacy-result.json`).
+Pending: live token and stale-panel checks, plus conductor option declarations.
 Settings WebSocket frames belong to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:

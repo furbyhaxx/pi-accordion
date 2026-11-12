@@ -189,8 +189,51 @@ def _current_state(name: str) -> dict[str, object]:
     assert parent == pane, (
         "Observer does not belong to the current terminal process tree"
     )
-    assert time.time() * 1000 - int(str(state["at"])) < 1000, "Observer is stale"
+    observed = state["at"]
+    assert isinstance(observed, int)
+    assert time.time() * 1000 - observed < 1000, "Observer is stale"
     return state
+
+
+def _control(name: str) -> None:
+    state = _current_state(name)
+    if state.get("panelOpen"):
+        _tmux("send-keys", "-t", f"{name}:0.0", "Escape")
+        _wait(lambda: not _state(name).get("panelOpen"))
+    _tmux("send-keys", "-t", f"{name}:0.0", "-l", "--", "/accordion settings")
+    _tmux("send-keys", "-t", f"{name}:0.0", "Enter")
+
+    def opened() -> bool:
+        return bool(_state(name).get("panelOpen")) or "Take control" in _screen(name)
+
+    try:
+        _wait(opened, timeout=1)
+    except TimeoutError:
+        _tmux("send-keys", "-t", f"{name}:0.0", "Enter")
+        _wait(opened)
+    if not _state(name).get("panelOpen"):
+        _tmux("send-keys", "-t", f"{name}:0.0", "Down")
+        _wait(lambda: "→ Take control" in _screen(name))
+        _tmux("send-keys", "-t", f"{name}:0.0", "Enter")
+    _wait(
+        lambda: (
+            bool(_state(name).get("panelOpen")) and bool(_state(name).get("canSteer"))
+        )
+    )
+
+
+def _tab(name: str, title: str) -> None:
+    for _ in range(5):
+        before = _screen(name)
+        if f"Accordion › {title}" in before:
+            return
+        _tmux("send-keys", "-t", f"{name}:0.0", "Tab")
+
+        def changed(previous: str = before) -> bool:
+            return _screen(name) != previous
+
+        _wait(changed)
+    raise RuntimeError(f"Could not select {title}")
 
 
 def _check_shared() -> None:

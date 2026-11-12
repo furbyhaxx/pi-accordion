@@ -68,6 +68,20 @@ values entered through the native session-only editors. The exported dials, Trut
 source labels and saved file agree. Neither probe sends model requests.
 Run Ruff and strict mypy on both `live.py` and `runtime.py`.
 
+## Privacy lifecycle
+
+Run `uv run --no-project python -B -m privacy` next. It reloads older fixture versions,
+registers local and remote **routing metadata** through Pi's actual provider registry, and
+uses the real native conductor picker, lock confirmation and privacy dialog. Both provider
+implementations fail closed and count unexpected calls; no backend requests are made.
+`privacy-result.json` records native and peer revocation, unrelated-key and fully local
+exemptions, unsafe-route detachment and declining renewed consent. Declining restores the panel.
+This is a live Pi/UI/policy check, not a live model-backend or in-flight-stream evaluation.
+The controller driver reopens the native panel instead of trusting its cached `canSteer`
+observation. A stale observation initially skipped takeover; the native write guard correctly
+cancelled that fixture save before it could write.
+Check `live.py`, `runtime.py` and `privacy.py` with Ruff and strict mypy.
+
 ## Cleanup
 
 Stop only the Pi processes from this run, wait for them to exit, then remove their owned tmux

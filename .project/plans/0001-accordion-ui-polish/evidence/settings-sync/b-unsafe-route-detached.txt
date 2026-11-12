@@ -1,0 +1,40 @@
+
+ Warning: Taskfold detached: privacy consent required for remote model
+
+ Warning: Taskfold detached: privacy consent revoked
+
+ Warning: Taskfold detached: privacy consent revoked
+
+ Warning: Taskfold detached: privacy consent required for remote model
+
+── Accordion › Conductors ─────────────────────────────────────────────────────────────── 14.5k/150.0k tok · ○ folding off · no conductor ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+  ◉ None · attached · raw context, no strategy
+  ◯ Naive compaction · ● ready · locks: human-steering, agent-unfold
+  ◯ Handoff (fresh start) · ● ready · locks: human-steering, agent-unfold, tail-size
+  ◯ Doorman · ● ready · locks: none
+  ◯ Keel-lite · ● ready · locks: none
+  ◯ Keel-note · ● ready · locks: none
+→ ◯ Taskfold · ● ready · locks: tail-size
+  ◯ Thermocline · ● ready · locks: human-steering
+  ◯ Triptych · ● ready · locks: human-steering, agent-unfold
+
+
+
+
+
+
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Command sent
+ enter attach · tab next tab · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/settings-sync/project-b (dev) • settings-sync-b
+$0.000 (sub) 0.0%/372k (auto)                                                                                 (openai) gpt-6.1-terra • xhigh
+accordion off
