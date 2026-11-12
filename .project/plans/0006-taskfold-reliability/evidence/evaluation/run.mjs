@@ -36,7 +36,7 @@ export async function evaluate(name, project, base) {
   const behaviorPassed = await behavior(name, project);
   const testsPassed = (await runCheck(["--test"], project)).code === 0;
   let regressionDetected = null;
-  if (testsPassed && name !== "refactor") {
+  if (testsPassed && name !== "refactor" && name !== "history") {
     const copy = join(base, "mutation-check");
     await cp(project, copy, { recursive: true, dereference: false });
     try {
@@ -84,7 +84,7 @@ export function observedDecisionBlock(entries) {
   return blocked.size > 0;
 }
 
-export async function run({ model, scenario: name, output, prompt = scenarios[name]?.prompt, timeoutMs = 360000, maxRequests = 30 }) {
+export async function run({ model, scenario: name, output, prompt = scenarios[name]?.prompt, timeoutMs = 360000, maxRequests = 30, enforce = "coach" }) {
   if (!model || !scenarios[name]) throw new Error("A model and known scenario are required");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || !Number.isSafeInteger(maxRequests) || maxRequests < 1) throw new Error("Invalid bounds");
   const base = resolve(output);
@@ -98,8 +98,9 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
   for (const file of ["taskSchema.ts", "taskPins.ts", "taskAnchors.ts", "taskSymbols.ts"]) await cp(join(root, "extension", file), join(project, ".eval-extension", file));
   await mkdir(join(home, ".accordion"), { recursive: true, mode: 0o700 });
   await mkdir(sessions, { mode: 0o700 });
-  await writeFile(join(home, ".accordion/config.json"), JSON.stringify({ autoArm: true, defaultConductor: "taskfold", debug: true, doorPort: 0, privacyConsent: { "taskfold-chat-v1": new Date().toISOString() } }), { mode: 0o600 });
-  const args = ["--offline", "--no-extensions", "-e", auth, "-e", join(root, "extension/accordion.ts"), "-e", fileURLToPath(new URL("./sandbox.mjs", import.meta.url)), "--tools", "read,bash,edit,write,tasks,unfold,recall", "--no-skills", "--skill", skillRoot, "--no-prompt-templates", "--no-context-files", "--no-mcp", "--approve", "--session-dir", sessions, "--model", model, "--thinking", "low", "--mode", "rpc"];
+  if (enforce !== "coach" && enforce !== "gate" && enforce !== "off") throw new Error("enforce must be coach, gate or off");
+  await writeFile(join(home, ".accordion/config.json"), JSON.stringify({ autoArm: true, defaultConductor: "taskfold", debug: true, doorPort: 0, tasks: { enforce }, privacyConsent: { "taskfold-chat-v1": new Date().toISOString() } }), { mode: 0o600 });
+  const args = ["--offline", "--no-extensions", "-e", auth, "-e", join(root, "extension/accordion.ts"), "-e", fileURLToPath(new URL("./sandbox.mjs", import.meta.url)), "--tools", "read,bash,edit,write,tasks,unfold,recall", "--no-skills", "--skill", skillRoot, ...["accordion-context-folding", "accordion-context-recall"].flatMap((skill) => ["--skill", join(root, "extension/skills", skill)]), "--no-prompt-templates", "--no-context-files", "--no-mcp", "--approve", "--session-dir", sessions, "--model", model, "--thinking", "low", "--mode", "rpc"];
   const env = { ...process.env, ACCORDION_HOME: home };
   for (const key of ["ACCORDION_TOKEN", "ACCORDION_HOST", "ACCORDION_PORT", "ACCORDION_DOOR_PORT", "ACCORDION_AUTO_ARM", "ACCORDION_DEFAULT_CONDUCTOR", "ACCORDION_DEBUG"]) delete env[key];
   const child = spawn("pi-bolt", args, { cwd: project, env, detached: true, stdio: ["pipe", "pipe", "ignore"] });
@@ -118,6 +119,8 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
   let decisionImplementedEarly = null;
   let decisionBlocked = false;
   let decisionAnswered = false;
+  let historyAnswer = null;
+  let historyReadsAfterAsk = null;
   let processing = Promise.resolve();
   const timer = setTimeout(() => { timedOut = true; stop(); }, timeoutMs);
   const lines = createInterface({ input: child.stdout });
@@ -131,6 +134,10 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
     if (event.type !== "agent_end") return;
     processing = processing.then(async () => {
       phases++;
+      if (name === "history" && phases === 1) {
+        send(child, "followup", scenarios[name].followup);
+        return;
+      }
       if (name === "decision" && phases === 1) {
         try { decisionBlocked = observedDecisionBlock(await readJsonLines(await sessionFile(sessions))); } catch { decisionBlocked = false; }
         decisionImplementedEarly = await behavior(name, project);
@@ -151,14 +158,20 @@ export async function run({ model, scenario: name, output, prompt = scenarios[na
   try {
     const entries = await readJsonLines(await sessionFile(sessions));
     metrics = auditSession(entries);
+    if (name === "history") {
+      const last = entries.findLast((entry) => entry?.message?.role === "assistant");
+      const content = last?.message?.content;
+      historyAnswer = typeof content === "string" ? content : (content ?? []).filter((item) => item?.type === "text").map((item) => item.text).join("\n");
+      historyReadsAfterAsk = entries.slice(entries.findLastIndex((entry) => entry?.message?.role === "user")).filter((entry) => entry?.message?.role === "toolResult").map((entry) => entry.message.toolName);
+    }
   } catch { /* A failed startup may not create a session. */ }
   const evaluation = await evaluate(name, project, base);
-  const summary = { scenario: name, model, timeoutMs, maxRequests, requests, phases, decisionBlocked, decisionAnswered, decisionImplementedEarly, timedOut, capped, process: result, ...evaluation, metrics };
+  const summary = { scenario: name, model, timeoutMs, maxRequests, requests, phases, decisionBlocked, decisionAnswered, decisionImplementedEarly, historyAnswer, historyReadsAfterAsk, timedOut, capped, process: result, ...evaluation, metrics };
   await writeFile(join(base, "summary.json"), `${JSON.stringify(summary, null, 2)}\n`, { mode: 0o600 });
   return summary;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const [model, scenario, output] = process.argv.slice(2);
-  run({ model, scenario, output }).then((summary) => console.log(JSON.stringify(summary, null, 2))).catch((error) => { console.error(error.message); process.exitCode = 1; });
+  const [model, scenario, output, enforce] = process.argv.slice(2);
+  run({ model, scenario, output, enforce }).then((summary) => console.log(JSON.stringify(summary, null, 2))).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

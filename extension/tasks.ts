@@ -1199,7 +1199,11 @@ export interface Renumbering {
 function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]; resumed: string[]; finished: string | null; renumbered: Renumbering[]; closed: Task[]; cascaded: Task[] }, userTexts: readonly string[], limits: PinLimits): TaskResult {
 	const need = <K extends keyof TasksArgs>(k: K): NonNullable<TasksArgs[K]> => {
 		const v = args[k];
-		if (v === undefined || v === null || v === "") throw new TaskError("invalid_args", `Action "${args.action}" needs "${k}".`);
+		if (v === undefined || v === null || v === "") {
+			const claimed = k === "list" && args.action !== "create" ? store.claimedBySession() : [];
+			const hint = claimed.length === 1 ? ` This session's list is "${claimed[0].slug}": pass list: "${claimed[0].slug}" on every call.` : "";
+			throw new TaskError("invalid_args", `Action "${args.action}" needs "${k}".${hint}`);
+		}
 		return v as NonNullable<TasksArgs[K]>;
 	};
 	const ok: TaskResult = { ok: true };

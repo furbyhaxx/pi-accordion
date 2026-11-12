@@ -34,7 +34,11 @@ are evaluated against actual model behavior, not merely successful unit tests.
   public block reasons with internal `dependency`, `stopOnBlock`, required leaf criteria with
   repair-instead-of-refusal for older lists, and a live nine-call run
   (`evidence/lifecycle-live.json`).
-- Now: span reminders (S5's large-leaf tap), then the isolated prompt comparison (S6).
+- Done: S6. The candidate prompt was compared against the shipped wording on all four families in
+  coach and gate (`evidence/prompts/comparison.json`) and reverted: it did not improve tracked-result
+  coverage or behavior and cost more requests. Folded-history comprehension is recorded in
+  `evidence/prompts/history-comprehension.json`; Claude still disavows its own folded work and no
+  tried wording fixed it without side effects, so the shipped carrier shape stands.
 - Done since: consent decoupling (S4) and the coaching gate (S5) — bootstrap, the orientation
   allowance, gate mode with a bounded fail-open, and one continuation offer per typed prompt.
 - Blocked: the Kimi baseline needs a funded route (task 5).
@@ -242,7 +246,8 @@ Keep descriptions short; do not create per-model prompt forks without measured n
 
 At a fixed runtime, compare old and candidate prompts in both coach and gate on all four
 scenarios for each enabled family. Record actual before/after metrics; revert wording that
-adds cost without improving behavior. Audit folded-history comprehension too: a completed
+adds cost without improving behavior. Done 2026-11-12: the candidate was reverted
+(`evidence/prompts/comparison.json`). Audit folded-history comprehension too: a completed
 record is evidence of recorded work, not proof that hidden execution never occurred. Exercise
 `recall` and batched tool boundaries before disavowing it. The record/bracket live observations
 are in `.project/plans/0005-fold-timing/evidence/form-live/bracket-checks.json`.

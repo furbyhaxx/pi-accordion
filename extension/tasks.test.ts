@@ -20,6 +20,13 @@ const report = { outcome: "Done." };
 const run = (s: TaskStore, args: TasksArgs) => JSON.parse(runTasks(s, args)) as Record<string, unknown>;
 
 describe("tasks", () => {
+	test("a call without list names the session's own list", () => {
+		const { s } = store();
+		expect(() => runTasks(s, { action: "start", id: "1" })).toThrow(/^Action "start" needs "list"\.$/);
+		runTasks(s, { action: "create", list: "plan", title: "Plan", goals: ["G"], tasks: [{ title: "A" }] });
+		expect(() => runTasks(s, { action: "start", id: "1" })).toThrow(/needs "list"\. This session's list is "plan": pass list: "plan" on every call\./);
+	});
+
 	test("records when each task was planned, including added tasks", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "plan", title: "Plan", goals: ["G"], tasks: [{ title: "A" }] });

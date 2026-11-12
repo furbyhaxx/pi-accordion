@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import { strict as assert } from "node:assert";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createScenario, scenarios, verifyScenario } from "./scenarios.mjs";
 import { evaluate, observedDecisionBlock, run } from "./run.mjs";
@@ -35,8 +35,12 @@ test("all scenario verifiers accept behavioral fixes and detect missing regressi
       "docs/src/search.mjs": `export function findName(names, query, options = {}) { return names.find(n => options.caseInsensitive ? n.toLowerCase() === query.toLowerCase() : n === query); }`,
       "docs/README.md": `findName supports case-sensitive matching by default; use caseInsensitive to ignore case.`,
       "decision/src/invoice.mjs": `export function invoiceCents(n) { return Math.floor(n * 100 + 0.50000001); }`,
+      "history/src/format.mjs": `export function titleCase(v) { return String(v).split(' ').map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); }`,
     };
-    for (const [path, value] of Object.entries(files)) await writeFile(join(base, path), value);
+    for (const [path, value] of Object.entries(files)) {
+      await mkdir(join(base, path, ".."), { recursive: true });
+      await writeFile(join(base, path), value);
+    }
     for (const name of Object.keys(scenarios)) assert.equal(await verifyScenario(name, join(base, name)), true, name);
     const noRegression = await evaluate("bug", join(base, "bug"), base);
     assert.equal(noRegression.testsPassed, true);

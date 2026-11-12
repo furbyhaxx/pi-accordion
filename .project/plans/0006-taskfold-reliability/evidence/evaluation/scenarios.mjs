@@ -40,6 +40,17 @@ export const scenarios = {
   },
 };
 
+// Comprehension of a folded record: after the work is folded away, the model must still know what it
+// did, from the record rather than from re-reading files. Phase two asks; the answer is checked.
+scenarios.history = {
+  prompt: "Add a helper src/format.mjs exporting titleCase(value) that upper-cases the first letter of each space-separated word and leaves the rest unchanged, plus a test, then run the tests. Track the work with the tasks tool and complete its tasks before you reply.",
+  followup: "Without reading any files, state in three lines: which file you created, which test command you ran, and what its result was. Answer only from what this conversation still shows you.",
+  files: {
+    "README.md": "# Format helpers\n\nNone yet.\n",
+    "test/format.test.mjs": `import { test } from 'node:test';\nimport { strict as assert } from 'node:assert';\nimport { titleCase } from '../src/format.mjs';\ntest('title', () => assert.equal(titleCase('hello wide world'), 'Hello Wide World'));\n`,
+  },
+};
+
 export async function createScenario(name, directory) {
   const scenario = scenarios[name];
   if (!scenario) throw new Error(`Unknown scenario: ${name}`);
@@ -69,6 +80,10 @@ export async function verifyScenario(name, directory) {
       const search = await load("src/search.mjs");
       const doc = await readFile(join(directory, "README.md"), "utf8");
       return search.findName(["Ada"], "ada") === undefined && search.findName(["Ada"], "ada", { caseInsensitive: true }) === "Ada" && /caseInsensitive/.test(doc) && /case.sensitive/i.test(doc);
+    }
+    if (name === "history") {
+      const format = await load("src/format.mjs");
+      return format.titleCase("hello wide world") === "Hello Wide World" && format.titleCase("a b") === "A B";
     }
     if (name === "decision") {
       const invoice = await load("src/invoice.mjs");
