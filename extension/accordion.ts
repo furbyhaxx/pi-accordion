@@ -474,6 +474,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				broadcast({ type: "notice", text });
 			}
 		}
+		if (active && liveHost.activeMeta()?.id === active.id && active.options?.some(spec =>
+			(before.conductorOptions[active.id]?.[spec.key] ?? spec.default) !== (settings.conductorOptions[active.id]?.[spec.key] ?? spec.default))) {
+			selectConductor(active.id);
+		}
 		if (changed.some(name => name.startsWith("modelDefaults."))) {
 			dialModel = null;
 			applyDials();
@@ -506,7 +510,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	async function saveSettingsPatch(patch: SettingsPatch, baseRev = settingsStore.current().rev, active?: () => boolean): Promise<SettingsSaveResult> {
 		const openedSession = sessionId;
 		const result = await settingsStore.save(patch, baseRev, { active: () => sessionId === openedSession && (!active || active()) });
-		if (result.ok) adoptSettingsSnapshot(settingsStore.current());
+		if (result.ok && sessionId === openedSession) adoptSettingsSnapshot(settingsStore.current());
 		return result;
 	}
 

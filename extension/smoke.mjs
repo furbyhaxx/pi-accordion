@@ -57,6 +57,7 @@ const { foldCode } = await jiti.import("../core/digest.ts");
 // The LIVE protocol version, not a hardcoded literal — so a version bump doesn't silently desync
 // this smoke test from `core/protocol.ts` (the same rationale as smoke-mock.mjs's import).
 const { PROTOCOL_VERSION } = await jiti.import("../core/protocol.ts");
+const { SettingsStore } = await jiti.import("./settingsStore.ts");
 
 const fails = [];
 
@@ -79,6 +80,7 @@ const handlers = {};
 let accordionCmd = null;
 let accordionWebCmd = null;
 let nativeProbeMode = "control";
+let optionProbePassed = false;
 let unfoldTool = null;
 let recallTool = null;
 let beforeControllerHeartbeatWrite = null;
@@ -107,6 +109,39 @@ accordionLive(pi, {
 		if (nativeProbeMode === "read-only") {
 			const result = host.command({ kind: "setFolding", value: true });
 			if (result.refused !== "read-only" || host.folding()) fails.push("declining controller takeover must leave the panel read-only");
+			return;
+		}
+		if (nativeProbeMode === "options") {
+			const save = async (patch) => {
+				const result = await host.updateSettings(patch, host.settings().rev);
+				if (!result.ok) throw new Error(`option smoke save failed: ${result.error}`);
+			};
+			await save({ autoArm: false, "privacyConsent.taskfold-chat-v1": new Date().toISOString() });
+			host.command({ kind: "selectConductor", id: "taskfold" });
+			const truth = host.truth();
+			if (host.activeConductor()?.id !== "taskfold") throw new Error("Taskfold did not attach");
+			const setLocks = truth.setLocks.bind(truth);
+			let attaches = 0;
+			truth.setLocks = (...args) => { attaches++; return setLocks(...args); };
+			const folded = truth.apply([{ kind: "replace", id: ASST_ID, content: "saved context", recoverable: false }], "auto");
+			if (!folded.results[0]?.applied) throw new Error("option smoke could not create strategy fold");
+			await save({ debug: true });
+			await save({ "conductorOptions.taskfold.high": 0.8 });
+			if (attaches !== 0) throw new Error("unrelated or default-valued save reattached Taskfold");
+			await save({ "conductorOptions.taskfold.high": 0.9, "conductorOptions.taskfold.keepRecentTasks": 2 });
+			if (attaches !== 1 || host.activeConductor()?.id !== "taskfold") throw new Error("changed options did not reattach Taskfold once");
+			if (truth.get(ASST_ID)?.subst !== "saved context") throw new Error("reattachment lost a prior fold");
+			const peer = new SettingsStore(HOME, process.env);
+			const saved = await peer.save({ "conductorOptions.taskfold.maxLoss": 1 }, peer.current().rev);
+			if (!saved.ok) throw new Error(`peer option save failed: ${saved.error}`);
+			await waitFor(() => attaches === 2, 6500, "peer option adoption");
+			if (truth.get(ASST_ID)?.subst !== "saved context") throw new Error("peer reattachment lost a prior fold");
+			await save({ "privacyConsent.taskfold-chat-v1": undefined, "conductorOptions.taskfold.high": 0.85 });
+			if (host.activeConductor() || attaches !== 2) throw new Error("option save bypassed simultaneous privacy revocation");
+			truth.setLocks = setLocks;
+			truth.apply([{ kind: "unfold", ids: [ASST_ID] }], "you");
+			await save({ debug: false, "conductorOptions.taskfold.high": undefined, "conductorOptions.taskfold.keepRecentTasks": undefined, "conductorOptions.taskfold.maxLoss": undefined });
+			optionProbePassed = true;
 			return;
 		}
 		const before = host.truth()?.budget;
@@ -176,6 +211,11 @@ if (accordionCmd) {
 	if (!asked || JSON.parse(fs.readFileSync(CONTROLLER_PATH, "utf8")).surfaceId !== "other-surface") fails.push("native panel did not respect declined takeover");
 	fs.unlinkSync(CONTROLLER_PATH);
 }
+
+nativeProbeMode = "options";
+if (accordionCmd) await Promise.resolve(accordionCmd("", { ...ctx, mode: "tui", hasUI: true }));
+if (!optionProbePassed) fails.push(`option reattachment probe failed: ${notifications.at(-1)?.message ?? "no diagnostic"}`);
+if (fs.existsSync(CONTROLLER_PATH)) fs.unlinkSync(CONTROLLER_PATH);
 
 // /accordion-web keeps the optional desktop/browser entry point.
 if (accordionWebCmd) {
