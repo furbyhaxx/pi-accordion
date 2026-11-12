@@ -239,11 +239,14 @@ are in `.project/plans/0005-fold-timing/evidence/form-live/bracket-checks.json`.
   model changes, no-list coaching, nested counts, fail-open, abort suppression, follow-up bounds,
   consent pending/revoked, delegated wait/resume, order repair and criteria validation.
 - Adapt the ANA's `evidence/replay.ts` into a synthetic test helper; never commit private session fixtures.
-- Synthetic replay/property scripts: no tasks, giant leaf, blocked sibling work, pre-list
-  exploration, model switch, duplicated scaled receipts; k = 0.42, 1.0, 1.7. With the explicitly
-  enabled floor/untracked safety options, assert projected live ≤ LOW·budget or only rule-bound
-  irreducible context remains. Recall round-trips every fold/group. Opt-out controls remain
-  honored; saturation without those safety options must be reported rather than hidden.
+- Synthetic replays live in `conductors/in-process/taskfold/replay.test.ts`: no tasks, giant leaf,
+  blocked sibling work, pre-list exploration, model switch, repeated scaled receipts; k = 0.42,
+  1.0, 1.7. Every replay asserts that blocks survive, no epoch grows the context, a finished task
+  folds at eager timing, a repeated epoch over unchanged content is a no-op, every fold recalls,
+  and — once nothing foldable is left — a session still at or above `high·budget` reports
+  saturation rather than staying quiet, with or without the opt-in safety options. It never
+  asserts `live ≤ low·budget`: Taskfold is not a hard budget guarantee (§9.2), and a replay that
+  demands one would encode a promise the spec refuses.
 - Run `bun test extension/settings.test.ts extension/tui/*.test.ts`, targeted native/core and
   conductor suites, `npm --prefix extension run smoke`, `npm --prefix app run check`,
   `npm --prefix app test`; rebuild affected remote SDKs and exercise production package paths.
