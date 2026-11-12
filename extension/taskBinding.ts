@@ -147,3 +147,21 @@ export function bootstrapNotice(): string {
 		"A one-step errand that needs no tracking can stay list-free; say so and continue.",
 	].join("\n");
 }
+
+/**
+ * The one follow-up a premature stop earns: continue the open work, end the task honestly, or block
+ * it with the reason. Worded as an offer so the agent picks, instead of a nudge it has to obey.
+ */
+export function stopFollowUp(verdict: { state: "in-progress"; task: string } | { state: "pending"; next: string }): string {
+	const open =
+		verdict.state === "in-progress"
+			? `Task ${verdict.task} is still in progress, but the run ended.`
+			: `Task ${verdict.next} is next, but the run ended before it started.`;
+	return [
+		`[accordion tasks] ${open}`,
+		"Pick one and act on it now:",
+		verdict.state === "in-progress" ? `- continue the work, then tasks complete {list, id: "${verdict.task}"} with its report` : `- tasks start {list, id: "${verdict.next}"} and do it`,
+		"- if the task is done, end it honestly (complete, fail or abandon, each with a report)",
+		'- if it cannot continue, tasks block {reason: "user-decision"|"user-input"|"third-party", detail: "<what you need>"} and tell the user',
+	].join("\n");
+}

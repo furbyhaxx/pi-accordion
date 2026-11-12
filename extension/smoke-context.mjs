@@ -22,6 +22,7 @@ function runtime(messages = [], options = {}) {
 	const handlers = {};
 	const tools = {};
 	const entries = options.entries ?? [];
+	const sent = [];
 	let host;
 	let command;
 	let activeTools = [];
@@ -31,6 +32,7 @@ function runtime(messages = [], options = {}) {
 		setActiveTools: (next) => { activeTools = next.slice(); },
 		registerFlag() {}, getFlag() {}, registerTool(tool) { tools[tool.name] = tool; },
 		appendEntry: (customType, data) => entries.push({ type: "custom", customType, data }),
+		sendMessage: async (message, options) => { sent.push({ message, options }); },
 		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
@@ -55,7 +57,7 @@ function runtime(messages = [], options = {}) {
 	};
 	handlers.session_start({ reason: "resume" }, ctx);
 	return {
-		handlers, ctx, tools, entries,
+		handlers, ctx, tools, entries, sent,
 		activeTools: () => activeTools.slice(),
 		open: async () => { await command("", ctx); return host; },
 		command: args => command(args, ctx),
@@ -297,6 +299,53 @@ check("gate mode refuses unrecorded work, counts nested calls and opens after re
 		assert.equal(call("unfold"), undefined, "protocol tools never count");
 		assert.equal(call("tasks"), undefined);
 	} finally { r.close(); fs.rmSync(config, { force: true }); }
+});
+
+check("a premature stop earns one follow-up; an abort, a wait and finished work do not", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-stop-"));
+	const r = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: dir, sessionId: "stop" });
+	const run = (id, args) => r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
+	const prompt = () => r.handlers.before_agent_start({ messageType: "user" }, r.ctx);
+	const settle = (aborted = false) => r.handlers.agent_settled({ type: "agent_settled", aborted }, r.ctx);
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await run("c1", { action: "create", list: "w", title: "W", goals: ["Done"], tasks: [{ title: "A", acceptanceCriteria: ["a holds"] }, { title: "B", acceptanceCriteria: ["b holds"] }] });
+		await run("c2", { action: "start", list: "w", id: "1" });
+		r.handlers.tool_call({ toolName: "bash", toolCallId: "w1", input: {} }, r.ctx);
+		await r.handlers.tool_result({ toolName: "bash", toolCallId: "w1", content: [{ type: "text", text: "ok" }], isError: false }, r.ctx);
+		settle();
+		assert.equal(r.sent.length, 1, "an open task earns one offer");
+		assert.match(r.sent[0].message.content, /Task 1 is still in progress/);
+		assert.match(r.sent[0].message.content, /tasks block/);
+		assert.equal(r.sent[0].options?.triggerTurn, true);
+		settle();
+		assert.equal(r.sent.length, 1, "and never two for the same prompt");
+		await prompt();
+		settle(true);
+		assert.equal(r.sent.length, 1, "an abort is the human at the keyboard");
+		await prompt();
+		await run("c3", { action: "block", list: "w", id: "1", reason: "user-decision", detail: "Which shape?" });
+		settle();
+		assert.equal(r.sent.length, 1, `waiting on the user is a legitimate stop: ${JSON.stringify(r.sent.map((x) => x.message.content))}`);
+		await run("c4", { action: "block", list: "w", id: "2", reason: "third-party", detail: "Review pending" }).catch(() => {});
+		await r.handlers.before_agent_start({ messageType: "custom" }, r.ctx);
+		assert.equal(r.sent.length, 1, "an automatic continuation does not refill the budget");
+	} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+
+	const done = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-done-"));
+	const r2 = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: done, sessionId: "finished" });
+	try {
+		const host = await r2.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await r2.tools.tasks.execute("c1", { action: "create", list: "f", title: "F", goals: ["Done"], tasks: [{ title: "Only", acceptanceCriteria: ["it holds"] }] }, undefined, undefined, r2.ctx);
+		await r2.tools.tasks.execute("c2", { action: "start", list: "f", id: "1" }, undefined, undefined, r2.ctx);
+		r2.handlers.tool_call({ toolName: "bash", toolCallId: "f1", input: {} }, r2.ctx);
+		await r2.handlers.tool_result({ toolName: "bash", toolCallId: "f1", content: [{ type: "text", text: "ok" }], isError: false }, r2.ctx);
+		await r2.tools.tasks.execute("c3", { action: "complete", list: "f", id: "1", report: { outcome: "Done." } }, undefined, undefined, r2.ctx);
+		r2.handlers.agent_settled({ type: "agent_settled", aborted: false }, r2.ctx);
+		assert.equal(r2.sent.length, 0, "finished work never resumes");
+	} finally { r2.close(); fs.rmSync(done, { recursive: true, force: true }); }
 });
 
 check("a stale consent answer never attaches a conductor into the replacement session", async () => {

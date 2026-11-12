@@ -81,7 +81,7 @@ describe("task coach", () => {
 		expect(emptySpanRefusal("w", "1", null)).toContain("abandon 1 with a report");
 	});
 
-	test("suggests resuming a task whose dependency finished, and skips work under a user wait", () => {
+	test("suggests resuming a task whose dependency finished, and freezes the run behind a user wait", () => {
 		const at = "2026-11-05T10:00:00.000Z";
 		const t = (id: string, status: Task["status"], extra: Partial<Task> = {}): Task => ({ id, title: id, status, updatedAt: at, ...extra });
 		const l = (tasks: Task[]): TaskList => ({ slug: "w", title: "W", createdAt: at, updatedAt: at, claim: null, tasks });
@@ -89,10 +89,12 @@ describe("task coach", () => {
 		const ask = { reason: "user-decision" as const, detail: "db?", at };
 		expect(nextTask(l([t("1", "blocked", { blocks: [dep] }), t("2", "doing"), t("3", "todo")]))?.task.id).toBe("3");
 		expect(nextTask(l([t("1", "blocked", { blocks: [dep] }), t("2", "done"), t("3", "todo")]))).toMatchObject({ task: { id: "1" }, resume: true });
-		expect(nextTask(l([t("1", "blocked", { blocks: [ask] }), t("1.1", "todo"), t("2", "todo")]))?.task.id).toBe("2");
+		expect(nextTask(l([t("1", "blocked", { blocks: [ask] }), t("1.1", "todo"), t("2", "todo")]))).toBeNull();
+		expect(nextTask(l([t("1", "blocked", { blocks: [ask] }), t("2", "todo")]), false)?.task.id).toBe("2");
 		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "done")]))).toEqual({ state: "waiting", tasks: [{ id: "1", reason: "user-decision" }] });
 		expect(idleVerdict(l([t("1", "doing"), t("1.1", "doing")]))).toEqual({ state: "in-progress", task: "1.1" });
-		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "todo")]))).toEqual({ state: "pending", next: "2" });
+		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "todo")]))).toEqual({ state: "waiting", tasks: [{ id: "1", reason: "user-decision" }] });
+		expect(idleVerdict(l([t("1", "blocked", { blocks: [ask] }), t("2", "todo")]), false)).toEqual({ state: "pending", next: "2" });
 		expect(idleVerdict(l([t("1", "done"), t("2", "abandoned")]))).toEqual({ state: "finished" });
 	});
 });

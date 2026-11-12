@@ -105,7 +105,7 @@ import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHos
 import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
 import { attachPolicy, revocationEffect } from "./privacyGate";
 import { toolSetNotice } from "./toolSetNotice";
-import { bootstrapNotice } from "./taskBinding";
+import { bootstrapNotice, stopFollowUp } from "./taskBinding";
 import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel, type PanelTabId } from "./tui/panel";
@@ -3146,6 +3146,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		nestedTaskEvents.clear();
 		pendingToolNotice = null;
 		bootstrapShown = false;
+		stopFollowUps = 0;
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
 		// session swap invalidates the whole context state (a fresh Truth is authoritative). Detach
 		// any attached conductor first (kills a spawned runner, clears its locks off the old Truth,
@@ -3337,6 +3338,31 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskCoach.assistantText(chars);
 	}
 
+	/** Follow-ups sent since the user's last prompt: one, never two. */
+	let stopFollowUps = 0;
+
+	/**
+	 * A premature stop gets one offer to continue, end honestly or block. An abort, a legitimate wait
+	 * and finished work never resume: resuming those would fight the human at the keyboard.
+	 */
+	pi.on("agent_settled", (event, ctx: ExtensionContext) => {
+		if (event.aborted || stopFollowUps > 0 || !settings.tasks.resumeOnStop || !tasksToolActive()) return;
+		if (latestCtx?.sessionManager.getSessionId() !== ctx.sessionManager.getSessionId()) return;
+		let list: TaskList | null = null;
+		try {
+			list = attachedList(taskStoreFor(ctx).claimedBySession());
+		} catch {
+			return;
+		}
+		if (!list) return;
+		const verdict = idleVerdict(list, settings.tasks.stopOnBlock);
+		if (verdict.state !== "in-progress" && verdict.state !== "pending") return;
+		stopFollowUps++;
+		const text = stopFollowUp(verdict);
+		try { ctx.ui.notify("accordion tasks: the run ended with work open; offering one continuation.", "warning"); } catch { /* no UI */ }
+		void pi.sendMessage({ customType: NOTICE_MESSAGE, content: text, display: true }, { triggerTurn: true, deliverAs: "nextTurn" });
+	});
+
 	// Each stop is judged against the attached list and kept in the session, so a premature stop
 	// (open or startable work left) can be told apart from waiting on the user or a third party.
 	function recordIdleVerdict(ctx: ExtensionContext): void {
@@ -3364,8 +3390,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
-	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
+	pi.on("before_agent_start", async (event, ctx: ExtensionContext) => {
 		taskCoach.userPrompt();
+		// Only a prompt the user typed refills the follow-up budget; an automatic continuation must not.
+		if ((event as { messageType?: string }).messageType === "user") stopFollowUps = 0;
 		const list = await taskSession?.takeNotice();
 		const tool = pendingToolNotice;
 		pendingToolNotice = null;
@@ -3379,6 +3407,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			orientationCalls: settings.tasks.orientationCalls,
 			enforce: settings.tasks.enforce,
 			gateFailOpenAfter: settings.tasks.gateFailOpenAfter,
+			stopOnBlock: settings.tasks.stopOnBlock,
 		};
 	}
 

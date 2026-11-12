@@ -20,6 +20,8 @@ export interface CoachPolicy {
 	enforce: EnforceMode;
 	/** Consecutive refusals after which the gate stays open for the rest of the run. */
 	gateFailOpenAfter: number;
+	/** A blocked task stops the run, so nothing else can be named as next. */
+	stopOnBlock: boolean;
 }
 
 /** What the gate decided about one call: block it, and/or report that it gave up. */
@@ -44,7 +46,7 @@ function innermostDoing(list: TaskList): Task | null {
  * The task the agent should pick up next: a task blocked on a dependency that has since finished
  * (resume it), else the first task not started outside a branch blocked on something it cannot fix.
  */
-export function nextTask(list: TaskList): { task: Task; resume: boolean } | null {
+export function nextTask(list: TaskList, stopOnBlock = true): { task: Task; resume: boolean } | null {
 	const finished = (id: string | undefined) => {
 		const t = id ? list.tasks.find((x) => x.id === id) : undefined;
 		return !!t && (t.status === "done" || t.status === "failed" || t.status === "abandoned");
@@ -58,6 +60,9 @@ export function nextTask(list: TaskList): { task: Task; resume: boolean } | null
 		const b = currentBlock(t);
 		return b && IDLE_REASONS.has(b.reason);
 	});
+	// With stopOnBlock the store refuses to start anything else while a task waits, so naming one
+	// here would send the agent into a refusal loop; the run is stopped until the task resumes.
+	if (stopOnBlock && waiting.length) return null;
 	const todo = list.tasks.find((t) => t.status === "todo" && !waiting.some((w) => t.id.startsWith(`${w.id}.`)));
 	return todo ? { task: todo, resume: false } : null;
 }
@@ -77,10 +82,10 @@ export type IdleVerdict =
  * continued) are premature stops; `waiting` (every remaining task waits on the user or a third
  * party) and `finished` are allowed.
  */
-export function idleVerdict(list: TaskList): IdleVerdict {
+export function idleVerdict(list: TaskList, stopOnBlock = true): IdleVerdict {
 	const doing = innermostDoing(list);
 	if (doing) return { state: "in-progress", task: doing.id };
-	const next = nextTask(list);
+	const next = nextTask(list, stopOnBlock);
 	if (next) return { state: "pending", next: next.task.id };
 	const waiting = list.tasks.flatMap((t) => {
 		const b = currentBlock(t);
@@ -94,7 +99,7 @@ export const TEXT_WORK_CHARS = 40;
 
 export class TaskCoach {
 	private list: TaskList | null = null;
-	private policy: CoachPolicy = { orientationCalls: DEFAULT_ORIENTATION_CALLS, enforce: "coach", gateFailOpenAfter: 3 };
+	private policy: CoachPolicy = { orientationCalls: DEFAULT_ORIENTATION_CALLS, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true };
 	/** Non-exempt calls since the last user prompt. */
 	private calls = 0;
 	/** Refusals in this run, and whether the gate already gave up on it. */
@@ -203,7 +208,7 @@ export class TaskCoach {
 			this.remindedNoList = true;
 			return noListReminder(this.calls);
 		}
-		const pick = nextTask(list);
+		const pick = nextTask(list, this.policy.stopOnBlock);
 		if (!pick || this.remindedNoLeaf) return null;
 		this.remindedNoLeaf = true;
 		const next = pick.task;
