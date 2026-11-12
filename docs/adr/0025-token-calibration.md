@@ -319,9 +319,15 @@ extension now judges every receipt before it moves `k`:
   While untrusted, the multiplier used for unmeasured content is `max(prior, last trusted ratio)` —
   a doubtful observation can never lower the estimate, only a trusted one can.
 
-**Recounts are not consumed.** `calibration.preferRecount` exists, but no current source can prove the
-match a recount would need: pi-auth-plus's reports carry no session, model generation or request
-fingerprint, and a provider-sourced anchor is not a recount. A recount may only replace an estimate
-when it is proven to measure the SAME unfolded messages — never Accordion's folded projection, whose
-denominator is exactly the content the fold removed. Without that proof the conservative estimate
-stands; the dial stays as the switch that will enable consumption once such a report exists.
+**Recounts are not consumed, and no switch pretends otherwise.** A live probe of the `pi-auth-plus:v1`
+token bus (`tokens:query` and the `tokens:context` broadcast) returns exactly
+`{provider, model, contextWindow, tokens:{tokens, source}, percent, anchor?, tail, tailMessages, pi,
+computedAt}` — no session id, no leaf id, no request id, no message fingerprint. Nothing in that
+payload can prove a report measured the SAME unfolded messages that Accordion's departing wire
+represented, and the report's own count for the same moment is another chars-based estimate
+(`source: "estimate"`), not the provider's number; the provider-labelled variant is pi's context
+anchor, a different quantity again. A recount may only replace an estimate when the match is
+provable, and the denominator must be the raw estimate of those unfolded messages — never
+Accordion's folded projection, whose denominator is exactly the content the fold removed. Without
+that proof the conservative estimate stands, so v24 ships no recount dial at all rather than a
+setting that cannot act.

@@ -86,5 +86,4 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Calibration", path: "calibration.minRatio", label: "Minimum ratio", kind: "number", description: "Receipts below this multiple of the estimate are treated as a bad pairing and do not move the multiplier." },
 	{ section: "Calibration", path: "calibration.maxRatio", label: "Maximum ratio", kind: "text", description: "Optional ceiling; empty means none, because CJK and emoji content legitimately reaches high ratios." },
 	{ section: "Calibration", path: "calibration.dedupeCacheWrite", label: "De-duplicate cache writes", kind: "toggle", description: "Drop the cache write Anthropic reports again as input on a cache epoch's first request." },
-	{ section: "Calibration", path: "calibration.preferRecount", label: "Prefer recounts", kind: "toggle", description: "Reserved for request-matched recounts; no current source can prove a match, so estimates stay conservative." },
 ];

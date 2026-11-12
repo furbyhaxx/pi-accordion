@@ -45,8 +45,9 @@ are evaluated against actual model behavior, not merely successful unit tests.
 - `core/truth.ts:184` carries `calibrationPrior` as replicated state distinct from
   `calibration`/`calibrationThroughOrder` (protocol v24). Covered blocks use the receipt ratio, the
   rest use the prior; the raw wire accessors stay raw.
-- Recounts are still not consumed: no current source can prove it measured the same unfolded
-  messages. `calibration.preferRecount` is the switch that will enable it.
+- Recounts are still not consumed: a live bus probe (`evidence/token-truth/recount-probe.json`)
+  shows `ContextReport` carries no session, leaf, request or message identity, and its count is a
+  second chars estimate. v24 therefore ships no recount dial.
 - `extension/tasks.ts` permits parent starts and branch changes after blocking; its public block
   reasons include `dependency`. Criteria are optional. `taskSchema.ts` already supports the
   newer 300-character criterion and expanded report contract.
@@ -122,11 +123,10 @@ Preserve the existing `~/.accordion/config.json` location and the session-dial p
 3. Reject non-finite, non-positive or out-of-bounds ratios. Default upper bound is absent:
    real CJK/emoji ratios can be high. While untrusted, use `max(prior, last trusted k)`.
    Mark the observation untrusted and warn once per degraded episode, naming the provider.
-4. Consume optional pi-auth-plus recounts outside the context hook. Validate the v1 boundary,
-   model/session generation and matching unfolded snapshot; reject late or mismatched reports.
-   A provider-sourced anchor is not a recount. The denominator is the raw estimate of the same
-   unfolded messages, never Accordion's folded projection. Without reliable matching, keep the
-   conservative estimate rather than invent a correction.
+4. Consume optional pi-auth-plus recounts outside the context hook — RESOLVED AS UNAVAILABLE.
+   The live `tokens:query`/`tokens:context` payloads carry no session, leaf, request or message
+   identity and no provider-anchored per-request input, so no report can be proven to measure the
+   same unfolded messages. The conservative estimate stands and the dial was not shipped.
 5. Update ADR 0025, Truth/replica/protocol surfaces and generated remote SDKs together when
    replicated state changes. Preserve system-prompt replacement and append-frontier regressions.
 

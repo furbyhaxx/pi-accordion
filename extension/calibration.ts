@@ -15,8 +15,6 @@ export interface CalibrationSettings {
 	maxRatio: number | null;
 	/** Anthropic reports a cache write and the same input tokens on the first request of a cache epoch. */
 	dedupeCacheWrite: boolean;
-	/** Reserved for request-matched recounts; no current source can prove a match, so it is not consumed. */
-	preferRecount: boolean;
 	priors: CalibrationPriors;
 }
 
@@ -48,7 +46,6 @@ export const CALIBRATION_DEFAULTS: Readonly<CalibrationSettings> = {
 	minRatio: 0.7,
 	maxRatio: null,
 	dedupeCacheWrite: true,
-	preferRecount: true,
 	priors: { ...DEFAULT_PRIORS },
 };
 
@@ -151,7 +148,6 @@ export function sanitizeCalibrationSettings(value: unknown): CalibrationSettings
 		minRatio,
 		maxRatio,
 		dedupeCacheWrite: typeof raw.dedupeCacheWrite === "boolean" ? raw.dedupeCacheWrite : CALIBRATION_DEFAULTS.dedupeCacheWrite,
-		preferRecount: typeof raw.preferRecount === "boolean" ? raw.preferRecount : CALIBRATION_DEFAULTS.preferRecount,
 		priors,
 	};
 }

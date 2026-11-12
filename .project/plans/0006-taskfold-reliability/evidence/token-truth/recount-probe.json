@@ -1,0 +1,98 @@
+{
+  "what": "Live probe of the pi-auth-plus v1 token bus from inside a real Pi-Bolt session (openai/gpt-6.1-terra), to decide whether a recount can be matched to Accordion's departing wire.",
+  "how": "A probe extension subscribed to pi-auth-plus:v1:tokens:context and issued a nonce request on pi-auth-plus:v1:tokens:query after the run settled.",
+  "reportFields": [
+    "computedAt",
+    "contextWindow",
+    "model",
+    "percent",
+    "pi",
+    "provider",
+    "tail",
+    "tailMessages",
+    "tokens"
+  ],
+  "identityFieldsPresent": [
+    "tailMessages"
+  ],
+  "observed": {
+    "contextBroadcasts": [
+      {
+        "v": 1,
+        "reason": "message_end",
+        "report": {
+          "provider": "openai",
+          "model": "gpt-6.1-terra",
+          "contextWindow": 372000,
+          "tokens": {
+            "tokens": 14997,
+            "source": "estimate"
+          },
+          "percent": 4.031451612903226,
+          "tail": {
+            "tokens": 14997,
+            "source": "estimate"
+          },
+          "tailMessages": 2,
+          "pi": 15538,
+          "computedAt": 1794479128529
+        }
+      },
+      {
+        "v": 1,
+        "reason": "message_end",
+        "report": {
+          "provider": "openai",
+          "model": "gpt-6.1-terra",
+          "contextWindow": 372000,
+          "tokens": {
+            "tokens": 13235,
+            "source": "provider"
+          },
+          "percent": 3.557795698924731,
+          "anchor": {
+            "tokens": 13235,
+            "source": "provider"
+          },
+          "tail": {
+            "tokens": 0,
+            "source": "provider"
+          },
+          "tailMessages": 0,
+          "pi": 13235,
+          "computedAt": 1794479131424
+        }
+      }
+    ],
+    "queryReply": {
+      "nonce": "20a52a28-5c96-4756-91ef-81671b2ff7ff",
+      "payload": {
+        "v": 1,
+        "ok": true,
+        "report": {
+          "provider": "openai",
+          "model": "gpt-6.1-terra",
+          "contextWindow": 372000,
+          "tokens": {
+            "tokens": 14997,
+            "source": "estimate"
+          },
+          "percent": 4.031451612903226,
+          "tail": {
+            "tokens": 14997,
+            "source": "estimate"
+          },
+          "tailMessages": 2,
+          "pi": 15538,
+          "computedAt": 1794479128529
+        }
+      }
+    }
+  },
+  "conclusion": [
+    "No session, leaf, request or message identity is present, so a report cannot be proven to describe the same unfolded messages Accordion estimated.",
+    "The report's own count is a second chars-based estimate (source 'estimate'); the 'provider' variant is pi's context anchor, not this request's billed input.",
+    "Accordion's estimate of the same turn (14938) and pi-auth-plus's (14997) differ, confirming they are independent estimates of partially different projections.",
+    "Therefore no recount dial ships; the conservative prior and receipt-anchored k remain the only multipliers."
+  ]
+}

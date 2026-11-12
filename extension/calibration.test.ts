@@ -83,13 +83,11 @@ describe("settings", () => {
 			minRatio: 0.8,
 			maxRatio: 0.5,
 			dedupeCacheWrite: false,
-			preferRecount: false,
 			priors: { anthropic: 1.6, bad: "x", "*": 0 },
 		});
 		expect(settings.minRatio).toBe(0.8);
 		expect(settings.maxRatio).toBeNull();
 		expect(settings.dedupeCacheWrite).toBe(false);
-		expect(settings.preferRecount).toBe(false);
 		expect(settings.priors.anthropic).toBe(1.6);
 		expect(settings.priors["*"]).toBe(1.15);
 		expect("bad" in settings.priors).toBe(false);

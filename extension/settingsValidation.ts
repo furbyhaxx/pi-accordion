@@ -56,7 +56,6 @@ const RULES = {
 	"calibration.minRatio": ratio(false),
 	"calibration.maxRatio": ratio(true),
 	"calibration.dedupeCacheWrite": boolean,
-	"calibration.preferRecount": boolean,
 } satisfies Record<string, Rule>;
 
 /** A scalar or list-valued configuration field; dynamic map keys remain opaque. */
