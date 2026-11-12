@@ -152,7 +152,7 @@ type Err = { ok: false; error: ErrorCode; message: string; fix?: string };
 
 | `error` | When | `fix` |
 |---|---|---|
-| `invalid_args` | missing/unknown field, wrong type | the call that works |
+| `invalid_args` | missing/unknown field, wrong type, `dependency`/`blockedBy`, `delegate` without `delegated` | the call that works |
 | `not_found` | list, task, pin, attachment or anchor does not exist | closest match |
 | `invalid_file` | list file fails validation (§2.2) | each problem and its fix |
 | `no_goal` | `start`/`add`/`move` on a list without goals | `update {list, goals: {add: [...]}}` |
@@ -385,15 +385,24 @@ was attached carries `state` (§4.2).
 #### block
 
 ```js
-tasks({ action: "block", list: "auth", id: "2.1", reason: "dependency", detail: "Needs the approved interface.", blockedBy: "1.2" })
+tasks({ action: "block", list: "auth", id: "2.1", reason: "user-decision", detail: "Postgres or SQLite?" })
+tasks({ action: "block", list: "auth", id: "2.2", reason: "delegated", detail: "frames are rendering", delegate: "agent-7" })
 ```
 ```json
 {"ok": true}
 {"ok": true, "alsoBlocked": ["2"]}
 ```
-`alsoBlocked`: ancestors that became blocked. The follow-up rules (tell the user, work on the
-dependency) live in the tool description. A `detail` is stored verbatim; the tool never appends
-punctuation.
+`alsoBlocked`: ancestors that became blocked, as a `dependency` on the blocked subtask. That reason
+is internal: a caller's `dependency`/`blockedBy` is refused, because a wait on another task in the
+list is not something outside the agent's control — it works on that task, or `move`s this one
+behind it. `delegated` needs a `delegate` handle, counts as work in flight, and its result must
+return to this session, which resumes and integrates it before ending. A `detail` is stored
+verbatim; the tool never appends punctuation.
+
+**Stopping policy.** With `tasks.stopOnBlock` (default `true`) a block ends the run: `start` of
+anything but the waiting task itself (or its subtasks) is refused with `The run is stopped: <id>
+"<title>" waits (<label> — <detail>)`. With `false` later leaves run in order while the blocked
+interval stays closed, and a resumed leaf opens a new interval; no two leaves are ever `doing`.
 
 #### complete / fail / abandon
 
@@ -1002,7 +1011,16 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
   "debug": false,
   "tasks": {
     "attachments": { "render": "inline", "maxLines": 60, "roots": [] },
-    "pins": { "listTokens": 2000, "taskTokens": 1500 }
+    "pins": { "listTokens": 2000, "taskTokens": 1500 },
+    "adopt": "auto",
+    "enforce": "coach",
+    "orientationCalls": 10,
+    "gateFailOpenAfter": 3,
+    "stopOnBlock": true,
+    "resumeOnStop": true,
+    "bootstrapNote": true,
+    "largeLeaf": { "budgetShare": 0.15, "toolResults": 25, "repeatEvery": 10 },
+    "acceptanceCriteria": { "required": true, "min": 1, "max": 3, "maxChars": 300 }
   },
   "conductorOptions": {
     "taskfold": { "high": 0.8, "low": 0.6, "maxLoss": 0.3, "keepRecentTasks": 0 }

@@ -305,6 +305,7 @@
 									"user-decision",
 									"user-input",
 									"third-party",
+									"delegated",
 									"dependency"
 								]
 							},
@@ -312,6 +313,9 @@
 								"type": "string"
 							},
 							"on": {
+								"type": "string"
+							},
+							"delegate": {
 								"type": "string"
 							},
 							"at": {

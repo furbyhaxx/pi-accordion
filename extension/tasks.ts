@@ -10,21 +10,23 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BLOCK_REASONS, checkReport, checkTexts, compareIds, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, parentId, parseListFile, REPORT_OUTCOME_MAX as OUTCOME_MAX, TITLE_MAX, TASK_GOAL_MAX, TASK_GOALS_MAX, toListFile, type BlockReason, type FlatList, type Item, type ItemPrefix, type ItemSeq, type TaskStatus } from "./taskSchema";
+import { BLOCK_REASONS, checkReport, checkTexts, compareIds, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, parentId, parseListFile, REPORT_OUTCOME_MAX as OUTCOME_MAX, STORED_BLOCK_REASONS, TITLE_MAX, TASK_GOAL_MAX, TASK_GOALS_MAX, toListFile, type BlockReason, type FlatList, type Item, type ItemPrefix, type ItemSeq, type StoredBlockReason, type TaskStatus } from "./taskSchema";
 import type { Anchor } from "./taskAnchors";
 import { attachmentRef, checkPinCap, makeAttachment, makePin, PIN_LIMITS, type Attachment, type Pin, type PinHolder, type PinLimits } from "./taskPins";
 
 export { BLOCK_REASONS, type BlockReason, type TaskStatus };
 
 /** Block reasons outside the agent's control: waiting on them justifies going idle. `dependency` does not. */
-export const IDLE_REASONS: ReadonlySet<BlockReason> = new Set(["user-decision", "user-input", "third-party"]);
+export const IDLE_REASONS: ReadonlySet<StoredBlockReason> = new Set(["user-decision", "user-input", "third-party", "delegated"]);
 
 /** One period a task spent blocked. */
 export interface TaskBlock {
-	reason: BlockReason;
+	reason: StoredBlockReason;
 	detail: string;
 	/** The task this one waits for (`dependency`), or the subtask a blocked parent waits for. */
 	on?: string;
+	/** Opaque handle for work handed elsewhere; only a `delegated` block carries one. */
+	delegate?: string;
 	at: string;
 	/** When the task was resumed; absent while it is still blocked. */
 	resumedAt?: string;
@@ -326,11 +328,18 @@ function isWithin(id: string, ancestor: string): boolean {
 	return id === ancestor || id.startsWith(ancestor + ".");
 }
 
+/** Which protocol knobs the store acts on; the extension reads them from the settings file. */
+export interface TaskStoreProtocol {
+	/** A block in this list ends the run instead of letting later leaves run. */
+	stopOnBlock: boolean;
+}
+
 export class TaskStore {
 	constructor(
 		private readonly projectDir: string,
 		private readonly session: () => string,
 		private readonly sessionName: () => string | undefined = () => undefined,
+		private readonly protocol: () => TaskStoreProtocol = () => ({ stopOnBlock: true }),
 	) {}
 
 	/** The session this store acts for. */
@@ -717,32 +726,28 @@ export class TaskStore {
 	 * Block a task in progress on something it waits for. Open ancestors with no other task in
 	 * progress beneath them are blocked on it as well, so the agent may start other work.
 	 */
-	block(slug: string, id: string, reason: unknown, detail: unknown, on?: unknown): { task: Task; ancestors: Task[] } {
+	block(slug: string, id: string, reason: unknown, detail: unknown, on?: unknown, delegate?: unknown): { task: Task; ancestors: Task[] } {
 		const list = this.owned(slug);
 		const task = this.task(list, id);
 		if (!BLOCK_REASONS.includes(reason as BlockReason))
-			throw new TaskError("invalid_args", `A block needs "reason": one of ${BLOCK_REASONS.map((r) => `"${r}"`).join(", ")}.`);
+			throw new TaskError("invalid_args", `A block needs "reason": one of ${BLOCK_REASONS.map((r) => `"${r}"`).join(", ")}. A wait on another task in this list is not a reason: block the task you actually wait on, or "move" this one behind the task that must come first.`);
+		if (reason === "delegated" && (typeof delegate !== "string" || !delegate.trim()))
+			throw new TaskError("invalid_args", 'A "delegated" block needs "delegate": the opaque handle of the work you handed elsewhere (agent id, ticket, branch). Its result must come back to this session, which resumes and integrates it before ending.');
+		if (delegate !== undefined && reason !== "delegated") throw new TaskError("invalid_args", '"delegate" only goes with reason "delegated".');
 		if (typeof detail !== "string" || !detail.trim()) throw new TaskError("invalid_args", 'A block needs "detail": what exactly the task waits for, e.g. "the user must choose between Postgres and SQLite".');
 		const text = detail.trim().replace(/\s+/g, " ");
 		if (text.length > BLOCK_DETAIL_MAX) throw new TaskError("invalid_args", `"detail" is ${text.length} chars; use at most ${BLOCK_DETAIL_MAX}.`);
 		if (task.status !== "doing") throw new TaskError("invalid_transition", `Task ${id} is ${task.status}; only a task in progress can be blocked.`);
 		const inner = list.tasks.filter((t) => t.id !== id && isWithin(t.id, id) && t.status === "doing");
 		if (inner.length) throw new TaskError("open_subtasks", `Subtask ${inner.map((t) => t.id).join(", ")} of ${id} is in progress. Block that subtask instead, or end it first.`);
-		let dep: string | undefined;
-		if (reason === "dependency") {
-			if (typeof on !== "string" || !on.trim()) throw new TaskError("invalid_args", 'A "dependency" block needs "blockedBy": the id of the task this one waits for.');
-			const target = this.task(list, on.trim());
-			if (isWithin(target.id, id) || isWithin(id, target.id)) throw new TaskError("invalid_transition", `Task ${target.id} is ${isWithin(target.id, id) ? "inside" : "a parent of"} ${id}; a task cannot wait for its own branch.`);
-			if (FINISHED.has(target.status)) throw new TaskError("invalid_transition", `Task ${target.id} is already ${target.status}; ${id} does not wait for it. Continue ${id}.`);
-			dep = target.id;
-		} else if (on !== undefined) throw new TaskError("invalid_args", '"blockedBy" only goes with reason "dependency".');
+		if (on !== undefined) throw new TaskError("invalid_args", '"blockedBy" is internal: parents use it, a caller does not.');
 		const at = now();
 		const put = (t: Task, b: TaskBlock) => {
 			t.status = "blocked";
 			t.updatedAt = at;
 			(t.blocks ??= []).push(b);
 		};
-		put(task, { reason: reason as BlockReason, detail: text, ...(dep ? { on: dep } : {}), at });
+		put(task, { reason: reason as BlockReason, detail: text, ...(typeof delegate === "string" ? { delegate: delegate.trim() } : {}), at });
 		const ancestors: Task[] = [];
 		for (let p = parentOf(id); p !== null; p = parentOf(p)) {
 			const anc = list.tasks.find((t) => t.id === p);
@@ -781,6 +786,19 @@ export class TaskStore {
 			throw new TaskError("open_subtasks",
 				`Task ${blocking.map((t) => `${t.id} "${t.title}"`).join(", ")} is still in progress. Complete, fail or abandon it with a report before starting ${id}, or start one of its subtasks.`,
 			);
+		const task0 = this.task(list, id);
+		const stopping = this.protocol().stopOnBlock
+			? list.tasks.find((t) => {
+				const b = currentBlock(t);
+				if (!b || !IDLE_REASONS.has(b.reason)) return false;
+				// Resuming the waiting task itself, or one of its subtasks, is what ends the stop.
+				return !(id === t.id || isWithin(id, t.id));
+			})
+			: undefined;
+		if (stopping && task0.status !== "blocked") {
+			const b = currentBlock(stopping)!;
+			throw new TaskError("invalid_transition", `The run is stopped: ${stopping.id} "${stopping.title}" waits (${blockLabel(b)} — ${b.detail}). With tasks.stopOnBlock on, a block ends the run: resolve it and resume ${startCall(list, stopping)}, or block this task too if it waits on the same thing.`);
+		}
 		const started: Task[] = [];
 		for (let p = parentOf(id); p !== null; p = parentOf(p)) {
 			const anc = list.tasks.find((t) => t.id === p);
@@ -949,7 +967,11 @@ export function currentBlock(t: Task): TaskBlock | null {
 
 /** `needs user decision`, `waits for 3.2`, … */
 export function blockLabel(b: TaskBlock): string {
-	return b.reason === "user-decision" ? "needs user decision" : b.reason === "user-input" ? "needs user input" : b.reason === "third-party" ? "waits on third party" : `waits for ${b.on ?? "another task"}`;
+	return b.reason === "user-decision" ? "needs user decision"
+		: b.reason === "user-input" ? "needs user input"
+		: b.reason === "third-party" ? "waits on third party"
+		: b.reason === "delegated" ? `delegated to ${b.delegate ?? "another agent"}`
+		: `waits for ${b.on ?? "another task"}`;
 }
 
 /** Who holds a list, from one session's point of view. A claim idle past `CLAIM_STALE_MS` is stale. */
@@ -1017,6 +1039,8 @@ export interface TasksArgs {
 	detail?: string;
 	/** For block with reason "dependency": the task it waits for. */
 	blockedBy?: string;
+	/** For block with reason delegated: the opaque handle of the work handed elsewhere. */
+	delegate?: string;
 	/** For abandon: the task that replaces this one. */
 	supersededBy?: string;
 }
@@ -1202,7 +1226,7 @@ function runAction(store: TaskStore, args: TasksArgs, track: { started: string[]
 			return ok;
 		}
 		case "block": {
-			const { ancestors } = store.block(need("list"), need("id"), args.reason, args.detail, args.blockedBy);
+			const { ancestors } = store.block(need("list"), need("id"), args.reason, args.detail, args.blockedBy, args.delegate);
 			return ancestors.length ? { ok: true, alsoBlocked: ancestors.map((t) => t.id) } : ok;
 		}
 		case "status":

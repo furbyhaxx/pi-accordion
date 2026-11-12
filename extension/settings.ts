@@ -54,6 +54,22 @@ export interface TaskSettings {
 	pins: { listTokens: number; taskTokens: number };
 	/** How a session recorded before task events is adopted on resume (SPEC-0002 §14). */
 	adopt: "auto" | "ask" | "off";
+	/** How the task protocol is enforced: coach with reminders, gate tool calls, or observe only. */
+	enforce: "coach" | "gate" | "off";
+	/** Non-exempt tool calls a session may make before it starts its first task. */
+	orientationCalls: number;
+	/** Consecutive refused gate calls before the gate stops blocking (never silent: it says so). */
+	gateFailOpenAfter: number;
+	/** A block ends the run (`true`) or lets later leaves run while the blocked interval stays closed. */
+	stopOnBlock: boolean;
+	/** Offer at most one follow-up after a stop, never after an abort. */
+	resumeOnStop: boolean;
+	/** Point a fresh session at its list once, from `before_agent_start`. */
+	bootstrapNote: boolean;
+	/** When a leaf counts as large enough to be split, by budget share or tool results. */
+	largeLeaf: { budgetShare: number; toolResults: number; repeatEvery: number };
+	/** Whether leaves must carry checkable acceptance criteria, and their bounds. */
+	acceptanceCriteria: { required: boolean; min: number; max: number; maxChars: number };
 }
 
 export interface TaskfoldSettings {
@@ -105,7 +121,19 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	models: { defaults: {}, conductors: {} },
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
-	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
+	tasks: {
+		attachments: { render: "inline", maxLines: 60, roots: [] },
+		pins: { listTokens: 2000, taskTokens: 1500 },
+		adopt: "auto",
+		enforce: "coach",
+		orientationCalls: 10,
+		gateFailOpenAfter: 3,
+		stopOnBlock: true,
+		resumeOnStop: true,
+		bootstrapNote: true,
+		largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
+		acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
+	},
 	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
 	calibration: { ...CALIBRATION_DEFAULTS, priors: { ...CALIBRATION_DEFAULTS.priors } },
 	conductorOptions: {},
@@ -243,10 +271,34 @@ export function sanitizeTaskSettings(value: unknown): TaskSettings {
 	const attachments = raw.attachments && typeof raw.attachments === "object" && !Array.isArray(raw.attachments) ? raw.attachments as Record<string, unknown> : {};
 	const pins = raw.pins && typeof raw.pins === "object" && !Array.isArray(raw.pins) ? raw.pins as Record<string, unknown> : {};
 	const integer = (v: unknown, fallback: number, max: number) => typeof v === "number" && Number.isInteger(v) && v > 0 && v <= max ? v : fallback;
+	const defaults = DEFAULT_SETTINGS.tasks;
+	const bounded = (v: unknown, fallback: number, min: number, max: number) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
+	const share = (v: unknown, fallback: number) => typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 1 ? v : fallback;
+	const largeLeaf = raw.largeLeaf && typeof raw.largeLeaf === "object" && !Array.isArray(raw.largeLeaf) ? raw.largeLeaf as Record<string, unknown> : {};
+	const criteria = raw.acceptanceCriteria && typeof raw.acceptanceCriteria === "object" && !Array.isArray(raw.acceptanceCriteria) ? raw.acceptanceCriteria as Record<string, unknown> : {};
+	const min = bounded(criteria.min, defaults.acceptanceCriteria.min, 0, 8);
+	const max = Math.max(min, bounded(criteria.max, defaults.acceptanceCriteria.max, 0, 8));
 	return {
 		attachments: { render: attachments.render === "reference" ? "reference" : "inline", maxLines: integer(attachments.maxLines, 60, 1000), roots: attachmentRoots(attachments.roots) },
 		pins: { listTokens: integer(pins.listTokens, 2000, 100000), taskTokens: integer(pins.taskTokens, 1500, 100000) },
 		adopt: raw.adopt === "ask" || raw.adopt === "off" ? raw.adopt : "auto",
+		enforce: raw.enforce === "gate" || raw.enforce === "off" ? raw.enforce : "coach",
+		orientationCalls: bounded(raw.orientationCalls, defaults.orientationCalls, 0, 1000),
+		gateFailOpenAfter: bounded(raw.gateFailOpenAfter, defaults.gateFailOpenAfter, 1, 100),
+		stopOnBlock: typeof raw.stopOnBlock === "boolean" ? raw.stopOnBlock : defaults.stopOnBlock,
+		resumeOnStop: typeof raw.resumeOnStop === "boolean" ? raw.resumeOnStop : defaults.resumeOnStop,
+		bootstrapNote: typeof raw.bootstrapNote === "boolean" ? raw.bootstrapNote : defaults.bootstrapNote,
+		largeLeaf: {
+			budgetShare: share(largeLeaf.budgetShare, defaults.largeLeaf.budgetShare),
+			toolResults: bounded(largeLeaf.toolResults, defaults.largeLeaf.toolResults, 1, 1000),
+			repeatEvery: bounded(largeLeaf.repeatEvery, defaults.largeLeaf.repeatEvery, 1, 1000),
+		},
+		acceptanceCriteria: {
+			required: typeof criteria.required === "boolean" ? criteria.required : defaults.acceptanceCriteria.required,
+			min,
+			max,
+			maxChars: bounded(criteria.maxChars, defaults.acceptanceCriteria.maxChars, 1, 2000),
+		},
 	};
 }
 

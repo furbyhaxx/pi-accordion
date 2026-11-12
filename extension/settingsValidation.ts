@@ -13,6 +13,8 @@ const number = (min: number, max: number, integer = true): Rule => value =>
 	typeof value === "number" && Number.isFinite(value) && value >= min && value <= max && (!integer || Number.isInteger(value))
 		? undefined : `must be ${integer ? "an integer" : "a number"} between ${min} and ${max}`;
 const timing = choice(...FOLD_TIMINGS);
+const fraction: Rule = value => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1
+	? undefined : "must be a number greater than 0 and at most 1";
 const model = (type: "chat" | "classifier"): Rule => value => value === undefined || typeof value === "string" && sanitizeModelSpec(value, type) === value
 	? undefined : `must be provider/model-id${type === "chat" ? " or current" : " (current is only valid for chat)"}`;
 const amount: Rule = value => value === undefined || typeof value === "string" && typeof parseTokens(value, 1_000_000) === "number"
@@ -45,6 +47,19 @@ const RULES = {
 	"tasks.pins.listTokens": number(1, 100000),
 	"tasks.pins.taskTokens": number(1, 100000),
 	"tasks.adopt": choice("auto", "ask", "off"),
+	"tasks.enforce": choice("coach", "gate", "off"),
+	"tasks.orientationCalls": number(0, 1000),
+	"tasks.gateFailOpenAfter": number(1, 100),
+	"tasks.stopOnBlock": boolean,
+	"tasks.resumeOnStop": boolean,
+	"tasks.bootstrapNote": boolean,
+	"tasks.largeLeaf.budgetShare": fraction,
+	"tasks.largeLeaf.toolResults": number(1, 1000),
+	"tasks.largeLeaf.repeatEvery": number(1, 1000),
+	"tasks.acceptanceCriteria.required": boolean,
+	"tasks.acceptanceCriteria.min": number(0, 8),
+	"tasks.acceptanceCriteria.max": number(0, 8),
+	"tasks.acceptanceCriteria.maxChars": number(1, 2000),
 	"taskfold.timing": timing,
 	"taskfold.leafForm": choice("record", "bracket"),
 	"taskfold.recordTokens": number(100, 100000),
@@ -156,6 +171,14 @@ export function validateSettingsPatch(patch: unknown, current: AccordionSettings
 		};
 		const high = effective("high"), low = effective("low");
 		if (typeof high === "number" && typeof low === "number" && low >= high) return { ok: false, error: `${lowKey}: must be less than ${highKey}` };
+	}
+	const minC = "tasks.acceptanceCriteria.min";
+	const maxC = "tasks.acceptanceCriteria.max";
+	if (minC in patch || maxC in patch) {
+		const edits = patch as SettingsPatch;
+		const min = minC in edits ? edits[minC] : current.tasks.acceptanceCriteria.min;
+		const max = maxC in edits ? edits[maxC] : current.tasks.acceptanceCriteria.max;
+		if (typeof min === "number" && typeof max === "number" && min > max) return { ok: false, error: `${minC}: must not exceed ${maxC}` };
 	}
 	const minKey = "calibration.minRatio";
 	const maxKey = "calibration.maxRatio";

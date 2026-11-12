@@ -11,9 +11,12 @@
 export const TASK_STATUSES = ["todo", "doing", "blocked", "done", "failed", "abandoned"] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-/** Why a task cannot continue. */
-export const BLOCK_REASONS = ["user-decision", "user-input", "third-party", "dependency"] as const;
+/** Why an agent's task cannot continue. `dependency` is internal: parents wait on a blocked subtask. */
+export const BLOCK_REASONS = ["user-decision", "user-input", "third-party", "delegated"] as const;
 export type BlockReason = (typeof BLOCK_REASONS)[number];
+/** Every reason a list file may hold, including the parent-propagation `dependency`. */
+export const STORED_BLOCK_REASONS = [...BLOCK_REASONS, "dependency"] as const;
+export type StoredBlockReason = (typeof STORED_BLOCK_REASONS)[number];
 
 export const LIST_VERSION = 3;
 export const SCHEMA_URL = "https://raw.githubusercontent.com/furbyhaxx/pi-accordion/feat/pi-native/extension/skills/accordion-task-lists/references/tasks.schema.json";
@@ -303,6 +306,18 @@ function walk(nodes: unknown[], prefix: string, at: string, out: FlatTask[], err
 		if (node.report !== undefined) checkReport(node.report, `${where}.report`, errors);
 		if (FINISHED.includes(status as string) && !isObj(node.report)) errors.push(`${where}: a ${String(status)} task needs a report { outcome }`);
 		if (node.blocks !== undefined && !Array.isArray(node.blocks)) errors.push(`${where}.blocks: must be an array`);
+		else if (Array.isArray(node.blocks)) node.blocks.forEach((b: unknown, i: number) => {
+			const at = `${where}.blocks[${i}]`;
+			if (!isObj(b)) return void errors.push(`${at}: must be { reason, detail, at }`);
+			if (!(STORED_BLOCK_REASONS as readonly string[]).includes(String(b.reason))) errors.push(`${at}.reason: must be one of ${STORED_BLOCK_REASONS.join(", ")}`);
+			if (!isText(b.detail)) errors.push(`${at}.detail: required: what exactly the task waits for`);
+			if (b.reason === "dependency" && !isText(b.on)) errors.push(`${at}.on: a dependency block names the task it waits for`);
+			if (b.delegate !== undefined || b.reason === "delegated") {
+				if (b.reason !== "delegated") errors.push(`${at}.delegate: only a "delegated" block carries a delegate handle`);
+				else if (!isText(b.delegate)) errors.push(`${at}.delegate: a "delegated" block needs the non-empty handle of the work it handed elsewhere`);
+			}
+			if (b.at !== undefined && typeof b.at !== "string") errors.push(`${at}.at: must be a timestamp string`);
+		});
 		const task = { ...withoutKeys(node, ["subtasks", "id", "title", "status", "goals", "acceptanceCriteria"]), id, title: typeof node.title === "string" ? node.title.trim() : "", status, ...(goals?.length ? { goals } : {}), ...(criteria?.length ? { acceptanceCriteria: criteria } : {}) } as FlatTask;
 		out.push(task);
 		if (node.subtasks === undefined) return;

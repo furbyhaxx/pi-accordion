@@ -7,7 +7,8 @@ import { TaskStore, runTasks, runTasksTracked } from "./tasks";
 
 function store() {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "notices-"));
-	const s = new TaskStore(dir, () => "s1");
+	// Later leaves run while a wait is open, so the notice logic can be exercised past a block.
+	const s = new TaskStore(dir, () => "s1", () => undefined, () => ({ stopOnBlock: false }));
 	runTasks(s, { action: "create", list: "w", title: "W", goals: ["Ship"], tasks: [{ title: "Design", subtasks: [{ title: "Draft" }, { title: "Review" }] }, { title: "Build" }] });
 	return { dir, s };
 }

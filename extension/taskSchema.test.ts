@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, LIST_KEYS, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
+import { STORED_BLOCK_REASONS, BLOCK_REASONS, CRITERIA_MAX, CRITERION_MAX, GOAL_MAX, GOALS_MAX, LIST_KEYS, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TASK_KEYS, TASK_STATUSES, TITLE_MAX, parseListFile, toListFile, type FlatList } from "./taskSchema";
 
 const schema = JSON.parse(fs.readFileSync(path.join(import.meta.dir, "skills/accordion-task-lists/references/tasks.schema.json"), "utf8"));
 
@@ -20,7 +20,8 @@ describe("task list v3 schema", () => {
 		expect(Object.keys(schema.properties).sort()).toEqual([...LIST_KEYS, "tasks"].sort());
 		expect(Object.keys(task).sort()).toEqual([...TASK_KEYS, "subtasks"].sort());
 		expect(task.status.enum).toEqual([...TASK_STATUSES]);
-		expect(task.blocks.items.properties.reason.enum).toEqual([...BLOCK_REASONS]);
+		expect(task.blocks.items.properties.reason.enum).toEqual([...STORED_BLOCK_REASONS]);
+		expect([...STORED_BLOCK_REASONS]).toEqual(expect.arrayContaining([...BLOCK_REASONS]));
 		expect([task.title.maxLength, schema.properties.title.maxLength, schema.properties.goals.maxItems]).toEqual([TITLE_MAX, TITLE_MAX, GOALS_MAX]);
 		expect(JSON.stringify(schema.$defs)).toContain(`"maxLength":${GOAL_MAX}`);
 		expect([task.acceptanceCriteria.maxItems, schema.$defs.criterion.oneOf[0].maxLength]).toEqual([CRITERIA_MAX, CRITERION_MAX]);
@@ -215,5 +216,16 @@ describe("task list v3 schema", () => {
 		const again = parseListFile(JSON.parse(JSON.stringify(file)), "auth");
 		expect(again.ok && again.list.tasks.map((t) => t.id)).toEqual(["1", "1.1", "2"]);
 		expect(again.ok && again.list.tasks[2]).toEqual({ id: "2", title: "B", status: "todo", updatedAt: "t" });
+	});
+
+	test("a delegated block carries its handle and only that reason may", () => {
+		const base = { version: 3, slug: "auth", title: "Auth", goals: ["G"], tasks: [{ title: "A" }] };
+		const withBlock = (block: Record<string, unknown>) => errorsOf({ ...base, tasks: [{ title: "A", blocks: [block] }] });
+		expect(withBlock({ reason: "delegated", detail: "rendering", delegate: "agent-7", at: "2026-01-01T00:00:00.000Z" })).toEqual([]);
+		expect(withBlock({ reason: "dependency", detail: "subtask 1.1 is blocked", on: "1.1", at: "2026-01-01T00:00:00.000Z" })).toEqual([]);
+		expect(withBlock({ reason: "delegated", detail: "rendering", at: "2026-01-01T00:00:00.000Z" }).join("\n")).toMatch(/a "delegated" block needs the non-empty handle/);
+		expect(withBlock({ reason: "third-party", detail: "CI", delegate: "agent-7", at: "2026-01-01T00:00:00.000Z" }).join("\n")).toMatch(/delegate: only a "delegated" block/);
+		expect(withBlock({ reason: "dependency", detail: "waiting", at: "2026-01-01T00:00:00.000Z" }).join("\n")).toMatch(/on: a dependency block names the task it waits for/);
+		expect(withBlock({ reason: "bored", detail: "x", at: "2026-01-01T00:00:00.000Z" }).join("\n")).toMatch(/reason: must be one of/);
 	});
 });

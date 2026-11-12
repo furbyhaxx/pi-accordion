@@ -3,10 +3,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { warmSymbols } from "./taskSymbols";
-import { CLAIM_STALE_MS, TaskError, TaskStore, claimState, cleanReport, runTasks, slugFor, taskFingerprint, type TasksArgs } from "./tasks";
+import { CLAIM_STALE_MS, TaskError, TaskStore, blockLabel, claimState, cleanReport, runTasks, slugFor, taskFingerprint, type TasksArgs } from "./tasks";
 
-function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-"))) {
-	return { dir, s: new TaskStore(dir, () => session) };
+function store(session = "s1", dir = fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), stopOnBlock = true) {
+	return { dir, s: new TaskStore(dir, () => session, () => undefined, () => ({ stopOnBlock })) };
 }
 
 const report = { outcome: "Done." };
@@ -256,8 +256,8 @@ describe("tasks", () => {
 		expect(s.read("w").tasks[0].blocks?.[0].detail).toBe(detail);
 	});
 
-	test("a blocked task frees the agent, keeps its reason and resumes with start", () => {
-		const { s } = store();
+	test("a blocked task frees the agent under stopOnBlock: false, keeps its reason and resumes with start", () => {
+		const { s } = store("s1", fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), false);
 		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }, { title: "A2" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
 		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "user-decision" as never })).toThrow(/needs "detail"/);
@@ -278,13 +278,15 @@ describe("tasks", () => {
 		expect(a1.blocks).toEqual([expect.objectContaining({ reason: "user-decision", detail: "Postgres or SQLite", resumedAt: expect.any(String) })]);
 	});
 
-	test("a dependency block names a task outside its branch that is not finished", () => {
+	test("dependency is internal: an agent cannot block on another task", () => {
 		const { s } = store();
 		runTasks(s, { action: "create", list: "w", title: "W", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "w", id: "1.1" });
-		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x" })).toThrow(/needs "blockedBy"/);
-		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x", blockedBy: "1" })).toThrow(/own branch/);
-		expect(run(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "needs B's schema", blockedBy: "2" })).toEqual({ ok: true, alsoBlocked: ["1"] });
+		expect(() => runTasks(s, { action: "block", list: "w", id: "1.1", reason: "dependency", detail: "x", blockedBy: "2" })).toThrow(/A block needs "reason": one of "user-decision", "user-input", "third-party", "delegated"\. A wait on another task in this list is not a reason/);
+		// The parent-propagation block a blocked subtask creates is still a dependency on that subtask.
+		expect(run(s, { action: "block", list: "w", id: "1.1", reason: "third-party", detail: "needs B's schema" })).toEqual({ ok: true, alsoBlocked: ["1"] });
+		const parent = s.read("w").tasks[0];
+		expect(parent.blocks).toEqual([expect.objectContaining({ reason: "dependency", on: "1.1" })]);
 		expect(run(s, { action: "status", list: "w" }).next).toEqual({ id: "2", title: "B" });
 	});
 
@@ -457,15 +459,17 @@ expect(run(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acc
 
 	test("move relocates an unstarted subtree and rewrites references", () => {
 		const { s } = store();
-		runTasks(s, { action: "create", list: "m", title: "M", goals: ["G"], tasks: [{ title: "A" }, { title: "B", subtasks: [{ title: "B1" }] }, { title: "C" }, { title: "D" }] });
-		runTasks(s, { action: "start", list: "m", id: "1" });
-		runTasks(s, { action: "block", list: "m", id: "1", reason: "dependency", detail: "needs D first", blockedBy: "4" });
+		runTasks(s, { action: "create", list: "m", title: "M", goals: ["G"], tasks: [{ title: "A", subtasks: [{ title: "A1" }] }, { title: "B", subtasks: [{ title: "B1" }] }, { title: "C" }, { title: "D" }] });
+		runTasks(s, { action: "start", list: "m", id: "1.1" });
+		// Blocking the subtask blocks its parent on the subtask; that dependency names ids that move.
+		runTasks(s, { action: "block", list: "m", id: "1.1", reason: "user-input", detail: "needs D first" });
 		expect(run(s, { action: "move", list: "m", id: "4", before: "2" })).toEqual({ ok: true, renumbered: { "4": "2", "2": "3", "2.1": "3.1", "3": "4" } });
-		expect(s.read("m").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "2 D", "3 B", "3.1 B1", "4 C"]);
-		expect(s.read("m").tasks[0].blocks?.[0].on).toBe("2");
+		expect(s.read("m").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "1.1 A1", "2 D", "3 B", "3.1 B1", "4 C"]);
+		expect(s.read("m").tasks[0].blocks?.[0].on).toBe("1.1");
 		runTasks(s, { action: "move", list: "m", id: "4", parent: "3" });
-		expect(s.read("m").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "2 D", "3 B", "3.1 B1", "3.2 C"]);
+		expect(s.read("m").tasks.map((t) => `${t.id} ${t.title}`)).toEqual(["1 A", "1.1 A1", "2 D", "3 B", "3.1 B1", "3.2 C"]);
 		expect(() => runTasks(s, { action: "move", list: "m", id: "1", after: "3" })).toThrow(/1 has been blocked, so 1 cannot move/);
+		expect(() => runTasks(s, { action: "block", list: "m", id: "2", reason: "dependency", detail: "needs 4", blockedBy: "4" })).toThrow(/is not a reason: block the task you actually wait on/);
 		expect(() => runTasks(s, { action: "move", list: "m", id: "3", parent: "3.1" })).toThrow(/inside 3; a task cannot move into its own subtree/);
 		expect(() => runTasks(s, { action: "move", list: "m", id: "2" })).toThrow(/Say where/);
 		expect(() => runTasks(s, { action: "move", list: "m", id: "2", before: "3" })).toThrow(/already there/);
@@ -508,7 +512,7 @@ expect(run(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acc
 	});
 
 	test("a blocked leaf may be resumed while its siblings wait in order", () => {
-		const { s } = store();
+		const { s } = store("s1", fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), false);
 		runTasks(s, { action: "create", list: "b", title: "B", goals: ["G"], tasks: [{ title: "A" }, { title: "B" }] });
 		runTasks(s, { action: "start", list: "b", id: "1" });
 		runTasks(s, { action: "block", list: "b", id: "1", reason: "user-input", detail: "need the API token" });
@@ -524,5 +528,40 @@ expect(run(s, { action: "add", list: "r", before: "2", tasks: [{ title: "N", acc
 		const next = (run(s, { action: "status", list: "n" }) as { next?: { id: string } }).next;
 		expect(next?.id).toBe("1.1");
 		expect(run(s, { action: "start", list: "n", id: next!.id })).toEqual({ ok: true, started: [{ id: "1", title: "A" }, { id: "1.1", title: "A1" }] });
+	});
+
+	test("a delegated block names its handle and keeps the run stopped until it resumes", () => {
+		const { s } = store();
+		runTasks(s, { action: "create", list: "dl", title: "DL", goals: ["G"], tasks: [{ title: "A" }, { title: "B" }] });
+		runTasks(s, { action: "start", list: "dl", id: "1" });
+		expect(() => runTasks(s, { action: "block", list: "dl", id: "1", reason: "delegated", detail: "runner is rendering the frames" })).toThrow(/needs "delegate"/);
+		expect(() => runTasks(s, { action: "block", list: "dl", id: "1", reason: "third-party", detail: "x", delegate: "agent-7" })).toThrow(/"delegate" only goes with reason "delegated"/);
+		expect(run(s, { action: "block", list: "dl", id: "1", reason: "delegated", detail: "runner is rendering the frames", delegate: "agent-7" })).toEqual({ ok: true });
+		const blocked = s.read("dl").tasks[0].blocks![0];
+		expect(blockLabel(blocked)).toBe("delegated to agent-7");
+		// A delegated wait is work in flight, not a finished run: later work waits, resuming does not.
+		expect(() => runTasks(s, { action: "start", list: "dl", id: "2" })).toThrow(/The run is stopped: 1 "A" waits \(delegated to agent-7/);
+		expect(run(s, { action: "start", list: "dl", id: "1" })).toEqual({ ok: true, resumed: [{ id: "1", title: "A" }] });
+	});
+
+	test("stopOnBlock off closes the interval and lets later leaves run; on refuses with the wait", () => {
+		const blocking = store("s1", fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), true);
+		runTasks(blocking.s, { action: "create", list: "sb", title: "SB", goals: ["G"], tasks: [{ title: "A" }, { title: "B" }] });
+		runTasks(blocking.s, { action: "start", list: "sb", id: "1" });
+		runTasks(blocking.s, { action: "block", list: "sb", id: "1", reason: "user-decision", detail: "choose a store" });
+		expect(() => runTasks(blocking.s, { action: "start", list: "sb", id: "2" })).toThrow(/The run is stopped: 1 "A" waits \(needs user decision — choose a store\)/);
+		// Resuming the waiting task is always allowed, and it is the only start that is not itself blocked.
+		expect(run(blocking.s, { action: "start", list: "sb", id: "1" })).toEqual({ ok: true, resumed: [{ id: "1", title: "A" }] });
+
+		const open = store("s1", fs.mkdtempSync(path.join(os.tmpdir(), "tasks-")), false);
+		runTasks(open.s, { action: "create", list: "sb", title: "SB", goals: ["G"], tasks: [{ title: "A" }, { title: "B" }] });
+		runTasks(open.s, { action: "start", list: "sb", id: "1" });
+		runTasks(open.s, { action: "block", list: "sb", id: "1", reason: "user-decision", detail: "choose a store" });
+		expect(run(open.s, { action: "start", list: "sb", id: "2" })).toEqual({ ok: true, started: [{ id: "2", title: "B" }] });
+		runTasks(open.s, { action: "complete", list: "sb", id: "2", report });
+		// The blocked interval stays closed: resuming later opens a new one.
+		expect(run(open.s, { action: "start", list: "sb", id: "1" })).toEqual({ ok: true, resumed: [{ id: "1", title: "A" }] });
+		const a = open.s.read("sb").tasks[0];
+		expect(a.blocks).toEqual([expect.objectContaining({ reason: "user-decision", resumedAt: expect.any(String) })]);
 	});
 });

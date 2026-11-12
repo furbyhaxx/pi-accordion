@@ -623,5 +623,10 @@ What to notice:
   rest into new siblings). Do not carry on in one long span.
 - A new requirement appears: `tasks add` it where it belongs, with `before` or `after`.
 - Blocked on a decision only the user can make: `tasks block` it with reason `user-decision`, ask
-  the question, and resume after the answer, rather than guessing.
+  the question, and resume after the answer, rather than guessing. A block ends the run
+  (`tasks.stopOnBlock`); if a leaf waits while other leaves can proceed, turn that setting off.
+- Handed a leaf to another agent or channel: reason `delegated` with a `delegate` handle. Its result
+  comes back to this session, which resumes and integrates it before ending.
+- Waiting on another task in the list is not a block: work on that task, or `move` this one behind
+  it. `dependency` is internal, used when a parent waits on a blocked subtask.
 - A started task cannot be moved or renumbered; add the new work beside it instead.
