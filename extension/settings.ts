@@ -12,6 +12,7 @@ import { DOOR_PORT } from "../core/protocol";
 import { REGISTRY_DIR } from "../app/src/lib/live/registry";
 import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
 import { TASKFOLD_DEFAULTS, type TaskfoldOptions } from "../conductors/in-process/taskfold/taskfold";
+import { CALIBRATION_DEFAULTS, sanitizeCalibrationSettings, type CalibrationSettings } from "./calibration";
 import { isFoldTiming, type FoldTiming } from "../core/conductor/contract";
 import { ENTRIES, type ConductorOptions } from "../core/conductor/registry";
 
@@ -86,7 +87,8 @@ export interface AccordionSettings {
 	taskWidget: TaskWidgetSettings;
 	tasks: TaskSettings;
 	taskfold: TaskfoldSettings;
-	/** Declared per-conductor option overrides; absent values use registry defaults. */
+	/** How provider receipts and model priors decide the calibration multiplier. */
+	calibration: CalibrationSettings;
 	conductorOptions: Record<string, ConductorOptions>;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
@@ -105,6 +107,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
+	calibration: { ...CALIBRATION_DEFAULTS, priors: { ...CALIBRATION_DEFAULTS.priors } },
 	conductorOptions: {},
 	modelDefaults: {},
 };
@@ -412,6 +415,7 @@ export function resolveSettings(fileData: Record<string, unknown>, env: Record<s
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 		tasks: sanitizeTaskSettings(fileData.tasks),
 		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
+		calibration: sanitizeCalibrationSettings(fileData.calibration),
 		conductorOptions: sanitizeConductorOptions(fileData.conductorOptions),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};

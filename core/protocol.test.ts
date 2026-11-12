@@ -35,8 +35,8 @@ import type {
 } from "./protocol";
 
 describe("PROTOCOL_VERSION", () => {
-	it("is bumped to 22 for the bolted `system` block kind (issue #93 redesign)", () => {
-		expect(PROTOCOL_VERSION).toBe(23);
+	it("is bumped for the latest breaking wire change (v24: the token-calibration prior)", () => {
+		expect(PROTOCOL_VERSION).toBe(24);
 	});
 });
 

@@ -1,0 +1,40 @@
+{
+  "what": "One real Pi-Bolt session (openai/gpt-6.1-terra, ACCORDION_HOME isolated, autoArm off). Two plain turns with a 20k-char padding turn between them, so the tail after each receipt is unmeasured.",
+  "command": "pi-bolt --no-extensions -e pi-auth-plus -e extension/accordion.ts --mode rpc (prompts: 'Reply with exactly: OK', then 20000 chars + same)",
+  "observed": {
+    "prior": 1.15,
+    "kAfterFirstReceipt": 0.9588298299638506,
+    "kAfterSecondReceipt": 0.8439332431213351,
+    "deduped": [
+      false,
+      false
+    ]
+  },
+  "reading": [
+    "The prior is 1.15: no family pattern matches openai/gpt-6.1-terra, so the '*' fallback applies before any receipt.",
+    "Both receipts measured a ratio above calibration.minRatio (0.7), so each one moved k; nothing was refused.",
+    "k stayed below the prior and the prior stayed at 1.15, i.e. the unmeasured tail keeps the conservative estimate (max(prior, last trusted)) while covered blocks use the receipt ratio."
+  ],
+  "records": [
+    {
+      "type": "request",
+      "model": "openai/gpt-6.1-terra",
+      "estimate": 14938,
+      "realInput": 14323,
+      "deduped": false,
+      "k": 0.9588298299638506,
+      "prior": 1.15,
+      "receipt": null
+    },
+    {
+      "type": "request",
+      "model": "openai/gpt-6.1-terra",
+      "estimate": 19953,
+      "realInput": 16839,
+      "deduped": false,
+      "k": 0.8439332431213351,
+      "prior": 1.15,
+      "receipt": null
+    }
+  ]
+}

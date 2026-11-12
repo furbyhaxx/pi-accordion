@@ -30,6 +30,8 @@ export type TruthEvent =
 			contextWindow?: number | null;
 			protectTokens?: number;
 			calibration?: number;
+			/** v24: the multiplier for content no receipt covered — see `Truth.setCalibrationPrior`. */
+			calibrationPrior?: number;
 			calibrationThroughOrder?: number;
 			systemPromptCalibrated?: boolean;
 			systemPrompt?: { text: string; tokens: number };

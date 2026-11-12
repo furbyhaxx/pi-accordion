@@ -2,8 +2,9 @@
 
 **Status:** accepted, stage 1 + stage 2 shipped (plumbing + display, then decision math; see the
 Stage 2 section below); system-prompt un-smearing addendum shipped alongside issue #93 (see the
-Addendum sections below); receipt-frontier fix shipped for issue #102
-**Date:** 2026-07-24 (stage 1 + stage 2 + issue #93) / 2026-08-03 (issue #102)
+Addendum sections below); receipt-frontier fix shipped for issue #102; per-model prior and receipt
+validity shipped in protocol v24 (see the Update section)
+**Date:** 2026-07-24 (stage 1 + stage 2 + issue #93) / 2026-08-03 (issue #102) / 2026-11-12 (v24 prior)
 **Builds on:** [ADR 0021](0021-truth-in-the-extension.md) (the Truth that owns every config dial in
 the pi extension process, and whose `context` hook is the one place the departing wire and pi's own
 `getContextUsage()` are both in scope), [ADR 0011](0011-conductor-involvement-locks.md) (the config-
@@ -280,3 +281,47 @@ frontier cannot prove coverage after blocks are inserted or reordered; the next 
 This deliberately does not implement the deferred affine regression. The observed spike was not
 caused by the absence of a fitted base term; it was caused by applying any stale calibration to
 content that calibration had never measured.
+
+## Update (protocol v24) — a prior for the unmeasured tail, and receipt validity
+
+Issue #102 fixed *which* blocks a receipt may scale. It left the other half of the question open: what
+a block that no receipt has measured should be multiplied by. Raw chars/4 was the answer, and it is
+wrong by a known, per-family amount — Anthropic's tokenizer packs roughly 1.5× more than chars/4
+assumes, while the open-weight families sit near 1.2×. A cold session therefore under-reports by
+15–50% exactly where budget decisions matter, and the error silently disappears after the first
+receipt as if it had never existed.
+
+`Truth` now carries a **prior**: a second multiplier, `calibrationPrior`, applied to every block the
+current receipt frontier does not cover — the unmeasured tail, and a whole session before its first
+receipt. It is deliberately separate state from `calibration`:
+
+- a prior never claims coverage. `calibrationThroughOrder` stays `null` while only the prior is in
+  play, so no surface can present a prior as a provider measurement;
+- `calibration` still applies only to covered blocks, and only a receipt sets it;
+- both are host-only dials, replicated through `SnapshotState`/the `config` event
+  (`Truth.setCalibrationPrior`), so a replica derives the same numbers as the host.
+
+The extension sets the prior from a configurable pattern table (whole `provider/model` spec, model id,
+provider, family, `*`), defaulting to Anthropic/Claude 1.5, DeepSeek/GLM/Kimi/Qwen 1.2 and `*` 1.15.
+A model change installs the new model's prior and forgets the old receipt ratio.
+
+**Receipt validity.** A pairing can be wrong in ways that are not about the frontier: a provider that
+reports a cache write equal to the same request's input (Anthropic's first request in a cache epoch),
+a reply whose usage is absent, or a ratio that cannot be a per-token relationship at all. The
+extension now judges every receipt before it moves `k`:
+
+- `input + cacheRead + cacheWrite` stays the pairing (output is never counted), with the duplicated
+  cache write removed once when `calibration.dedupeCacheWrite` is on;
+- a ratio outside `[calibration.minRatio, calibration.maxRatio]` is refused — the floor is 0.7 by
+  default because chars/4 can over-count; the ceiling is absent by default because CJK and emoji
+  content legitimately reach high ratios and a fixed cap would reject real measurements;
+- a refused receipt leaves `k` untouched and warns once per degraded episode, naming the provider.
+  While untrusted, the multiplier used for unmeasured content is `max(prior, last trusted ratio)` —
+  a doubtful observation can never lower the estimate, only a trusted one can.
+
+**Recounts are not consumed.** `calibration.preferRecount` exists, but no current source can prove the
+match a recount would need: pi-auth-plus's reports carry no session, model generation or request
+fingerprint, and a provider-sourced anchor is not a recount. A recount may only replace an estimate
+when it is proven to measure the SAME unfolded messages — never Accordion's folded projection, whose
+denominator is exactly the content the fold removed. Without that proof the conservative estimate
+stands; the dial stays as the switch that will enable consumption once such a report exists.

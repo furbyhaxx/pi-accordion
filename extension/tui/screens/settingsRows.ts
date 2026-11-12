@@ -8,8 +8,22 @@ export interface SettingsRow {
 	label: string;
 	description: string;
 	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor" | "model" | "add-pattern" | "privacy";
+	/** For `add-pattern`: the map a new key is created in. */
+	addPrefix?: "modelDefaults" | "calibration.priors";
 	choices?: readonly (string | undefined)[];
 	defaultValue?: number | boolean;
+}
+
+/** Calibration priors, one editable row per pattern plus an inline way to add one. */
+export function calibrationPriorRows(patterns: readonly string[]): SettingsRow[] {
+	return [
+		{ section: "Calibration", path: "calibration.priors.*", label: "Add prior pattern…", kind: "add-pattern", addPrefix: "calibration.priors",
+			description: "Add a model, family, provider or * pattern; then set its multiplier." },
+		...patterns.map((pattern): SettingsRow => ({
+			section: `Calibration · ${pattern}`, path: `calibration.priors.${pattern}`, label: "Prior multiplier", kind: "number",
+			description: `Estimate multiplier for ${pattern} until a provider receipt lands.`,
+		})),
+	];
 }
 
 export function modelDefaultRows(patterns: readonly string[]): SettingsRow[] {
@@ -69,4 +83,8 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Web UI", path: "bindHost", label: "Web UI address", kind: "text", description: "Address the web UI listens on; non-loopback addresses may be reachable from the network." },
 	{ section: "Web UI", path: "doorPort", label: "Web UI door port", kind: "number", description: "Fixed port shared by sessions; 0 disables it." },
 	{ section: "Web UI", path: "customToken", label: "Web access token", kind: "text", description: "3–64 URL-safe characters; empty uses a generated token." },
+	{ section: "Calibration", path: "calibration.minRatio", label: "Minimum ratio", kind: "number", description: "Receipts below this multiple of the estimate are treated as a bad pairing and do not move the multiplier." },
+	{ section: "Calibration", path: "calibration.maxRatio", label: "Maximum ratio", kind: "text", description: "Optional ceiling; empty means none, because CJK and emoji content legitimately reaches high ratios." },
+	{ section: "Calibration", path: "calibration.dedupeCacheWrite", label: "De-duplicate cache writes", kind: "toggle", description: "Drop the cache write Anthropic reports again as input on a cache epoch's first request." },
+	{ section: "Calibration", path: "calibration.preferRecount", label: "Prefer recounts", kind: "toggle", description: "Reserved for request-matched recounts; no current source can prove a match, so estimates stay conservative." },
 ];

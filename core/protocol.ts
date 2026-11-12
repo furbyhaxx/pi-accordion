@@ -137,13 +137,19 @@
  *    prompt (and its tokens) silently, while a pre-v22 HOST would send a scalar a v22 client no
  *    longer reads.
  *  - v23: group operations and snapshots carry recoverable cross-group task handles.
+ *  - v24: token calibration gains a PRIOR — the multiplier for content no provider receipt has
+ *    measured (the unmeasured tail, and a whole session before its first receipt). `SnapshotState`
+ *    and the `config` event gain optional `calibrationPrior`, replayable through
+ *    `Truth.setCalibrationPrior`. Applying a prior to uncovered estimates changes the absolute
+ *    numbers a peer derives from the same Truth state, so both sides must agree; a pre-v24 peer
+ *    would report smaller estimates for the same blocks.
  */
 import type { Actor, Group, Override } from "./types";
 import type { LockName } from "./locks";
 import { sanitizeOps, type Op, type OpResult } from "./ops";
 
 /** Bump on any breaking change to the message shapes below. */
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 24;
 
 /**
  * The DOOR: a fixed, well-known loopback port that exactly ONE extension binds at a time as an
@@ -326,6 +332,13 @@ export interface SnapshotState {
 	 * missing the frontier falls back to k=1 rather than applying a global multiplier.
 	 */
 	calibration?: number;
+	/**
+	 * Multiplier for content NO receipt has covered — the unmeasured tail, and a session's whole history
+	 * before its first receipt (v24). Independent of `calibration`: a prior never implies coverage, so
+	 * `calibrationThroughOrder` may stay `null` while it applies. Optional like its siblings; a replica
+	 * that omits it defaults to 1 (raw estimates).
+	 */
+	calibrationPrior?: number;
 	/** Last block order covered by `calibration`, or `null` before the first usable receipt (v20). */
 	calibrationThroughOrder?: number | null;
 	/** Whether the current system block was present on the request covered by `calibration`. A prompt
@@ -360,6 +373,7 @@ export type WireEvent =
 			contextWindow?: number | null;
 			protectTokens?: number;
 			calibration?: number;
+			calibrationPrior?: number;
 			calibrationThroughOrder?: number;
 			systemPromptCalibrated?: boolean;
 			/**

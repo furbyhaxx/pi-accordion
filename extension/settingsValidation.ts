@@ -4,6 +4,7 @@ import { ENTRIES, entryById } from "../core/conductor/registry";
 import { FOLD_TIMINGS } from "../core/conductor/contract";
 import { isModelPattern, parseTokens } from "./dials";
 import { sanitizeBindHost, sanitizeCustomToken, sanitizeModelSpec, type AccordionSettings } from "./settings";
+import { isPriorPattern } from "./calibration";
 
 type Rule = (value: unknown) => string | undefined;
 const boolean: Rule = value => typeof value === "boolean" ? undefined : "must be a boolean";
@@ -16,6 +17,11 @@ const model = (type: "chat" | "classifier"): Rule => value => value === undefine
 	? undefined : `must be provider/model-id${type === "chat" ? " or current" : " (current is only valid for chat)"}`;
 const amount: Rule = value => value === undefined || typeof value === "string" && typeof parseTokens(value, 1_000_000) === "number"
 	? undefined : "must be a token amount such as 200k, 1M or 85%";
+const ratio = (allowNull: boolean): Rule => value => {
+	if (allowNull && value === null) return undefined;
+	return typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 10
+		? undefined : `must be ${allowNull ? "null or " : ""}a number greater than 0 and at most 10`;
+};
 
 const RULES = {
 	debug: boolean,
@@ -47,6 +53,10 @@ const RULES = {
 	"taskfold.untracked.minSteps": number(1, 10000),
 	"taskfold.steps.enabled": boolean,
 	"taskfold.steps.minSteps": number(1, 10000),
+	"calibration.minRatio": ratio(false),
+	"calibration.maxRatio": ratio(true),
+	"calibration.dedupeCacheWrite": boolean,
+	"calibration.preferRecount": boolean,
 } satisfies Record<string, Rule>;
 
 /** A scalar or list-valued configuration field; dynamic map keys remain opaque. */
@@ -54,6 +64,7 @@ export type SettingPath = keyof typeof RULES
 	| `models.conductors.${string}.${"chat" | "classifier"}`
 	| `conductorOptions.${string}.${string}`
 	| `privacyConsent.${string}`
+	| `calibration.priors.${string}`
 	| `modelDefaults.${string}.${"budget" | "protect" | "timing"}`;
 
 /** Flat field edits; undefined removes an optional map entry or model override. */
@@ -84,6 +95,12 @@ function field(name: string): Field | undefined {
 		rule: value => value === undefined || typeof value === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/.test(value) && Number.isFinite(Date.parse(value))
 			? undefined : "must be an ISO timestamp or removed to revoke consent",
 	};
+	const prior = /^calibration\.priors\.(.+)$/.exec(name);
+	if (prior && safeKey(prior[1]) && isPriorPattern(prior[1])) return {
+		parts: ["calibration", "priors", prior[1]],
+		rule: value => value === undefined || typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 10
+			? undefined : "must be a number greater than 0 and at most 10, or removed to restore the family default",
+	};
 	const defaults = /^modelDefaults\.(.+)\.(budget|protect|timing)$/.exec(name);
 	if (defaults && safeKey(defaults[1]) && isModelPattern(defaults[1])) return {
 		parts: ["modelDefaults", defaults[1], defaults[2]],
@@ -97,7 +114,7 @@ export function settingParts(name: string): readonly string[] | undefined {
 	return field(name)?.parts;
 }
 
-/** Enumerate configured fields, including dynamic routing, consent and model defaults. */
+/** Enumerate configured fields, including dynamic routing, consent, priors and model defaults. */
 export function settingPaths(settings: AccordionSettings): SettingPath[] {
 	const names: SettingPath[] = Object.keys(RULES) as (keyof typeof RULES)[];
 	for (const entry of ENTRIES) for (const spec of entry.options ?? []) names.push(`conductorOptions.${entry.id}.${spec.key}`);
@@ -108,6 +125,7 @@ export function settingPaths(settings: AccordionSettings): SettingPath[] {
 	for (const [pattern, dials] of Object.entries(settings.modelDefaults)) {
 		for (const key of ["budget", "protect", "timing"] as const) if (dials[key] !== undefined) names.push(`modelDefaults.${pattern}.${key}`);
 	}
+	for (const pattern of Object.keys(settings.calibration.priors)) names.push(`calibration.priors.${pattern}`);
 	return names;
 }
 
@@ -139,6 +157,14 @@ export function validateSettingsPatch(patch: unknown, current: AccordionSettings
 		};
 		const high = effective("high"), low = effective("low");
 		if (typeof high === "number" && typeof low === "number" && low >= high) return { ok: false, error: `${lowKey}: must be less than ${highKey}` };
+	}
+	const minKey = "calibration.minRatio";
+	const maxKey = "calibration.maxRatio";
+	if (minKey in patch || maxKey in patch) {
+		const edits = patch as SettingsPatch;
+		const min = minKey in edits ? edits[minKey] ?? current.calibration.minRatio : current.calibration.minRatio;
+		const max = maxKey in edits ? edits[maxKey] : current.calibration.maxRatio;
+		if (typeof min === "number" && typeof max === "number" && max <= min) return { ok: false, error: `${maxKey}: must be greater than ${minKey}` };
 	}
 	return { ok: true };
 }

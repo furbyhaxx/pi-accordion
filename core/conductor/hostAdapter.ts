@@ -111,7 +111,8 @@ export function hostEventsFromTruthEvent(truth: Truth, e: TruthEvent): HostEvent
 		// A system-prompt change moves `stats().liveTokens`/`fullTokens`, so it is decision-bearing
 		// for ViewConductors even though the prompt itself is read-only. Surface a distinct change
 		// rather than leaving compaction/handoff planned against the previous total until the next
-		// turn. Calibration remains host/display plumbing and intentionally emits no HostEvent.
+		// turn. Calibration (and the v24 prior for unmeasured content) remains host/display plumbing and
+		// intentionally emits no HostEvent.
 		if (e.systemPrompt !== undefined) {
 			return [{ type: "state-changed", changes: [{ what: "systemPrompt", by: "you" }], rev: e.rev }];
 		}

@@ -72,6 +72,9 @@ export class AccordionStore {
 	 *  forever (no offline calibration in v1). In live mode this arrives ONLY via the wire's `config`
 	 *  event (host-set, see `commandSink`'s doc comment) — never a local action a UI can trigger. */
 	calibration = $state(1);
+	/** Multiplier for content no receipt has measured (v24) — the unmeasured tail, and a session's
+	 *  whole history before its first receipt. Host-set like `calibration`; never implies coverage. */
+	calibrationPrior = $state(1);
 	/** Last block order covered by the latest provider receipt; null before the first observation. */
 	calibrationThroughOrder = $state<number | null>(null);
 	/** The current effective system prompt (issue #93) — mirrors `truth.systemPrompt`. `null` until
@@ -113,6 +116,7 @@ export class AccordionStore {
 		this.contextWindow = this.truth.contextWindow;
 		this.protectTokens = this.truth.protectTokens;
 		this.calibration = this.truth.calibration;
+		this.calibrationPrior = this.truth.calibrationPrior;
 		this.calibrationThroughOrder = this.truth.calibrationThroughOrder;
 		this.systemPrompt = this.truth.systemPrompt;
 		this._locks = this.truth.locks;
@@ -157,6 +161,7 @@ export class AccordionStore {
 				if (e.contextWindow !== undefined) this.contextWindow = e.contextWindow;
 				if (e.protectTokens !== undefined) this.protectTokens = e.protectTokens;
 				if (e.calibration !== undefined) this.calibration = e.calibration;
+				if (e.calibrationPrior !== undefined) this.calibrationPrior = e.calibrationPrior;
 				if (e.calibrationThroughOrder !== undefined) this.calibrationThroughOrder = e.calibrationThroughOrder;
 				if (e.systemPrompt !== undefined) this.systemPrompt = e.systemPrompt;
 				break;

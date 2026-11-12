@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "../../settings";
 import { settingParts, validateSetting, type SettingPath, type SettingsPatch } from "../../settingsValidation";
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
-import { modelDefaultRows, modelRouteRows, privacyRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
+import { calibrationPriorRows, modelDefaultRows, modelRouteRows, privacyRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
 
 interface SessionRow {
 	id: "folding" | NumericDialKind;
@@ -29,8 +29,10 @@ function settingValue(settings: unknown, path: SettingPath): unknown {
 function parseInput(row: SettingsRow, text: string): { value: unknown } | { error: string } {
 	const trimmed = text.trim();
 	if (row.kind === "add-pattern") {
-		const result = validateSetting(`modelDefaults.${trimmed}.budget`, undefined);
-		return result.ok ? { value: trimmed } : { error: "enter *, provider/* or provider/model" };
+		const prefix = row.addPrefix ?? "modelDefaults";
+		const path: SettingPath = prefix === "calibration.priors" ? `calibration.priors.${trimmed}` : `modelDefaults.${trimmed}.budget`;
+		const result = validateSetting(path, prefix === "calibration.priors" ? 1 : undefined);
+		return result.ok ? { value: trimmed } : { error: prefix === "calibration.priors" ? "enter a model, family, provider or * pattern" : "enter *, provider/* or provider/model" };
 	}
 	let value: unknown = trimmed;
 	if (row.kind === "number") {
@@ -55,20 +57,23 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	let input: { row: Row; text: string } | null = null;
 	let picker: Picker | null = null;
 	const newPatterns = new Set<string>();
+	const newPriorPatterns = new Set<string>();
 	const rebuildRows = () => {
 		const previous = rows[selected];
 		const settings = host.settings?.().settings ?? DEFAULT_SETTINGS;
 		const patterns = new Set([...Object.keys(settings.modelDefaults), ...newPatterns]);
+		const priors = new Set([...Object.keys(settings.calibration.priors), ...newPriorPatterns]);
 		for (const path of Object.keys(staged)) {
 			const parts = settingParts(path);
 			if (parts?.[0] === "modelDefaults") patterns.add(parts[1]);
+			if (parts?.[0] === "calibration" && parts[1] === "priors") priors.add(parts[2]);
 		}
 		const firstCompaction = SETTINGS_ROWS.findIndex((row) => row.section === "Compaction");
 		const firstTaskfold = SETTINGS_ROWS.findIndex((row) => row.section === "Taskfold");
 		const conductors = new Map(host.conductors().filter((entry) => entry.id !== "none").map((entry) => [entry.id, entry.label]));
 		for (const id of Object.keys(settings.models.conductors)) if (!conductors.has(id)) conductors.set(id, id);
 		const routes = modelRouteRows([...conductors].map(([id, label]) => ({ id, label })));
-		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction, firstTaskfold), ...routes, ...privacyRows(Object.keys(settings.privacyConsent).sort()), ...SETTINGS_ROWS.slice(firstTaskfold)];
+		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction, firstTaskfold), ...routes, ...privacyRows(Object.keys(settings.privacyConsent).sort()), ...SETTINGS_ROWS.slice(firstTaskfold), ...calibrationPriorRows([...priors].sort())];
 		if (previous) {
 			const index = rows.findIndex((row) => isGlobal(row) && isGlobal(previous) ? row.path === previous.path && row.kind === previous.kind : !isGlobal(row) && !isGlobal(previous) && row.id === previous.id);
 			if (index >= 0) selected = index;
@@ -183,9 +188,12 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		const parsed = parseInput(row, text);
 		if ("error" in parsed) return shell.say(parsed.error);
 		if (row.kind === "add-pattern") {
-			newPatterns.add(parsed.value as string);
+			const pattern = parsed.value as string;
+			const prior = row.addPrefix === "calibration.priors";
+			(prior ? newPriorPatterns : newPatterns).add(pattern);
 			rebuildRows();
-			selected = rows.findIndex((candidate) => isGlobal(candidate) && candidate.kind !== "add-pattern" && candidate.path === `modelDefaults.${parsed.value}.budget`);
+			const created: SettingPath = prior ? `calibration.priors.${pattern}` : `modelDefaults.${pattern}.budget`;
+			selected = rows.findIndex((candidate) => isGlobal(candidate) && candidate.kind !== "add-pattern" && candidate.path === created);
 			input = null;
 			return;
 		}

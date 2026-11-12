@@ -15,6 +15,7 @@ import {
 	sanitizeTaskfoldSettings,
 } from "./settings";
 import { settingParts, validateSetting, validateSettingsPatch } from "./settingsValidation";
+import { CALIBRATION_DEFAULTS } from "./calibration";
 import { SettingsStore } from "./settingsStore";
 
 describe("accordion settings & memorable tokens", () => {
@@ -78,6 +79,7 @@ describe("accordion settings & memorable tokens", () => {
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
 				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k" } },
+				calibration: { ...CALIBRATION_DEFAULTS, priors: { ...CALIBRATION_DEFAULTS.priors } },
 			});
 
 			const envOverridden = loadSettings(tmp, {
@@ -261,5 +263,54 @@ describe("strict settings save validation", () => {
 			expect(validateSetting(name, true)).toEqual({ ok: false, error: `${name}: unknown setting` });
 			expect(settingParts(name)).toBeUndefined();
 		}
+	});
+
+	test("calibration settings load, validate and keep family priors", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-calib-"));
+		try {
+			const file = configPathForHome(tmp);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, JSON.stringify({ calibration: { minRatio: 0.8, maxRatio: 2.5, dedupeCacheWrite: false, priors: { anthropic: 1.7, "": 9 } } }));
+			const loaded = loadSettings(tmp, {});
+			expect(loaded.calibration.minRatio).toBe(0.8);
+			expect(loaded.calibration.maxRatio).toBe(2.5);
+			expect(loaded.calibration.dedupeCacheWrite).toBe(false);
+			expect(loaded.calibration.priors.anthropic).toBe(1.7);
+			expect(loaded.calibration.priors["*"]).toBe(CALIBRATION_DEFAULTS.priors["*"]);
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
+	test("saving and removing a prior round-trips through the store", async () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-prior-"));
+		try {
+			const store = new SettingsStore(home, {});
+			expect((await store.save({ "calibration.priors.anthropic": 1.9 }, store.current().rev)).ok).toBe(true);
+			expect(loadSettings(home, {}).calibration.priors.anthropic).toBe(1.9);
+			const next = store.current();
+			expect(next.sources["calibration.priors.anthropic"]).toBe("file");
+			expect((await store.save({ "calibration.priors.anthropic": undefined }, next.rev)).ok).toBe(true);
+			expect(loadSettings(home, {}).calibration.priors.anthropic).toBe(CALIBRATION_DEFAULTS.priors.anthropic);
+			expect(JSON.parse(fs.readFileSync(configPathForHome(home), "utf8")).calibration?.priors).toBeUndefined();
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("calibration saves reject unsafe values and coupled ranges, and removal restores the default", () => {
+		expect(validateSetting("calibration.minRatio", 0)).toEqual({ ok: false, error: "calibration.minRatio: must be a number greater than 0 and at most 10" });
+		expect(validateSetting("calibration.maxRatio", null)).toEqual({ ok: true });
+		expect(validateSetting("calibration.maxRatio", "2")).toEqual({ ok: false, error: "calibration.maxRatio: must be null or a number greater than 0 and at most 10" });
+		expect(settingParts("calibration.priors.openrouter/moonshotai")).toEqual(["calibration", "priors", "openrouter/moonshotai"]);
+		expect(validateSetting("calibration.priors.openrouter/moonshotai", 1.3)).toEqual({ ok: true });
+		expect(validateSetting("calibration.priors.openrouter/moonshotai", undefined)).toEqual({ ok: true });
+		expect(validateSetting("calibration.priors.openrouter/moonshotai", -1).ok).toBe(false);
+		expect(validateSetting("calibration.priors.__proto__", 1).ok).toBe(false);
+		const current = loadSettings(fs.mkdtempSync(path.join(os.tmpdir(), "accordion-calib-")), {});
+		expect(validateSettingsPatch({ "calibration.minRatio": 2, "calibration.maxRatio": 1.5 }, current))
+			.toEqual({ ok: false, error: "calibration.maxRatio: must be greater than calibration.minRatio" });
+		expect(validateSettingsPatch({ "calibration.minRatio": 0.9, "calibration.maxRatio": 2 }, current)).toEqual({ ok: true });
+		expect(validateSettingsPatch({ "calibration.maxRatio": null }, current)).toEqual({ ok: true });
 	});
 });

@@ -62,6 +62,7 @@ export function serializeSnapshot(truth: Truth, foldingEnabled: boolean): Snapsh
 		birthFolded: [...truth.birthFoldedIds],
 		carriedSent: [...truth.carriedSentIds],
 		calibration: truth.calibration,
+		calibrationPrior: truth.calibrationPrior,
 		calibrationThroughOrder: truth.calibrationThroughOrder,
 		systemPromptCalibrated: truth.systemPromptCalibrated,
 		// v22: no `systemPrompt` scalar. The agent's prompt is the first entry of `blocks` above (a
@@ -111,6 +112,9 @@ export function hydrateSnapshot(meta: SessionMeta, state: SnapshotState): Truth 
 		// pair atomically and fall back to the cold state rather than reviving issue #102 on a stale
 		// hand-built/test literal (real peers are version-gated before hydration).
 		calibration: calibrationThroughOrder === null ? 1 : (state.calibration ?? 1),
+		// v24: independent of coverage — a prior applies to everything no receipt measured, including
+		// a session that has seen no receipt at all. Omitted by a hand-built literal → raw estimates.
+		calibrationPrior: Number.isFinite(state.calibrationPrior) && state.calibrationPrior! > 0 ? state.calibrationPrior : 1,
 		calibrationThroughOrder,
 		systemPromptCalibrated: calibrationThroughOrder === null ? false : (state.systemPromptCalibrated ?? false),
 		rev: state.rev,
@@ -161,6 +165,7 @@ export function wireEventFromTruthEvent(e: TruthEvent): WireEvent | null {
 				contextWindow: e.contextWindow,
 				protectTokens: e.protectTokens,
 				calibration: e.calibration,
+				calibrationPrior: e.calibrationPrior,
 				calibrationThroughOrder: e.calibrationThroughOrder,
 				systemPromptCalibrated: e.systemPromptCalibrated,
 				systemPrompt: e.systemPrompt,
@@ -192,6 +197,7 @@ export function applyWireEvent(truth: Truth, ev: WireEvent): void {
 			if (ev.calibration !== undefined && ev.calibrationThroughOrder !== undefined) {
 				truth.setCalibration(ev.calibration, ev.calibrationThroughOrder);
 			}
+			if (ev.calibrationPrior !== undefined) truth.setCalibrationPrior(ev.calibrationPrior);
 			// v22: this create-or-replaces the replica's own BOLTED `system` block at the head of its log
 			// (`Truth.setSystemPrompt` → `insertSystemBlock`), reconstructing it deterministically from
 			// the event rather than receiving it as an `appended` block. Host and replica therefore bump

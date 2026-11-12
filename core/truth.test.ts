@@ -1252,6 +1252,82 @@ describe("Truth — calibration (issue #11 stage 1)", () => {
 		expect(stale.calibrationThroughOrder).toBeNull();
 	});
 
+	it("the prior raises uncovered estimates without claiming receipt coverage", () => {
+		const t = live();
+		t.append(seq(4, 1000)); // 4 blocks x 1000 raw tokens
+		t.setProtect(0);
+		const rawFull = t.stats().fullTokens; // the calibrated aggregate, not the raw wire accessor
+
+		t.setCalibrationPrior(1.5);
+		expect(t.calibrationPrior).toBe(1.5);
+		expect(t.calibration).toBe(1); // a prior never becomes the receipt multiplier
+		expect(t.calibrationThroughOrder).toBeNull(); // and never claims coverage
+		expect(t.stats().fullTokens).toBe(Math.round(rawFull * 1.5));
+		expect(t.calBlockTokens(t.blocks[0], 1000)).toBe(1500);
+		expect(t.fullTokens()).toBe(rawFull / 1); // raw wire accounting stays raw
+
+		// A receipt then covers everything: covered blocks use k, the prior stops applying to them.
+		t.setCalibration(1.1);
+		expect(t.stats().fullTokens).toBe(Math.round(rawFull * 1.1));
+		expect(t.calBlockTokens(t.blocks[0], 1000)).toBe(1100);
+
+		// Blocks appended after the receipt are the unmeasured tail and use the prior again.
+		t.append([blk("a:b4:p0", "text", 4, 1000)]);
+		const tail = t.blocks[t.blocks.length - 1];
+		expect(t.isCalibrated(tail)).toBe(false);
+		expect(t.calBlockTokens(tail, 1000)).toBe(1500);
+	});
+
+	it("the prior refuses non-finite or non-positive input and survives a structural rebuild", () => {
+		const t = live();
+		t.append(seq(2, 1000));
+		const rev0 = t.rev;
+		t.setCalibrationPrior(Number.NaN);
+		t.setCalibrationPrior(0);
+		t.setCalibrationPrior(-2);
+		expect(t.calibrationPrior).toBe(1);
+		expect(t.rev).toBe(rev0);
+		t.setCalibrationPrior(1.2);
+		expect(t.rev).toBe(rev0 + 1);
+		t.setCalibrationPrior(1.2); // unchanged value: no churn
+		expect(t.rev).toBe(rev0 + 1);
+
+		const next = Truth.rebuildFrom(t, { meta: META, blocks: seq(3, 1000), lineCount: 0, skipped: 0 });
+		expect(next.calibrationPrior).toBe(1.2); // a dial, not coverage
+		expect(next.calibrationThroughOrder).toBeNull();
+	});
+
+	it("a prior-only config event replays without disturbing budget, tail or the receipt multiplier", () => {
+		const host = live();
+		host.append(seq(2, 1000));
+		host.setBudget(5000);
+		host.setProtect(1200);
+
+		const events: WireEvent[] = [];
+		const off = host.onEvent((e) => {
+			const w = wireEventFromTruthEvent(e);
+			if (w) events.push(w);
+		});
+		host.setCalibrationPrior(1.25);
+		off();
+		const cfgEv = events.find((e) => e.kind === "config") as any;
+		expect(cfgEv).toMatchObject({ kind: "config", calibrationPrior: 1.25 });
+		expect(cfgEv.calibration).toBeUndefined();
+		expect(cfgEv.budget).toBeUndefined();
+		expect(cfgEv.protectTokens).toBeUndefined();
+
+		const replica = live();
+		replica.append(seq(2, 1000));
+		replica.setBudget(5000);
+		replica.setProtect(1200);
+		applyWireEvent(replica, cfgEv);
+		expect(replica.calibrationPrior).toBe(1.25);
+		expect(replica.calibration).toBe(1);
+		expect(replica.budget).toBe(5000);
+		expect(replica.protectTokens).toBe(1200);
+		expect(replica.rev).toBe(host.rev);
+	});
+
 	it("a config event carrying ONLY calibration replays via applyWireEvent without touching the other dials", () => {
 		const host = live();
 		host.append(seq(2, 1000));

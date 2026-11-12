@@ -533,6 +533,14 @@ var Truth = class _Truth {
   /** Whether the CURRENT system block was on the request covered by the latest receipt. Its stable
    *  order (-1) cannot answer this after an in-place prompt replacement. */
   systemPromptCalibratedValue = false;
+  /**
+   * Multiplier for content NO provider receipt has measured: the unmeasured tail, and every block of
+   * a session that has not seen a receipt yet. Deliberately separate state from `calibrationMul`, so
+   * a prior can never masquerade as provider coverage (`calibrationThroughOrder` stays `null` while
+   * only the prior is in play). The host sets it per model (ADR 0025's family priors); a model change
+   * installs the new model's prior.
+   */
+  calibrationPriorValue = 1;
   activeLocks = [];
   activeTailTok = 0;
   holderLabel = null;
@@ -630,6 +638,7 @@ var Truth = class _Truth {
     const maxOrder = this.blockLog.length ? this.blockLog[this.blockLog.length - 1].order : -1;
     this.calibrationThroughOrderValue = Number.isInteger(s.calibrationThroughOrder) && s.calibrationThroughOrder >= -1 ? Math.min(s.calibrationThroughOrder, maxOrder) : null;
     this.calibrationMul = this.calibrationThroughOrderValue !== null && Number.isFinite(s.calibration) && s.calibration > 0 ? s.calibration : 1;
+    this.calibrationPriorValue = Number.isFinite(s.calibrationPrior) && s.calibrationPrior > 0 ? s.calibrationPrior : 1;
     this.systemPromptCalibratedValue = this.calibrationThroughOrderValue !== null && s.systemPromptCalibrated === true && this.systemBlock() !== void 0;
     this.lastChangedRev.clear();
     this.revCounter = s.rev;
@@ -666,6 +675,7 @@ var Truth = class _Truth {
     next.calibrationMul = 1;
     next.calibrationThroughOrderValue = null;
     next.systemPromptCalibratedValue = false;
+    next.calibrationPriorValue = prev.calibrationPriorValue;
     const prevSys = prev.get(SYSTEM_BLOCK_ID);
     if (prevSys) next.insertSystemBlock(prevSys.text, prevSys.tokens);
     for (const b of next.blockLog) {
@@ -751,6 +761,10 @@ var Truth = class _Truth {
   get calibration() {
     return this.calibrationMul;
   }
+  /** Multiplier for content no receipt has covered (the unmeasured tail). Default 1. */
+  get calibrationPrior() {
+    return this.calibrationPriorValue;
+  }
   /** Latest provider-receipt coverage frontier; `null` means no usable observation yet. */
   get calibrationThroughOrder() {
     return this.calibrationThroughOrderValue;
@@ -786,7 +800,7 @@ var Truth = class _Truth {
   }
   /** Calibrate a block-local estimate only when the latest provider receipt covered that block. */
   calBlockTokens(b, n) {
-    return this.isCalibrated(b) ? this.calTokens(n) : Math.round(n);
+    return this.isCalibrated(b) ? this.calTokens(n) : Math.round(n * this.calibrationPriorValue);
   }
   /**
    * Partition an aggregate into receipt-COVERED and not-yet-covered halves and apply `k` to the
@@ -801,7 +815,7 @@ var Truth = class _Truth {
       if (this.isCalibrated(b)) covered += tokensOf(b);
       else raw += tokensOf(b);
     }
-    return Math.round(covered * this.calibrationMul + raw);
+    return Math.round(covered * this.calibrationMul + raw * this.calibrationPriorValue);
   }
   calibratedLiveTokens() {
     return this.calibratedAggregate(this.blockLog, (b) => this.effTokens(b));
@@ -1407,10 +1421,28 @@ var Truth = class _Truth {
     this.emit({
       type: "config",
       calibration: this.calibrationMul,
+      calibrationPrior: this.calibrationPriorValue,
       calibrationThroughOrder: this.calibrationThroughOrderValue,
       systemPromptCalibrated: this.systemPromptCalibratedValue,
       rev
     });
+  }
+  /**
+   * HOST-ONLY prior snap (ADR 0025): the multiplier for content no receipt has measured. Unlike
+   * `setCalibration` it claims no coverage — `calibrationThroughOrder` and `calibration` stay exactly
+   * as they were — so a replica can never mistake a prior for a provider measurement. Runs housekeep
+   * because a larger prior shrinks the protected tail's block span (it converts the tail target into
+   * raw-estimate space), which can leave a fold or group standing inside the now-smaller tail.
+   */
+  setCalibrationPrior(k) {
+    if (!Number.isFinite(k) || k <= 0) return;
+    if (k === this.calibrationPriorValue) return;
+    this.calibrationPriorValue = k;
+    const touched = /* @__PURE__ */ new Set();
+    this.housekeep(touched);
+    const rev = ++this.revCounter;
+    for (const id of touched) this.lastChangedRev.set(id, rev);
+    this.emit({ type: "config", calibrationPrior: this.calibrationPriorValue, rev });
   }
   markSent(order) {
     if (order <= this.sentThroughOrderValue) return;
@@ -1480,7 +1512,7 @@ var Truth = class _Truth {
     return Math.max(this.activeTailTok, Math.min(this.protectTokensTarget, Math.floor(free)));
   }
   realTokens(b) {
-    return b.tokens * (this.isCalibrated(b) ? this.calibrationMul : 1);
+    return b.tokens * (this.isCalibrated(b) ? this.calibrationMul : this.calibrationPriorValue);
   }
   releaseLockedDomains(locks, touched) {
     const lockHuman = hasLock(locks, "human-steering");
@@ -1985,8 +2017,8 @@ var Truth = class _Truth {
         fullRaw += b.tokens;
         liveRaw += folding ? this.effTokens(b) : b.tokens;
       }
-      const full = Math.round(fullCovered * this.calibrationMul + fullRaw);
-      const live = Math.round(liveCovered * this.calibrationMul + liveRaw);
+      const full = Math.round(fullCovered * this.calibrationMul + fullRaw * this.calibrationPriorValue);
+      const live = Math.round(liveCovered * this.calibrationMul + liveRaw * this.calibrationPriorValue);
       charges.set(b.id, { id: b.id, full: full - previousFull, live: live - previousLive });
       previousFull = full;
       previousLive = live;
@@ -2081,6 +2113,9 @@ function hydrateSnapshot(meta, state) {
     // pair atomically and fall back to the cold state rather than reviving issue #102 on a stale
     // hand-built/test literal (real peers are version-gated before hydration).
     calibration: calibrationThroughOrder === null ? 1 : state.calibration ?? 1,
+    // v24: independent of coverage — a prior applies to everything no receipt measured, including
+    // a session that has seen no receipt at all. Omitted by a hand-built literal → raw estimates.
+    calibrationPrior: Number.isFinite(state.calibrationPrior) && state.calibrationPrior > 0 ? state.calibrationPrior : 1,
     calibrationThroughOrder,
     systemPromptCalibrated: calibrationThroughOrder === null ? false : state.systemPromptCalibrated ?? false,
     rev: state.rev
@@ -2102,6 +2137,7 @@ function applyWireEvent(truth, ev) {
       if (ev.calibration !== void 0 && ev.calibrationThroughOrder !== void 0) {
         truth.setCalibration(ev.calibration, ev.calibrationThroughOrder);
       }
+      if (ev.calibrationPrior !== void 0) truth.setCalibrationPrior(ev.calibrationPrior);
       if (ev.systemPrompt !== void 0) truth.setSystemPrompt(ev.systemPrompt.text, ev.systemPrompt.tokens);
       return;
     case "locks":
@@ -2201,7 +2237,7 @@ function recallHostEvent(ids, by, rev) {
 }
 
 // core/protocol.ts
-var PROTOCOL_VERSION = 23;
+var PROTOCOL_VERSION = 24;
 var SERVER_TYPES = /* @__PURE__ */ new Set([
   "hello",
   "snapshot",

@@ -249,7 +249,7 @@
 		<div class="nums">
 			<div class="hero-line">
 				<span class="hero-stat mono tnum" class:over={store.overBudget}>
-					{#if notAnchored}<span class="approx" title="estimated — not yet anchored to a real provider response" aria-hidden="true">≈</span>{/if}
+					{#if notAnchored}<span class="approx" title={`estimated — not yet anchored to a real provider response (prior ×${store.calibrationPrior})`} aria-hidden="true">≈</span>{/if}
 					<AnimatedNumber value={calLiveTokens} format={fmt} />
 				</span>
 				<span class="budget-denom mono tnum">/ <AnimatedNumber value={calBudget} format={fmt} /></span>

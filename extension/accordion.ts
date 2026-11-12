@@ -56,6 +56,7 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
+import { conservativeRatio, judgeReceipt, priorFor } from "./calibration";
 import { cacheProfileFor } from "../core/cacheProfiles";
 import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
 import { observedCacheTtl } from "./cacheRetention";
@@ -482,6 +483,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			dialModel = null;
 			applyDials();
 		}
+		if (changed.some(name => name.startsWith("calibration."))) applyCalibrationPrior();
 		if (settings.customToken !== before.customToken) webToken = settings.customToken ?? generateMemorableToken();
 		if (settings.bindHost !== before.bindHost || settings.doorPort !== before.doorPort) {
 			closeDoor();
@@ -1159,6 +1161,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const sorted = [...hookDurations].sort((a, b) => a - b);
 		return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
 	}
+	// Family prior for content no receipt covered (ADR 0025 D6): the last TRUSTED receipt this model
+	// produced, and whether a rejected receipt has already been reported in this degraded episode.
+	let lastTrustedRatio: number | null = null;
+	let untrustedEpisode: string | null = null;
+	/** The multiplier used for content no receipt measured: max(model prior, last trusted ratio). */
+	function sessionPrior(): number {
+		return conservativeRatio(priorFor(modelSpec(), settings.calibration.priors), lastTrustedRatio);
+	}
+	function applyCalibrationPrior(t: Truth = truth!): void {
+		if (t) t.setCalibrationPrior(sessionPrior());
+	}
 	/** The current telemetry frame — one builder for the per-connection seed + the per-hook broadcast. */
 	function telemetryMsg(): ServerMessage {
 		// lastHoldMs/holdTimeouts (protocol v13) are the REAL wire-departing hold telemetry now: how
@@ -1375,19 +1388,24 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Adopt a model's id + context window into the live + meta state (best-effort). */
 	function applyModel(m: { id?: string; provider?: string; contextWindow?: number } | undefined): void {
 		if (!m) return;
-		if (latestModelObj && (latestModelObj.id !== m.id || latestModelObj.provider !== m.provider)) {
+		const modelChanged = !!latestModelObj && (latestModelObj.id !== m.id || latestModelObj.provider !== m.provider);
+		if (modelChanged) {
 			lastRequestAt = null;
 			observedTtl = undefined;
 			pendingWireEst = null;
 			pendingCalibrationThroughOrder = null;
 			lastRealTokens = null;
 			lastEstWireTokens = null;
+			lastTrustedRatio = null;
+			untrustedEpisode = null;
 			truth?.setCalibration(1, -1);
 		}
 		// Keep the FULL model object — an out-of-band completion needs it (apiKey resolution, the
 		// maxTokens ceiling), not just the id string. `model: "current"` then follows a just-selected
 		// model immediately instead of waiting for the next `context` hook to refresh `latestCtx`.
 		latestModelObj = m;
+		// A different model starts from its own prior, never the previous model's receipt ratio.
+		if (truth && modelChanged) applyCalibrationPrior();
 		if (m.id) {
 			model = m.id;
 			meta.model = m.id;
@@ -2659,6 +2677,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// (`Truth.rebuildFrom` already carried `prev`'s identical value). Placed BEFORE `onEvent`
 		// subscribes below, so this call's own `config` event — if any — never double-broadcasts.
 		if (systemPromptText !== null) t.setSystemPrompt(systemPromptText, systemPromptTokens);
+		// Same placement rule as the dials above: set before `onEvent` subscribes so the prior's own
+		// `config` event cannot reach a client that has not hydrated this snapshot yet.
+		t.setCalibrationPrior(sessionPrior());
 		// One subscription drives BOTH the client fan-out (replayable events) and the in-process
 		// conductor's HostEvent stream — the same TruthEvent, projected two ways.
 		unsubTruth = t.onEvent((e) => {
@@ -2875,15 +2896,27 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!m || m.role !== "assistant" || !m.usage) return;
 		if (m.stopReason === "aborted" || m.stopReason === "error") return;
 		const u = m.usage;
-		const input = typeof u.input === "number" ? u.input : 0;
-		const cacheRead = typeof u.cacheRead === "number" ? u.cacheRead : 0;
-		const cacheWrite = typeof u.cacheWrite === "number" ? u.cacheWrite : 0;
-		const real = input + cacheRead + cacheWrite;
-		if (real <= 0) return;
-		lastRealTokens = real;
+		const verdict = judgeReceipt({ estimate: est, input: u.input, cacheRead: u.cacheRead, cacheWrite: u.cacheWrite }, settings.calibration);
+		if (verdict.kind !== "measured") {
+			// A rejected receipt never moves the dial: the session keeps its conservative prior, and the
+			// user hears about the pairing once per degraded episode instead of every turn.
+			const provider = splitModelSpec(modelSpec() ?? "*").provider;
+			if (untrustedEpisode !== provider) {
+				untrustedEpisode = provider;
+				const text = `Accordion ignored an implausible token receipt from ${provider} (${verdict.reason}); estimates stay on the conservative prior.`;
+				try { latestCtx?.ui.notify(text, "warning"); } catch { /* UI may be unavailable */ }
+				broadcast({ type: "notice", text });
+			}
+			debug({ type: "request", model: modelSpec(), estimate: est, realInput: null, receipt: verdict.reason, k: truth.calibration, prior: truth.calibrationPrior });
+			return;
+		}
+		untrustedEpisode = null;
+		lastTrustedRatio = verdict.ratio;
+		lastRealTokens = verdict.real;
 		lastEstWireTokens = est;
-		truth.setCalibration(real / est, throughOrder);
-		debug({ type: "request", model: modelSpec(), estimate: est, realInput: real, cacheRead, cacheWrite, k: truth.calibration,
+		truth.setCalibration(verdict.ratio, throughOrder);
+		applyCalibrationPrior();
+		debug({ type: "request", model: modelSpec(), estimate: est, realInput: verdict.real, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, deduped: verdict.deduped, k: truth.calibration, prior: truth.calibrationPrior,
 			liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: currentDials()?.timing ?? settings.taskfold.timing });
 	}
 
@@ -3074,6 +3107,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		pendingCalibrationThroughOrder = null;
 		lastRealTokens = null;
 		lastEstWireTokens = null;
+		lastTrustedRatio = null;
+		untrustedEpisode = null;
 		// Issue #93 review fix: prompt capture is session-scoped. `refreshFromCtx` is deliberately
 		// best-effort and one optional API throwing can abort the rest of that refresh; without an
 		// eager reset here, `buildTruth` could apply the previous session's cached prompt to the new
