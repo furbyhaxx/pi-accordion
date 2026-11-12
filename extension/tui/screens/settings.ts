@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "../../settings";
 import { settingParts, validateSetting, type SettingPath, type SettingsPatch } from "../../settingsValidation";
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
-import { modelDefaultRows, modelRouteRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
+import { modelDefaultRows, modelRouteRows, privacyRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
 
 interface SessionRow {
 	id: "folding" | NumericDialKind;
@@ -68,7 +68,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		const conductors = new Map(host.conductors().filter((entry) => entry.id !== "none").map((entry) => [entry.id, entry.label]));
 		for (const id of Object.keys(settings.models.conductors)) if (!conductors.has(id)) conductors.set(id, id);
 		const routes = modelRouteRows([...conductors].map(([id, label]) => ({ id, label })));
-		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction, firstTaskfold), ...routes, ...SETTINGS_ROWS.slice(firstTaskfold)];
+		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction, firstTaskfold), ...routes, ...privacyRows(Object.keys(settings.privacyConsent).sort()), ...SETTINGS_ROWS.slice(firstTaskfold)];
 		if (previous) {
 			const index = rows.findIndex((row) => isGlobal(row) && isGlobal(previous) ? row.path === previous.path && row.kind === previous.kind : !isGlobal(row) && !isGlobal(previous) && row.id === previous.id);
 			if (index >= 0) selected = index;
@@ -149,6 +149,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		const current = value(row);
 		if (row.kind === "toggle") return { value: current ? "[x] on" : "[ ] off", source };
 		if (row.kind === "add-pattern") return { value: "›", source: "" };
+		if (row.kind === "privacy") return { value: `granted ${clean(String(current))}`, source };
 		if (row.kind === "choice" || row.kind === "conductor") return { value: `‹ ${clean(String(current ?? "inherited"))} ›`, source };
 		if (row.kind === "model") return { value: clean(String(current ?? "default")), source };
 		if (row.path === "customToken") return { value: current === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(String(current)), source };
@@ -218,6 +219,17 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			options: ["Keep editing", "Discard and reload"], then: (choice) => { if (choice === 1) run(); } });
 	};
 
+	const revokeConsent = (row: SettingsRow) => {
+		const snapshot = host.settings?.();
+		if (!snapshot || !host.updateSettings) return shell.say("Privacy consent cannot be changed from this session");
+		const update = host.updateSettings;
+		shell.confirm({ crumb: "Privacy", title: `Revoke consent ${clean(row.label)}?\nAffected remote conductors detach; existing folds stay.\nThis applies at once and is not staged.`,
+			options: ["Keep consent", "Revoke consent"], then: (choice) => { if (choice !== 1) return; void shell.run("Revoking consent…", async () => {
+				const result = await update({ [row.path]: undefined }, snapshot.rev);
+				if (!result.ok) throw new Error(result.error);
+				return `Revoked privacy consent ${clean(row.label)}`;
+			}); } });
+	};
 	return {
 		id: "settings", title: "Settings",
 		view(width, bodyRows) {
@@ -247,7 +259,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				const nextSection = isGlobal(row) ? row.section : "This session · applies at once";
 				if (nextSection !== section) { section = nextSection; display.push(theme.fg("muted", ` ${clean(section)}`)); }
 				if (index === selected) at = display.length;
-				const cell = shown(row), label = truncateToWidth(row.label, labelWidth, "…");
+				const cell = shown(row), label = truncateToWidth(clean(row.label), labelWidth, "…");
 				const head = `${index === selected ? theme.fg("accent", "→") : " "} ${index === selected ? theme.bold(label) : label}${" ".repeat(Math.max(0, labelWidth - visibleWidth(label)))}  `;
 				const val = truncateToWidth(cell.value, Math.max(0, width - visibleWidth(head)), "…");
 				const gap = width - visibleWidth(head) - visibleWidth(val) - visibleWidth(cell.source);
@@ -262,7 +274,8 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			return { body: display.slice(top, top + bodyRows), crumbs: [], description: `${row.description}${webNote}`,
 				hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2), ...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
 					...(isGlobal(row) && (row.kind === "choice" || row.kind === "conductor") ? [rawHint(theme, "←→", "change", 3)] : []),
-					...(isGlobal(row) && row.kind !== "add-pattern" ? [rawHint(theme, "alt+u", "default", 6)] : []),
+					...(isGlobal(row) && row.kind !== "add-pattern" && row.kind !== "privacy" ? [rawHint(theme, "alt+u", "default", 6)] : []),
+					...(isGlobal(row) && row.kind === "privacy" ? [rawHint(theme, "alt+d", "revoke", 2)] : []),
 					rawHint(theme, "alt+r", isGlobal(row) && row.path === "customToken" && row.kind !== "add-pattern" ? "new token" : "reload", 5)],
 				above: top, below: Math.max(0, display.length - top - bodyRows) };
 		},
@@ -292,7 +305,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			else if (matchesKey(data, "left")) return cycle(row, -1);
 			else if (matchesKey(data, "right")) return cycle(row, 1);
 			else if (matchesKey(data, "alt+u")) {
-				if (isGlobal(row) && row.kind !== "add-pattern") stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
+				if (isGlobal(row) && row.kind !== "add-pattern" && row.kind !== "privacy") stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
 				else shell.say("A session value has no stored default to return to");
 			} else if (matchesKey(data, "alt+r") && isGlobal(row) && row.path === "customToken") {
 				if (!host.regenerateToken) return true;
@@ -302,10 +315,12 @@ export function createSettingsTab(shell: Shell): PanelTab {
 						await regenerate(); delete staged.customToken; return "New token generated; reconnect using the Web UI URL";
 					}); } });
 			} else if (matchesKey(data, "alt+r")) reload();
+			else if (matchesKey(data, "alt+d") && isGlobal(row) && row.kind === "privacy") revokeConsent(row);
 			else if (keys.matches(data, "tui.select.confirm")) {
 				if (!isGlobal(row) && row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
 				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`);
 				else if (isGlobal(row) && row.kind === "toggle") stage(row, !value(row));
+				else if (isGlobal(row) && row.kind === "privacy") shell.say("Use alt+d to revoke this consent");
 				else if (isGlobal(row) && (row.kind === "conductor" || row.kind === "model")) openPicker(row);
 				else if (!cycle(row, 1)) input = { row, text: !isGlobal(row) || row.kind === "add-pattern" ? "" : row.kind === "list" ? JSON.stringify(value(row)) : String(value(row) ?? "") };
 			} else return false;

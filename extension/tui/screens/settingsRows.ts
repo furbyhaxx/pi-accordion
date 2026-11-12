@@ -7,7 +7,7 @@ export interface SettingsRow {
 	section: string;
 	label: string;
 	description: string;
-	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor" | "model" | "add-pattern";
+	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor" | "model" | "add-pattern" | "privacy";
 	choices?: readonly (string | undefined)[];
 	defaultValue?: number | boolean;
 }
@@ -28,6 +28,11 @@ export function modelRouteRows(conductors: readonly { id: string; label: string 
 		{ section: `Models · ${label}`, path: `models.conductors.${id}.chat`, label: "Chat override", kind: "model", description: `Chat model for ${label}; unset uses the default route.` },
 		{ section: `Models · ${label}`, path: `models.conductors.${id}.classifier`, label: "Classifier override", kind: "model", description: `Classifier model for ${label}; unset uses the default route.` },
 	]);
+}
+
+export function privacyRows(keys: readonly string[]): SettingsRow[] {
+	return keys.map((key) => ({ section: "Privacy", path: `privacyConsent.${key}`, label: key, kind: "privacy",
+		description: `Consent ${key} is stored. Revoking it applies immediately and can detach an affected conductor.` }));
 }
 
 export const SETTINGS_ROWS: readonly SettingsRow[] = [

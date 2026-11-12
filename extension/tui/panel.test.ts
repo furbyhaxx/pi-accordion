@@ -705,6 +705,31 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("privacy revocation confirms and leaves unrelated edits staged", async () => {
+		const s = setup(false, "settings");
+		s.settings().privacyConsent = { "remote-consent": "2026-11-12T08:00:00Z" };
+		const patches: SettingsPatch[] = [];
+		s.host.updateSettings = (patch) => {
+			patches.push(patch);
+			if (Object.hasOwn(patch, "privacyConsent.remote-consent")) s.settings().privacyConsent = {};
+			return { ok: true, snapshot: s.host.settings!() };
+		};
+		selectSetting(s, "Arm on startup"); s.panel.handleInput(K.enter);
+		selectSetting(s, "remote-consent");
+		expect(s.cursor()).toContain("2026-11-12");
+		s.panel.handleInput(K.alt("d"));
+		expect(s.cursor()).toContain("Keep consent");
+		s.panel.handleInput(K.enter);
+		expect(patches).toEqual([]);
+		s.panel.handleInput(K.alt("d")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter); await tick();
+		expect(patches).toEqual([{ "privacyConsent.remote-consent": undefined }]);
+		expect(s.settings().privacyConsent).toEqual({});
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(patches.at(-1)).toEqual({ autoArm: false });
+		s.close(); await s.opening;
+	});
+
 	test("shows override locks and refuses toggles, cycling and resets", async () => {
 		const s = setup(false, "settings");
 		const snapshot = s.host.settings!();
