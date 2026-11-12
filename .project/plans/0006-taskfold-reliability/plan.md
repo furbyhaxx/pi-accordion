@@ -169,7 +169,13 @@ callbacks must never affect a replacement session.
 
 The older settings revoke rule needs a Taskfold exception: revoke cancels/gates its protected
 model-backed operations while keeping deterministic tools available. Other consent-required
-conductors still detach. This extends classifier-only consent decoupling to the newer chat
+conductors still detach.
+
+**Shipped.** `privacy.deferred` on the registry entry, `attachPolicy`/`revocationEffect` in
+`extension/privacyGate.ts`, the Taskfold model gate (`allowModel` ctor argument; skipped user
+messages stay unverdicted in `consentQueue` and drain on the first permitted pass), the host
+re-asking and reattaching on consent, spec §6.4 and AGENTS.md updated. Verified by 697 unit
+tests, the smoke suites and a live Pi-Bolt run (see evidence). This extends classifier-only consent decoupling to the newer chat
 surface; it never authorizes an external model call without consent. Change the registry,
 selection gate, revocation effect, browser picker and spec wording together.
 

@@ -137,7 +137,9 @@ accordionLive(pi, {
 			await waitFor(() => attaches === 2, 6500, "peer option adoption");
 			if (truth.get(ASST_ID)?.subst !== "saved context") throw new Error("peer reattachment lost a prior fold");
 			await save({ "privacyConsent.taskfold-chat-v1": undefined, "conductorOptions.taskfold.high": 0.85 });
-			if (host.activeConductor() || attaches !== 2) throw new Error("option save bypassed simultaneous privacy revocation");
+			// Revocation gates the model work; the deterministic tools a deferred conductor brought stay.
+			if (host.activeConductor()?.id !== "taskfold") throw new Error("option save dropped a deferred conductor on privacy revocation");
+			if (attaches !== 2) throw new Error("option save reattached through the revocation path");
 			truth.setLocks = setLocks;
 			truth.apply([{ kind: "unfold", ids: [ASST_ID] }], "you");
 			await save({ debug: false, "conductorOptions.taskfold.high": undefined, "conductorOptions.taskfold.keepRecentTasks": undefined, "conductorOptions.taskfold.maxLoss": undefined });

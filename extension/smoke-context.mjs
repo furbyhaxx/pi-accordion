@@ -155,8 +155,9 @@ check("native polling adopts hot policies, retains valid state on errors and rec
 		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "taskfold", compact: { manual: "pass" } }));
 		await new Promise(resolve => setTimeout(resolve, 100));
 		assert.equal(host.settings().settings.compact.manual, "pass");
+		assert.equal(host.activeConductor(), null, "a reloaded default conductor does not attach by itself");
 		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx).cancel, true);
-		assert.equal(host.activeConductor(), null, "startup defaults must not attach a conductor mid-session");
+		assert.equal(host.activeConductor()?.id, "taskfold", "running a compaction arms the default conductor, gated until consent");
 	} finally {
 		r.close(); fs.rmSync(config, { force: true, recursive: true });
 		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
@@ -202,7 +203,7 @@ check("model default reloads update inherited dials and preserve session values"
 		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
 	}
 });
-check("local and peer consent revocations detach only the conductor that needs that consent", async () => {
+check("revoking consent gates a deferred conductor's model work and keeps its tools", async () => {
 	const config = path.join(home, ".accordion", "config.json");
 	const previousPoll = process.env.ACCORDION_CONTROLLER_POLL_MS;
 	process.env.ACCORDION_CONTROLLER_POLL_MS = "10";
@@ -220,17 +221,15 @@ check("local and peer consent revocations detach only the conductor that needs t
 		assert.equal((await host.updateSettings({ "privacyConsent.taskfold": undefined }, host.settings().rev)).ok, true);
 		assert.equal(host.activeConductor().id, "taskfold", "revoking old classifier-only consent does not revoke the new consent");
 		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": undefined }, host.settings().rev)).ok, true);
-		assert.equal(host.activeConductor(), null);
-		assert.equal(host.folding(), true, "privacy detachment does not change the folding opt-in");
+		assert.equal(host.activeConductor()?.id, "taskfold", "a deferred conductor keeps its deterministic tools");
+		assert.equal(host.folding(), true, "gating model work does not change the folding opt-in");
+		assert.ok(notices.some(text => text.includes("deterministic tools stay")), "the gate is announced");
 		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": stamp }, host.settings().rev)).ok, true);
-		assert.equal(host.activeConductor(), null, "granting consent must not silently attach a conductor");
-		host.command({ kind: "selectConductor", id: "taskfold" });
-		assert.equal(host.activeConductor().id, "taskfold");
+		assert.equal(host.activeConductor()?.id, "taskfold");
 		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none" }));
 		await new Promise(resolve => setTimeout(resolve, 100));
-		assert.equal(host.activeConductor(), null);
+		assert.equal(host.activeConductor()?.id, "taskfold", "a peer write without consent also only gates");
 		assert.equal(prompts, 0, "revocation must not ask another instance to consent again");
-		assert.equal(notices.filter(text => text === "Taskfold detached: privacy consent revoked").length, 2);
 	} finally {
 		r.close(); fs.rmSync(config, { force: true });
 		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
@@ -255,13 +254,13 @@ check("a local conductor stays attached on revocation but a new remote route nee
 		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": undefined }, host.settings().rev)).ok, true);
 		assert.equal(host.activeConductor().id, "taskfold", "fully local routing needs no consent");
 		assert.equal((await host.updateSettings({ "models.defaults.chat": "remote/privacy-model" }, host.settings().rev)).ok, true);
-		assert.equal(host.activeConductor(), null, "live routing cannot bypass the attach-time privacy gate");
-		assert.equal(prompts, 0);
-		assert.ok(notices.includes("Taskfold detached: privacy consent required for remote model"));
+		assert.equal(host.activeConductor()?.id, "taskfold", "a deferred conductor stays attached when its route turns remote");
+		assert.equal(prompts, 0, "a route change alone never prompts");
+		assert.ok(notices.some(text => text.includes("privacy consent required")), "the gate is announced");
 		host.command({ kind: "selectConductor", id: "taskfold" });
 		await new Promise(resolve => setImmediate(resolve));
-		assert.equal(host.activeConductor(), null);
-		assert.equal(prompts, 1, "explicit reattachment goes through the normal consent dialog");
+		assert.equal(host.activeConductor()?.id, "taskfold");
+		assert.equal(prompts, 1, "explicit reattachment asks for the consent that lifts the gate");
 	} finally { r.close(); fs.rmSync(config, { force: true }); }
 });
 check("revocation during chat authentication prevents the pending provider call", async () => {
@@ -283,7 +282,7 @@ check("revocation during chat authentication prevents the pending provider call"
 		await Promise.race([began, new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Taskfold never requested chat extraction")), 1000); })]);
 		clearTimeout(timer);
 		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": undefined }, host.settings().rev)).ok, true);
-		assert.equal(host.activeConductor(), null);
+		assert.equal(host.activeConductor()?.id, "taskfold", "revocation gates the model work without dropping the tools");
 		authenticate({ ok: true, apiKey: "fake-test-key" });
 		await request;
 		await new Promise(resolve => setImmediate(resolve));

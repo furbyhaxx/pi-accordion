@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 21
+  revision: 22
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T08:38:24+01:00"
+  updated_at: "2026-11-12T12:07:29+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 21
-      reason: "preserve already shipped Taskfold options when adopting the shared schema"
-      changes: ["migrate legacy Taskfold option paths", "preserve previously valid values", "declare integer count options"]
+    - revision: 22
+      reason: "Taskfold attaches before consent and gates only its model work"
+      changes: ["deferred privacy policy", "revocation gates instead of detaching", "consent grant drains waiting work"]
 ---
 
 # Accordion UI polish
@@ -787,7 +787,8 @@ export class SettingsStore {
 | `customToken` | `webToken` = custom or regenerate per session as today |
 | `compact.*`, `taskWidget.mode`, `taskWidget.maxRows` | none beyond re-read; next use reads the new value; widget `sync()` |
 | `models.*` | next use resolves the new model; detach an attached remote conductor if the new route needs missing consent (§6.4) |
-| `privacyConsent.<key>` removed | detach an attached conductor declaring this consent key if it needs consent (`leavesMachine`); notify `<label> detached: privacy consent revoked` |
+| `privacyConsent.<key>` removed | gate a *deferred* conductor's model work and keep its deterministic tools (§6.4); detach any other conductor declaring this key if it needs consent (`leavesMachine`) |
+| `privacyConsent.<key>` granted | reattach the attached deferred conductor so its waiting classification and routing run |
 | `conductorOptions.<id>` | if `<id>` is attached, re-select it (detach + attach) |
 | `modelDefaults.*` | re-resolve budget/tail for the current model, preserving session-set values |
 | others | none (apply at next session start) |
@@ -799,15 +800,30 @@ cancel probe HTTP requests and prevent retired callbacks from changing flags or 
 
 The registry's `privacy.consentKey` (or the conductor id when unset) identifies its current
 consent. Removing unrelated or obsolete keys does not revoke it. Fully local model routing
-needs no consent. Removing required consent detaches through the usual host lifecycle: model
-work is aborted and existing folds are preserved; folding itself remains armed or off as before.
+needs no consent.
 
-Changing `models.*` to a remote route without consent also detaches, with
+A conductor declaring `privacy.deferred` attaches *before* consent (`attachPolicy`): its
+deterministic tools are available at once and only its model-backed operations wait, so status
+reads `classifier: awaiting consent` and the TUI notifies `deterministic tools are active now;
+its classifier and chat routing wait for a one-time consent`. Its skipped user messages are
+kept unverdicted and drain on the first pass that may use a model. Every other privacy
+conductor still needs consent before it attaches, because without a model call it has no
+function at all. Removing required consent for a deferred conductor keeps it attached with
+model work gated (`revocationEffect`), announces `deterministic tools stay, its classifier and
+chat routing are gated`, and preserves existing folds; folding itself remains armed or off as
+before. For any other conductor, removal detaches through the usual host lifecycle: model work
+is aborted (`<label> detached: privacy consent revoked`).
+
+Changing `models.*` to a remote route without consent follows the same split: a deferred
+conductor stays and gates, any other detaches with
 `<label> detached: privacy consent required for remote model`. Neither change prompts another
-instance or automatically reattaches; an explicit attach goes through the normal consent gate.
-Chat and classifier calls check their resolved destination before reaching the provider, even
-if the session model changed since attachment. A chat call cancelled while waiting for auth
-must not start the provider afterwards. Content already transmitted cannot be retracted.
+instance. An explicit attach of a deferred conductor returns immediately with the tools active
+and opens the consent dialog that lifts the gate; an explicit attach of any other goes through
+the consent gate and only attaches on acceptance. A stale dialog answer never touches a
+replacement session. Chat and classifier calls check their resolved destination before reaching
+the provider, even if the session model changed since attachment. A chat call cancelled while
+waiting for auth must not start the provider afterwards. Content already transmitted cannot be
+retracted.
 
 ## 7. Area D: compaction
 

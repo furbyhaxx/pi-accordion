@@ -111,6 +111,26 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 		conductor.detach();
 	});
 
+	it("keeps deterministic work running and waits for consent before any model call", async () => {
+		const { s, start } = oneTask((s) => s.user("Never touch vendor/."));
+		const steering = s.blocks.find((b) => b.text === "Never touch vendor/.")!.id;
+		const host = new TestHost(), ledger = new VerdictLedger();
+		let allowed = false;
+		const conductor = new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, undefined, () => allowed);
+		conductor.attach(host);
+		host.appendBlocks(s.blocks);
+		await new Promise((r) => setTimeout(r, 0));
+		expect(host.completeLog).toHaveLength(0);
+		expect(ledger.get(steering)).toBeUndefined();
+		expect(host.statusLog.at(-1)?.text).toContain("classifier: awaiting consent");
+		allowed = true;
+		host.appendBlocks([{ ...s.blocks.at(-1)!, id: "a:signal:0", kind: "text", text: "continue" }]);
+		await new Promise((r) => setTimeout(r, 0));
+		expect(ledger.get(steering)).toBeDefined();
+		conductor.detach();
+		expect(!!groupOf(host, start)).toBe(false);
+	});
+
 	it("resolves registry defaults and keeps the configured number of recent tasks raw", async () => {
 		for (const keepRecentTasks of [undefined, 0, 1]) {
 			const { s, start } = oneTask();

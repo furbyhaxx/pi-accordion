@@ -486,13 +486,17 @@ export class TaskfoldConductor implements Conductor {
 	private readonly routeTried = new Set<string>();
 	private readonly routing = new Set<string>();
 	private classifyFailures = 0;
+	/** Model-backed work is waiting for the one-time privacy consent. */
+	private awaitingConsent = false;
+	/** User blocks skipped while waiting for consent, drained on the first pass that may use a model. */
+	private readonly consentQueue = new Set<string>();
 	private epochs = 0;
 	private rawWarning: string | null = null;
 	/** The epoch currently committing, awaited by the wire-departing hold so the first request after load carries its folds. */
 	private inflight: Promise<void> | null = null;
 	private lastRequestAt: number | null = null;
 
-	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger(), private readonly router: RoutingPort = taskfoldRouting) {
+	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger(), private readonly router: RoutingPort = taskfoldRouting, private readonly allowModel: () => boolean = () => true) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
 		const k = this.k;
 		if (!Number.isFinite(k.high) || !Number.isFinite(k.low) || !(k.low > 0 && k.low < k.high && k.high <= 1)) throw new RangeError("taskfold: require 0 < low < high <= 1");
@@ -515,6 +519,7 @@ export class TaskfoldConductor implements Conductor {
 		this.host?.setStatus(null);
 		this.host = null;
 		this.classifying.clear();
+		this.consentQueue.clear();
 		this.routeTried.clear();
 		this.routing.clear();
 		this.busy = false;
@@ -601,6 +606,33 @@ export class TaskfoldConductor implements Conductor {
 	// ── user-message classification ─────────────────────────────────────────────────────────
 
 	private classifyNew(blocks: readonly ViewBlock[]): void {
+		// Without consent the deterministic tooling still runs; classification and routing wait, and
+		// their messages stay unverdicted so a later consent picks them up instead of freezing them.
+		if (!this.allowModel()) {
+			for (const b of blocks) if (b.kind === "user" && !this.verdicts.has(b.id)) this.consentQueue.add(b.id);
+			if (!this.awaitingConsent) {
+				this.awaitingConsent = true;
+				this.host?.setStatus("Taskfold: deterministic tooling active; classifier: awaiting consent.", {
+					level: "warning",
+					classifier: "awaiting consent",
+				});
+			}
+			return;
+		}
+		if (this.awaitingConsent) {
+			this.awaitingConsent = false;
+			this.host?.setStatus(null);
+		}
+		if (this.consentQueue.size) {
+			const all = this.host?.blocks() ?? [];
+			const ids = new Set(this.consentQueue);
+			this.consentQueue.clear();
+			this.classifyBlocks(all.filter((b) => ids.has(b.id) && !this.verdicts.has(b.id)));
+		}
+		this.classifyBlocks(blocks);
+	}
+
+	private classifyBlocks(blocks: readonly ViewBlock[]): void {
 		for (const b of blocks) {
 			if (b.kind !== "user" || this.verdicts.has(b.id) || this.classifying.has(b.id)) continue;
 			const text = this.textOf(b);

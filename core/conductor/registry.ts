@@ -75,7 +75,16 @@ export interface RegistryEntry {
 	 * Set when this conductor sends session content to models of these types. Attaching it then
 	 * needs a one-time, persisted user consent unless every routed model runs on this machine.
 	 */
-	privacy?: { models: readonly ("chat" | "classifier")[]; notice: string; consentKey?: string };
+	privacy?: {
+		models: readonly ("chat" | "classifier")[];
+		notice: string;
+		consentKey?: string;
+		/**
+		 * A conductor whose deterministic tools work without consent attaches first and gates only its
+		 * model-backed work; anything else must be consented before it attaches at all.
+		 */
+		deferred?: boolean;
+	};
 	/** Canonical model specs, tried in order when the user configured none. */
 	defaultModels?: Partial<Record<"chat" | "classifier", string | readonly string[]>>;
 	/** Host tools the agent gets only while this conductor is attached. */
@@ -229,6 +238,7 @@ export const ENTRIES: readonly RegistryEntry[] = [
 		privacy: {
 			models: ["classifier", "chat"],
 			consentKey: "taskfold-chat-v1",
+			deferred: true,
 			notice:
 				"Taskfold sends user messages, the session's first message and the end of the assistant's last reply to its classifier (by default OpenRouter's perplexity/pplx-decider-v1.2). It sends user messages, task-list context and recent assistant text to its chat model to extract list changes (by default openai/gpt-6-luna, then openai-codex/gpt-6-luna when available; otherwise the session model). Your configured models override these defaults. Those providers receive and may log this content. Unclassified or failed extractions stay verbatim.",
 		},

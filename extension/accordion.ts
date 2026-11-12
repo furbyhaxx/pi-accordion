@@ -103,6 +103,7 @@ import {
 } from "../core/protocol";
 import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHost";
 import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
+import { attachPolicy, revocationEffect } from "./privacyGate";
 import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel, type PanelTabId } from "./tui/panel";
@@ -464,18 +465,29 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		settings = next.settings;
 		if (!changed.length) return;
 		const active = entryById(liveHost.activeMeta()?.id ?? null);
+		let gated = false;
 		if (active?.privacy) {
 			const key = active.privacy.consentKey ?? active.id;
 			const hadConsent = !!before.privacyConsent[key];
 			const routingChanged = changed.some(name => name.startsWith("models."));
 			if (!settings.privacyConsent[key] && (hadConsent || routingChanged) && leavesMachine(active)) {
-				selectConductor(null);
-				const text = `${active.label} detached: ${hadConsent ? "privacy consent revoked" : "privacy consent required for remote model"}`;
+				// A deferred conductor keeps its deterministic tools; revoking consent gates only the work
+				// that needs it. Everything else must come off with the consent.
+				// The gate is read live on every model call, so neither path needs a reattach here.
+				const deferred = revocationEffect(active) === "gate-models";
+				gated = deferred;
+				if (!deferred) selectConductor(null);
+				const text = deferred
+					? `${active.label}: ${hadConsent ? "privacy consent revoked; deterministic tools stay, its classifier and chat routing are gated" : "privacy consent required; deterministic tools stay, its classifier and chat routing are gated"}`
+					: `${active.label} detached: ${hadConsent ? "privacy consent revoked" : "privacy consent required for remote model"}`;
 				latestCtx?.ui.notify(text, "warning");
 				broadcast({ type: "notice", text });
+			} else if (active?.privacy.deferred && settings.privacyConsent[key] && !before.privacyConsent[key]) {
+				// Consent arrived: a fresh pass drains the classification and routing that waited.
+				liveHost.select(active.id);
 			}
 		}
-		if (active && liveHost.activeMeta()?.id === active.id && active.options?.some(spec =>
+		if (!gated && active && liveHost.activeMeta()?.id === active.id && active.options?.some(spec =>
 			(before.conductorOptions[active.id]?.[spec.key] ?? spec.default) !== (settings.conductorOptions[active.id]?.[spec.key] ?? spec.default))) {
 			selectConductor(active.id);
 		}
@@ -780,7 +792,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	const liveHost = new LiveConductorHost({
 		truth: () => truth,
 		conductorOptions: (id) => settings.conductorOptions[id] ?? {},
-		createInProcess: (entry, options) => entry.id === "taskfold" ? new TaskfoldConductor({ ...settings.taskfold, ...options }, taskfoldVerdicts) : undefined,
+		createInProcess: (entry, options) => entry.id === "taskfold"
+			? new TaskfoldConductor({ ...settings.taskfold, ...options }, taskfoldVerdicts, undefined, () => modelConsentGranted(entry))
+			: undefined,
 		foldPolicy: () => ({ timing: currentDials()?.timing ?? settings.taskfold.timing, cache: cacheProfileFor(modelSpec() ?? "*", observedTtl), now: Date.now(), lastRequestAt }),
 		broadcast,
 		sendToConductor: (m) => {
@@ -814,6 +828,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return false;
 	}
 
+	/** Whether this conductor's model-backed work may run: consented, or every route stays local. */
+	function modelConsentGranted(entry: RegistryEntry): boolean {
+		const key = entry.privacy?.consentKey ?? entry.id;
+		return !entry.privacy || !!settings.privacyConsent[key] || !leavesMachine(entry);
+	}
+
 	function requirePrivacyConsent(conductorId: string | null, baseUrl: unknown): void {
 		const entry = entryById(conductorId);
 		if (entry?.privacy && !settings.privacyConsent[entry.privacy.consentKey ?? entry.id] && !isLoopbackUrl(baseUrl))
@@ -833,23 +853,42 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			return true;
 		}
 		const ctx = latestCtx;
+		// A deferred conductor earns its keep without a model call: attach it, gate the model work,
+		// and ask for the consent that lifts the gate.
+		if (attachPolicy(entry) === "attach-and-gate") {
+			liveHost.select(id);
+			const notice = `${entry.label}: deterministic tools are active now; its classifier and chat routing wait for a one-time consent.`;
+			ctx?.ui.notify(notice, "warning");
+			broadcast({ type: "notice", text: notice });
+			if (!ctx?.hasUI) return true;
+			askConductorConsent(entry, consentKey, ctx);
+			return true;
+		}
 		if (!ctx?.hasUI) {
 			ctx?.ui.notify(`${entry.label} sends session content to a remote model and needs a one-time consent in an interactive session.`, "warning");
 			return false;
 		}
+		askConductorConsent(entry, consentKey, ctx);
+		return false;
+	}
+
+	/**
+	 * Ask once and, on acceptance, save the consent and reattach so the work it unlocks starts from a
+	 * clean pass. A stale answer never touches a replacement session.
+	 */
+	function askConductorConsent(entry: RegistryEntry, consentKey: string, ctx: ExtensionContext): void {
 		const session = sessionId;
 		const surface = controllerLease?.surfaceId;
 		const active = () => {
 			refreshControllerNow();
 			return session === sessionId && (!surface || holdsControl(surface, session));
 		};
-		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy.notice}\n\nAccept once and enable ${entry.label}?`).then(async accepted => {
+		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy!.notice}\n\nAccept once and enable ${entry.label}'s model-backed work?`).then(async accepted => {
 			if (!accepted || !active()) return;
 			const result = await saveSettingsPatch({ [`privacyConsent.${consentKey}`]: new Date().toISOString() }, settingsStore.current().rev, active);
 			if (!result.ok) { ctx.ui.notify(result.error, "warning"); return; }
-			if (active()) liveHost.select(entry.id);
+			if (active() && liveHost.activeMeta()?.id === entry.id) liveHost.select(entry.id);
 		}).catch(error => ctx.ui.notify(`Privacy consent could not be saved: ${error instanceof Error ? error.message : String(error)}`, "warning"));
-		return false;
 	}
 
 	// Footer status and one-shot alerts for the active conductor; any broadcast may change them.
