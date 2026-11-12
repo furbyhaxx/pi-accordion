@@ -11,6 +11,8 @@ import { openAccordionPanel, type PanelTabId } from "./panel";
 import type { TaskTabsHost } from "./screens/tasks";
 import type { TaskList } from "../tasks";
 import { DEFAULT_SETTINGS } from "../settings";
+import { settingPaths, type SettingsPatch } from "../settingsValidation";
+import type { SettingsSaveResult, SettingsSnapshot } from "../settingsStore";
 
 function block(id: string, order: number): Block {
 	return { id, order, kind: "text", turn: 1, text: `content ${id}`, tokens: 20, override: null, autoFolded: false, by: null };
@@ -30,6 +32,10 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 	let steering = true;
 	let renders = 0;
 	let resolveCommand = () => {};
+	let settingsRevision = 0;
+	let settingsError: string | null = null;
+	const saveRevisions: string[] = [];
+	const sources = Object.fromEntries(settingPaths(DEFAULT_SETTINGS).map(name => [name, "default"])) as SettingsSnapshot["sources"];
 	let settingsState = {
 		...DEFAULT_SETTINGS,
 		autoArm: true,
@@ -45,11 +51,17 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 		conductors: () => [conductor],
 		activeConductor: () => null,
 		canSteer: () => steering,
-		settings: () => settingsState,
-		updateSettings: (patch) => {
-			settingsState = { ...settingsState, ...patch };
-			if (patch.customToken !== undefined && patch.customToken) tokenState = patch.customToken;
-			return settingsState;
+		settings: () => ({ settings: settingsState, sources, rev: String(settingsRevision) }),
+		updateSettings: (patch, baseRev): SettingsSaveResult => {
+			saveRevisions.push(baseRev);
+			if (settingsError) return { ok: false, error: settingsError, conflict: true };
+			const { "taskfold.timing": timing, "compact.manual": manual, ...globals } = patch;
+			Object.assign(settingsState, globals);
+			if (timing === "eager" || timing === "lazy" || timing === "pressure") settingsState.taskfold = { ...settingsState.taskfold, timing };
+			if (manual === "pass" || manual === "native" || manual === "bake" || manual === "aggressive") settingsState.compact = { ...settingsState.compact, manual };
+			if (typeof patch.customToken === "string") tokenState = patch.customToken;
+			settingsRevision++;
+			return { ok: true, snapshot: { settings: settingsState, sources, rev: String(settingsRevision) } };
 		},
 		regenerateToken: () => {
 			tokenState = "mira7pex";
@@ -86,7 +98,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
-	return { truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { host, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 describe("accordion panel", () => {
@@ -520,6 +532,56 @@ describe("accordion panel", () => {
 		s.panel.handleInput(K.esc); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		await s.opening;
 		expect(s.settings().defaultConductor).toBe("exclusive");
+	});
+
+	test("retains staged edits and their original revision when a save conflicts", async () => {
+		const s = setup(false, "settings");
+		for (let i = 0; i < 3; i++) s.panel.handleInput(K.down);
+		s.panel.handleInput(K.enter);
+		s.externalSettings({ debug: true });
+		s.failSettings("autoArm: changed on disk; reload before saving");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.saveRevisions.at(-1)).toBe("0");
+		expect(s.screen()).toContain("changed on disk");
+		expect(s.screen()).toContain("▲ 1 staged");
+		expect(s.settings().autoArm).toBe(true);
+		s.failSettings(null);
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.saveRevisions.at(-1)).toBe("0");
+		expect(s.settings()).toMatchObject({ autoArm: false, debug: true });
+		expect(s.screen()).not.toContain("▲ 1 staged");
+		s.close(); await s.opening;
+	});
+
+	test("shows override locks and refuses toggles, cycling and resets", async () => {
+		const s = setup(false, "settings");
+		const snapshot = s.host.settings!();
+		snapshot.sources.autoArm = "env";
+		snapshot.sources.defaultConductor = "flag";
+		for (let i = 0; i < 3; i++) s.panel.handleInput(K.down);
+		expect(s.cursor()).toContain("env · locked");
+		s.panel.handleInput(K.enter); s.panel.handleInput(K.alt("u"));
+		s.panel.handleInput(K.down);
+		expect(s.cursor()).toContain("flag · locked");
+		s.panel.handleInput(K.right); s.panel.handleInput(K.alt("u"));
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.saveRevisions).toEqual([]);
+		expect(s.settings()).toMatchObject({ autoArm: true, defaultConductor: "keel-lite" });
+		expect(s.screen()).not.toContain("▲ 1 staged");
+		s.close(); await s.opening;
+	});
+
+	test("a failed asynchronous regeneration preserves a staged token", async () => {
+		const s = setup(false, "settings");
+		s.host.regenerateToken = async () => { throw new Error("token write refused"); };
+		for (let i = 0; i < 8; i++) s.panel.handleInput(K.down);
+		s.panel.handleInput(K.enter); s.panel.handleInput("staged-token"); s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
+		await tick();
+		expect(s.screen()).toContain("token write refused");
+		expect(s.cursor()).toContain("staged-token");
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.close(); await s.opening;
 	});
 
 	test("typed settings are validated before they are staged", async () => {

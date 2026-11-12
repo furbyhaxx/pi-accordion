@@ -4,6 +4,7 @@ import { FOLD_TIMINGS, type FoldTiming } from "../../../core/conductor/contract"
 import { type AccordionSettings, DEFAULT_SETTINGS, sanitizeBindHost, sanitizeCustomToken } from "../../settings";
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
+import type { SettingPath, SettingsPatch } from "../../settingsValidation";
 
 type GlobalKey = "debug" | "autoArm" | "defaultConductor" | "manual" | "bindHost" | "doorPort" | "customToken" | "timing";
 type Globals = Pick<AccordionSettings, Exclude<GlobalKey, "timing" | "manual">> & { timing: FoldTiming; manual: AccordionSettings["compact"]["manual"] };
@@ -33,6 +34,7 @@ const GLOBAL_ROWS: Row[] = [
 ];
 const COMPACT_MODES = ["pass", "native"] as const;
 const isGlobal = (id: RowId): id is GlobalKey => GLOBAL_ROWS.some((row) => row.id === id);
+const settingPath = (id: GlobalKey): SettingPath => id === "manual" ? "compact.manual" : id === "timing" ? "taskfold.timing" : id;
 
 /** Check typed text for a global field; returns the value to stage or the reason it is refused. */
 function parseGlobal(id: "bindHost" | "doorPort" | "customToken", text: string): { value: string | number | null } | { error: string } {
@@ -50,14 +52,22 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	let selected = 0;
 	let top = 0;
 	let staged: Partial<Globals> = {};
+	let baseRev = "";
 	let input: { row: Row; text: string } | null = null;
 
 	const saved = (): Globals => {
-		const settings = host.settings?.() ?? DEFAULT_SETTINGS;
+		const settings = host.settings?.().settings ?? DEFAULT_SETTINGS;
 		return { ...settings, manual: settings.compact.manual, timing: settings.taskfold.timing };
 	};
 	const value = <K extends GlobalKey>(key: K): Globals[K] => (key in staged ? (staged[key] as Globals[K]) : saved()[key]);
+	const locked = (key: GlobalKey) => {
+		const source = host.settings?.().sources[settingPath(key)];
+		return source === "env" || source === "flag" ? source : null;
+	};
 	const stage = <K extends GlobalKey>(key: K, next: Globals[K]) => {
+		const source = locked(key);
+		if (source) return shell.say(`${settingPath(key)} is ${source} · locked; remove the override first`);
+		if (!Object.keys(staged).length) baseRev = host.settings?.().rev ?? "";
 		if (next === saved()[key]) delete staged[key];
 		else staged[key] = next;
 	};
@@ -85,7 +95,8 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			const dials = host.dials?.();
 			return { value: now === undefined ? "–" : formatTokens(now), source: dials ? describeSource(dials.sources[id]) : "session" };
 		}
-		const source = id in staged ? theme.fg("warning", "▲ staged") : theme.fg("dim", saved()[id] === GLOBAL_DEFAULTS[id] ? "default" : "user");
+		const configured = host.settings?.().sources[settingPath(id)];
+		const source = id in staged ? theme.fg("warning", "▲ staged") : theme.fg("dim", locked(id) ? `${locked(id)} · locked` : configured === "file" ? "user" : configured ?? "default");
 		if (id === "autoArm" || id === "debug") return { value: value(id) ? "[x] on" : "[ ] off", source };
 		if (id === "defaultConductor" || id === "manual" || id === "timing") return { value: `‹ ${clean(value(id))} ›`, source };
 		if (id === "customToken") return { value: value(id) === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(value(id) ?? ""), source };
@@ -95,8 +106,11 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	const applyDial = (kind: NumericDialKind, amount: number) => {
 		const model = host.dials?.()?.model ?? null;
 		const apply = (asDefault: boolean) =>
-			void shell.send({ kind: kind === "budget" ? "setBudget" : "setProtect", value: amount }).then(() => {
-				if (asDefault && host.saveDialDefault) shell.say(host.saveDialDefault(kind, amount), "info");
+			void shell.send({ kind: kind === "budget" ? "setBudget" : "setProtect", value: amount }).then(async () => {
+				if (asDefault && host.saveDialDefault) await shell.run("Saving default…", async () => {
+					if (host.dials?.()?.model !== model) throw new Error("Model changed; retry the edit");
+					return await host.saveDialDefault!(kind, amount);
+				});
 			});
 		if (!model || !host.saveDialDefault) return apply(false);
 		shell.confirm({
@@ -128,18 +142,15 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	};
 
 	const save = () => {
-		const { timing, manual, ...globals } = staged;
-		const current = host.settings?.() ?? DEFAULT_SETTINGS;
-		const patch: Partial<AccordionSettings> = { ...globals,
-			...(manual !== undefined ? { compact: { ...current.compact, manual } } : {}),
-			...(timing !== undefined ? { taskfold: { ...current.taskfold, timing } } : {}),
-		};
+		const patch: SettingsPatch = {};
+		for (const key of Object.keys(staged) as GlobalKey[]) patch[settingPath(key)] = staged[key];
 		const n = Object.keys(staged).length;
 		if (!n) return shell.say("Nothing staged", "info");
 		if (!host.updateSettings) return shell.say("Settings cannot be saved from this session");
 		const update = host.updateSettings;
 		void shell.run("Saving…", async () => {
-			await update(patch);
+			const result = await update(patch, baseRev);
+			if (!result.ok) throw new Error(result.error);
 			staged = {};
 			return `Saved ${n} setting${n === 1 ? "" : "s"} to ${CONFIG_PATH}`;
 		});
@@ -242,12 +253,16 @@ export function createSettingsTab(shell: Shell): PanelTab {
 					options: ["Keep token", "Generate new token"],
 					then: (choice) => {
 						if (choice !== 1) return;
-						delete staged.customToken;
-						shell.say(`New token: ${regenerate()}`, "info");
+						void shell.run("Generating token…", async () => {
+							await regenerate();
+							delete staged.customToken;
+							return "New token generated; reconnect using the Web UI URL";
+						});
 					},
 				});
 			} else if (keys.matches(data, "tui.select.confirm")) {
 				if (row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
+				else if (isGlobal(row.id) && locked(row.id)) shell.say(`${settingPath(row.id)} is ${locked(row.id)} · locked; remove the override first`);
 				else if (row.id === "autoArm" || row.id === "debug") stage(row.id, !value(row.id));
 				else if (!cycle(row.id, 1)) input = { row, text: row.id === "budget" || row.id === "protect" ? "" : String(value(row.id as GlobalKey) ?? "") };
 			} else return false;

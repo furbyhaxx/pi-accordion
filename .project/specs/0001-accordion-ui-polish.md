@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 13
+  revision: 14
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T03:50:26+01:00"
+  updated_at: "2026-11-12T04:08:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 13
-      reason: "make settings saves yield during mutex contention"
-      changes: ["async save result", "typed native flag paths", "opaque dynamic keys and guarded malformed-file handling"]
+    - revision: 14
+      reason: "guard asynchronous native saves against session and controller changes"
+      changes: ["cancellable contention waits", "revisioned TUI host contract", "staged conflict retention and override locks"]
 ---
 
 # Accordion UI polish
@@ -743,7 +743,7 @@ export class SettingsStore {
   constructor(homeDir: string, env: NodeJS.ProcessEnv, flags: () => SettingsFlags);
   current(): SettingsSnapshot;
   /** Apply a patch to the latest file content under the lock; rejects invalid values and stale baseRev. */
-  save(patch: SettingsPatch, baseRev: string): Promise<{ ok: true; snapshot: SettingsSnapshot } | { ok: false; error: string; conflict?: boolean }>;
+  save(patch: SettingsPatch, baseRev: string, options?: { active?: () => boolean }): Promise<{ ok: true; snapshot: SettingsSnapshot } | { ok: false; error: string; conflict?: boolean }>;
   /** Re-read the file; returns the changed paths (empty when unchanged). */
   poll(): SettingPath[];
 }
@@ -759,6 +759,8 @@ export class SettingsStore {
   write atomically (tmp + rename, mode 0600), return the new snapshot.
   Retry waits yield to the event loop. `SettingsFlags` covers the three actual native flags:
   `bindHost`, `doorPort`, `customToken`; flags win over environment variables and lock the field.
+  Native callers provide `active` to recheck their originating session and controller before each
+  lock attempt; replacement cancels a waiting save without writing.
   Patches use flat field paths; dots inside a dynamic model/conductor key remain part of that key.
   Unseen base revisions conflict. Invalid JSON or a non-object file rejects initialization or polling
   (the last valid cache stays intact), and saves return an error without echoing file content.

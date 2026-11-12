@@ -19,6 +19,15 @@ const write = (data: unknown) => fs.writeFileSync(file, JSON.stringify(data));
 const read = () => JSON.parse(fs.readFileSync(file, "utf8"));
 
 describe("revisioned settings store", () => {
+	test("invalid isolation ports stay disabled while native flags still take precedence", () => {
+		const env = { ACCORDION_DOOR_PORT: "invalid" };
+		const isolated = new SettingsStore(home, env);
+		expect(isolated.current().settings.doorPort).toBe(0);
+		expect(isolated.current().sources.doorPort).toBe("env");
+		const flagged = new SettingsStore(home, env, () => ({ doorPort: "23456" }));
+		expect(flagged.current().settings.doorPort).toBe(23456);
+		expect(flagged.current().sources.doorPort).toBe("flag");
+	});
 	test("saves only explicit edits, never persisting runtime overrides or defaults", async () => {
 		const store = new SettingsStore(home, { ACCORDION_PORT: "1234", ACCORDION_TOKEN: "private-token" });
 		const base = store.current();

@@ -129,7 +129,7 @@ export class SettingsStore {
 	}
 
 	/** Retry contention asynchronously; stale disjoint edits merge, but overlapping edits conflict. */
-	async save(patch: SettingsPatch, baseRev: string): Promise<SettingsSaveResult> {
+	async save(patch: SettingsPatch, baseRev: string, options: { active?: () => boolean } = {}): Promise<SettingsSaveResult> {
 		const result = await withSidecarLockRetry(this.file, (): SettingsSaveResult => {
 			const disk = readDisk(this.file);
 			if (disk.error) return { ok: false, error: disk.error };
@@ -162,7 +162,7 @@ export class SettingsStore {
 			} finally { fs.rmSync(temporary, { force: true }); }
 			this.snapshot = this.capture({ data, exists: true, rev: crypto.createHash("sha256").update(bytes).digest("hex") });
 			return { ok: true, snapshot: this.current() };
-		});
+		}, options);
 		if (result.status === "done") return result.value;
 		if (result.status === "failed") return { ok: false, error: `Cannot save settings: ${result.error instanceof Error ? result.error.message : "sidecar mutex failed"}` };
 		return { ok: false, error: result.status === "busy" ? "Settings file is busy; retry the save" : "Settings save cancelled" };

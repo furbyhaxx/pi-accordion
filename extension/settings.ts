@@ -159,9 +159,9 @@ export function sanitizeBindHost(value: unknown): string {
 	return trimmed;
 }
 
-export function sanitizeDoorPort(value: unknown): number {
+export function sanitizeDoorPort(value: unknown, fallback = DEFAULT_SETTINGS.doorPort): number {
 	const n = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : NaN;
-	if (!Number.isSafeInteger(n) || n < 0 || n > 65535) return DEFAULT_SETTINGS.doorPort;
+	if (!Number.isSafeInteger(n) || n < 0 || n > 65535) return fallback;
 	return n;
 }
 
@@ -351,7 +351,7 @@ export function resolveSettings(fileData: Record<string, unknown>, env: Record<s
 	const bindHost = sanitizeBindHost(env.ACCORDION_HOST ?? fileData.bindHost);
 	const doorPort =
 		env.ACCORDION_DOOR_PORT !== undefined
-			? sanitizeDoorPort(env.ACCORDION_DOOR_PORT)
+			? sanitizeDoorPort(env.ACCORDION_DOOR_PORT, 0)
 			: env.ACCORDION_PORT !== undefined
 				? sanitizeDoorPort(env.ACCORDION_PORT)
 				: sanitizeDoorPort(fileData.doorPort);
@@ -372,32 +372,4 @@ export function resolveSettings(fileData: Record<string, unknown>, env: Record<s
 		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
-}
-
-export function saveSettings(homeDir: string, settings: AccordionSettings): AccordionSettings {
-	const normalized: AccordionSettings = {
-		debug: settings.debug === true,
-		autoArm: !!settings.autoArm,
-		defaultConductor: (settings.defaultConductor || DEFAULT_SETTINGS.defaultConductor).trim(),
-		compact: sanitizeCompactSettings(settings.compact),
-		bindHost: sanitizeBindHost(settings.bindHost),
-		doorPort: sanitizeDoorPort(settings.doorPort),
-		customToken: sanitizeCustomToken(settings.customToken),
-		models: sanitizeModelSettings(settings.models),
-		privacyConsent: sanitizePrivacyConsent(settings.privacyConsent),
-		taskWidget: sanitizeTaskWidget(settings.taskWidget),
-		tasks: sanitizeTaskSettings(settings.tasks),
-		taskfold: sanitizeTaskfoldSettings(settings.taskfold),
-		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
-	};
-	try {
-		const filePath = configPathForHome(homeDir);
-		fs.mkdirSync(path.dirname(filePath), { recursive: true });
-		const tmp = `${filePath}.${process.pid}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(normalized, null, 2) + "\n", { mode: 0o600 });
-		fs.renameSync(tmp, filePath);
-	} catch {
-		/* best-effort persistence */
-	}
-	return normalized;
 }

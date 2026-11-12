@@ -91,7 +91,6 @@ import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
 import {
 	PROTOCOL_VERSION,
-	DOOR_PORT,
 	sanitizeCommand,
 	sanitizeSurfaceId,
 	sanitizeSurfaceLabel,
@@ -111,19 +110,16 @@ import type { AccordionTuiHost } from "./tui/host";
 import { DebugLog, debugOverrideOf, writeDebugBundle, type DebugRecord } from "./debug";
 import { connectRemoteSession, listLiveSessions as discoverNativeSessions } from "./tui/remote";
 import {
-	loadSettings,
-	saveSettings,
 	generateMemorableToken,
 	VALID_DOOR_SECRET_RE,
 	isLoopbackHost,
-	sanitizeBindHost,
-	sanitizeDoorPort,
-	sanitizeCustomToken,
 	resolveModelSpec,
 	splitModelSpec,
 	isLoopbackUrl,
 	type AccordionSettings,
 } from "./settings";
+import { SettingsStore, type SettingsFlags, type SettingsSaveResult } from "./settingsStore";
+import type { SettingsPatch } from "./settingsValidation";
 import {
 	REGISTRY_PROTOCOL,
 	REGISTRY_DIR,
@@ -236,21 +232,6 @@ const SESSIONS_DIR = path.join(REGISTRY_ROOT, SESSIONS_SUBDIR);
 const FOCUS_PATH = path.join(REGISTRY_ROOT, FOCUS_FILE);
 const CONTROLLER_PATH = path.join(REGISTRY_ROOT, CONTROLLER_FILE);
 const DOOR_SECRET_PATH = path.join(REGISTRY_ROOT, DOOR_SECRET_FILE);
-
-/**
- * The door's loopback port. Fixed at DOOR_PORT (ADR 0024), but overridable via ACCORDION_DOOR_PORT
- * for TEST ISOLATION (mirrors ACCORDION_HOME) — a smoke run points it at a free port so it never
- * collides with a real running door, and `0`/invalid DISABLES the door entirely (bind nothing).
- * Read dynamically (not cached) so a test can flip it between extension instances. Production never
- * sets the env, so it is always DOOR_PORT.
- */
-function currentDoorPort(): number | null {
-	const raw = process.env.ACCORDION_DOOR_PORT;
-	if (raw === undefined) return DOOR_PORT;
-	const n = Number(raw);
-	if (!Number.isInteger(n) || n <= 0 || n > 65535) return null; // 0 / invalid ⇒ door disabled
-	return n;
-}
 
 /** The door retry cadence, overridable via ACCORDION_DOOR_RETRY_MS for fast tests (default DOOR_RETRY_MS). */
 function currentDoorRetryMs(): number {
@@ -452,45 +433,42 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		type: "string",
 	});
 
-	let settings: AccordionSettings = loadSettings(HOME);
+	const settingsStore = new SettingsStore(HOME, process.env, () => {
+		const flags: SettingsFlags = {};
+		for (const [key, name] of [["bindHost", ACCORDION_HOST_FLAG], ["doorPort", ACCORDION_PORT_FLAG], ["customToken", ACCORDION_TOKEN_FLAG]] as const) {
+			const value = pi.getFlag?.(name);
+			if (typeof value === "string" && value.trim()) flags[key] = value;
+		}
+		return flags;
+	});
+	let settings: AccordionSettings = settingsStore.current().settings;
 	let debugOverride: boolean | null = null;
 	let debugLog: DebugLog | null = null;
 	function debug(record: DebugRecord): void {
 		if (debugOverride ?? settings.debug) debugLog?.record(record);
 	}
 
-	function activeBindHost(): string {
-		try {
-			const flagHost = pi.getFlag?.(ACCORDION_HOST_FLAG);
-			if (typeof flagHost === "string" && flagHost.trim()) return sanitizeBindHost(flagHost);
-		} catch { /* ignore */ }
-		if (process.env.ACCORDION_HOST) return sanitizeBindHost(process.env.ACCORDION_HOST);
-		return settings.bindHost;
-	}
+	function activeBindHost(): string { return settings.bindHost; }
 
-	function activeCustomToken(): string | null {
-		try {
-			const flagTok = pi.getFlag?.(ACCORDION_TOKEN_FLAG);
-			const clean = sanitizeCustomToken(flagTok);
-			if (clean) return clean;
-		} catch { /* ignore */ }
-		if (process.env.ACCORDION_TOKEN) {
-			const clean = sanitizeCustomToken(process.env.ACCORDION_TOKEN);
-			if (clean) return clean;
-		}
-		return settings.customToken;
-	}
+	function activeCustomToken(): string | null { return settings.customToken; }
 
-	function resolvedDoorPort(): number | null {
-		if (process.env.ACCORDION_DOOR_PORT !== undefined) return currentDoorPort();
-		try {
-			const flagPort = pi.getFlag?.(ACCORDION_PORT_FLAG);
-			if (typeof flagPort === "string" && flagPort.trim()) {
-				const p = sanitizeDoorPort(flagPort);
-				return p > 0 ? p : null;
+	function resolvedDoorPort(): number | null { return settings.doorPort > 0 ? settings.doorPort : null; }
+
+	async function saveSettingsPatch(patch: SettingsPatch, baseRev = settingsStore.current().rev, active?: () => boolean): Promise<SettingsSaveResult> {
+		const openedSession = sessionId;
+		const result = await settingsStore.save(patch, baseRev, { active: () => sessionId === openedSession && (!active || active()) });
+		if (result.ok) {
+			const before = settings;
+			settings = settingsStore.current().settings;
+			if (settings.customToken !== before.customToken) webToken = settings.customToken ?? generateMemorableToken();
+			if (settings.bindHost !== before.bindHost || settings.doorPort !== before.doorPort) {
+				closeDoor();
+				doorForeign = false;
+				tryBindDoor();
 			}
-		} catch { /* ignore */ }
-		return settings.doorPort > 0 ? settings.doorPort : null;
+			notifyNative();
+		}
+		return result;
 	}
 
 	function localConnectHost(): string {
@@ -519,19 +497,19 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return null;
 	}
 
-	function regenerateSharedToken(): string {
+	async function regenerateSharedToken(active: () => boolean): Promise<string> {
+		const saved = await saveSettingsPatch({ customToken: null }, settingsStore.current().rev, active);
+		if (!saved.ok) throw new Error(saved.error);
+		if (!active()) throw new Error("Session or controller changed; reopen the panel");
 		const next = generateMemorableToken();
-		settings = saveSettings(HOME, { ...settings, customToken: null });
+		fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
+		const tmp = `${DOOR_SECRET_PATH}.${crypto.randomUUID()}.regen.tmp`;
+		try {
+			fs.writeFileSync(tmp, next, { mode: 0o600, flag: "wx" });
+			fs.renameSync(tmp, DOOR_SECRET_PATH);
+		} finally { fs.rmSync(tmp, { force: true }); }
 		webToken = next;
 		doorSecret = next;
-		try {
-			fs.mkdirSync(REGISTRY_ROOT, { recursive: true });
-			const tmp = `${DOOR_SECRET_PATH}.${process.pid}.regen.tmp`;
-			fs.writeFileSync(tmp, next, { mode: 0o600 });
-			fs.renameSync(tmp, DOOR_SECRET_PATH);
-		} catch {
-			/* best-effort */
-		}
 		notifyNative();
 		return next;
 	}
@@ -809,14 +787,17 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			return false;
 		}
 		const session = sessionId;
-		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy.notice}\n\nAccept once and enable ${entry.label}?`).then(
-			(accepted) => {
-				if (session !== sessionId || !accepted) return;
-				settings = saveSettings(HOME, { ...settings, privacyConsent: { ...settings.privacyConsent, [consentKey]: new Date().toISOString() } });
-				liveHost.select(entry.id);
-			},
-			() => {},
-		);
+		const surface = controllerLease?.surfaceId;
+		const active = () => {
+			refreshControllerNow();
+			return session === sessionId && (!surface || holdsControl(surface, session));
+		};
+		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy.notice}\n\nAccept once and enable ${entry.label}?`).then(async accepted => {
+			if (!accepted || !active()) return;
+			const result = await saveSettingsPatch({ [`privacyConsent.${consentKey}`]: new Date().toISOString() }, settingsStore.current().rev, active);
+			if (!result.ok) { ctx.ui.notify(result.error, "warning"); return; }
+			if (active()) liveHost.select(entry.id);
+		}).catch(error => ctx.ui.notify(`Privacy consent could not be saved: ${error instanceof Error ? error.message : String(error)}`, "warning"));
 		return false;
 	}
 
@@ -2680,12 +2661,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	/** Make `value` the default `kind` for the current model in config.json. */
-	function saveDialDefault(kind: NumericDialKind, value: number): string {
+	async function saveDialDefault(kind: NumericDialKind, value: number, active?: () => boolean): Promise<string> {
 		const spec = modelSpec();
 		if (!spec) return "The current model is not known yet";
-		const prev = settings.modelDefaults[spec] ?? {};
-		settings = saveSettings(HOME, { ...settings, modelDefaults: { ...settings.modelDefaults, [spec]: { ...prev, [kind]: formatTokens(value) } } });
-		notifyNative();
+		const result = await saveSettingsPatch({ [`modelDefaults.${spec}.${kind}`]: formatTokens(value) }, settingsStore.current().rev, active);
+		if (!result.ok) throw new Error(result.error);
 		return `Saved ${kind === "budget" ? "budget" : "protected tail"} ${formatTokens(value)} as the default for ${spec}`;
 	}
 
@@ -2995,7 +2975,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		enabled: tasksToolActive,
 		settings: () => settings.taskWidget,
 		saveExpanded: (expanded) => {
-			if (settings.taskWidget.expanded !== expanded) settings = saveSettings(HOME, { ...settings, taskWidget: { ...settings.taskWidget, expanded } });
+			if (settings.taskWidget.expanded === expanded) return;
+			void saveSettingsPatch({ "taskWidget.expanded": expanded }).then(result => {
+				if (!result.ok) latestCtx?.ui.notify(`Task widget preference not saved: ${result.error}`, "warning");
+			});
 		},
 	});
 	nativeListeners.add(() => taskWidget.sync());
@@ -3067,7 +3050,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// already-attached client whose GUI toggle shows "on" gets an explicit `folding:false` to
 		// resync it — connected clients are NOT dropped across a session_start, so without this a
 		// client's toggle could silently drift from the true (now-reset) internal state.
-		settings = loadSettings(HOME);
+		settingsStore.poll();
+		settings = settingsStore.current().settings;
 		setFolding(false);
 		latestCtx = ctx;
 		if (typeof ctx.sessionManager?.getSessionId === "function") taskStoreFor(ctx);
@@ -3886,7 +3870,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				applyCommand({ kind: kind === "budget" ? "setBudget" : "setProtect", value });
 				const set = kind === "budget" ? truth.budget : truth.protectTokens;
 				const clamped = set !== value ? ` (capped at the ${formatTokens(set)} context window)` : "";
-				ctx.ui.notify(asDefault ? `${saveDialDefault(kind, value)}; this session uses ${formatTokens(set)}${clamped}.` : `${name} ${formatTokens(set)} for this session${clamped}.`, "info");
+				ctx.ui.notify(asDefault ? `${await saveDialDefault(kind, value)}; this session uses ${formatTokens(set)}${clamped}.` : `${name} ${formatTokens(set)} for this session${clamped}.`, "info");
 				return;
 			}
 			const tasksAdopt = /^tasks\s+adopt(\s+--dry-run)?\s*$/.exec(argument);
@@ -3977,25 +3961,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					token: activeBrowserToken(),
 					clients: clients.size,
 				}),
-				settings: () => ({ ...settings, bindHost: displayWebHost(), doorPort: resolvedDoorPort() ?? 0, customToken: activeCustomToken() }),
-				updateSettings: (patch) => {
-					const prevHost = settings.bindHost;
-					const prevDoor = settings.doorPort;
-					settings = saveSettings(HOME, { ...settings, ...patch });
-					if (patch.customToken !== undefined && settings.customToken) {
-						webToken = settings.customToken;
-					}
-					if ((patch.bindHost !== undefined && settings.bindHost !== prevHost) || (patch.doorPort !== undefined && settings.doorPort !== prevDoor)) {
-						closeDoor();
-						doorForeign = false;
-						tryBindDoor();
-					}
-					notifyNative();
-					return settings;
-				},
-				regenerateToken: () => regenerateSharedToken(),
+				settings: () => settingsStore.current(),
+				updateSettings: (patch, baseRev) => saveSettingsPatch(patch, baseRev, () => {
+					refreshControllerNow();
+					return holdsControl(surfaceId, openedSessionId);
+				}),
+				regenerateToken: () => regenerateSharedToken(() => {
+					refreshControllerNow();
+					return holdsControl(surfaceId, openedSessionId);
+				}),
 				dials: () => currentDials(),
-				saveDialDefault: (kind, value) => saveDialDefault(kind, value),
+				saveDialDefault: (kind, value) => saveDialDefault(kind, value, () => {
+					refreshControllerNow();
+					return holdsControl(surfaceId, openedSessionId);
+				}),
 				compactNow: () => compactNow(),
 				listSessions: () => discoverNativeSessions(),
 				tasks: { views: taskViewsHost(surfaceId, openedSessionId), lists: taskSession?.listsHost() ?? null },
@@ -4035,7 +4014,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						thinkingLevel: () => localHost.thinkingLevel?.() ?? null,
 						webInfo: () => localHost.webInfo!(),
 						settings: () => localHost.settings!(),
-						updateSettings: (patch) => localHost.updateSettings!(patch),
+						updateSettings: (patch, baseRev) => localHost.updateSettings!(patch, baseRev),
 						regenerateToken: () => localHost.regenerateToken!(),
 						listSessions: () => localHost.listSessions!(),
 						command: (command) => {

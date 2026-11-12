@@ -58,6 +58,10 @@ budget and protected tail (remembered per model; `--default` or `ctrl+s` in the 
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
 Accordion pass.
 
+Settings saves merge only edited fields. A conflicting edit from another writer leaves your
+changes staged and reports the field; unrelated edits are preserved. Environment variables and
+CLI flags lock their fields in the panel, with flags taking precedence.
+
 Compaction policies are stored in `compact.manual`, `compact.threshold` and `compact.onSaturated`.
 Legacy `compactMode` configurations migrate on load and the old key is dropped on save.
 `ACCORDION_COMPACT_MODE` keeps the legacy mapping and overrides all three policies on load.

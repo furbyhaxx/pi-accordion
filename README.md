@@ -275,6 +275,8 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
 - Folding auto-arms with the `keel-lite` conductor by default (configurable in `~/.accordion/config.json`
   or the Settings tab, where values for all sessions are staged and saved with `ctrl+s`), replacing Pi's native `/compact` and threshold auto-compaction with
   reversible folding while falling back to native compaction only if a hard overflow is already saturated.
+- Settings saves preserve other writers' unrelated edits and keep conflicting changes staged.
+  Environment and flag overrides lock their fields; flags win.
 - `/accordion sessions` selects another live Pi session on the same machine.
 - Budget and protected tail (rows in the Settings tab, or `/accordion budget 200k`, `/accordion tail 20k`)
   accept `200k`, `1M`, `0.5M` or `85%` of the context window. They apply to the session, which

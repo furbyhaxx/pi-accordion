@@ -6,7 +6,6 @@ import {
 	configPathForHome,
 	generateMemorableToken,
 	loadSettings,
-	saveSettings,
 	sanitizeCustomToken,
 	VALID_DOOR_SECRET_RE,
 	isLoopbackHost,
@@ -16,6 +15,7 @@ import {
 	sanitizeTaskfoldSettings,
 } from "./settings";
 import { settingParts, validateSetting, validateSettingsPatch } from "./settingsValidation";
+import { SettingsStore } from "./settingsStore";
 
 describe("accordion settings & memorable tokens", () => {
 	test("generates 8-character pronounceable memorable tokens", () => {
@@ -34,7 +34,7 @@ describe("accordion settings & memorable tokens", () => {
 		expect(VALID_DOOR_SECRET_RE.test("deadbeef-not-a-valid-secret")).toBe(false);
 	});
 
-	test("persists and reloads settings with env overrides", () => {
+	test("loads file settings with env overrides", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-settings-"));
 		try {
 			const defaults = loadSettings(tmp, {});
@@ -44,7 +44,9 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.compact).toEqual({ manual: "pass", threshold: "pass", onSaturated: "native" });
 			expect(defaults.bindHost).toBe("127.0.0.1");
 
-			saveSettings(tmp, {
+			const file = configPathForHome(tmp);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, JSON.stringify({
 				debug: true,
 				taskfold: { timing: "lazy", leafForm: "bracket", high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
@@ -58,7 +60,7 @@ describe("accordion settings & memorable tokens", () => {
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
 				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k" } },
-			});
+			}));
 
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
@@ -96,7 +98,7 @@ describe("accordion settings & memorable tokens", () => {
 		["accordion", { manual: "pass", threshold: "pass", onSaturated: "native" }],
 		["suppress", { manual: "pass", threshold: "pass", onSaturated: "warn" }],
 		["native", { manual: "native", threshold: "native", onSaturated: "native" }],
-	] as const)("migrates legacy compaction %s and drops the old key on save", (compactMode, compact) => {
+	] as const)("migrates legacy compaction %s and drops the old key on save", async (compactMode, compact) => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-compact-"));
 		try {
 			const file = configPathForHome(home);
@@ -104,7 +106,8 @@ describe("accordion settings & memorable tokens", () => {
 			fs.writeFileSync(file, JSON.stringify({ compactMode }));
 			const loaded = loadSettings(home, {});
 			expect(loaded.compact).toEqual(compact);
-			saveSettings(home, loaded);
+			const store = new SettingsStore(home, {});
+			expect((await store.save({ debug: true }, store.current().rev)).ok).toBe(true);
 			const written = JSON.parse(fs.readFileSync(file, "utf8"));
 			expect(written.compact).toEqual(compact);
 			expect(written).not.toHaveProperty("compactMode");

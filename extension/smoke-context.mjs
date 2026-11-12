@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createJiti } from "jiti";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
+import { DatabaseSync } from "node:sqlite";
 const { buildSystemPrompt } = await import(new URL("./core/system-prompt.js", import.meta.resolve("@earendil-works/pi-coding-agent")));
 
 const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-context-"));
@@ -75,11 +76,52 @@ check("chat extraction requires new consent even after classifier-only consent",
 		assert.match(prompt, /chat model/);
 		assert.match(prompt, /openai\/gpt-6-luna/);
 		assert.match(prompt, /openai-codex\/gpt-6-luna/);
-		assert.equal(host.settings().privacyConsent["taskfold-chat-v1"], undefined);
+		assert.equal(host.settings().settings.privacyConsent["taskfold-chat-v1"], undefined);
 	} finally {
 		r.close();
 		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
 	}
+});
+check("settings saves cannot outlive their session or controller while waiting for the file lock", async () => {
+	for (const replacement of ["session", "controller"]) {
+		const r = runtime();
+		let lock;
+		try {
+			const host = await r.open();
+			const config = path.join(home, ".accordion", "config.json");
+			const before = fs.existsSync(config) ? fs.readFileSync(config, "utf8") : null;
+			lock = new DatabaseSync(`${config}.lock.sqlite`);
+			lock.exec("BEGIN IMMEDIATE");
+			const saving = host.updateSettings({ debug: true }, host.settings().rev);
+			if (replacement === "session") r.close();
+			else {
+				const controller = path.join(home, ".accordion", "controller.json");
+				const lease = JSON.parse(fs.readFileSync(controller, "utf8"));
+				fs.writeFileSync(controller, JSON.stringify({ ...lease, surfaceId: "replacement-controller", heartbeatAt: Date.now() }));
+			}
+			lock.close(); lock = undefined;
+			const result = await saving;
+			assert.equal(result.ok, false, replacement);
+			assert.match(result.error, /cancelled/, replacement);
+			assert.equal(fs.existsSync(config) ? fs.readFileSync(config, "utf8") : null, before, replacement);
+		} finally { lock?.close(); r.close(); }
+	}
+});
+check("native settings saves preserve unrelated fields and report same-field conflicts", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ debug: false, taskWidget: { maxRows: 12 }, future: "keep" }));
+	const r = runtime();
+	try {
+		const host = await r.open();
+		const base = host.settings().rev;
+		fs.writeFileSync(config, JSON.stringify({ debug: false, taskWidget: { maxRows: 20 }, future: "keep" }));
+		const saved = await host.updateSettings({ debug: true }, base);
+		assert.equal(saved.ok, true);
+		assert.deepEqual(JSON.parse(fs.readFileSync(config, "utf8")), { debug: true, taskWidget: { maxRows: 20 }, future: "keep" });
+		const conflict = await host.updateSettings({ "taskWidget.maxRows": 25 }, base);
+		assert.equal(conflict.ok, false);
+		assert.equal(conflict.conflict, true);
+	} finally { r.close(); fs.rmSync(config, { force: true }); }
 });
 check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
 	const r = runtime();
@@ -571,7 +613,7 @@ check("switching models follows each model's own budget: session value, then its
 		r.handlers.model_select({ model: back }, r.ctx);
 		assert.equal(t.budget, 150_000);
 		assert.equal(t.protectTokens, 10_000);
-		assert.equal(host.saveDialDefault("budget", 180_000), "Saved budget 180k as the default for openrouter/test/model");
+		assert.equal(await host.saveDialDefault("budget", 180_000), "Saved budget 180k as the default for openrouter/test/model");
 		assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, ".accordion", "config.json"), "utf8")).modelDefaults["openrouter/test/model"], { budget: "180k" });
 	} finally {
 		r.close();

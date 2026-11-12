@@ -1,0 +1,17 @@
+{
+  "widths": [
+    36,
+    57,
+    80,
+    140
+  ],
+  "envAndFlagLocksVisible": true,
+  "lockedEditRefused": true,
+  "partialSavePreservedUnrelatedFields": true,
+  "saved": {
+    "autoArm": false,
+    "doorPort": 0,
+    "unrelated": "retain",
+    "debug": true
+  }
+}

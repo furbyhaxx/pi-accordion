@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 9
+  revision: 10
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T03:50:26+01:00"
+  updated_at: "2026-11-12T04:08:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 9
-      reason: "deliver the revisioned settings store"
-      changes: ["locked re-read and partial merge", "async contention retry and field provenance", "cross-process Node and Bun race checks", "157 native tests and all existing app and smoke gates pass"]
+    - revision: 10
+      reason: "adopt revisioned partial saves in the native runtime and panel"
+      changes: ["all native writes use the store", "lease and session cancellation", "staged conflicts and override locks", "real terminal locks and partial-save verification at four widths"]
 ---
 
 # Accordion UI polish: plan
@@ -192,23 +192,23 @@ Result: 227 bun tests and smoke pass. The control takeover prompt lists `Open re
 
 ## S2: settings store, sync and schema
 
-Delivered: the shared permanent SQLite mutex; five focused tests, strict typecheck and native smoke pass.
-Compaction configuration now migrates the legacy file/environment enum to independent policies;
-the existing native callers and manual Settings picker use the new object. A real Pi-Bolt save
-removed the legacy key and preserved threshold/saturation policies; captures at 36/57/80/140
-columns pass width checks (`evidence/settings-migration/`). The 137 settings/TUI tests, all native
-smokes, clean Svelte check and 1,076 app tests pass. Aggressive/bake execution remains in S4.
-`extension/settingsValidation.ts` now validates flat field edits without load-time coercion,
-including unknown keys, malformed values and coupled watermarks. Dynamic model ids retain dots.
-All 141 settings/TUI tests pass; the isolated strict typecheck reports only the three known
-`agedSummaryConductor.ts` TS2612 baseline diagnostics.
-The revisioned `SettingsStore` now hashes exact file bytes, resolves defaults/file/env/flag sources,
-merges stale disjoint field edits under the shared lock, and rejects overlapping edits, locked
-fields and broken files. It preserves unrelated data, never writes runtime overrides, and uses
-atomic private writes. All 157 settings/lock/TUI tests, native smokes, clean Svelte check and
-1,076 app tests pass (21 existing skips). Independent Node 26 writers and Bun writers merge
-concurrent saves from one baseline (`evidence/settings-store/node-race.json`). Runtime integration
-and the live two-Pi session check remain next.
+Delivered: the shared permanent SQLite mutex, strict flat-field schema, independent compaction
+policy migration, and revisioned `SettingsStore`. Saves re-read and merge under the lock, preserve
+unknown fields, reject real conflicts and runtime overrides, and write atomically with mode 0600.
+Independent Node 26 and Bun writers merge concurrent saves from one baseline
+(`evidence/settings-store/node-race.json`). Migration is verified in real Pi at four widths
+(`evidence/settings-migration/`).
+
+All native writes now use partial store saves; the old unlocked writer is removed. The Settings
+panel retains staged edits and their original revision after errors/conflicts, displays override
+locks, and awaits default saves and token rotation. Waiting writes cancel on session/controller
+replacement. Real Pi verifies env/flag locks, refused locked edits, preserved unrelated fields
+and responsive renders at 36/57/80/140 columns (`evidence/settings-native/`). The 161 settings,
+lock and TUI tests pass, as do native smokes, clean Svelte check and 1,076 app tests (21 existing
+skips). Expanded strict checking reports seven diagnostics in unchanged code: three TS2612
+conductor declarations, two optional URL arguments and two tool-result `details` signatures.
+Pending: cross-instance polling/runtime effects, conductor option declarations and the live
+two-Pi sync check. Aggressive/bake execution remains in S4.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted
