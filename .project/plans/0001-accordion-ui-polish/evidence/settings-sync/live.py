@@ -178,20 +178,24 @@ def _writers(
                 process.wait(timeout=5)
 
 
+def _current_state(name: str) -> dict[str, object]:
+    state = _state(name)
+    pid = state["pid"]
+    assert isinstance(pid, int)
+    parent = subprocess.check_output(
+        ["ps", "-o", "ppid=", "-p", str(pid)], text=True, timeout=5
+    ).strip()
+    pane = _tmux("display-message", "-p", "-t", f"{name}:0.0", "#{pane_pid}").strip()
+    assert parent == pane, (
+        "Observer does not belong to the current terminal process tree"
+    )
+    assert time.time() * 1000 - int(str(state["at"])) < 1000, "Observer is stale"
+    return state
+
+
 def _check_shared() -> None:
     for name in ["a", "b"]:
-        state = _state(name)
-        pid = state["pid"]
-        assert isinstance(pid, int)
-        parent = subprocess.check_output(
-            ["ps", "-o", "ppid=", "-p", str(pid)], text=True, timeout=5
-        ).strip()
-        pane = _tmux(
-            "display-message", "-p", "-t", f"{name}:0.0", "#{pane_pid}"
-        ).strip()
-        assert parent == pane, (
-            "Observer does not belong to the current terminal process tree"
-        )
+        state = _current_state(name)
         assert state["panelOpen"] is True
         assert _at(state, "settings", "settings", "debug") is False
         assert _at(state, "settings", "settings", "taskfold", "timing") == "eager"

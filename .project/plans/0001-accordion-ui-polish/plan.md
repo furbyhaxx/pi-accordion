@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 16
+  revision: 17
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T06:22:19+01:00"
+  updated_at: "2026-11-12T06:37:48+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 16
-      reason: "verify shared settings in two source-loaded Pi sessions"
-      changes: ["native partial saves merge peer edits", "same-field conflicts retain staged values", "live env and flag lock refusals", "repeatable source-loaded fixture and redacted evidence"]
+    - revision: 17
+      reason: "verify model-default updates without resetting native session dials"
+      changes: ["peer budget and tail adoption in 761 ms", "native session-only values survive shared saves", "Truth and resolution sources agree with persisted defaults"]
 ---
 
 # Accordion UI polish: plan
@@ -233,7 +233,10 @@ over unrelated edits, preserved staged values after a conflict, and environment/
 Barrier-synchronized independent store clients verify both disjoint merges and exactly one
 same-field winner (`evidence/settings-sync/`). The fixture checks observer process ownership
 and loads explicit TypeScript paths rather than an old generated JavaScript entry point.
-Pending: live runtime-effects and stale-panel checks, plus conductor option declarations.
+The live runtime probe also verifies inherited budget/tail adoption in 761 ms while the other
+session keeps values entered through its native session-only editors. Exported sources, Truth
+counters and saved defaults agree (`evidence/settings-sync/dials-result.json`).
+Pending: live privacy/token and stale-panel checks, plus conductor option declarations.
 Settings WebSocket frames belong to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:

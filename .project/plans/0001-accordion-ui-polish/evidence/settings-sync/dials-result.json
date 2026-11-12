@@ -1,0 +1,16 @@
+{
+  "peerAdoptionMs": 761,
+  "model": "openai/gpt-6.1-terra",
+  "inherited": {
+    "budget": 180000,
+    "protect": 10000
+  },
+  "session": {
+    "budget": 150000,
+    "protect": 7000
+  },
+  "nativeSessionEditorsUsed": true,
+  "fileDefaultsDoNotContainSessionValues": true,
+  "truthAndDialSourcesAgree": true,
+  "providerCalls": 0
+}

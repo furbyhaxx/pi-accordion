@@ -59,6 +59,15 @@ The fixture imports explicit `.ts` paths: extensionless Jiti imports can select 
 `accordion.js` instead. The driver checks each observer against its actual terminal process tree;
 tmux's pane PID is the launcher, not necessarily the Pi child PID.
 
+## Runtime dials
+
+After the shared-save run, leave both panels open and `b` in control. Run
+`uv run --no-project python -B -m runtime` from this directory.
+`dials-result.json` verifies live peer model-default adoption while `b` retains budget/tail
+values entered through the native session-only editors. The exported dials, Truth counters,
+source labels and saved file agree. Neither probe sends model requests.
+Run Ruff and strict mypy on both `live.py` and `runtime.py`.
+
 ## Cleanup
 
 Stop only the Pi processes from this run, wait for them to exit, then remove their owned tmux
