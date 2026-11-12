@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 7
+  revision: 8
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T03:33:22+01:00"
+  updated_at: "2026-11-12T03:39:38+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 7
-      reason: "migrate compaction configuration to independent policies"
-      changes: ["legacy file and environment mapping", "new compact object persistence", "affected native and Settings callers", "four-width live migration check"]
+    - revision: 8
+      reason: "define strict settings save validation"
+      changes: ["field-specific rejection instead of coercion", "opaque dynamic keys", "atomic watermark checks", "141 settings and TUI tests pass"]
 ---
 
 # Accordion UI polish: plan
@@ -198,6 +198,10 @@ the existing native callers and manual Settings picker use the new object. A rea
 removed the legacy key and preserved threshold/saturation policies; captures at 36/57/80/140
 columns pass width checks (`evidence/settings-migration/`). The 137 settings/TUI tests, all native
 smokes, clean Svelte check and 1,076 app tests pass. Aggressive/bake execution remains in S4.
+`extension/settingsValidation.ts` now validates flat field edits without load-time coercion,
+including unknown keys, malformed values and coupled watermarks. Dynamic model ids retain dots.
+All 141 settings/TUI tests pass; the isolated strict typecheck reports only the three known
+`agedSummaryConductor.ts` TS2612 baseline diagnostics. The store integration is next.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

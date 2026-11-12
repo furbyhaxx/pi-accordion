@@ -15,6 +15,7 @@ import {
 	sanitizeModelSettings,
 	sanitizeTaskfoldSettings,
 } from "./settings";
+import { settingParts, validateSetting, validateSettingsPatch } from "./settingsValidation";
 
 describe("accordion settings & memorable tokens", () => {
 	test("generates 8-character pronounceable memorable tokens", () => {
@@ -193,5 +194,67 @@ describe("model routing", () => {
 		expect(isLoopbackUrl("http://localhost:11434")).toBe(true);
 		expect(isLoopbackUrl("https://openrouter.ai/api/v1")).toBe(false);
 		expect(isLoopbackUrl(undefined)).toBe(false);
+	});
+});
+
+describe("strict settings save validation", () => {
+	test("accepts supported policies, boundary values and removals without coercion", () => {
+		for (const [name, value] of Object.entries({
+			"compact.manual": "bake", "compact.threshold": "pass", "compact.onSaturated": "warn",
+			bindHost: "::", doorPort: 0, customToken: null, defaultConductor: "none",
+			"taskWidget.maxRows": 100, "taskWidget.toggleKey": "ctrl+alt+t",
+			"tasks.attachments.roots": ["/srv/knowledge", "~/notes"], "tasks.adopt": "ask",
+			"models.defaults.chat": "current", "models.defaults.classifier": "local/my/model",
+			"models.conductors.taskfold.chat": undefined, "privacyConsent.taskfold-chat-v1": undefined,
+			"privacyConsent.taskfold": "2026-11-12T03:00:00+01:00",
+			"modelDefaults.openai/gpt-6.1.budget": "85%", "modelDefaults.*.protect": "0",
+			"modelDefaults.openai/*.timing": "pressure", "taskfold.timing": "lazy",
+			"taskfold.leafForm": "bracket", "taskfold.recordTokens": 100000,
+		})) expect(validateSetting(name, value)).toEqual({ ok: true });
+	});
+
+	test("invalid saves identify the field and rule instead of silently defaulting", () => {
+		for (const [name, value, rule] of [
+			["autoArm", "true", "boolean"], ["debug", null, "boolean"],
+			["defaultConductor", "not-shipped", "registered conductor"],
+			["compact.manual", "suppress", "one of"], ["compact.threshold", "bake", "one of"],
+			["doorPort", "1234", "integer"], ["doorPort", 65536, "65535"], ["doorPort", NaN, "integer"],
+			["bindHost", "https://host.test", "hostname"], ["bindHost", "host.test:1234", "hostname"],
+			["bindHost", "", "hostname"], ["bindHost", "999.1.1.1", "hostname"],
+			["customToken", "bad token", "URL-safe"], ["taskWidget.maxRows", 1.5, "integer"],
+			["taskWidget.toggleKey", "escape", "key id"],
+			["tasks.attachments.roots", ["relative/notes"], "absolute"],
+			["tasks.attachments.maxLines", 0, "between"], ["tasks.pins.taskTokens", Infinity, "integer"],
+			["models.defaults.chat", null, "provider/model-id"],
+			["models.defaults.classifier", "current", "only valid for chat"],
+			["models.conductors.taskfold.chat", "no-provider", "provider/model-id"],
+			["modelDefaults.*.budget", "101%", "token amount"],
+			["modelDefaults.*.protect", 20000, "token amount"],
+			["privacyConsent.taskfold", "yesterday", "ISO timestamp"],
+			["taskfold.high", 0, "above 0"], ["taskfold.low", 1, "below 1"],
+			["taskfold.untracked.minSteps", 0, "between"], ["taskfold.steps.enabled", 1, "boolean"],
+			["taskfold.timing", "aggressive", "pressure"],
+		] as const) {
+			const result = validateSetting(name, value);
+			expect(result.ok).toBe(false);
+			if (!result.ok) { expect(result.error).toContain(`${name}:`); expect(result.error).toContain(rule); }
+		}
+	});
+
+	test("validates coupled fields atomically, including one-field edits", () => {
+		const current = structuredClone(loadSettings("/nonexistent/accordion-validation-home", {}));
+		expect(validateSettingsPatch({ "taskfold.high": 0.5 }, current)).toEqual({ ok: false, error: "taskfold.low: must be less than taskfold.high" });
+		expect(validateSettingsPatch({ "taskfold.high": 0.5, "taskfold.low": 0.4 }, current)).toEqual({ ok: true });
+		expect(validateSettingsPatch({ "taskfold.low": 0.8 }, current)).toEqual({ ok: false, error: "taskfold.low: must be less than taskfold.high" });
+		for (const invalid of [null, [], false]) expect(validateSettingsPatch(invalid, current).ok).toBe(false);
+	});
+
+	test("opaque dynamic keys preserve model punctuation and reject unsafe or unknown paths", () => {
+		expect(settingParts("modelDefaults.openai/gpt-6.1.budget")).toEqual(["modelDefaults", "openai/gpt-6.1", "budget"]);
+		expect(settingParts("models.conductors.example.v2.chat")).toEqual(["models", "conductors", "example.v2", "chat"]);
+		for (const name of ["compactMode", "taskWidget.typo", "models.conductors.__proto__.chat", "privacyConsent.constructor", "modelDefaults.invalid.budget", "__proto__.polluted"]) {
+			expect(validateSetting(name, true)).toEqual({ ok: false, error: `${name}: unknown setting` });
+			expect(settingParts(name)).toBeUndefined();
+		}
 	});
 });
