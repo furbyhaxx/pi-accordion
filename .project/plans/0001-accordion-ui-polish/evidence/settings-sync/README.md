@@ -97,6 +97,20 @@ valid cookies work with the served Origin but do not authorize an untrusted Orig
 not claim that rotation revokes trusted-origin access or existing sockets. The source-only
 fixture has no built browser assets (404); the final clean-production install/asset gate remains.
 
+## Stale controllers and replacement sessions
+
+Run `uv run --no-project python -B -m guards` next. It upgrades the fixture to v5, then
+checks actual native settings and Truth callbacks after controller loss, cancels a queued
+save while Python holds the real SQLite mutex, and repeats the guards after Pi's `/new`.
+The fresh session still saves normally. `guards-result.json` records the outcomes.
+
+Pi reactivates extensions on `/new` in the same process. The initial activation-local cache
+silently substituted the fresh host for the supposed old callback (`replacement-diagnostic.json`).
+The repaired fixture retains the actual host process-wide and checks remembered session and
+activation identities before exercising it. No product guard change was needed. Run Ruff and
+strict mypy on all five drivers; standalone TypeScript retains only the seven documented
+baseline diagnostics, none in the fixture.
+
 ## Cleanup
 
 Stop only the Pi processes from this run, wait for them to exit, then remove their owned tmux

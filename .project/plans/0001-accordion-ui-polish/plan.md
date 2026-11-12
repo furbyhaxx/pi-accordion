@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 19
+  revision: 20
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T07:12:01+01:00"
+  updated_at: "2026-11-12T07:35:45+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 19
-      reason: "verify live browser credential rotation and malformed-file recovery"
-      changes: ["two-server bearer and cookie retirement", "custom and generated token changes", "secret adoption despite malformed settings", "document independent trusted-origin WebSocket authorization"]
+    - revision: 20
+      reason: "verify real native controller and replacement-session write guards"
+      changes: ["stale settings and Truth callbacks refused", "queued SQLite save cancelled on takeover", "preserve old fixture hosts across Pi reactivation", "fresh replacement session still saves normally"]
 ---
 
 # Accordion UI polish: plan
@@ -246,7 +246,11 @@ invalid-file saves refuse without echoing or overwriting it, and recovery succee
 bearer probes isolate credentials with an untrusted Origin: a trusted served origin authorizes
 independently. Browser assets are not built in this source-only fixture (404); clean-production
 installation and authenticated asset gates remain required in S6/final verification.
-See `evidence/settings-sync/tokens-result.json`. Pending: stale-panel checks and conductor options.
+See `evidence/settings-sync/tokens-result.json`. Stale controller callbacks, a SQLite-blocked
+save during takeover and old-session callbacks after `/new` also pass; the replacement session
+can still save (`evidence/settings-sync/guards-result.json`). Pi reactivation had reset the
+initial fixture's old-host cache, so it now preserves and verifies the actual old callback.
+No product guard fix was required. Pending: 16-row settings captures and conductor options.
 Settings WebSocket frames belong to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:

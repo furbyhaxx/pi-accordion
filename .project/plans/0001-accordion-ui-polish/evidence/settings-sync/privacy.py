@@ -11,8 +11,12 @@ import live
 from runtime import _save
 
 
-def _reload_fixture(name: str) -> None:
-    if live._state(name).get("fixtureVersion") == 2:
+def _reload_fixture(name: str, *, minimum_version: int = 2) -> None:
+    def ready() -> bool:
+        version = live._state(name).get("fixtureVersion")
+        return isinstance(version, int) and version >= minimum_version
+
+    if ready():
         return
     if live._state(name).get("panelOpen"):
         live._tmux("send-keys", "-t", f"{name}:0.0", "Escape")
@@ -20,10 +24,10 @@ def _reload_fixture(name: str) -> None:
     live._tmux("send-keys", "-t", f"{name}:0.0", "-l", "--", "/reload")
     live._tmux("send-keys", "-t", f"{name}:0.0", "Enter")
     try:
-        live._wait(lambda: live._state(name).get("fixtureVersion") == 2, timeout=2)
+        live._wait(ready, timeout=2)
     except TimeoutError:
         live._tmux("send-keys", "-t", f"{name}:0.0", "Enter")
-        live._wait(lambda: live._state(name).get("fixtureVersion") == 2, timeout=15)
+        live._wait(ready, timeout=15)
 
 
 def _selected_conductor(name: str) -> str:

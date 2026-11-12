@@ -14,10 +14,19 @@ const safeSnapshot = (snapshot: SettingsSnapshot) => ({ ...snapshot, settings: {
 export default function settingsSyncFixture(pi: ExtensionAPI): void {
 	const channel = process.env.ACCORDION_TEST_CHANNEL;
 	if (!channel) throw new Error("ACCORDION_TEST_CHANNEL is required");
+	// Pi reactivates extensions on /new; retain the actual old host across activations.
+	const world = globalThis as typeof globalThis & {
+		accordionSettingsFixtureActivations?: number;
+		accordionSettingsRememberedHost?: AccordionTuiHost;
+		accordionSettingsRememberedSession?: string;
+		accordionSettingsRememberedActivation?: number;
+	};
+	const activation = (world.accordionSettingsFixtureActivations ?? 0) + 1;
+	world.accordionSettingsFixtureActivations = activation;
 	let host: AccordionTuiHost | undefined;
-	let firstHost: AccordionTuiHost | undefined;
 	let panelOpen = false;
 	let busy = false;
+	let pendingSave = false;
 	let timer: ReturnType<typeof setInterval> | undefined;
 	let providerCalls = 0;
 	const unexpectedRequest = (): never => { providerCalls++; throw new Error("This routing fixture must not call a provider"); };
@@ -30,7 +39,8 @@ export default function settingsSyncFixture(pi: ExtensionAPI): void {
 		const snapshot = host?.settings?.();
 		const web = host?.webInfo?.();
 		write("state.json", {
-			at: Date.now(), pid: process.pid, fixtureVersion: 2, providerCalls, panelOpen, sessionId: host?.sessionId?.(), canSteer: host?.canSteer?.(),
+			at: Date.now(), pid: process.pid, fixtureVersion: 5, activation, providerCalls, panelOpen, pendingSave, sessionId: host?.sessionId?.(), canSteer: host?.canSteer?.(),
+			rememberedSessionId: world.accordionSettingsRememberedSession, rememberedActivation: world.accordionSettingsRememberedActivation,
 			consentKey: entryById("taskfold")?.privacy?.consentKey,
 			settings: snapshot && safeSnapshot(snapshot), dials: host?.dials?.(), stats: host?.truth()?.stats(),
 			folding: host?.folding(), conductor: host?.activeConductor()?.id,
@@ -40,7 +50,6 @@ export default function settingsSyncFixture(pi: ExtensionAPI): void {
 	accordion(pi, {
 		openPanel: async (ctx, current, start) => {
 			host = current;
-			firstHost ??= current;
 			panelOpen = true;
 			try { await openAccordionPanel(ctx, current, start); }
 			finally { panelOpen = false; publish(); }
@@ -60,13 +69,28 @@ export default function settingsSyncFixture(pi: ExtensionAPI): void {
 			try {
 				if (request.action === "save" || request.action === "saveOld") {
 					if (!("patch" in request) || !request.patch || typeof request.patch !== "object" || Array.isArray(request.patch) || !("baseRev" in request) || typeof request.baseRev !== "string") throw new Error("Invalid save request");
-					const target = request.action === "saveOld" ? firstHost : host;
+					const target = request.action === "saveOld" ? world.accordionSettingsRememberedHost : host;
 					if (!target?.updateSettings) throw new Error("Open the native panel first");
 					const remove = "remove" in request ? request.remove : [];
 					if (!Array.isArray(remove) || !remove.every((key: unknown) => typeof key === "string")) throw new Error("Invalid removed fields");
 					const patch = { ...request.patch, ...Object.fromEntries(remove.map(key => [key, undefined])) };
-					const saved = await target.updateSettings(patch as SettingsPatch, request.baseRev);
-					result = saved.ok ? { ...saved, snapshot: safeSnapshot(saved.snapshot) } : saved;
+					const pending = target.updateSettings(patch as SettingsPatch, request.baseRev);
+					pendingSave = true;
+					publish();
+					try {
+						const saved = await pending;
+						result = saved.ok ? { ...saved, snapshot: safeSnapshot(saved.snapshot) } : saved;
+					} finally { pendingSave = false; }
+				} else if (request.action === "rememberHost") {
+					if (!host) throw new Error("Open the native panel first");
+					world.accordionSettingsRememberedHost = host;
+					world.accordionSettingsRememberedSession = host.sessionId?.();
+					world.accordionSettingsRememberedActivation = activation;
+					result = { ok: true, sessionId: host.sessionId?.() };
+				} else if (request.action === "budgetOld") {
+					const old = world.accordionSettingsRememberedHost;
+					if (!old || !("value" in request) || typeof request.value !== "number" || !Number.isSafeInteger(request.value) || request.value <= 0) throw new Error("Invalid stale budget request");
+					result = await old.command({ kind: "setBudget", value: request.value });
 				} else if (request.action === "rotate") {
 					if (!host?.regenerateToken) throw new Error("Open the native panel first");
 					result = { ok: true, tokenHash: createHash("sha256").update(await host.regenerateToken()).digest("hex") };
