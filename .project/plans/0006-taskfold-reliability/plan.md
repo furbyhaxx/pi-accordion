@@ -4,15 +4,15 @@ document:
   id: "PLAN-0006"
   title: "Taskfold reliability: token truth, ordered work and measured coaching"
   status: "active"
-  revision: 3
+  revision: 4
   created_at: "2026-11-12T02:56:59+01:00"
-  updated_at: "2026-11-12T11:05:00+01:00"
+  updated_at: "2026-11-12T11:35:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 3
-      reason: "record the live pre-enforcement baseline"
-      changes: ["Claude, GPT, DeepSeek and GLM baselines recorded", "Kimi route unavailable"]
+    - revision: 4
+      reason: "record token truth (S2) as shipped"
+      changes: ["S2 receipt validity, per-model prior and v24 protocol recorded", "current behavior refreshed"]
 ---
 
 # Taskfold reliability
@@ -29,19 +29,24 @@ are evaluated against actual model behavior, not merely successful unit tests.
 ## Progress
 
 - Done: source inventory, executable plan, shared settings foundation, Settings screen, protocol
-  audit and the live pre-enforcement baseline for Claude, GPT, DeepSeek and GLM.
-- Now: token truth and store order.
-- Next: connect trustworthy paired audit measurements when token truth provides them.
+  audit, the live pre-enforcement baseline for Claude, GPT, DeepSeek and GLM, and token truth (S2).
+- Now: store order (S3).
+- Next: connect trustworthy paired audit measurements, now that the prior is recorded.
 - Later: consent decoupling, coaching/gate, span reminders, isolated prompt comparison and final gates.
 - Blocked: the Kimi baseline needs a funded route (task 5).
 
 ## Current behavior and evidence
 
-- `extension/accordion.ts:2859` pairs a departing raw wire estimate with
-  `input + cacheRead + cacheWrite`; there is no receipt validity bound, prior or recount consumer.
-  Model changes invalidate the pairing but reset the multiplier to 1.
-- `core/truth.ts:490–531` distinguishes receipt-covered blocks from an unmeasured tail.
-  A prior must not pretend to be a provider receipt or extend its coverage frontier.
+- `extension/accordion.ts:2900` judges every receipt through `extension/calibration.ts`: the
+  `input + cacheRead + cacheWrite` pairing, optional dedupe of the Anthropic first-request cache
+  write, ratio bounds (floor 0.7, no default ceiling) and a one-per-episode announcement naming the
+  provider. A refused receipt leaves `k` alone; the unmeasured content keeps
+  `max(prior, last trusted)`.
+- `core/truth.ts:184` carries `calibrationPrior` as replicated state distinct from
+  `calibration`/`calibrationThroughOrder` (protocol v24). Covered blocks use the receipt ratio, the
+  rest use the prior; the raw wire accessors stay raw.
+- Recounts are still not consumed: no current source can prove it measured the same unfolded
+  messages. `calibration.preferRecount` is the switch that will enable it.
 - `extension/tasks.ts` permits parent starts and branch changes after blocking; its public block
   reasons include `dependency`. Criteria are optional. `taskSchema.ts` already supports the
   newer 300-character criterion and expanded report contract.
@@ -104,7 +109,7 @@ Preserve the existing `~/.accordion/config.json` location and the session-dial p
    the gate exists. Keep model ids, settings, commands, receipts and metrics; bound loops and
    preserve failures. Report unavailable families as blocked, not silently skipped.
 
-## S2: token truth
+## S2: token truth — shipped
 
 1. Extract a small calibration boundary from `maybeObserveCalibration`, retaining exact
    departing-wire pairing, aborted/error exclusions, model invalidation and receipt frontier.
