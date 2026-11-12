@@ -135,3 +135,15 @@ export function attachedNotice(outcome: AttachOutcome): string {
 export function releasedNotice(slug: string): string {
 	return `The user released task list "${slug}"; it is no longer attached to this session. Claim or create a list only if the user asks.`;
 }
+
+/**
+ * The one-time note for a session that has the `tasks` tool but no list yet: orientation is free,
+ * but multi-step work belongs in a list, and the agent should say so before spending its budget.
+ */
+export function bootstrapNotice(): string {
+	return [
+		"[accordion tasks] No task list is attached to this session.",
+		"Orientation comes first: read the request and the files it names. Before you change anything for multi-step work, create or claim a list (tasks create {list, title, goals, tasks: [{title, acceptanceCriteria}]}), start its first leaf, and end each task right after its last tool call.",
+		"A one-step errand that needs no tracking can stay list-free; say so and continue.",
+	].join("\n");
+}

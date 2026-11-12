@@ -6,12 +6,33 @@ const t = (id: string, status: Task["status"], title = `T${id}`): Task => ({ id,
 const list = (tasks: Task[]): TaskList => ({ slug: "w", title: "W", createdAt: "", updatedAt: "", claim: null, tasks });
 
 describe("task coach", () => {
-	test("reminds on the 3rd tool result outside any task, then every 8th, naming the next task", () => {
+	test("reminds once after the orientation allowance, naming the next task", () => {
 		const c = new TaskCoach();
 		c.setList(list([t("1", "done"), t("2", "todo", "Wire it")]));
-		const notes = Array.from({ length: 12 }, () => c.toolResult(false));
-		expect(notes.map((n, i) => (n ? i + 1 : 0)).filter(Boolean)).toEqual([3, 11]);
-		expect(notes[2]).toContain('next to do: 2 "Wire it"');
+		const notes = Array.from({ length: 20 }, () => c.toolResult(false));
+		expect(notes.map((n, i) => (n ? i + 1 : 0)).filter(Boolean)).toEqual([11]);
+		expect(notes[10]).toContain('next to do: 2 "Wire it"');
+	});
+
+	test("a new user prompt restores the allowance and the reminder", () => {
+		const c = new TaskCoach();
+		c.setList(list([t("1", "todo", "Wire it")]));
+		c.setPolicy({ orientationCalls: 2 });
+		expect([1, 2, 3].map(() => c.toolResult(false)).filter(Boolean)).toHaveLength(1);
+		c.userPrompt();
+		expect([1, 2, 3].map(() => c.toolResult(false)).filter(Boolean)).toHaveLength(1);
+	});
+
+	test("reminds once about work that belongs to no list at all", () => {
+		const c = new TaskCoach();
+		c.setPolicy({ orientationCalls: 1 });
+		expect(c.toolResult(false)).toBeNull();
+		const note = c.toolResult(false);
+		expect(note).toContain("no task list attached");
+		expect(c.toolResult(false)).toBeNull();
+		c.userPrompt();
+		expect(c.toolResult(false)).toBeNull();
+		expect(c.toolResult(false)).toContain("no task list attached");
 	});
 
 	test("stays quiet inside a task, for nested calls, and when nothing is left to do", () => {

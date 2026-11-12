@@ -105,6 +105,7 @@ import { LiveConductorHost, type SpawnedRunner } from "../core/conductor/liveHos
 import { catalogMeta, entryById, type RegistryEntry } from "../core/conductor/registry";
 import { attachPolicy, revocationEffect } from "./privacyGate";
 import { toolSetNotice } from "./toolSetNotice";
+import { bootstrapNotice } from "./taskBinding";
 import type { CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "../core/conductor/contract";
 import { conductorReadiness, resolveRunnerPath as resolveConductorRunnerPath, runnerNodeBinary } from "./conductorReadiness";
 import { openAccordionPanel, type PanelTabId } from "./tui/panel";
@@ -3144,6 +3145,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		releaseTaskClaims();
 		nestedTaskEvents.clear();
 		pendingToolNotice = null;
+		bootstrapShown = false;
 		// Tear down the OLD session's Truth + event forwarder before building the new one; a
 		// session swap invalidates the whole context state (a fresh Truth is authoritative). Detach
 		// any attached conductor first (kills a spawned runner, clears its locks off the old Truth,
@@ -3295,6 +3297,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			/* an unreadable list directory just means no coaching */
 		}
 		taskCoach.setList(list);
+		taskCoach.setPolicy({ orientationCalls: settings.tasks.orientationCalls });
 		void flushTaskNotices(ctx);
 		const note = taskCoach.toolResult(!!event.parentToolCallId);
 		return note ? { ...withDetails, content: [...event.content, { type: "text" as const, text: note }] } : withDetails;
@@ -3341,12 +3344,27 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
 	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
+		taskCoach.userPrompt();
 		const list = await taskSession?.takeNotice();
 		const tool = pendingToolNotice;
 		pendingToolNotice = null;
-		const content = [tool, list].filter(Boolean).join("\n\n");
+		const bootstrap = bootstrapNoteOnce(ctx);
+		const content = [tool, bootstrap, list].filter(Boolean).join("\n\n");
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
+
+	/** Bootstrap the protocol once per session: tools are there, but no list is attached yet. */
+	let bootstrapShown = false;
+	function bootstrapNoteOnce(ctx: ExtensionContext): string | null {
+		if (bootstrapShown || !settings.tasks.bootstrapNote || !tasksToolActive()) return null;
+		try {
+			if (attachedList(taskStoreFor(ctx).claimedBySession())) return null;
+		} catch {
+			return null;
+		}
+		bootstrapShown = true;
+		return bootstrapNotice();
+	}
 
 	pi.registerMessageRenderer(NOTICE_MESSAGE, (message, options, theme) => noticeRow(theme, typeof message.content === "string" ? message.content : "", options.expanded));
 
@@ -3654,6 +3672,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	pi.on("session_shutdown", () => {
 		pendingToolNotice = null;
+		bootstrapShown = false;
 		const flush = debugLog?.flush();
 		const shutdownCtx = latestCtx;
 		debugLog = null;

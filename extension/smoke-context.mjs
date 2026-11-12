@@ -43,6 +43,7 @@ function runtime(messages = [], options = {}) {
 	};
 	const ctx = {
 		mode: "tui", hasUI: true, cwd: options.cwd ?? home, model,
+		isIdle: () => options.isIdle?.() ?? false,
 		ui: { notify: (...args) => options.notify?.(...args), setStatus() {}, confirm: async () => true, select: async (_title, options) => options.at(-1), theme: { fg: (_c, s) => s } },
 		sessionManager: {
 			getSessionId: () => options.sessionId ?? "context-test-session",
@@ -240,6 +241,31 @@ check("revoking consent gates a deferred conductor's model work and keeps its to
 		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
 	}
 });
+check("bootstrap and coaching honour the orientation allowance", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({
+		defaultConductor: "none",
+		privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" },
+		tasks: { bootstrapNote: true, orientationCalls: 2 },
+	}));
+	const r = runtime();
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		const first = await r.handlers.before_agent_start({}, r.ctx);
+		assert.match(first?.message?.content ?? "", /No task list is attached to this session/, "the protocol is introduced once");
+		assert.equal(await r.handlers.before_agent_start({}, r.ctx), undefined, "and never again");
+		const result = () => r.handlers.tool_result({ toolName: "bash", toolCallId: `c${Math.random()}`, content: [{ type: "text", text: "ok" }] }, r.ctx);
+		// An untouched result comes back undefined: the handler only returns content when it adds a note.
+		const size = (reply) => reply?.content?.length ?? 0;
+		assert.equal(size(result()), 0, "the first call is orientation");
+		assert.equal(size(result()), 0, "the second call is still orientation");
+		const third = result();
+		assert.match(third?.content?.at(-1)?.text ?? "", /no task list attached/, "the reminder rides on the result");
+		assert.equal(size(result()), 0, "a reminder repeats only after the next prompt");
+	} finally { r.close(); fs.rmSync(config, { force: true }); }
+});
+
 check("a stale consent answer never attaches a conductor into the replacement session", async () => {
 	const config = path.join(home, ".accordion", "config.json");
 	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current" } } }));

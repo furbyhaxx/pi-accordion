@@ -5,9 +5,16 @@
  */
 import { currentBlock, IDLE_REASONS, type BlockReason, type Task, type TaskList } from "./tasks";
 
-/** Reminders start on the 3rd tool result in a row with no task in progress, then repeat every 8th. */
-export const OUTSIDE_FIRST = 3;
-export const OUTSIDE_EVERY = 8;
+/**
+ * Calls allowed before coaching starts. Orientation — reading the request, the specs, the code —
+ * is real work that may need no task yet, so the count is a configuration value, not a guess.
+ */
+export const DEFAULT_ORIENTATION_CALLS = 10;
+
+/** The coach's configuration; the extension re-reads it from settings on every result. */
+export interface CoachPolicy {
+	orientationCalls: number;
+}
 
 function ancestors(id: string): string[] {
 	const out: string[] = [];
@@ -74,21 +81,36 @@ export const TEXT_WORK_CHARS = 40;
 
 export class TaskCoach {
 	private list: TaskList | null = null;
-	private outside = 0;
+	private policy: CoachPolicy = { orientationCalls: DEFAULT_ORIENTATION_CALLS };
+	/** Non-exempt calls since the last user prompt. */
+	private calls = 0;
+	/** Once per run each: a reminder that repeats is noise, and gate mode carries the refusal. */
+	private remindedNoList = false;
+	private remindedNoLeaf = false;
 	/** `<list>/<id>` → tool results and assistant texts inside that task's span since this process saw it. */
 	private readonly work = new Map<string, number>();
 
 	/** The list this session works on; null when none is attached. */
 	setList(list: TaskList | null): void {
-		if (list?.slug !== this.list?.slug) this.outside = 0;
 		this.list = list;
+	}
+
+	setPolicy(policy: CoachPolicy): void {
+		this.policy = policy;
+	}
+
+	/** A new user prompt starts a fresh run: the orientation allowance and the reminders reset. */
+	userPrompt(): void {
+		this.calls = 0;
+		this.remindedNoList = false;
+		this.remindedNoLeaf = false;
 	}
 
 	/** Tasks just started or resumed (with any auto-started parents). */
 	started(slug: string, ids: readonly string[]): void {
 		// A tool call batched with the start may report before it, and a resumed task keeps its work.
 		for (const id of ids) if (!this.work.has(`${slug}/${id}`)) this.work.set(`${slug}/${id}`, 0);
-		this.outside = 0;
+		this.calls = 0;
 	}
 
 	private countWork(list: TaskList, current: Task): void {
@@ -119,21 +141,27 @@ export class TaskCoach {
 	 * another tool) count as work but never carry a reminder of their own.
 	 */
 	toolResult(nested: boolean): string | null {
+		this.calls++;
 		const list = this.list;
-		if (!list) return null;
-		const current = innermostDoing(list);
-		if (current) {
-			this.outside = 0;
-			this.countWork(list, current);
-			return null;
+		if (list) {
+			const current = innermostDoing(list);
+			if (current) {
+				this.countWork(list, current);
+				return null;
+			}
+		}
+		// Nested calls count toward the allowance (they are work), but only the outer call may speak.
+		if (this.calls <= this.policy.orientationCalls || nested) return null;
+		if (!list) {
+			if (this.remindedNoList) return null;
+			this.remindedNoList = true;
+			return noListReminder(this.calls);
 		}
 		const pick = nextTask(list);
-		if (!pick || nested) return null;
+		if (!pick || this.remindedNoLeaf) return null;
+		this.remindedNoLeaf = true;
 		const next = pick.task;
-		this.outside++;
-		const due = this.outside === OUTSIDE_FIRST || (this.outside > OUTSIDE_FIRST && (this.outside - OUTSIDE_FIRST) % OUTSIDE_EVERY === 0);
-		if (!due) return null;
-		return `[accordion tasks] ${this.outside} tool calls in a row ran while no task of "${list.slug}" is in progress, so this work belongs to no task record. If it is part of a planned task, call tasks start {list: "${list.slug}", id: "<id>"} before continuing (${pick.resume ? `next: resume ${next.id} "${next.title}", which was waiting for ${currentBlock(next)?.on}` : `next to do: ${next.id} "${next.title}"`}); if it is new work, add a task for it first.`;
+		return `[accordion tasks] ${this.calls} tool calls ran while no task of "${list.slug}" is in progress, so this work belongs to no task record. If it is part of a planned task, call tasks start {list: "${list.slug}", id: "<id>"} before continuing (${pick.resume ? `next: resume ${next.id} "${next.title}", which was waiting for ${currentBlock(next)?.on}` : `next to do: ${next.id} "${next.title}"`}); if it is new work, add a task for it first.`;
 	}
 }
 
@@ -147,4 +175,9 @@ export function emptySpanRefusal(slug: string, id: string, previous: string | nu
 		`If this task needs the user's approval or choice before it can finish, block ${id} {reason: "user-decision", detail: "<what the user must decide>"} before replying; resume it when the answer resolves the block.`,
 		previous ? `If the work ran in the task before it, abandon ${id} {supersededBy: "${previous}"} with a report.` : `If the task is not needed, abandon ${id} with a report.`,
 	].join("\n");
+}
+
+/** The reminder for work that belongs to no list at all. */
+export function noListReminder(calls: number): string {
+	return `[accordion tasks] ${calls} tool calls ran with no task list attached, so this work belongs to no record. If it is more than a one-step errand, create or claim a list before continuing: tasks create {list: "<slug>", title: "<title>", goals: ["<end state>"], tasks: [{title: "<first outcome>", acceptanceCriteria: ["<checkable statement>"]}]}.`;
 }
