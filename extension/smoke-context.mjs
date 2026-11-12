@@ -822,6 +822,37 @@ check("a model change invalidates previous provider calibration", async () => {
 		assert.equal(t.calibration, 1, "a late old-provider receipt must not restore the invalidated calibration");
 	} finally { r.close(); }
 });
+check("a session starts from its model's prior, and a receipt never lowers the unmeasured tail", async () => {
+	const r = runtime(history(3));
+	try {
+		const host = await r.open();
+		const t = host.truth();
+		const ordinary = () => t.blocks.find(b => b.id !== "sys:0");
+		// openrouter/test/model matches no family pattern, so the '*' fallback is the prior.
+		assert.equal(t.calibrationPrior, 1.15);
+		assert.equal(t.isCalibrated(ordinary()), false, "a prior never claims receipt coverage");
+		assert.equal(t.calibration, 1, "a prior never becomes the receipt multiplier");
+
+		// A model whose tokenizer packs tighter installs its own prior on selection.
+		r.ctx.model = { ...r.ctx.model, id: "claude-sonnet-x", provider: "anthropic" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		assert.equal(t.calibrationPrior, 1.5);
+		assert.equal(t.isCalibrated(ordinary()), false);
+
+		// A receipt covers what departed: those blocks use k, later blocks keep the prior.
+		t.setCalibration(0.9);
+		assert.equal(t.calBlockTokens(t.blocks[0], 1000), 900);
+		t.append([{ id: "late:0:p0", kind: "text", turn: 0, order: 9, text: "x", tokens: 1000, override: null, autoFolded: false, by: null, subst: null }]);
+		assert.equal(t.calBlockTokens(t.blocks[t.blocks.length - 1], 1000), 1500);
+
+		// Switching models forgets the old receipt and keeps only the new model's prior.
+		r.ctx.model = { ...r.ctx.model, id: "deepseek-v4", provider: "deepseek" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		assert.equal(t.calibration, 1);
+		assert.equal(t.isCalibrated(ordinary()), false);
+		assert.equal(t.calibrationPrior, 1.2);
+	} finally { r.close(); }
+});
 check("session replacement without a model clears the old window", async () => {
 	const r = runtime(history(2));
 	try {
