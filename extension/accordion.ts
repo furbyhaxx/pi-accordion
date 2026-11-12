@@ -462,6 +462,18 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		settingsSnapshot = next;
 		settings = next.settings;
 		if (!changed.length) return;
+		const active = entryById(liveHost.activeMeta()?.id ?? null);
+		if (active?.privacy) {
+			const key = active.privacy.consentKey ?? active.id;
+			const hadConsent = !!before.privacyConsent[key];
+			const routingChanged = changed.some(name => name.startsWith("models."));
+			if (!settings.privacyConsent[key] && (hadConsent || routingChanged) && leavesMachine(active)) {
+				selectConductor(null);
+				const text = `${active.label} detached: ${hadConsent ? "privacy consent revoked" : "privacy consent required for remote model"}`;
+				latestCtx?.ui.notify(text, "warning");
+				broadcast({ type: "notice", text });
+			}
+		}
 		if (changed.some(name => name.startsWith("modelDefaults."))) {
 			dialModel = null;
 			applyDials();
@@ -796,6 +808,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return false;
 	}
 
+	function requirePrivacyConsent(conductorId: string | null, baseUrl: unknown): void {
+		const entry = entryById(conductorId);
+		if (entry?.privacy && !settings.privacyConsent[entry.privacy.consentKey ?? entry.id] && !isLoopbackUrl(baseUrl))
+			throw new Error(`${entry.label}: privacy consent required for remote model; reattach the conductor to grant consent`);
+	}
+
 	/**
 	 * Attach a conductor through its privacy gate. Ungated, consented or fully local conductors attach
 	 * at once (returns true). Otherwise the user confirms once in an interactive session; acceptance is
@@ -976,11 +994,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (req.maxOutputTokens !== undefined && (!Number.isSafeInteger(req.maxOutputTokens) || req.maxOutputTokens <= 0))
 			throw new Error("maxOutputTokens must be a positive safe integer");
 		if (activeCompletions >= MAX_CONCURRENT_COMPLETIONS) throw new Error(`too many concurrent completions in flight (max ${MAX_CONCURRENT_COMPLETIONS})`);
+		signal.throwIfAborted();
 		activeCompletions++;
 		const abort = new AbortController();
 		const onAbort = () => abort.abort();
-		if (signal.aborted) abort.abort();
-		else signal.addEventListener("abort", onAbort, { once: true });
+		signal.addEventListener("abort", onAbort, { once: true });
 		const timeoutError = new Error(`completion timed out after ${COMPLETION_TIMEOUT_MS}ms`);
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		const deadline = new Promise<never>((_resolve, reject) => {
@@ -1020,6 +1038,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const ceiling = Number.isSafeInteger(m.maxTokens) && m.maxTokens > 0 ? m.maxTokens : undefined;
 				maxTokens = ceiling !== undefined ? Math.min(req.maxOutputTokens, ceiling) : req.maxOutputTokens;
 			}
+			abort.signal.throwIfAborted();
+			requirePrivacyConsent(conductorId, m.baseUrl);
 			const providerCall = complete(m, context, { apiKey: auth.apiKey, headers: auth.headers, signal: abort.signal, ...(maxTokens !== undefined ? { maxTokens } : {}) });
 			// Consume either outcome for cleanup without changing the result used below.
 			providerSettlement = providerCall.then(() => {}, () => {});
@@ -1086,12 +1106,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!req.state || typeof req.state !== "object" || Array.isArray(req.state)) throw new Error("classification state must be a JSON object");
 		if (!req.questions || typeof req.questions !== "object" || !Object.keys(req.questions).length) throw new Error("classification needs at least one question");
 		if (activeCompletions >= MAX_CONCURRENT_COMPLETIONS) throw new Error(`too many concurrent model calls in flight (max ${MAX_CONCURRENT_COMPLETIONS})`);
+		signal.throwIfAborted();
 		const m = resolveClassifierModel(conductorId, req.model);
+		requirePrivacyConsent(conductorId, m.baseUrl);
 		activeCompletions++;
 		const abort = new AbortController();
 		const onAbort = () => abort.abort();
-		if (signal.aborted) abort.abort();
-		else signal.addEventListener("abort", onAbort, { once: true });
+		signal.addEventListener("abort", onAbort, { once: true });
 		let timer: ReturnType<typeof setTimeout> | null = null;
 		const timeoutError = new Error(`classification timed out after ${COMPLETION_TIMEOUT_MS}ms`);
 		const deadline = new Promise<never>((_resolve, reject) => {

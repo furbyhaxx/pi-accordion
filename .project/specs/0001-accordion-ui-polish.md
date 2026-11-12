@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 15
+  revision: 16
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T04:31:40+01:00"
+  updated_at: "2026-11-12T04:48:38+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 15
-      reason: "make live default re-resolution explicit in the settings contract"
-      changes: ["saved model defaults re-resolve running sessions", "session-owned dials retain priority", "schema and runtime-effects table agree"]
+    - revision: 16
+      reason: "enforce privacy changes through detach and at the resolved provider boundary"
+      changes: ["canonical consent keys and local exemptions", "remote route changes require consent", "pending authentication respects cancellation", "resolved chat and classifier destinations enforce consent"]
 ---
 
 # Accordion UI polish
@@ -776,11 +776,26 @@ export class SettingsStore {
 |---|---|
 | `bindHost`, `doorPort` | `closeDoor(); doorForeign = false; tryBindDoor()` (as today, but in all instances) |
 | `customToken` | `webToken` = custom or regenerate per session as today |
-| `compact.*`, `models.*`, `taskWidget.mode`, `taskWidget.maxRows` | none beyond re-read; next use reads the new value; widget `sync()` |
-| `privacyConsent.<id>` removed | if `<id>` is attached and needs consent (`leavesMachine`), detach it and notify "Taskfold detached: privacy consent revoked" |
+| `compact.*`, `taskWidget.mode`, `taskWidget.maxRows` | none beyond re-read; next use reads the new value; widget `sync()` |
+| `models.*` | next use resolves the new model; detach an attached remote conductor if the new route needs missing consent (§6.4) |
+| `privacyConsent.<key>` removed | detach an attached conductor declaring this consent key if it needs consent (`leavesMachine`); notify `<label> detached: privacy consent revoked` |
 | `conductorOptions.<id>` | if `<id>` is attached, re-select it (detach + attach) |
 | `modelDefaults.*` | re-resolve budget/tail for the current model, preserving session-set values |
 | others | none (apply at next session start) |
+
+### 6.4 Privacy changes
+
+The registry's `privacy.consentKey` (or the conductor id when unset) identifies its current
+consent. Removing unrelated or obsolete keys does not revoke it. Fully local model routing
+needs no consent. Removing required consent detaches through the usual host lifecycle: model
+work is aborted and existing folds are preserved; folding itself remains armed or off as before.
+
+Changing `models.*` to a remote route without consent also detaches, with
+`<label> detached: privacy consent required for remote model`. Neither change prompts another
+instance or automatically reattaches; an explicit attach goes through the normal consent gate.
+Chat and classifier calls check their resolved destination before reaching the provider, even
+if the session model changed since attachment. A chat call cancelled while waiting for auth
+must not start the provider afterwards. Content already transmitted cannot be retracted.
 
 ## 7. Area D: compaction
 

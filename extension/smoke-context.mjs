@@ -30,7 +30,7 @@ function runtime(messages = [], options = {}) {
 		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
-	accordion(pi, { openPanel: (_ctx, h) => { host = h; return options.openPanel?.(_ctx, h); } });
+	accordion(pi, { complete: options.complete, openPanel: (_ctx, h) => { host = h; return options.openPanel?.(_ctx, h); } });
 	const model = {
 		id: "test/model", name: "Test", provider: "openrouter", api: "openai-completions",
 		baseUrl: "http://localhost.invalid/v1", reasoning: false, input: ["text"],
@@ -200,6 +200,136 @@ check("model default reloads update inherited dials and preserve session values"
 		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
 		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
 	}
+});
+check("local and peer consent revocations detach only the conductor that needs that consent", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	const previousPoll = process.env.ACCORDION_CONTROLLER_POLL_MS;
+	process.env.ACCORDION_CONTROLLER_POLL_MS = "10";
+	const stamp = "2026-01-01T00:00:00Z";
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", privacyConsent: { taskfold: stamp, "taskfold-chat-v1": stamp } }));
+	const r = runtime();
+	const notices = [];
+	let prompts = 0;
+	r.ctx.ui.notify = text => notices.push(text);
+	r.ctx.ui.confirm = async () => { prompts++; return false; };
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		assert.equal(host.activeConductor().id, "taskfold");
+		assert.equal((await host.updateSettings({ "privacyConsent.taskfold": undefined }, host.settings().rev)).ok, true);
+		assert.equal(host.activeConductor().id, "taskfold", "revoking old classifier-only consent does not revoke the new consent");
+		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": undefined }, host.settings().rev)).ok, true);
+		assert.equal(host.activeConductor(), null);
+		assert.equal(host.folding(), true, "privacy detachment does not change the folding opt-in");
+		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": stamp }, host.settings().rev)).ok, true);
+		assert.equal(host.activeConductor(), null, "granting consent must not silently attach a conductor");
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		assert.equal(host.activeConductor().id, "taskfold");
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none" }));
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.activeConductor(), null);
+		assert.equal(prompts, 0, "revocation must not ask another instance to consent again");
+		assert.equal(notices.filter(text => text === "Taskfold detached: privacy consent revoked").length, 2);
+	} finally {
+		r.close(); fs.rmSync(config, { force: true });
+		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
+		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
+	}
+});
+check("a local conductor stays attached on revocation but a new remote route needs consent", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current" } }, privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" } }));
+	const r = runtime();
+	const notices = [];
+	let prompts = 0;
+	r.ctx.model = { ...r.ctx.model, baseUrl: "http://127.0.0.1:12345/v1" };
+	r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+	r.ctx.modelRegistry = { find: (provider, id) => provider === "remote" && id === "privacy-model" ? { ...r.ctx.model, provider, id, baseUrl: "https://privacy-model.invalid/v1" } : undefined };
+	r.ctx.ui.notify = text => notices.push(text);
+	r.ctx.ui.confirm = async () => { prompts++; return false; };
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		assert.equal(host.activeConductor().id, "taskfold");
+		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": undefined }, host.settings().rev)).ok, true);
+		assert.equal(host.activeConductor().id, "taskfold", "fully local routing needs no consent");
+		assert.equal((await host.updateSettings({ "models.defaults.chat": "remote/privacy-model" }, host.settings().rev)).ok, true);
+		assert.equal(host.activeConductor(), null, "live routing cannot bypass the attach-time privacy gate");
+		assert.equal(prompts, 0);
+		assert.ok(notices.includes("Taskfold detached: privacy consent required for remote model"));
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(host.activeConductor(), null);
+		assert.equal(prompts, 1, "explicit reattachment goes through the normal consent dialog");
+	} finally { r.close(); fs.rmSync(config, { force: true }); }
+});
+check("revocation during chat authentication prevents the pending provider call", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-private-routing-"));
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current" } }, privacyConsent: { "taskfold-chat-v1": "2026-01-01T00:00:00Z" } }));
+	let authenticate, started, providerCalls = 0;
+	const auth = new Promise(resolve => { authenticate = resolve; });
+	const began = new Promise(resolve => { started = resolve; });
+	const goal = { role: "user", content: "Maintain the private project.", timestamp: 1 };
+	const r = runtime([goal], { cwd: dir, complete: async () => { providerCalls++; throw new Error("cancelled work reached the provider"); } });
+	r.ctx.modelRegistry = { getApiKeyAndHeaders: () => { started(); return auth; } };
+	let request, timer;
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await r.tools.tasks.execute("privacy-create", { action: "create", list: "privacy", title: "Private work", goals: ["Keep notes private"], tasks: [{ title: "Work", acceptanceCriteria: ["No notes leave the machine without consent"] }] }, undefined, undefined, r.ctx);
+		request = r.request([goal, { role: "user", content: "Never edit the vendor directory.", timestamp: 2 }]);
+		await Promise.race([began, new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Taskfold never requested chat extraction")), 1000); })]);
+		clearTimeout(timer);
+		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": undefined }, host.settings().rev)).ok, true);
+		assert.equal(host.activeConductor(), null);
+		authenticate({ ok: true, apiKey: "fake-test-key" });
+		await request;
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(providerCalls, 0, "revocation must stop work that was still waiting for authentication");
+	} finally {
+		clearTimeout(timer); r.close(); authenticate({ ok: true, apiKey: "fake-test-key" });
+		await request;
+		fs.rmSync(config, { force: true }); fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+check("resolved remote models cannot reuse the consent exemption from a local attachment", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-private-model-"));
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current", classifier: "local/privacy" } } }));
+	const calls = { chat: 0, classifier: 0 };
+	let remote = false, classifierResolutions = 0;
+	const goal = { role: "user", content: "Maintain the private project.", timestamp: 1 };
+	const r = runtime([goal], { cwd: dir, complete: async () => { calls.chat++; throw new Error("test provider rejection"); } });
+	r.ctx.model = { ...r.ctx.model, baseUrl: "http://127.0.0.1:12345/v1" };
+	r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+	r.ctx.modelRegistry = {
+		getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "fake-test-key" }),
+		findOfType: (_type, provider, id) => {
+			if (provider !== "local" || id !== "privacy") return undefined;
+			if (remote) classifierResolutions++;
+			return { ...r.ctx.model, provider, id };
+		},
+		classify: async () => { calls.classifier++; throw new Error("test provider rejection"); },
+	};
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		assert.equal(host.activeConductor().id, "taskfold");
+		await r.tools.tasks.execute("privacy-create", { action: "create", list: "privacy", title: "Private work", goals: ["Keep notes private"], tasks: [{ title: "Work", acceptanceCriteria: ["Keep notes private"] }] }, undefined, undefined, r.ctx);
+		remote = true;
+		r.ctx.model = { ...r.ctx.model, baseUrl: "https://privacy-model.invalid/v1" };
+		r.handlers.model_select({ model: r.ctx.model }, r.ctx);
+		const messages = [goal, { role: "user", content: "Never edit the vendor directory.", timestamp: 2 }];
+		await r.request(messages);
+		await new Promise(resolve => setImmediate(resolve));
+		assert.ok(classifierResolutions > 0, "the real Taskfold path must attempt its classifier fallback");
+		assert.deepEqual(calls, { chat: 0, classifier: 0 }, "privacy follows the resolved destination, not only the initial attachment");
+		assert.equal((await host.updateSettings({ "privacyConsent.taskfold-chat-v1": "2026-01-01T00:00:00Z" }, host.settings().rev)).ok, true);
+		await r.request([...messages, { role: "user", content: "Keep every generated file under build/.", timestamp: 3 }]);
+		await new Promise(resolve => setImmediate(resolve));
+		assert.deepEqual(calls, { chat: 1, classifier: 1 }, "granting consent allows both actual model-call paths");
+	} finally { r.close(); fs.rmSync(config, { force: true }); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
 	const r = runtime();

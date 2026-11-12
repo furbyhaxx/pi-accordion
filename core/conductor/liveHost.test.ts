@@ -715,6 +715,25 @@ describe("completion — aborted on detach", () => {
 		const done = h.socketLog.filter((e) => e.socket === sock && e.msg.type === "completeResult").pop();
 		expect(done && done.msg.type === "completeResult" && done.msg.ok).toBe(false);
 	});
+	it("aborts both model-call types when the in-process Taskfold conductor detaches", async () => {
+		const captured: { signal: AbortSignal; conductor: string | null }[] = [];
+		const pending = (_req: unknown, signal: AbortSignal, conductor: string | null): Promise<never> =>
+			new Promise((_resolve, reject) => {
+				captured.push({ signal, conductor });
+				signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+			});
+		const h = makeDeps(bulk(textSeq(2)), { runCompletion: pending, runClassification: pending });
+		const host = new LiveConductorHost(h.deps);
+		host.select("taskfold");
+		const done = Promise.allSettled([
+			host.complete({ prompt: "private task notes" }),
+			host.classify({ state: { message: "private task notes" }, questions: { loss: { type: "score", instructions: "Loss", criteria: ["none", "high"] } } }),
+		]);
+		expect(captured.map(call => call.conductor)).toEqual(["taskfold", "taskfold"]);
+		host.select(null);
+		expect(captured.every(call => call.signal.aborted)).toBe(true);
+		expect((await done).map(result => result.status)).toEqual(["rejected", "rejected"]);
+	});
 });
 
 // ── S7: a conductor's completion abort is forwarded to the in-flight completion ──

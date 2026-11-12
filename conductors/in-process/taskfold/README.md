@@ -134,6 +134,12 @@ truncation and provider errors explicitly. If either model runs off this machine
 taskfold asks for consent covering both classifier and chat content; old classifier-only consent
 does not cover chat extraction. If classification fails, unrouted messages stay verbatim.
 
+Revoking the current consent detaches remote Taskfold instances as their settings reload (about
+once a second); fully local instances can stay attached. A new remote route without consent
+also detaches until you explicitly reattach and accept the notice. Every model call checks its
+resolved destination, and a chat call cancelled while waiting for credentials never starts the
+provider. Content already sent cannot be retracted.
+
 ## Untracked work
 
 If pressure remains after finished tasks are folded and open roots condensed, runs of at least eight
