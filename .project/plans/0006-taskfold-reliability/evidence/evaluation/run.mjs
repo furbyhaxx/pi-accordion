@@ -4,6 +4,7 @@ import { cp, lstat, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createScenario, scenarios } from "./scenarios.mjs";
+import { quote, sandboxArgs } from "./sandbox.mjs";
 import { auditSession, readJsonLines } from "../../../../../extension/audit-tasks.mjs";
 
 const root = resolve(fileURLToPath(new URL("../../../../..", import.meta.url)));
@@ -16,10 +17,9 @@ function waitForExit(child) {
   });
 }
 
-async function runCheck(args, cwd, timeout = 15000) {
-  const env = { ...process.env };
-  delete env.NODE_TEST_CONTEXT;
-  const child = spawn(process.execPath, args, { cwd, env, detached: true, stdio: "ignore" });
+async function runCheck(args, cwd, timeout = 15000, mounts = []) {
+  const command = ["/usr/bin/node", ...args].map(quote).join(" ");
+  const child = spawn("bwrap", sandboxArgs(resolve(cwd), command, mounts), { cwd, detached: true, stdio: "ignore" });
   const timer = setTimeout(() => { if (child.pid) { try { process.kill(-child.pid, "SIGKILL"); } catch {} } }, timeout);
   const result = await waitForExit(child);
   clearTimeout(timer);
@@ -27,8 +27,9 @@ async function runCheck(args, cwd, timeout = 15000) {
 }
 
 export async function evaluate(name, project, base) {
-  const script = `import { verifyScenario } from ${JSON.stringify(new URL("./scenarios.mjs", import.meta.url).href)}; process.exit(await verifyScenario(process.argv[1], process.cwd()) ? 0 : 1)`;
-  const behaviorPassed = (await runCheck(["--input-type=module", "-e", script, name], project)).code === 0;
+  const script = `import { verifyScenario } from '/eval/scenarios.mjs'; process.exit(await verifyScenario(process.argv[1], process.cwd()) ? 0 : 1)`;
+  const mounts = ["--dir", "/eval", "--ro-bind", fileURLToPath(new URL("./scenarios.mjs", import.meta.url)), "/eval/scenarios.mjs"];
+  const behaviorPassed = (await runCheck(["--input-type=module", "-e", script, name], project, 15000, mounts)).code === 0;
   const testsPassed = (await runCheck(["--test"], project)).code === 0;
   let regressionDetected = null;
   if (testsPassed && name !== "refactor") {
@@ -75,7 +76,7 @@ function observedDecisionBlock(entries) {
   return blocked;
 }
 
-export async function run({ model, scenario: name, output, timeoutMs = 360000, maxRequests = 30 }) {
+export async function run({ model, scenario: name, output, prompt = scenarios[name]?.prompt, timeoutMs = 360000, maxRequests = 30 }) {
   if (!model || !scenarios[name]) throw new Error("A model and known scenario are required");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1000 || !Number.isSafeInteger(maxRequests) || maxRequests < 1) throw new Error("Invalid bounds");
   const base = resolve(output);
@@ -84,10 +85,13 @@ export async function run({ model, scenario: name, output, timeoutMs = 360000, m
   const home = join(base, "home");
   const sessions = join(base, "sessions");
   await createScenario(name, project);
+  const skillRoot = join(project, ".eval-extension/skills/accordion-task-lists");
+  await cp(join(root, "extension/skills/accordion-task-lists"), skillRoot, { recursive: true });
+  for (const file of ["taskSchema.ts", "taskPins.ts", "taskAnchors.ts", "taskSymbols.ts"]) await cp(join(root, "extension", file), join(project, ".eval-extension", file));
   await mkdir(join(home, ".accordion"), { recursive: true, mode: 0o700 });
   await mkdir(sessions, { mode: 0o700 });
   await writeFile(join(home, ".accordion/config.json"), JSON.stringify({ autoArm: true, defaultConductor: "taskfold", debug: true, doorPort: 0, privacyConsent: { "taskfold-chat-v1": new Date().toISOString() } }), { mode: 0o600 });
-  const args = ["--offline", "--no-extensions", "-e", auth, "-e", join(root, "extension/accordion.ts"), "--no-skills", "--skill", join(root, "extension/skills/accordion-task-lists"), "--no-prompt-templates", "--no-context-files", "--no-mcp", "--approve", "--session-dir", sessions, "--model", model, "--thinking", "low", "--mode", "rpc"];
+  const args = ["--offline", "--no-extensions", "-e", auth, "-e", join(root, "extension/accordion.ts"), "-e", fileURLToPath(new URL("./sandbox.mjs", import.meta.url)), "--tools", "read,bash,edit,write,tasks,unfold,recall", "--no-skills", "--skill", skillRoot, "--no-prompt-templates", "--no-context-files", "--no-mcp", "--approve", "--session-dir", sessions, "--model", model, "--thinking", "low", "--mode", "rpc"];
   const env = { ...process.env, ACCORDION_HOME: home };
   for (const key of ["ACCORDION_TOKEN", "ACCORDION_HOST", "ACCORDION_PORT", "ACCORDION_DOOR_PORT", "ACCORDION_AUTO_ARM", "ACCORDION_DEFAULT_CONDUCTOR", "ACCORDION_DEBUG"]) delete env[key];
   const child = spawn("pi-bolt", args, { cwd: project, env, detached: true, stdio: ["pipe", "pipe", "ignore"] });
@@ -125,7 +129,7 @@ export async function run({ model, scenario: name, output, timeoutMs = 360000, m
       child.stdin.end();
     });
   });
-  send(child, "initial", scenarios[name].prompt);
+  send(child, "initial", `${prompt}\n\nShell commands run in an isolated workspace at /work; use relative paths.`);
   const result = await exit;
   clearTimeout(timer);
   if (killTimer) clearTimeout(killTimer);
