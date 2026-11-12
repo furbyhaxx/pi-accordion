@@ -165,3 +165,21 @@ export function stopFollowUp(verdict: { state: "in-progress"; task: string } | {
 		'- if it cannot continue, tasks block {reason: "user-decision"|"user-input"|"third-party", detail: "<what you need>"} and tell the user',
 	].join("\n");
 }
+
+/**
+ * The reminder that a leaf has grown past what one span should carry: the agent decides whether to
+ * end it (and open the next), never the engine. Repeats only when the configured interval passed.
+ */
+export function largeLeafReminder(
+	slug: string,
+	task: { id: string; title: string },
+	size: { results: number; tokens: number; share: number | null; first: boolean },
+): string {
+	const measured = size.share === null ? `${size.results} tool results` : `${size.tokens} tokens and ${size.results} tool results`;
+	return [
+		`[accordion tasks] Task ${task.id} "${task.title}" of "${slug}" has grown to ${measured}${size.share === null ? "" : ` (${Math.round(size.share)} is its configured share of the budget)`}.`,
+		size.first ? "This span is getting too large to finish cleanly in one record." : "It is still open.",
+		`Consider ending it where the last verifiable outcome lands: tasks complete {list: "${slug}", id: "${task.id}", report: {…}} and start the next task, or add one with tasks add if the remaining work was not planned.`,
+		"If it genuinely needs more room, keep going; the reminder repeats only after the configured interval.",
+	].join("\n");
+}

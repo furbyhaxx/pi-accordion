@@ -34,8 +34,9 @@ are evaluated against actual model behavior, not merely successful unit tests.
   public block reasons with internal `dependency`, `stopOnBlock`, required leaf criteria with
   repair-instead-of-refusal for older lists, and a live nine-call run
   (`evidence/lifecycle-live.json`).
-- Now: consent decoupling and the coaching gate (S4).
-- Later: span reminders, isolated prompt comparison and final gates.
+- Now: span reminders (S5's large-leaf tap), then the isolated prompt comparison (S6).
+- Done since: consent decoupling (S4) and the coaching gate (S5) — bootstrap, the orientation
+  allowance, gate mode with a bounded fail-open, and one continuation offer per typed prompt.
 - Blocked: the Kimi baseline needs a funded route (task 5).
 
 ## Current behavior and evidence
@@ -203,6 +204,12 @@ selection gate, revocation effect, browser picker and spec wording together.
 - Large-leaf reminders use the configured budget share/result threshold and repeat interval.
   A floor epoch touching the current leaf also triggers the reminder. Do not auto-split spans.
   Keep agent-facing text centralized in `extension/taskBinding.ts`.
+
+Shipped so far: the bootstrap notice, the orientation allowance counted across nested calls, the
+gate with `block` + exact repair and a bounded fail-open, the one-shot stop follow-up, and the
+large-leaf tap (`TaskCoach.largeLeafNote`) measured over the span's own content in estimated
+tokens and its tool results. Per-model `tasks.enforce`, `tasks.orientationCalls` and
+`tasks.largeLeaf` resolve through `modelDefaults` (`extension/dials.ts → modelTaskDials`).
 
 ## Configuration
 

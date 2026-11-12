@@ -3,13 +3,22 @@
  * work done while no task is in progress, and words the reminders appended to tool results.
  * Pure state plus text; the extension feeds it tool results and the attached list.
  */
+import { charsToTokens } from "../core/tokens";
 import { currentBlock, IDLE_REASONS, type BlockReason, type Task, type TaskList } from "./tasks";
+import { largeLeafReminder } from "./taskBinding";
 
 /**
  * Calls allowed before coaching starts. Orientation — reading the request, the specs, the code —
  * is real work that may need no task yet, so the count is a configuration value, not a guess.
  */
 export const DEFAULT_ORIENTATION_CALLS = 10;
+
+/** When a leaf is large enough to be worth ending: a share of the budget or a count of tool results. */
+export interface LargeLeafTap {
+	budgetShare: number;
+	toolResults: number;
+	repeatEvery: number;
+}
 
 /** `coach` reminds, `gate` refuses with the repair, `off` says nothing. */
 export type EnforceMode = "coach" | "gate" | "off";
@@ -22,6 +31,9 @@ export interface CoachPolicy {
 	gateFailOpenAfter: number;
 	/** A blocked task stops the run, so nothing else can be named as next. */
 	stopOnBlock: boolean;
+	largeLeaf: LargeLeafTap;
+	/** Effective budget in tokens for this model; the share is measured against it. */
+	budget: number | null;
 }
 
 /** What the gate decided about one call: block it, and/or report that it gave up. */
@@ -99,7 +111,14 @@ export const TEXT_WORK_CHARS = 40;
 
 export class TaskCoach {
 	private list: TaskList | null = null;
-	private policy: CoachPolicy = { orientationCalls: DEFAULT_ORIENTATION_CALLS, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true };
+	private policy: CoachPolicy = {
+		orientationCalls: DEFAULT_ORIENTATION_CALLS,
+		enforce: "coach",
+		gateFailOpenAfter: 3,
+		stopOnBlock: true,
+		largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
+		budget: null,
+	};
 	/** Non-exempt calls since the last user prompt. */
 	private calls = 0;
 	/** Refusals in this run, and whether the gate already gave up on it. */
@@ -110,6 +129,9 @@ export class TaskCoach {
 	private remindedNoLeaf = false;
 	/** `<list>/<id>` → tool results and assistant texts inside that task's span since this process saw it. */
 	private readonly work = new Map<string, number>();
+	/** `<list>/<id>` → estimated tokens of that span's content, and the work count at its last tap. */
+	private readonly spanTokens = new Map<string, number>();
+	private readonly tapped = new Map<string, number>();
 
 	/** The list this session works on; null when none is attached. */
 	setList(list: TaskList | null): void {
@@ -156,24 +178,50 @@ export class TaskCoach {
 		return { refuse: list ? noLeafRefusal(list, this.calls) : noListRefusal(this.calls) };
 	}
 
-	private countWork(list: TaskList, current: Task): void {
+	private countWork(list: TaskList, current: Task, tokens = 0): void {
 		for (const id of [current.id, ...ancestors(current.id)]) {
 			const key = `${list.slug}/${id}`;
 			this.work.set(key, (this.work.get(key) ?? 0) + 1);
+			if (tokens) this.spanTokens.set(key, (this.spanTokens.get(key) ?? 0) + tokens);
 		}
+	}
+
+	/**
+	 * The tap on the shoulder for a leaf that is getting too big to finish in one span: a share of
+	 * the budget, or a pile of tool results. It repeats every `repeatEvery` results, because a leaf
+	 * the agent deliberately keeps open — a long build, a migration — must not be nagged per call.
+	 * Nothing is split here: the agent decides what the span is.
+	 */
+	private largeLeafNote(list: TaskList, current: Task): string | null {
+		const tap = this.policy.largeLeaf;
+		const key = `${list.slug}/${current.id}`;
+		const results = this.work.get(key) ?? 0;
+		const tokens = this.spanTokens.get(key) ?? 0;
+		const share = this.policy.budget ? this.policy.budget * tap.budgetShare : null;
+		const over = results >= tap.toolResults || (share !== null && tokens >= share);
+		const last = this.tapped.get(key);
+		if (over && last === undefined) {
+			this.tapped.set(key, results);
+			return largeLeafReminder(list.slug, current, { results, tokens, share, first: true });
+		}
+		if (over && last !== undefined && results - last >= tap.repeatEvery) {
+			this.tapped.set(key, results);
+			return largeLeafReminder(list.slug, current, { results, tokens, share, first: false });
+		}
+		return null;
 	}
 
 	/** An assistant message finished; its text counts as work of the task in progress when long enough. */
 	assistantText(chars: number): void {
 		const current = this.list && innermostDoing(this.list);
-		if (current && chars > TEXT_WORK_CHARS) this.countWork(this.list!, current);
+		if (current && chars > TEXT_WORK_CHARS) this.countWork(this.list!, current, charsToTokens(chars));
 	}
 
 	/** Work still counts while coaching is off or gated; only the reminders are suppressed. */
-	private countOnly(): null {
+	private countOnly(chars = 0): null {
 		const list = this.list;
 		const current = list && innermostDoing(list);
-		if (list && current) this.countWork(list, current);
+		if (list && current) this.countWork(list, current, charsToTokens(chars));
 		return null;
 	}
 
@@ -191,14 +239,14 @@ export class TaskCoach {
 	 * A non-`tasks` tool result. Returns the reminder to append, or null. Nested calls (issued by
 	 * another tool) count as work but never carry a reminder of their own.
 	 */
-	toolResult(nested: boolean): string | null {
-		if (this.policy.enforce !== "coach") return this.countOnly();
+	toolResult(nested: boolean, chars = 0): string | null {
+		if (this.policy.enforce !== "coach") return this.countOnly(chars);
 		const list = this.list;
 		if (list) {
 			const current = innermostDoing(list);
 			if (current) {
-				this.countWork(list, current);
-				return null;
+				this.countWork(list, current, charsToTokens(chars));
+				return this.largeLeafNote(list, current);
 			}
 		}
 		// Nested calls count toward the allowance (they are work), but only the outer call may speak.

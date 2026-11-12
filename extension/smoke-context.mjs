@@ -348,6 +348,43 @@ check("a premature stop earns one follow-up; an abort, a wait and finished work 
 	} finally { r2.close(); fs.rmSync(done, { recursive: true, force: true }); }
 });
 
+check("a large leaf taps on the result threshold, then only at the repeat interval", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-large-"));
+	const r = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: dir, sessionId: "large" });
+	const run = (id, args) => r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
+	const tap = (runtime) => {
+		const id = `t${Math.random()}`;
+		runtime.handlers.tool_call({ toolName: "bash", toolCallId: id, input: {} }, runtime.ctx);
+		const reply = runtime.handlers.tool_result({ toolName: "bash", toolCallId: id, content: [{ type: "text", text: "ok" }], isError: false }, runtime.ctx);
+		return reply?.content?.at(-1)?.text ?? null;
+	};
+	try {
+		const host = await r.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await run("c1", { action: "create", list: "big", title: "Big", goals: ["Done"], tasks: [{ title: "Migrate", acceptanceCriteria: ["tests pass"] }] });
+		await run("c2", { action: "start", list: "big", id: "1" });
+		const taps = Array.from({ length: 30 }, () => tap(r)).filter(Boolean);
+		assert.equal(taps.length, 1, `one tap at the default 25 results: ${JSON.stringify(taps)}`);
+		assert.match(taps[0], /Task 1 "Migrate" of "big"/);
+		assert.match(taps[0], /tasks complete/);
+	} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+
+	// A per-model override lowers the threshold and shortens the interval for this session's model.
+	const config = path.join(home, ".accordion", "config.json");
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", modelDefaults: { "openrouter/*": { tasks: { largeLeaf: { toolResults: 3, repeatEvery: 2 } } } } }));
+	const over = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-large-model-"));
+	const r2 = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: over, sessionId: "large-model" });
+	try {
+		const host = await r2.open();
+		host.command({ kind: "selectConductor", id: "taskfold" });
+		await r2.tools.tasks.execute("c1", { action: "create", list: "big", title: "Big", goals: ["Done"], tasks: [{ title: "Migrate", acceptanceCriteria: ["tests pass"] }] }, undefined, undefined, r2.ctx);
+		await r2.tools.tasks.execute("c2", { action: "start", list: "big", id: "1" }, undefined, undefined, r2.ctx);
+		const taps = Array.from({ length: 6 }, () => tap(r2)).filter(Boolean);
+		assert.equal(taps.length, 2, `the per-model threshold and interval apply: ${JSON.stringify(taps)}`);
+		assert.match(taps[1], /It is still open/);
+	} finally { r2.close(); fs.rmSync(over, { recursive: true, force: true }); fs.rmSync(config, { force: true }); }
+});
+
 check("a stale consent answer never attaches a conductor into the replacement session", async () => {
 	const config = path.join(home, ".accordion", "config.json");
 	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", models: { defaults: { chat: "current" } } }));

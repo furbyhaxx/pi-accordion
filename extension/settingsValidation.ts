@@ -79,7 +79,8 @@ export type SettingPath = keyof typeof RULES
 	| `conductorOptions.${string}.${string}`
 	| `privacyConsent.${string}`
 	| `calibration.priors.${string}`
-	| `modelDefaults.${string}.${"budget" | "protect" | "timing"}`;
+	| `modelDefaults.${string}.${"budget" | "protect" | "timing"}`
+	| `modelDefaults.${string}.tasks.${"enforce" | "orientationCalls" | "largeLeaf.budgetShare" | "largeLeaf.toolResults" | "largeLeaf.repeatEvery"}`;
 
 /** Flat field edits; undefined removes an optional map entry or model override. */
 export type SettingsPatch = Partial<Record<SettingPath, unknown>>;
@@ -120,6 +121,18 @@ function field(name: string): Field | undefined {
 		parts: ["modelDefaults", defaults[1], defaults[2]],
 		rule: defaults[2] === "timing" ? value => value === undefined ? undefined : timing(value) : amount,
 	};
+	const taskDefault = /^modelDefaults\.(.+)\.tasks\.(enforce|orientationCalls|largeLeaf\.budgetShare|largeLeaf\.toolResults|largeLeaf\.repeatEvery)$/.exec(name);
+	if (taskDefault && safeKey(taskDefault[1]) && isModelPattern(taskDefault[1])) {
+		const key = taskDefault[2].split(".");
+		return {
+			parts: ["modelDefaults", taskDefault[1], "tasks", ...key],
+			rule: taskDefault[2] === "enforce"
+				? value => value === undefined || value === "coach" || value === "gate" || value === "off" ? undefined : "must be \"coach\", \"gate\" or \"off\""
+				: taskDefault[2] === "largeLeaf.budgetShare"
+					? value => value === undefined ? undefined : typeof value === "number" && value > 0 && value <= 1 ? undefined : "must be a fraction greater than 0 and at most 1"
+					: value => value === undefined ? undefined : Number.isInteger(value) && (value as number) > 0 ? undefined : "must be a positive integer",
+		};
+	}
 	return undefined;
 }
 
@@ -138,6 +151,12 @@ export function settingPaths(settings: AccordionSettings): SettingPath[] {
 	for (const id of Object.keys(settings.privacyConsent)) names.push(`privacyConsent.${id}`);
 	for (const [pattern, dials] of Object.entries(settings.modelDefaults)) {
 		for (const key of ["budget", "protect", "timing"] as const) if (dials[key] !== undefined) names.push(`modelDefaults.${pattern}.${key}`);
+		const tasks = dials.tasks;
+		if (tasks?.enforce !== undefined) names.push(`modelDefaults.${pattern}.tasks.enforce`);
+		if (tasks?.orientationCalls !== undefined) names.push(`modelDefaults.${pattern}.tasks.orientationCalls`);
+		for (const key of ["budgetShare", "toolResults", "repeatEvery"] as const) {
+			if (tasks?.largeLeaf?.[key] !== undefined) names.push(`modelDefaults.${pattern}.tasks.largeLeaf.${key}`);
+		}
 	}
 	for (const pattern of Object.keys(settings.calibration.priors)) names.push(`calibration.priors.${pattern}`);
 	return names;

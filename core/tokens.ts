@@ -15,7 +15,12 @@ export const BLOCK_OVERHEAD = 4;
 
 export function estTokens(s: string): number {
 	if (!s) return 0;
-	return Math.ceil(s.length / CHARS_PER_TOKEN);
+	return charsToTokens(s.length);
+}
+
+/** The same estimate from a character count, for callers that only measured the length. */
+export function charsToTokens(chars: number): number {
+	return chars > 0 ? Math.ceil(chars / CHARS_PER_TOKEN) : 0;
 }
 
 export function clip(s: string, n: number): string {

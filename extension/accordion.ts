@@ -55,7 +55,7 @@ import { BLOCK_REASONS, TASK_ACTIONS, TaskError, TaskStore, runTasksTracked, typ
 import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
-import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
+import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
 import { cacheProfileFor } from "../core/cacheProfiles";
 import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
@@ -3321,7 +3321,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskCoach.setList(list);
 		taskCoach.setPolicy(coachPolicy());
 		void flushTaskNotices(ctx);
-		const note = taskCoach.toolResult(!!event.parentToolCallId);
+		const chars = event.content.reduce((n, part) => n + (part.type === "text" && typeof part.text === "string" ? part.text.length : 0), 0);
+		const note = taskCoach.toolResult(!!event.parentToolCallId, chars);
 		return note ? { ...withDetails, content: [...event.content, { type: "text" as const, text: note }] } : withDetails;
 	});
 
@@ -3402,12 +3403,23 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
 
+	/**
+	 * The protocol's policy for the current model: the shared settings, with the per-model overrides
+	 * that `modelDefaults` allows (`provider/model` → `provider/*` → `*`), and the budget the
+	 * large-leaf share is measured against.
+	 */
 	function coachPolicy(): CoachPolicy {
+		const spec = modelSpec();
+		const exact = spec ? modelTaskDials(spec, settings.modelDefaults) : {};
+		const share = settings.tasks.largeLeaf;
+		const resolved = currentDials();
 		return {
-			orientationCalls: settings.tasks.orientationCalls,
-			enforce: settings.tasks.enforce,
+			orientationCalls: exact.orientationCalls ?? settings.tasks.orientationCalls,
+			enforce: exact.enforce ?? settings.tasks.enforce,
 			gateFailOpenAfter: settings.tasks.gateFailOpenAfter,
 			stopOnBlock: settings.tasks.stopOnBlock,
+			largeLeaf: { ...share, ...exact.largeLeaf },
+			budget: resolved?.budget ?? null,
 		};
 	}
 

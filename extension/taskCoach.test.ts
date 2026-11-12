@@ -150,3 +150,42 @@ describe("gate", () => {
 		}
 	});
 });
+
+describe("large leaf", () => {
+	const setup = () => {
+		const c = new TaskCoach();
+		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 3, repeatEvery: 2 }, budget: 1000 });
+		c.started("w", ["1"]);
+		c.setList(list([t("1", "doing", "Big")]));
+		return c;
+	};
+
+	test("taps once the result count is reached, then only after the repeat interval", () => {
+		const c = setup();
+		const notes = Array.from({ length: 6 }, () => { c.callStarted(false); return c.toolResult(false, 0); });
+		expect(notes[2]).toContain('Task 1 "Big"');
+		expect(notes.slice(0, 2)).toEqual([null, null]);
+		expect(notes[4]).toContain("It is still open");
+		expect(notes.slice(3, 4)).toEqual([null]);
+		expect(notes[5]).toBeNull();
+	});
+
+	test("taps on the budget share of accumulated content, not only on result count", () => {
+		const c = setup();
+		c.callStarted(false);
+		expect(c.toolResult(false, 100)).toBeNull();
+		c.callStarted(false);
+		// 2,400 characters is 600 tokens: past half of the 1,000-token budget.
+		expect(c.toolResult(false, 2400)).toContain("625 tokens");
+	});
+
+	test("stays quiet for a leaf with no ceiling, and inside a nested call's own result", () => {
+		const c = new TaskCoach();
+		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 2, repeatEvery: 1 }, budget: null });
+		c.started("w", ["1"]);
+		c.setList(list([t("1", "doing", "Big")]));
+		const notes = Array.from({ length: 4 }, () => { c.callStarted(false); return c.toolResult(false, 0); });
+		expect(notes[1]).toContain("tool results");
+		expect(notes[1]).not.toContain("configured share");
+	});
+});
