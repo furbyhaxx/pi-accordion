@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 15
+  revision: 16
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T05:21:23+01:00"
+  updated_at: "2026-11-12T06:22:19+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 15
-      reason: "cancel stale door binds and occupancy probes"
-      changes: ["pending DNS listeners are owned before listening", "probe requests cancel on rebind and shutdown", "retired callbacks cannot disable replacement listeners or restart a stopped door", "real loopback regression coverage"]
+    - revision: 16
+      reason: "verify shared settings in two source-loaded Pi sessions"
+      changes: ["native partial saves merge peer edits", "same-field conflicts retain staged values", "live env and flag lock refusals", "repeatable source-loaded fixture and redacted evidence"]
 ---
 
 # Accordion UI polish: plan
@@ -28,7 +28,7 @@ implementation must deviate, update the spec in the same change.
 done  S0  Taskfold visibility unit and task tooling (§4)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
-now   S2  Settings store, sync, schema (§6.1, §6.3): store done; runtime sync next
+now   S2  Settings store, sync, schema (§6.1, §6.3): runtime sync delivered; live checks/options next
 next  S3  Settings screen (§6.2)
 later S1c Footer (§8)
 later S4  Compaction (§7)
@@ -228,8 +228,13 @@ All 167 settings, dials, lock and TUI tests, native smokes, clean Svelte check a
 pass (21 existing skips). Expanded strict checking still reports the seven unchanged diagnostics:
 three TS2612 conductor declarations, two optional URL arguments and two tool-result `details`
 signatures.
-Pending: conductor option declarations and the live two-Pi sync check. Settings WebSocket frames belong
-to S6's protocol work. Aggressive/bake execution remains in S4.
+Two real, source-loaded Pi sessions now verify peer adoption in 942 ms, native partial saves
+over unrelated edits, preserved staged values after a conflict, and environment/flag locks.
+Barrier-synchronized independent store clients verify both disjoint merges and exactly one
+same-field winner (`evidence/settings-sync/`). The fixture checks observer process ownership
+and loads explicit TypeScript paths rather than an old generated JavaScript entry point.
+Pending: live runtime-effects and stale-panel checks, plus conductor option declarations.
+Settings WebSocket frames belong to S6's protocol work. Aggressive/bake execution remains in S4.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

@@ -1,0 +1,23 @@
+{
+  "realPiInstances": 2,
+  "sourceExplicitlyLoaded": true,
+  "observerPidsMatchTerminalProcessTrees": true,
+  "peerAdoptionMs": 942,
+  "unrelatedNativeSaveMerged": true,
+  "stagedConflictRetained": true,
+  "independentWriterResults": [
+    {
+      "ok": false,
+      "error": "taskfold.timing: changed on disk; reload before saving",
+      "conflict": true
+    },
+    {
+      "ok": true,
+      "rev": "bbb4a5659204fe6928dab286b9eedeaa3dc146c98437e0d057ff5a93fa263b40"
+    }
+  ],
+  "environmentOverrideWins": true,
+  "flagOverrideVisible": true,
+  "lockedNativeWritesRejected": true,
+  "unknownFileFieldPreserved": true
+}
