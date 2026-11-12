@@ -1,0 +1,12 @@
+{
+  "instances": 2,
+  "runtime": "Pi-Bolt terminals with source-loaded extension",
+  "history": "synthetic task blocks appended through the test fixture",
+  "modelRequests": 0,
+  "keepOneLeavesTaskOpen": true,
+  "keepZeroFoldsTask": true,
+  "nativeAndPeerReattach": true,
+  "foldSummariesPreserved": true,
+  "foldOwnershipAfterReattach": "you",
+  "unrelatedAndNoopDoNotReattach": true
+}

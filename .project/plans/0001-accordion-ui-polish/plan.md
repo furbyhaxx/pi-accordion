@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 24
+  revision: 25
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T08:38:24+01:00"
+  updated_at: "2026-11-12T09:00:08+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 24
-      reason: "persist and validate conductor options without losing shipped Taskfold settings"
-      changes: ["migrate legacy settings into canonical conductorOptions", "validate ranges and coupled watermarks under the store lock", "preserve previously accepted values and canonical precedence"]
+    - revision: 25
+      reason: "finish the shared settings foundation and verify conductor option adoption"
+      changes: ["reattach on effective option changes through the consent gate", "expose Taskfold epoch savings", "verify live two-session adoption and preserved folds"]
 ---
 
 # Accordion UI polish: plan
@@ -28,8 +28,8 @@ implementation must deviate, update the spec in the same change.
 done  S0  Taskfold visibility unit and task tooling (§4)
 done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
-now   S2  Settings store, sync, schema (§6.1, §6.3): runtime sync and live checks delivered; options next
-next  S3  Settings screen (§6.2)
+done  S2  Settings store, sync, schema (§6.1, §6.3): automated gates and two-session checks pass
+now   S3  Settings screen (§6.2)
 later S1c Footer (§8)
 later S4  Compaction (§7)
 later S5  Panel screens (§5.3–5.8)

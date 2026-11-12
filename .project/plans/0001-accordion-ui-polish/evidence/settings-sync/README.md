@@ -127,6 +127,18 @@ labels and breadcrumbs without assuming the frame starts at the terminal's first
 Run Ruff and strict mypy on all six Python drivers. Review copies may be scaled locally;
 the original evidence PNGs remain unchanged. No provider request or persistent edit is made.
 
+## Conductor option adoption
+
+Run `uv run --no-project python -B -m options` after the shared-save fixture is running.
+Two source-loaded Pi terminals attach Taskfold using local, fail-closed model routes. The fixture
+appends synthetic task blocks to each session's Truth; the native host settings callback changes
+the saved options. With eager timing, `keepRecentTasks: 1` keeps the task open, then `0` folds it
+in both the saving and polling sessions. A further option change reattaches each conductor and
+preserves the digest byte-for-byte as a human-owned fold. A no-op option plus a changed unrelated
+setting does not reattach. `options-result.json` records the checks; no model requests are sent.
+The options editor itself is S3 work, so this verifies the native host callback, not that editor.
+Run Ruff and strict mypy on `options.py`.
+
 ## Cleanup
 
 Stop only the Pi processes from this run, wait for them to exit, then remove their owned tmux
