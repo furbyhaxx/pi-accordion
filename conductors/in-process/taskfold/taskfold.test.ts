@@ -96,6 +96,21 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 	return { s, start, end };
 }
 
+	it("reports the last epoch's estimated savings for compaction previews", async () => {
+		const { s, start } = oneTask();
+		const host = setup(s, 2);
+		const before = host.stats().liveTokens;
+		const conductor = new TaskfoldConductor({ keepRecentTasks: 0 });
+		conductor.attach(host);
+		await host.departWire();
+		const status = host.statusLog.at(-1);
+		expect(groupOf(host, start)).toBeDefined();
+		expect(host.stats().liveTokens).toBeLessThan(before);
+		expect(status?.metrics?.saved).toBeGreaterThan(0);
+		expect(status?.text).toContain(`~${status?.metrics?.saved} tokens`);
+		conductor.detach();
+	});
+
 	it("resolves registry defaults and keeps the configured number of recent tasks raw", async () => {
 		for (const keepRecentTasks of [undefined, 0, 1]) {
 			const { s, start } = oneTask();

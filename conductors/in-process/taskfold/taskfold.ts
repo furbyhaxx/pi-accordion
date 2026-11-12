@@ -1267,6 +1267,7 @@ export class TaskfoldConductor implements Conductor {
 				epochs: this.epochs,
 				groups: this.groupKeys(host).size,
 				live_tokens: s.liveTokens,
+				saved,
 				budget: s.budget,
 				...(rollbackFailed ? { level: "error" } : this.classifyFailures || this.rawWarning ? { level: "warning" } : {}),
 			});
