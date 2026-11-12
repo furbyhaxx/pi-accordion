@@ -612,7 +612,7 @@ export class TaskfoldConductor implements Conductor {
 			for (const b of blocks) if (b.kind === "user" && !this.verdicts.has(b.id)) this.consentQueue.add(b.id);
 			if (!this.awaitingConsent) {
 				this.awaitingConsent = true;
-				this.host?.setStatus("Taskfold: deterministic tooling active; classifier: awaiting consent.", {
+				this.host?.setStatus("deterministic tooling active; classifier: awaiting consent.", {
 					level: "warning",
 					classifier: "awaiting consent",
 				});

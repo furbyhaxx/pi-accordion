@@ -175,7 +175,9 @@ conductors still detach.
 `extension/privacyGate.ts`, the Taskfold model gate (`allowModel` ctor argument; skipped user
 messages stay unverdicted in `consentQueue` and drain on the first permitted pass), the host
 re-asking and reattaching on consent, spec §6.4 and AGENTS.md updated. Verified by 697 unit
-tests, the smoke suites and a live Pi-Bolt run (see evidence). This extends classifier-only consent decoupling to the newer chat
+tests, the smoke suites and a live Pi-Bolt run (`evidence/deferred-consent-live.json`: phase A ran
+the `tasks` tool with no consent and made zero model calls; phase B granted consent mid-session
+and the classifier request followed). This extends classifier-only consent decoupling to the newer chat
 surface; it never authorizes an external model call without consent. Change the registry,
 selection gate, revocation effect, browser picker and spec wording together.
 
