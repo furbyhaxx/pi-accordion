@@ -3,17 +3,16 @@ document:
   type: "plan"
   id: "PLAN-0006"
   title: "Taskfold reliability: token truth, ordered work and measured coaching"
-  description: "Implement the remaining D1–D8 reliability decisions, preserving the shipped fold-timing and append-only context contracts"
-  status: "draft"
-  revision: 2
+  status: "active"
+  revision: 3
   created_at: "2026-11-12T02:56:59+01:00"
-  updated_at: "2026-11-12T10:17:32+01:00"
+  updated_at: "2026-11-12T11:05:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "record settings prerequisites and baseline tooling progress"
-      changes: ["settings foundation completed", "protocol audit and bounded synthetic scenarios added"]
+    - revision: 3
+      reason: "record the live pre-enforcement baseline"
+      changes: ["Claude, GPT, DeepSeek and GLM baselines recorded", "Kimi route unavailable"]
 ---
 
 # Taskfold reliability
@@ -29,10 +28,12 @@ are evaluated against actual model behavior, not merely successful unit tests.
 
 ## Progress
 
-- Done: source inventory, executable plan, shared settings foundation and Settings screen.
-- Now: protocol audit and original-behavior live baseline; synthetic scenarios and runner exist.
-- Next: token truth and store order; connect trustworthy paired audit measurements when available.
+- Done: source inventory, executable plan, shared settings foundation, Settings screen, protocol
+  audit and the live pre-enforcement baseline for Claude, GPT, DeepSeek and GLM.
+- Now: token truth and store order.
+- Next: connect trustworthy paired audit measurements when token truth provides them.
 - Later: consent decoupling, coaching/gate, span reminders, isolated prompt comparison and final gates.
+- Blocked: the Kimi baseline needs a funded route (task 5).
 
 ## Current behavior and evidence
 

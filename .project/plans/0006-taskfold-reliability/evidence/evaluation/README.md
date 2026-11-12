@@ -30,5 +30,24 @@ unverified decisions and unknown metrics are not passes.
 
 `isolation-live.json` records a real synthetic canary probe and task-tool cycle.
 The money helper makes prerequisite discovery possible; whether a model actually repairs its
-plan is a measured observation, not inferred from using the helper. Token budget metrics remain
-unknown until matched, trustworthy measurements are available. Baselines have not yet been run.
+plan is a measured observation, not inferred from using the helper.
+
+## Recorded pre-enforcement baseline
+
+Committed summaries: `claude-original.json`, `gpt-original.json`, `deepseek-original.json`,
+`glm-original.json`; `kimi-unavailable.json` records why that family could not be measured.
+Each row ran all four scenarios on the shipped (uncoached) Taskfold with folding armed and
+`--thinking low`.
+
+| Family | Route | Behavior passed | Tracked results | Calls before first start | Decision block |
+|---|---|---|---|---|---|
+| Claude | `claude/claude-sonnet-5-5` | 4/5 runs (the first decision run predates the reply fix) | 0/2, 0/3, 0/2, 0/3 | never created a list | no |
+| GPT | `openai/gpt-6.1-sol` | 3/4 (refactor, docs, decision) | 12/12, 12/12, 16/16, 9/9 | 0 | yes, not early |
+| DeepSeek | `deepseek/deepseek-flash` | 4/4 | 0/9, 0/4, 0/6, 0/12 | never created a list | no |
+| GLM | `openrouter/z-ai/glm-latest` | 2/4 (refactor, decision) | 0/8, 0/4, 0/9, 5/7 | 0, 0, 0, 2 | yes, not early |
+
+Counts are refactor, bug, docs, decision in that order. All 161 observed requests have unknown
+token truth: the runtime records no trustworthy, request-paired measurement yet. `bug` failures
+are the withheld rounding prerequisite in `src/money.mjs`; `docs` failures are a missing
+documented case-sensitive mode. Neither is a harness defect — the verifier checks behavior, not
+the model's self-report.
