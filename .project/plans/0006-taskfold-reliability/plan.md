@@ -190,8 +190,8 @@ Add to the shared validated schema and Settings sections:
   `stopOnBlock` (true), `resumeOnStop` (true), `bootstrapNote` (true).
 - `tasks.largeLeaf`: `budgetShare` (0.15), `toolResults` (25), `repeatEvery` (10).
 - `tasks.acceptanceCriteria`: `required` (true), `min` (1), `max` (3), `maxChars` (300).
-- `calibration`: `minRatio` (0.7), `maxRatio` (null), `dedupeCacheWrite` (true),
-  `preferRecount` (true), `priors` (the family defaults above).
+- `calibration`: `minRatio` (0.7), `maxRatio` (null), `dedupeCacheWrite` (true), `priors` (the
+  family defaults above). No recount switch: no source can prove the match (S2.4).
 - Per-model overrides in `modelDefaults`: `tasks.enforce`, `tasks.orientationCalls`,
   `tasks.largeLeaf`, resolved like budget/tail (`provider/model` → `provider/*` → `*`).
 
