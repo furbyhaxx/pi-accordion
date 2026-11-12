@@ -584,6 +584,24 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("per-conductor routes can be cleared or changed independently", async () => {
+		const s = setup(false, "settings");
+		s.settings().models = { defaults: {}, conductors: { taskfold: { chat: "vendor/old", classifier: "vendor/judge" } } };
+		let saved: SettingsPatch | undefined;
+		s.host.models = async () => [{ provider: "vendor", id: "new-judge", name: "New judge" }];
+		s.host.updateSettings = (patch) => { saved = patch; return { ok: true, snapshot: s.host.settings!() }; };
+		selectSetting(s, "Chat override"); s.panel.handleInput(K.down); s.panel.handleInput(K.down);
+		expect(s.screen()).toContain("Chat model for Taskfold");
+		expect(s.cursor()).toContain("vendor/old");
+		s.panel.handleInput(K.alt("u"));
+		expect(s.cursor()).toContain("default");
+		s.panel.handleInput(K.down); s.panel.handleInput(K.enter); await tick();
+		for (const ch of "new-judge") s.panel.handleInput(ch);
+		s.panel.handleInput(K.enter); s.panel.handleInput(K.ctrlS); await tick();
+		expect(saved).toEqual({ "models.conductors.taskfold.chat": undefined, "models.conductors.taskfold.classifier": "vendor/new-judge" });
+		s.close(); await s.opening;
+	});
+
 	test("adds a model pattern with validated budget, tail and timing", async () => {
 		const s = setup(false, "settings");
 		let saved: SettingsPatch | undefined;

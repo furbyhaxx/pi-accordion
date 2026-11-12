@@ -23,6 +23,13 @@ export function modelDefaultRows(patterns: readonly string[]): SettingsRow[] {
 	];
 }
 
+export function modelRouteRows(conductors: readonly { id: string; label: string }[]): SettingsRow[] {
+	return conductors.flatMap(({ id, label }): SettingsRow[] => [
+		{ section: `Models · ${label}`, path: `models.conductors.${id}.chat`, label: "Chat override", kind: "model", description: `Chat model for ${label}; unset uses the default route.` },
+		{ section: `Models · ${label}`, path: `models.conductors.${id}.classifier`, label: "Classifier override", kind: "model", description: `Classifier model for ${label}; unset uses the default route.` },
+	]);
+}
+
 export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Defaults · all sessions", path: "autoArm", label: "Arm on startup", kind: "toggle", description: "Arm folding when a new session starts." },
 	{ section: "Defaults · all sessions", path: "defaultConductor", label: "Default conductor", kind: "conductor", description: "Conductor attached when a session starts armed." },

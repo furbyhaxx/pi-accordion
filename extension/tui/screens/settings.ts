@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "../../settings";
 import { settingParts, validateSetting, type SettingPath, type SettingsPatch } from "../../settingsValidation";
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
-import { modelDefaultRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
+import { modelDefaultRows, modelRouteRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
 
 interface SessionRow {
 	id: "folding" | NumericDialKind;
@@ -64,7 +64,11 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			if (parts?.[0] === "modelDefaults") patterns.add(parts[1]);
 		}
 		const firstCompaction = SETTINGS_ROWS.findIndex((row) => row.section === "Compaction");
-		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction)];
+		const firstTaskfold = SETTINGS_ROWS.findIndex((row) => row.section === "Taskfold");
+		const conductors = new Map(host.conductors().filter((entry) => entry.id !== "none").map((entry) => [entry.id, entry.label]));
+		for (const id of Object.keys(settings.models.conductors)) if (!conductors.has(id)) conductors.set(id, id);
+		const routes = modelRouteRows([...conductors].map(([id, label]) => ({ id, label })));
+		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction, firstTaskfold), ...routes, ...SETTINGS_ROWS.slice(firstTaskfold)];
 		if (previous) {
 			const index = rows.findIndex((row) => isGlobal(row) && isGlobal(previous) ? row.path === previous.path && row.kind === previous.kind : !isGlobal(row) && !isGlobal(previous) && row.id === previous.id);
 			if (index >= 0) selected = index;
