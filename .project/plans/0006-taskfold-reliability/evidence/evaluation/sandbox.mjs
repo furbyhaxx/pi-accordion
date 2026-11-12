@@ -28,6 +28,14 @@ export function safePath(root, input) {
   }
 }
 
+function safeTaskStore(root) {
+  const relative = ".pig/tasks";
+  if (!safePath(root, relative)) return false;
+  try {
+    return fs.readdirSync(path.join(root, relative)).every((name) => safePath(root, path.join(relative, name)));
+  } catch (error) { return error?.code === "ENOENT"; }
+}
+
 export function quote(text) { return `'${text.replaceAll("'", "'\\''")}'`; }
 
 export function sandboxArgs(root, command, mounts = []) {
@@ -41,6 +49,12 @@ export function shellCommand(root, command) {
 export default function sandbox(pi) {
   pi.on("tool_call", (event, ctx) => {
     if (!["bash", "read", "edit", "write", "tasks", "unfold", "recall"].includes(event.toolName)) return { block: true, reason: "This tool is unavailable in the synthetic evaluation." };
+    const messages = ctx.sessionManager.getBranch();
+    const assistant = messages.findLast((entry) => entry.type === "message" && entry.message?.role === "assistant")?.message;
+    const calls = Array.isArray(assistant?.content) ? assistant.content.filter((part) => part.type === "toolCall") : [];
+    if (!calls.some((call) => call.id === event.toolCallId)) return { block: true, reason: "Cannot verify the evaluation tool batch." };
+    if (calls.length > 1 && calls.some((call) => call.name === "bash")) return { block: true, reason: "Run shell and other tools in separate turns in this synthetic evaluation." };
+    if (event.toolName === "tasks" && !safeTaskStore(ctx.cwd)) return { block: true, reason: "The synthetic task store must remain inside its project." };
     if (event.toolName === "bash") {
       event.input.command = shellCommand(ctx.cwd, event.input.command);
       return;

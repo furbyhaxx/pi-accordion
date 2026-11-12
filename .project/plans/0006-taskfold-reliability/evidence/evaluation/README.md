@@ -20,12 +20,14 @@ it into evidence. The runner uses a fresh project, session directory and Accordi
 loads the current source extension and explicitly consents to sending synthetic session content
 to Taskfold's configured model routes. Do not point it at a real project. Shell commands, tests
 and behavioral checks run in network-isolated bubblewrap; native file operations have a
-project-path preflight guard. The latter is not hardened against adversarial concurrent symlink
-races, so this is not a hostile-code security boundary. The model has a 30-request and six-minute
-limit; failed starts, timeouts, unverified decisions and unknown metrics are not passes.
+project-path preflight guard and task-list symlinks must resolve inside the project. Tool batches
+containing a shell call are refused: this prevents model-started shell activity from racing a
+native path check, but changes batching behavior relative to an unrestricted session. The native
+guard does not defend against an independent hostile host process, so it is not a hostile-code
+security boundary. The model has a 30-request and six-minute limit; failed starts, timeouts,
+unverified decisions and unknown metrics are not passes.
 
-`isolation-live.json` records a real synthetic canary probe and task-tool cycle; it does not
-establish resistance to adversarial races.
+`isolation-live.json` records a real synthetic canary probe and task-tool cycle.
 The money helper makes prerequisite discovery possible; whether a model actually repairs its
 plan is a measured observation, not inferred from using the helper. Token budget metrics remain
 unknown until matched, trustworthy measurements are available. Baselines have not yet been run.

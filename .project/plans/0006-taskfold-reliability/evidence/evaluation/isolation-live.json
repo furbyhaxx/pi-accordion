@@ -8,7 +8,9 @@
     "syntheticCanaryDisclosed": false,
     "taskLifecycleCalls": 3,
     "taskLifecycleRejections": 0,
-    "trackedWorkResults": 1
+    "trackedWorkResults": 1,
+    "serialGuardTaskCallsSucceeded": 3,
+    "serialGuardBashSucceeded": true
   },
-  "limits": "Synthetic canary only; native file guards are preflight checks and not a guarantee against adversarial concurrent symlink races."
+  "limits": "Synthetic canary only; native file guards cannot defend against an independent hostile host process. Shell batches are disallowed, changing unrestricted behavior."
 }
