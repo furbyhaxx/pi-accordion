@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 23
+  revision: 24
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T08:17:12+01:00"
+  updated_at: "2026-11-12T08:38:24+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 23
-      reason: "deliver registry-backed conductor option declarations and factory resolution"
-      changes: ["declare four Taskfold options using engine defaults", "resolve options on each in-process attach", "protect default, retention, pressure and loss behavior with tests"]
+    - revision: 24
+      reason: "persist and validate conductor options without losing shipped Taskfold settings"
+      changes: ["migrate legacy settings into canonical conductorOptions", "validate ranges and coupled watermarks under the store lock", "preserve previously accepted values and canonical precedence"]
 ---
 
 # Accordion UI polish: plan
@@ -267,8 +267,12 @@ Registry options now declare the four Taskfold controls and resolve defaults on 
 attach. Factory-driven tests exercise default eager folding, retention, pressure watermarks and
 the classifier loss boundary. `keepRecentTasks` remains zero per SPEC-0002 rather than reviving
 the older UI-spec default of one. Taskfold tests: 74 passed; host tests: 41 passed; Svelte check:
-zero errors and warnings. Expanded strict checking still reports the seven unchanged diagnostics
-listed above. Persistence validation and native reattachment remain the next S2 results.
+zero errors and warnings. Persistence now migrates previously shipped `taskfold` watermarks and
+recent-task count into canonical `conductorOptions`, preserving valid old ranges and explicit new
+values. New edits validate registry ranges and coupled watermarks under the store lock. Native
+settings/TUI tests: 161 passed; Svelte check clean; app tests: 1,079 passed, 21 existing skips;
+native smoke passes. Expanded strict checking still reports the seven unchanged diagnostics
+listed above. Hot reattachment and its live evaluation remain the next S2 result.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

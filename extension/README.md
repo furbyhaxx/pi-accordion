@@ -123,14 +123,20 @@ attaches):
   "taskfold": {
     "timing": "eager",
     "leafForm": "record",
-    "high": 0.8, "low": 0.6,
-    "keepRecentTasks": 0, "recordTokens": 1500,
+    "recordTokens": 1500,
     "floor": false,
     "untracked": { "enabled": true, "minSteps": 8 },
     "steps": { "enabled": true, "minSteps": 4 }
+  },
+  "conductorOptions": {
+    "taskfold": { "high": 0.8, "low": 0.6, "maxLoss": 0.3, "keepRecentTasks": 0 }
   }
 }
 ```
+
+Previously saved `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks` are migrated to
+`conductorOptions.taskfold` on the next save; explicit values at the new path take precedence.
+Settings edits validate the declared ranges and require `low < high`.
 
 Finished tasks fold at the first safe request by default (`taskfold.timing: "eager"`), independent
 of span length. `/accordion fold eager|lazy|pressure` records a session/model override. `lazy` waits

@@ -1,6 +1,6 @@
 import { isIP } from "node:net";
 import * as path from "node:path";
-import { entryById } from "../core/conductor/registry";
+import { ENTRIES, entryById } from "../core/conductor/registry";
 import { FOLD_TIMINGS } from "../core/conductor/contract";
 import { isModelPattern, parseTokens } from "./dials";
 import { sanitizeBindHost, sanitizeCustomToken, sanitizeModelSpec, type AccordionSettings } from "./settings";
@@ -41,9 +41,6 @@ const RULES = {
 	"tasks.adopt": choice("auto", "ask", "off"),
 	"taskfold.timing": timing,
 	"taskfold.leafForm": choice("record", "bracket"),
-	"taskfold.high": (value => typeof value === "number" && value > 0 && value <= 1 ? undefined : "must be above 0 and at most 1") satisfies Rule,
-	"taskfold.low": (value => typeof value === "number" && value > 0 && value < 1 ? undefined : "must be above 0 and below 1") satisfies Rule,
-	"taskfold.keepRecentTasks": number(0, 1000),
 	"taskfold.recordTokens": number(100, 100000),
 	"taskfold.floor": boolean,
 	"taskfold.untracked.enabled": boolean,
@@ -55,6 +52,7 @@ const RULES = {
 /** A scalar or list-valued configuration field; dynamic map keys remain opaque. */
 export type SettingPath = keyof typeof RULES
 	| `models.conductors.${string}.${"chat" | "classifier"}`
+	| `conductorOptions.${string}.${string}`
 	| `privacyConsent.${string}`
 	| `modelDefaults.${string}.${"budget" | "protect" | "timing"}`;
 
@@ -69,6 +67,15 @@ const safeKey = (key: string) => key.length > 0 && key === key.trim() && !["__pr
 
 function field(name: string): Field | undefined {
 	if (Object.hasOwn(RULES, name)) return { parts: name.split("."), rule: RULES[name as keyof typeof RULES] };
+	for (const entry of ENTRIES) for (const spec of entry.options ?? []) {
+		if (name !== `conductorOptions.${entry.id}.${spec.key}`) continue;
+		const rule: Rule = value => {
+			if (value === undefined) return undefined;
+			if (spec.type === "boolean") return boolean(value);
+			return number(spec.min ?? -Infinity, spec.max ?? Infinity, spec.integer ?? false)(value);
+		};
+		return { parts: ["conductorOptions", entry.id, spec.key], rule };
+	}
 	const conductor = /^models\.conductors\.(.+)\.(chat|classifier)$/.exec(name);
 	if (conductor && safeKey(conductor[1])) return { parts: ["models", "conductors", conductor[1], conductor[2]], rule: model(conductor[2] as "chat" | "classifier") };
 	const consent = /^privacyConsent\.(.+)$/.exec(name);
@@ -93,6 +100,7 @@ export function settingParts(name: string): readonly string[] | undefined {
 /** Enumerate configured fields, including dynamic routing, consent and model defaults. */
 export function settingPaths(settings: AccordionSettings): SettingPath[] {
 	const names: SettingPath[] = Object.keys(RULES) as (keyof typeof RULES)[];
+	for (const entry of ENTRIES) for (const spec of entry.options ?? []) names.push(`conductorOptions.${entry.id}.${spec.key}`);
 	for (const [id, specs] of Object.entries(settings.models.conductors)) {
 		for (const type of ["chat", "classifier"] as const) if (specs[type] !== undefined) names.push(`models.conductors.${id}.${type}`);
 	}
@@ -118,11 +126,19 @@ export function validateSettingsPatch(patch: unknown, current: AccordionSettings
 		const result = validateSetting(name, value);
 		if (!result.ok) return result;
 	}
-	if ("taskfold.high" in patch || "taskfold.low" in patch) {
+	const highKey = "conductorOptions.taskfold.high";
+	const lowKey = "conductorOptions.taskfold.low";
+	if (highKey in patch || lowKey in patch) {
 		const edits = patch as SettingsPatch;
-		const high = edits["taskfold.high"] ?? current.taskfold.high;
-		const low = edits["taskfold.low"] ?? current.taskfold.low;
-		if (typeof high === "number" && typeof low === "number" && low >= high) return { ok: false, error: "taskfold.low: must be less than taskfold.high" };
+		const opts = current.conductorOptions.taskfold ?? {};
+		const defaults = entryById("taskfold")!.options!;
+		const effective = (key: "high" | "low"): unknown => {
+			const path: SettingPath = `conductorOptions.taskfold.${key}`;
+			const fallback = defaults.find(spec => spec.key === key)!.default;
+			return path in edits ? edits[path] ?? fallback : opts[key] ?? fallback;
+		};
+		const high = effective("high"), low = effective("low");
+		if (typeof high === "number" && typeof low === "number" && low >= high) return { ok: false, error: `${lowKey}: must be less than ${highKey}` };
 	}
 	return { ok: true };
 }

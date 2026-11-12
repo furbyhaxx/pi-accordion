@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 36
+  revision: 37
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-12T03:02:28+01:00"
+  updated_at: "2026-11-12T08:38:24+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 36
-      reason: "point the remaining reliability scope to executable work"
-      changes: ["reliability evidence and exclusions point to PLAN-0006", "rejected request HUD removed from the future scope"]
+    - revision: 37
+      reason: "move existing Taskfold options to the shared conductor option schema"
+      changes: ["migrate previously configured watermarks and recent-task count", "preserve valid pre-migration ranges", "document canonical option paths"]
 ---
 
 # Taskfold
@@ -992,10 +992,11 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
     "attachments": { "render": "inline", "maxLines": 60, "roots": [] },
     "pins": { "listTokens": 2000, "taskTokens": 1500 }
   },
+  "conductorOptions": {
+    "taskfold": { "high": 0.8, "low": 0.6, "maxLoss": 0.3, "keepRecentTasks": 0 }
+  },
   "taskfold": {
     "timing": "eager",
-    "high": 0.8, "low": 0.6,
-    "keepRecentTasks": 0,
     "recordTokens": 1500,
     "leafForm": "record",
     "floor": false,
@@ -1005,8 +1006,11 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
 }
 ```
 
-Sanitized like existing settings: an invalid value is reported and ignored, and the default
-applies. `roots` keeps absolute paths (`~/` expanded) and drops anything else. `low < high`. The extractor model resolves through `models` like other out-of-band calls.
+Previously stored `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks` migrate to
+`conductorOptions.taskfold`; explicit new-path values win. Earlier valid values remain effective,
+even if outside the narrower editor ranges. Saves validate new edits against the registry bounds
+and require `low < high`. `roots` keeps absolute paths (`~/` expanded) and drops anything else.
+The extractor model resolves through `models` like other out-of-band calls.
 
 `/accordion fold eager|lazy|pressure` records a timing dial for this session and model in
 `accordion.dials`; existing numeric budget/protect entries remain valid. Resolution is the latest

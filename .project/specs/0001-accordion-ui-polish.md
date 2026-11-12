@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 20
+  revision: 21
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T08:17:12+01:00"
+  updated_at: "2026-11-12T08:38:24+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 20
-      reason: "align editable conductor options with the delivered eager folding default"
-      changes: ["keepRecentTasks defaults to zero as specified in SPEC-0002", "pressure may waive recent-task retention"]
+    - revision: 21
+      reason: "preserve already shipped Taskfold options when adopting the shared schema"
+      changes: ["migrate legacy Taskfold option paths", "preserve previously valid values", "declare integer count options"]
 ---
 
 # Accordion UI polish
@@ -682,7 +682,7 @@ Conductor options are declared in the registry (`core/conductor/registry.ts`):
 export interface ConductorOptionSpec {
   key: string; label: string; description: string;
   type: "fraction" | "number" | "boolean";
-  min?: number; max?: number; default: number | boolean;
+  min?: number; max?: number; integer?: boolean; default: number | boolean;
 }
 // RegistryEntry gains: options?: readonly ConductorOptionSpec[]; and the factory receives the
 // resolved values: inProcess((opts) => new TaskfoldConductor(opts)).
@@ -693,6 +693,11 @@ share of the budget"), `low` (fraction 0.3–0.9, 0.6, "Fold until live tokens r
 MUST be < `high`, else the save is rejected with that message), `maxLoss` (number 0–3, 0.3,
 "Fold a user message when its predicted loss is below this"), `keepRecentTasks` (integer 0–10, 0,
 "Newest finished top-level tasks that stay open"; already a `TaskfoldOptions` field, §4.11).
+
+Previously shipped `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks` migrate to
+`conductorOptions.taskfold`. An explicitly configured new-path value wins; previously valid
+values outside the new editor ranges remain effective until changed. Saves persist only the
+canonical option paths.
 
 ### 6.2 Settings screen
 

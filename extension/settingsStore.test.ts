@@ -120,9 +120,41 @@ describe("revisioned settings store", () => {
 		const base = store.current().rev;
 		write({ taskfold: { high: 0.5, low: 0.4 } });
 		const bytes = fs.readFileSync(file, "utf8");
-		expect(await store.save({ "taskfold.low": 0.6 }, base)).toEqual({ ok: false, error: "taskfold.low: must be less than taskfold.high" });
+		expect(await store.save({ "conductorOptions.taskfold.low": 0.6 }, base)).toEqual({ ok: false, error: "conductorOptions.taskfold.low: must be less than conductorOptions.taskfold.high" });
 		expect(await store.save({ doorPort: -1 }, base)).toEqual({ ok: false, error: "doorPort: must be an integer between 0 and 65535" });
 		expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+	});
+
+	test("migrates old Taskfold settings, preserves earlier valid ranges and persists canonical options", async () => {
+		write({ taskfold: { timing: "lazy", high: 0.45, low: 0.2, keepRecentTasks: 12 }, future: true });
+		const store = new SettingsStore(home, {});
+		expect(store.current().settings.conductorOptions.taskfold).toEqual({ high: 0.45, low: 0.2, keepRecentTasks: 12 });
+		expect(store.current().sources["conductorOptions.taskfold.high"]).toBe("file");
+		expect((await store.save({ "conductorOptions.taskfold.maxLoss": 1.5 }, store.current().rev)).ok).toBe(true);
+		expect(read()).toEqual({ taskfold: { timing: "lazy" }, conductorOptions: { taskfold: { high: 0.45, low: 0.2, keepRecentTasks: 12, maxLoss: 1.5 } }, future: true });
+		expect(new SettingsStore(home, {}).current().settings.conductorOptions.taskfold).toEqual({ high: 0.45, low: 0.2, keepRecentTasks: 12, maxLoss: 1.5 });
+	});
+
+	test("canonical values override legacy values during migration", async () => {
+		write({ taskfold: { high: 0.9, low: 0.5 }, conductorOptions: { taskfold: { high: 0.75 } } });
+		const store = new SettingsStore(home, {});
+		expect(store.current().settings.conductorOptions.taskfold).toEqual({ high: 0.75, low: 0.5 });
+		expect((await store.save({ debug: true }, store.current().rev)).ok).toBe(true);
+		expect(read().conductorOptions.taskfold).toEqual({ high: 0.75, low: 0.5 });
+		expect(read().taskfold).toEqual({});
+	});
+
+	test("validates declared options atomically, including removal and concurrent edits", async () => {
+		write({ conductorOptions: { taskfold: { high: 0.9, low: 0.7 } } });
+		const first = new SettingsStore(home, {}), second = new SettingsStore(home, {});
+		const base = first.current().rev;
+		expect((await first.save({ "conductorOptions.taskfold.high": 0.75 }, base)).ok).toBe(true);
+		const bytes = fs.readFileSync(file, "utf8");
+		expect(await second.save({ "conductorOptions.taskfold.low": 0.8 }, base)).toEqual({ ok: false, error: "conductorOptions.taskfold.low: must be less than conductorOptions.taskfold.high" });
+		expect((await second.save({ "conductorOptions.taskfold.keepRecentTasks": 1.5 }, base)).ok).toBe(false);
+		expect(fs.readFileSync(file, "utf8")).toBe(bytes);
+		expect((await first.save({ "conductorOptions.taskfold.high": undefined }, first.current().rev)).ok).toBe(true);
+		expect(read().conductorOptions.taskfold).toEqual({ low: 0.7 });
 	});
 
 	test("edits and removes opaque model keys and consent without splitting dots", async () => {

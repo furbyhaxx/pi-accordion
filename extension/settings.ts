@@ -13,6 +13,7 @@ import { REGISTRY_DIR } from "../app/src/lib/live/registry";
 import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
 import { TASKFOLD_DEFAULTS, type TaskfoldOptions } from "../conductors/in-process/taskfold/taskfold";
 import { isFoldTiming, type FoldTiming } from "../core/conductor/contract";
+import { ENTRIES, type ConductorOptions } from "../core/conductor/registry";
 
 /** Independent policies for manual, threshold and saturated-overflow compaction. */
 export interface CompactSettings {
@@ -57,9 +58,6 @@ export interface TaskSettings {
 export interface TaskfoldSettings {
 	timing: FoldTiming;
 	leafForm: NonNullable<TaskfoldOptions["leafForm"]>;
-	high: number;
-	low: number;
-	keepRecentTasks: number;
 	recordTokens: number;
 	floor: boolean;
 	untracked: { enabled: boolean; minSteps: number };
@@ -88,6 +86,8 @@ export interface AccordionSettings {
 	taskWidget: TaskWidgetSettings;
 	tasks: TaskSettings;
 	taskfold: TaskfoldSettings;
+	/** Declared per-conductor option overrides; absent values use registry defaults. */
+	conductorOptions: Record<string, ConductorOptions>;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
 }
@@ -104,7 +104,8 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	privacyConsent: {},
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
-	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
+	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
+	conductorOptions: {},
 	modelDefaults: {},
 };
 
@@ -250,14 +251,53 @@ export function sanitizeTaskfoldSettings(value: unknown): TaskfoldSettings {
 	const defaults = DEFAULT_SETTINGS.taskfold;
 	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 	const range = (v: unknown, fallback: number, min: number, max: number) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
-	let high = typeof raw.high === "number" && Number.isFinite(raw.high) && raw.high > 0 && raw.high <= 1 ? raw.high : defaults.high;
-	let low = typeof raw.low === "number" && Number.isFinite(raw.low) && raw.low > 0 && raw.low < 1 ? raw.low : defaults.low;
-	if (low >= high) { high = defaults.high; low = defaults.low; }
 	const untracked = raw.untracked && typeof raw.untracked === "object" && !Array.isArray(raw.untracked) ? raw.untracked as Record<string, unknown> : {};
 	const steps = raw.steps && typeof raw.steps === "object" && !Array.isArray(raw.steps) ? raw.steps as Record<string, unknown> : {};
 	const timing = isFoldTiming(raw.timing) ? raw.timing : defaults.timing;
 	const leafForm = raw.leafForm === "record" || raw.leafForm === "bracket" ? raw.leafForm : defaults.leafForm;
-	return { timing, leafForm, high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
+	return { timing, leafForm, recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
+}
+
+/** Move previously shipped Taskfold options to their canonical registry-backed address. */
+export function migrateConductorOptions(data: Record<string, unknown>): void {
+	const taskfold = data.taskfold;
+	if (!taskfold || typeof taskfold !== "object" || Array.isArray(taskfold)) return;
+	const old = taskfold as Record<string, unknown>;
+	const keys = ["high", "low", "keepRecentTasks"] as const;
+	if (!keys.some(key => Object.hasOwn(old, key))) return;
+	const options = data.conductorOptions && typeof data.conductorOptions === "object" && !Array.isArray(data.conductorOptions) ? data.conductorOptions as Record<string, unknown> : {};
+	const task = options.taskfold && typeof options.taskfold === "object" && !Array.isArray(options.taskfold) ? options.taskfold as Record<string, unknown> : {};
+	for (const key of keys) {
+		if (!Object.hasOwn(task, key) && Object.hasOwn(old, key)) task[key] = old[key];
+		delete old[key];
+	}
+	options.taskfold = task;
+	data.conductorOptions = options;
+}
+
+/** Read declared values while retaining valid values accepted by earlier Taskfold releases. */
+export function sanitizeConductorOptions(value: unknown): Record<string, ConductorOptions> {
+	const result: Record<string, ConductorOptions> = {};
+	if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+	const input = value as Record<string, unknown>;
+	for (const entry of ENTRIES) {
+		const raw = input[entry.id];
+		if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+		const source = raw as Record<string, unknown>;
+		const values: Record<string, number | boolean> = {};
+		for (const spec of entry.options ?? []) {
+			const v = source[spec.key];
+			if (spec.type === "boolean" ? typeof v === "boolean" : typeof v === "number" && Number.isFinite(v) && (!spec.integer || Number.isInteger(v))) values[spec.key] = v as number | boolean;
+		}
+		if (entry.id === "taskfold") {
+			const high = values.high ?? TASKFOLD_DEFAULTS.high, low = values.low ?? TASKFOLD_DEFAULTS.low;
+			if (typeof high !== "number" || typeof low !== "number" || !(low > 0 && low < high && high <= 1)) { delete values.high; delete values.low; }
+			if (typeof values.keepRecentTasks === "number" && (values.keepRecentTasks < 0 || values.keepRecentTasks > 1000)) delete values.keepRecentTasks;
+			if (typeof values.maxLoss === "number" && (values.maxLoss < 0 || values.maxLoss > 3)) delete values.maxLoss;
+		}
+		if (Object.keys(values).length) result[entry.id] = values;
+	}
+	return result;
 }
 
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
@@ -326,6 +366,8 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 
 /** Resolve one already-read file snapshot without racing another disk read. */
 export function resolveSettings(fileData: Record<string, unknown>, env: Record<string, string | undefined>, hasFile: boolean): AccordionSettings {
+	fileData = structuredClone(fileData);
+	migrateConductorOptions(fileData);
 	// If running under an isolated test home (`ACCORDION_HOME` set) without an explicit config file
 	// or `ACCORDION_AUTO_ARM`, preserve upstream's `autoArm: false` baseline so existing protocol
 	// smoke tests that assert folding starts off do not need to rewrite their assumptions.
@@ -370,6 +412,7 @@ export function resolveSettings(fileData: Record<string, unknown>, env: Record<s
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 		tasks: sanitizeTaskSettings(fileData.tasks),
 		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
+		conductorOptions: sanitizeConductorOptions(fileData.conductorOptions),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
 }

@@ -71,8 +71,8 @@ are adopted once on resume (`tasks.adopt`, or `/accordion tasks adopt [--dry-run
 Set `taskfold.floor` to `true` in `~/.accordion/config.json` to also apply recoverable per-block
 folding to older work in open tasks and untracked spans. The floor is off by default. It is a
 best-effort guard, not a hard budget guarantee: protected or otherwise ineligible content can keep
-the request above budget. `taskfold.keepRecentTasks` (default 0) keeps that many finished tasks
-raw; raising it delays folds and multiplies rebilled tokens.
+the request above budget. `conductorOptions.taskfold.keepRecentTasks` (default 0) keeps that many
+finished tasks raw; raising it delays folds and multiplies rebilled tokens.
 
 Enable `/accordion debug on` to explain finished tasks that remain raw. Epoch records name
 the declining path (timing mode, protected tail, prefill guard, held boundary, pending

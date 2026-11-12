@@ -65,7 +65,8 @@ describe("accordion settings & memorable tokens", () => {
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
 				debug: true,
-				taskfold: { timing: "lazy", leafForm: "bracket", high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
+				taskfold: { timing: "lazy", leafForm: "bracket", recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
+				conductorOptions: { taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2 } },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -135,8 +136,8 @@ describe("accordion settings & memorable tokens", () => {
 	});
 
 	test("validates taskfold budget, age and untracked settings", () => {
-		expect(sanitizeTaskfoldSettings({ timing: "pressure", leafForm: "bracket", high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ timing: "pressure", leafForm: "bracket", high: 0.9, low: 0.7, keepRecentTasks: 0, recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } });
-		expect(sanitizeTaskfoldSettings({ high: 0.5, low: 0.7, untracked: { minSteps: 0 } })).toMatchObject({ high: 0.8, low: 0.6, untracked: { enabled: true, minSteps: 8 } });
+		expect(sanitizeTaskfoldSettings({ timing: "pressure", leafForm: "bracket", recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ timing: "pressure", leafForm: "bracket", recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } });
+		expect(sanitizeTaskfoldSettings({ untracked: { minSteps: 0 } })).toMatchObject({ untracked: { enabled: true, minSteps: 8 } });
 		expect(sanitizeTaskfoldSettings({ timing: "fast" }).timing).toBe("eager");
 		expect(sanitizeTaskfoldSettings({}).timing).toBe("eager");
 		expect(sanitizeTaskfoldSettings({ leafForm: "invalid" }).leafForm).toBe("record");
@@ -234,7 +235,8 @@ describe("strict settings save validation", () => {
 			["modelDefaults.*.budget", "101%", "token amount"],
 			["modelDefaults.*.protect", 20000, "token amount"],
 			["privacyConsent.taskfold", "yesterday", "ISO timestamp"],
-			["taskfold.high", 0, "above 0"], ["taskfold.low", 1, "below 1"],
+			["conductorOptions.taskfold.high", 0, "between"], ["conductorOptions.taskfold.low", 1, "between"],
+			["conductorOptions.taskfold.keepRecentTasks", 1.5, "integer"], ["conductorOptions.taskfold.maxLoss", 3.1, "between"],
 			["taskfold.untracked.minSteps", 0, "between"], ["taskfold.steps.enabled", 1, "boolean"],
 			["taskfold.timing", "aggressive", "pressure"],
 		] as const) {
@@ -246,9 +248,9 @@ describe("strict settings save validation", () => {
 
 	test("validates coupled fields atomically, including one-field edits", () => {
 		const current = structuredClone(loadSettings("/nonexistent/accordion-validation-home", {}));
-		expect(validateSettingsPatch({ "taskfold.high": 0.5 }, current)).toEqual({ ok: false, error: "taskfold.low: must be less than taskfold.high" });
-		expect(validateSettingsPatch({ "taskfold.high": 0.5, "taskfold.low": 0.4 }, current)).toEqual({ ok: true });
-		expect(validateSettingsPatch({ "taskfold.low": 0.8 }, current)).toEqual({ ok: false, error: "taskfold.low: must be less than taskfold.high" });
+		expect(validateSettingsPatch({ "conductorOptions.taskfold.high": 0.5 }, current)).toEqual({ ok: false, error: "conductorOptions.taskfold.low: must be less than conductorOptions.taskfold.high" });
+		expect(validateSettingsPatch({ "conductorOptions.taskfold.high": 0.5, "conductorOptions.taskfold.low": 0.4 }, current)).toEqual({ ok: true });
+		expect(validateSettingsPatch({ "conductorOptions.taskfold.low": 0.8 }, current)).toEqual({ ok: false, error: "conductorOptions.taskfold.low: must be less than conductorOptions.taskfold.high" });
 		for (const invalid of [null, [], false]) expect(validateSettingsPatch(invalid, current).ok).toBe(false);
 	});
 

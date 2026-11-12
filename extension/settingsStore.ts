@@ -2,7 +2,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { configPathForHome, migrateCompactMode, resolveSettings, type AccordionSettings } from "./settings";
+import { configPathForHome, migrateCompactMode, migrateConductorOptions, resolveSettings, type AccordionSettings } from "./settings";
 import { settingParts, settingPaths, validateSettingsPatch, type SettingPath, type SettingsPatch } from "./settingsValidation";
 import { withSidecarLockRetry } from "./sidecarLock";
 
@@ -80,6 +80,7 @@ function readDisk(file: string): DiskState {
 	if (!record(data)) return { data: {}, rev, exists: true, error: "config.json must contain an object; repair it before saving" };
 	if (data.compact === undefined && data.compactMode !== undefined) data.compact = migrateCompactMode(data.compactMode);
 	delete data.compactMode;
+	migrateConductorOptions(data);
 	return { data, rev, exists: true };
 }
 

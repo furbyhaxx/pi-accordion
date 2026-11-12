@@ -773,7 +773,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// this session's state. It makes NO folding decisions of its own on the hook path.
 	const liveHost = new LiveConductorHost({
 		truth: () => truth,
-		createInProcess: (entry) => entry.id === "taskfold" ? new TaskfoldConductor(settings.taskfold, taskfoldVerdicts) : undefined,
+		conductorOptions: (id) => settings.conductorOptions[id] ?? {},
+		createInProcess: (entry, options) => entry.id === "taskfold" ? new TaskfoldConductor({ ...settings.taskfold, ...options }, taskfoldVerdicts) : undefined,
 		foldPolicy: () => ({ timing: currentDials()?.timing ?? settings.taskfold.timing, cache: cacheProfileFor(modelSpec() ?? "*", observedTtl), now: Date.now(), lastRequestAt }),
 		broadcast,
 		sendToConductor: (m) => {

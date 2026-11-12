@@ -44,6 +44,8 @@ export interface ConductorOptionSpec {
 	min?: number;
 	/** Inclusive numeric upper bound. */
 	max?: number;
+	/** Require an integer for count-valued options. */
+	integer?: boolean;
 	/** Value used when the option is absent from settings. */
 	default: number | boolean;
 }
@@ -221,7 +223,7 @@ export const ENTRIES: readonly RegistryEntry[] = [
 			{ key: "high", label: "High water", description: "Start folding at this share of the budget", type: "fraction", min: 0.5, max: 0.95, default: TASKFOLD_DEFAULTS.high },
 			{ key: "low", label: "Low water", description: "Fold until live tokens reach this share", type: "fraction", min: 0.3, max: 0.9, default: TASKFOLD_DEFAULTS.low },
 			{ key: "maxLoss", label: "Maximum loss", description: "Fold a user message when its predicted loss is below this", type: "number", min: 0, max: 3, default: TASKFOLD_DEFAULTS.maxLoss },
-			{ key: "keepRecentTasks", label: "Keep recent tasks", description: "Newest finished top-level tasks that stay open", type: "number", min: 0, max: 10, default: TASKFOLD_DEFAULTS.keepRecentTasks },
+			{ key: "keepRecentTasks", label: "Keep recent tasks", description: "Newest finished top-level tasks that stay open", type: "number", min: 0, max: 10, integer: true, default: TASKFOLD_DEFAULTS.keepRecentTasks },
 		]),
 		defaultModels: { chat: ["openai/gpt-6-luna", "openai-codex/gpt-6-luna"], classifier: TASKFOLD_CLASSIFIER },
 		privacy: {
