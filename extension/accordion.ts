@@ -2917,7 +2917,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		truth.setCalibration(verdict.ratio, throughOrder);
 		applyCalibrationPrior();
 		debug({ type: "request", model: modelSpec(), estimate: est, realInput: verdict.real, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, deduped: verdict.deduped, k: truth.calibration, prior: truth.calibrationPrior,
-			liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: currentDials()?.timing ?? settings.taskfold.timing });
+			budget: truth.budget, protectTokens: truth.protectTokens, liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: currentDials()?.timing ?? settings.taskfold.timing });
 	}
 
 	/**

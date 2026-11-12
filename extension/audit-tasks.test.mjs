@@ -184,3 +184,38 @@ test("fresh sessions have no active task until a binding, while inherited state 
 	assert.equal(inherited.uncertainResults, 1);
 	assert.equal(inherited.trackedFraction, null);
 });
+
+test("pairs token measurements only when one trusted record matches each request", () => {
+	const session = Array.from({ length: 3 }, (_, i) => ({
+		type: "message", id: `a${i}`, parentId: i ? `a${i - 1}` : null,
+		message: { role: "assistant", content: [], usage: { input: 1000 * (i + 1) } },
+	}));
+	const record = (extra) => ({ type: "request", estimate: 900, realInput: 1000, budget: 5000, ...extra });
+	const paired = auditSession(session, [record({}), record({ realInput: 9000 }), record({})]);
+	assert.equal(paired.tokens.trustedRequests, 3);
+	assert.equal(paired.tokens.unknownRequests, 0);
+	assert.equal(paired.tokens.requestsOverBudget, 1);
+	assert.equal(paired.tokens.diagnosticRequests, 3);
+	assert.deepEqual(paired.tokens.unmeasured, ["leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"]);
+
+	const short = auditSession(session, [record({}), record({})]);
+	assert.equal(short.tokens.trustedRequests, 0);
+	assert.equal(short.tokens.unknownRequests, 3);
+	assert.equal(short.tokens.requestsOverBudget, null);
+	assert.ok(short.tokens.unmeasured.includes("1 request(s) have no diagnostic record"));
+
+	const extra = auditSession(session, [record({}), record({}), record({}), record({})]);
+	assert.equal(extra.tokens.trustedRequests, 0);
+	assert.equal(extra.tokens.requestsOverBudget, null);
+	assert.ok(extra.tokens.unmeasured.includes("1 diagnostic record(s) have no session request"));
+
+	const rejected = auditSession(session, [record({}), record({}, ), record({ receipt: "ratio-out-of-range", realInput: null })]);
+	assert.equal(rejected.tokens.trustedRequests, 0);
+	assert.equal(rejected.tokens.unknownRequests, 3);
+	assert.equal(rejected.tokens.requestsOverBudget, null);
+	assert.ok(rejected.tokens.unmeasured.includes("a diagnostic record is rejected, unpriced or missing its budget"));
+
+	const unpriced = auditSession(session, [record({}), record({ budget: undefined }), record({})]);
+	assert.equal(unpriced.tokens.trustedRequests, 0);
+	assert.equal(unpriced.tokens.requestsOverBudget, null);
+});

@@ -29,9 +29,10 @@ are evaluated against actual model behavior, not merely successful unit tests.
 ## Progress
 
 - Done: source inventory, executable plan, shared settings foundation, Settings screen, protocol
-  audit, the live pre-enforcement baseline for Claude, GPT, DeepSeek and GLM, and token truth (S2).
+  audit with paired token measurements, the live pre-enforcement baseline for Claude, GPT,
+  DeepSeek and GLM, and token truth (S2).
 - Now: store order (S3).
-- Next: connect trustworthy paired audit measurements, now that the prior is recorded.
+- Next: consent decoupling and the coaching gate.
 - Later: consent decoupling, coaching/gate, span reminders, isolated prompt comparison and final gates.
 - Blocked: the Kimi baseline needs a funded route (task 5).
 
@@ -101,6 +102,11 @@ Preserve the existing `~/.accordion/config.json` location and the session-dial p
    Recognize native and nested `tasks` calls, bindings, idle entries, block/resume intervals,
    refusals and model changes. Emit metrics, not private message bodies. Missing token truth
    remains unknown; do not count an unknown budget observation as a passing request.
+   Paired measurements (`tokenMetrics`) count a request only when one trusted `request` diagnostic
+   with a real input and budget exists per session request — equal counts are the only available
+   proof of order. Surplus, shortage or a rejected receipt leaves every request unknown, and leaf
+   tokens per budget stay unknown because the session file stores no task spans
+   (`evidence/token-truth/audit-pairing-live.json`).
 2. Add a reproducible synthetic repository and bounded evaluation runner under this plan's
    `evidence/`. Four requests: refactor, bug plus regression test, docs plus code, user decision.
    Hide one prerequisite so scope repair is observable. The decision case must visibly block,

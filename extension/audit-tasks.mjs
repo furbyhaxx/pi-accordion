@@ -217,14 +217,37 @@ export function auditSession(entries, diagnostics = []) {
 		callsBeforeFirstStart: firstStart && !beforeStartAmbiguous && !incompleteNested ? beforeFirstStart : null,
 		blocks, resumes, planChanges: repairs, prematureStops,
 		prematureStopsPerPrompt: prompts ? prematureStops / prompts : null,
-		tokens: {
-			requestsObserved: requests,
-			trustedRequests: 0,
-			unknownRequests: requests,
-			requestsOverBudget: null,
-			leafTokensPerBudgetP90: null,
-			diagnosticRequests: diagnostics.filter((entry) => entry?.type === "request").length,
-		},
+		tokens: tokenMetrics(requests, diagnostics),
+	};
+}
+
+const positive = (value) => typeof value === "number" && Number.isFinite(value) && value > 0;
+
+/**
+ * Pairs session requests with debug measurements. One `request` record is written per finished
+ * assistant message, so equal counts are the only evidence that record i measured request i; any
+ * surplus, shortage or rejected receipt leaves the request unknown rather than guessed.
+ */
+export function tokenMetrics(requests, diagnostics) {
+	const records = diagnostics.filter((entry) => entry?.type === "request");
+	const usable = records.every((record) => record.receipt === undefined && positive(record.realInput) && positive(record.estimate) && positive(record.budget));
+	const paired = requests > 0 && records.length === requests && usable;
+	const trusted = paired ? records.length : 0;
+	const overBudget = paired ? records.filter((record) => record.realInput > record.budget).length : null;
+	return {
+		requestsObserved: requests,
+		trustedRequests: trusted,
+		unknownRequests: requests - trusted,
+		requestsOverBudget: overBudget,
+		leafTokensPerBudgetP90: null,
+		diagnosticRequests: records.length,
+		unmeasured: [
+			...(requests > records.length ? [`${requests - records.length} request(s) have no diagnostic record`] : []),
+			...(records.length > requests ? [`${records.length - requests} diagnostic record(s) have no session request`] : []),
+			...(paired ? [] : records.filter((record) => record.receipt !== undefined || !positive(record.realInput) || !positive(record.estimate) || !positive(record.budget)).length
+				? ["a diagnostic record is rejected, unpriced or missing its budget"] : []),
+			"leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown",
+		],
 	};
 }
 
