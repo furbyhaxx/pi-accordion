@@ -906,6 +906,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const timing = liveHost.activeMeta()?.id === "taskfold" ? currentDials()?.timing ?? settings.taskfold.timing : null;
 		if (active) lastConductorLabel = active;
 		const level = statusLevel(status?.metrics);
+		// A pressure fold inside the agent's own leaf is invisible from its side: queue the note.
+		const floorSpans = status?.metrics?.floor_spans;
+		if (typeof floorSpans === "string" && floorSpans) taskCoach.floorTap(floorSpans.split(","));
 		const text = footerText({ folding: foldingEnabled, conductor: active, timing, statusText: status?.text ?? null, level });
 		try {
 			const color = level === "error" ? "error" : level === "warning" ? "warning" : foldingEnabled ? "accent" : "dim";

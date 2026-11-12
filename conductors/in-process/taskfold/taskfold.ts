@@ -387,6 +387,8 @@ interface Unit {
 	restore: Op[];
 	saved: number;
 	key?: string;
+	/** For a pressure floor: the open task spans whose content it folded. */
+	floorSpans?: string[];
 }
 
 type UnitResult = Unit | { declined: string; deferred?: true };
@@ -928,6 +930,21 @@ export class TaskfoldConductor implements Conductor {
 		return ops.length ? { ops, restore, saved } : null;
 	}
 
+	/** The open spans a floor unit touched, so the coach can tell the agent its own span was shrunk. */
+	private floorSpans(ops: readonly Op[], blocks: readonly ViewBlock[], spans: readonly TaskSpan[], positions: ReadonlyMap<string, number>, coverage: { open: Uint8Array }): string[] {
+		const touched = new Set<string>();
+		for (const op of ops) {
+			const ids = op.kind === "fold" ? op.ids : op.kind === "group" ? op.ids : [op.id];
+			for (const id of ids) {
+				const i = positions.get(id);
+				if (i === undefined || !coverage.open[i]) continue;
+				const span = spans.find((s) => s.status === null && s.intervals.some((r) => r.start <= i && i <= r.end));
+				if (span) touched.add(span.key);
+			}
+		}
+		return [...touched];
+	}
+
 	private floor(host: ConductorHost, blocks: readonly ViewBlock[], live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
 		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
 		const coverage = taskCoverage(blocks.length, spans);
@@ -954,7 +971,9 @@ export class TaskfoldConductor implements Conductor {
 		keel.attach(proxy);
 		try {
 			const result = keel.planPressure(proxy, live, target);
-			return result ? { ops: result.ops, saved: result.saved, restore: [] } : null;
+			if (!result) return null;
+			const touched = scope === "open" ? this.floorSpans(result.ops, blocks, spans, positions, coverage) : [];
+			return { ops: result.ops, saved: result.saved, restore: [], ...(touched.length ? { floorSpans: touched } : {}) };
 		} finally { keel.detach(); }
 	}
 
@@ -1297,9 +1316,11 @@ export class TaskfoldConductor implements Conductor {
 			this.epochs++;
 			const s = host.stats();
 			const unclassified = `${this.classifyFailures ? `; ${this.classifyFailures} user message(s) unclassified, kept` : ""}${this.rawWarning ? `; ${this.rawWarning}` : ""}`;
+			const floorSpans = [...new Set(units.flatMap((u) => u.floorSpans ?? []))];
 			host.setStatus(rollbackFailed ? `Taskfold could not restore every group after a rejected fold; inspect the context.` : `Epoch ${this.epochs}: applied ${applied} fold operation(s), ~${saved} tokens${unclassified}.`, {
 				epochs: this.epochs,
 				groups: this.groupKeys(host).size,
+				...(floorSpans.length ? { floor: 1, floor_spans: floorSpans.join(",") } : {}),
 				live_tokens: s.liveTokens,
 				saved,
 				budget: s.budget,

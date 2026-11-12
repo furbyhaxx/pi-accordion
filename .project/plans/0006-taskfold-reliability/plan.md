@@ -208,7 +208,9 @@ selection gate, revocation effect, browser picker and spec wording together.
 Shipped so far: the bootstrap notice, the orientation allowance counted across nested calls, the
 gate with `block` + exact repair and a bounded fail-open, the one-shot stop follow-up, and the
 large-leaf tap (`TaskCoach.largeLeafNote`) measured over the span's own content in estimated
-tokens and its tool results. Per-model `tasks.enforce`, `tasks.orientationCalls` and
+tokens and its tool results. A pressure floor that folds inside an open span reports it
+(`floor_spans`) and the coach turns that into the same note (`TaskCoach.floorTap`), so a leaf that
+was silently shrunk learns it outgrew its span. Per-model `tasks.enforce`, `tasks.orientationCalls` and
 `tasks.largeLeaf` resolve through `modelDefaults` (`extension/dials.ts → modelTaskDials`).
 
 ## Configuration

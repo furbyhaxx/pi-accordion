@@ -189,3 +189,20 @@ describe("large leaf", () => {
 		expect(notes[1]).not.toContain("configured share");
 	});
 });
+
+describe("floor tap", () => {
+	test("names the current leaf only when a pressure fold touched its span", () => {
+		const c = new TaskCoach();
+		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 1, toolResults: 99, repeatEvery: 10 }, budget: null });
+		c.started("w", ["1"]);
+		c.setList(list([t("1", "doing", "Big")]));
+		c.floorTap(["w/2", "w/1.1"]);
+		c.callStarted(false);
+		expect(c.toolResult(false, 0)).toContain('folded part of the span of 1 "Big" of "w"');
+		c.callStarted(false);
+		expect(c.toolResult(false, 0)).toBeNull();
+		c.floorTap(["other/1"]);
+		c.callStarted(false);
+		expect(c.toolResult(false, 0)).toBeNull();
+	});
+});

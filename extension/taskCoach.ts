@@ -5,7 +5,7 @@
  */
 import { charsToTokens } from "../core/tokens";
 import { currentBlock, IDLE_REASONS, type BlockReason, type Task, type TaskList } from "./tasks";
-import { largeLeafReminder } from "./taskBinding";
+import { floorFoldNote, largeLeafReminder } from "./taskBinding";
 
 /**
  * Calls allowed before coaching starts. Orientation — reading the request, the specs, the code —
@@ -132,6 +132,8 @@ export class TaskCoach {
 	/** `<list>/<id>` → estimated tokens of that span's content, and the work count at its last tap. */
 	private readonly spanTokens = new Map<string, number>();
 	private readonly tapped = new Map<string, number>();
+	/** A pressure fold that touched the current leaf, waiting for the next tool result to carry it. */
+	private floorNote: { task: string; slug: string; id: string; title: string } | null = null;
 
 	/** The list this session works on; null when none is attached. */
 	setList(list: TaskList | null): void {
@@ -225,6 +227,19 @@ export class TaskCoach {
 		return null;
 	}
 
+	/**
+	 * Taskfold folded content inside one of these spans to relieve pressure (keys are `<list>/<id>`
+	 * with subtask ids dotted, e.g. `backlog-completion/3.9.2`). If the agent's own leaf was shrunk,
+	 * it is told once, because from its side the content simply vanished.
+	 */
+	floorTap(spans: readonly string[]): void {
+		const current = this.list && innermostDoing(this.list);
+		if (!current || !this.list) return;
+		const key = `${this.list.slug}/${current.id}`;
+		if (!spans.some((span) => span === key || span.startsWith(`${key}.`))) return;
+		this.floorNote = { task: key, slug: this.list.slug, id: current.id, title: current.title };
+	}
+
 	/** Work counted inside a task's span, or undefined when this process did not see it start. */
 	spanWork(slug: string, id: string): number | undefined {
 		return this.work.get(`${slug}/${id}`);
@@ -241,14 +256,17 @@ export class TaskCoach {
 	 */
 	toolResult(nested: boolean, chars = 0): string | null {
 		if (this.policy.enforce !== "coach") return this.countOnly(chars);
+		const floor = this.floorNote;
+		this.floorNote = null;
 		const list = this.list;
 		if (list) {
 			const current = innermostDoing(list);
 			if (current) {
 				this.countWork(list, current, charsToTokens(chars));
-				return this.largeLeafNote(list, current);
+				return [floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
 			}
 		}
+		if (floor) return floorFoldNote(floor);
 		// Nested calls count toward the allowance (they are work), but only the outer call may speak.
 		if (this.calls <= this.policy.orientationCalls || nested) return null;
 		if (!list) {

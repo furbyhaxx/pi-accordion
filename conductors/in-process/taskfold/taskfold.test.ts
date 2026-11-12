@@ -741,6 +741,10 @@ describe("taskfold", () => {
 		const floor = events.find(e => e.type === "fold" && e.task === null);
 		expect(floor?.firstChangedBlock).toBeGreaterThanOrEqual(s.blocks.findIndex(b => b.id === open));
 		expect(floor?.rewrittenTokens).toBeGreaterThan(0);
+		// The coach needs to know whose span the pressure fold touched, not just that it happened.
+		const status = host.statusLog.at(-1);
+		expect(status?.metrics?.floor).toBe(1);
+		expect(String(status?.metrics?.floor_spans).split(",")).toContain("work/2");
 	});
 
 	for (const timing of ["eager", "lazy", "pressure"] as const) it(`folds old steps of a long open task under pressure in ${timing} mode`, async () => {

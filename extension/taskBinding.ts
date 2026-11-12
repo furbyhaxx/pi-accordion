@@ -183,3 +183,14 @@ export function largeLeafReminder(
 		"If it genuinely needs more room, keep going; the reminder repeats only after the configured interval.",
 	].join("\n");
 }
+
+/**
+ * The note for a pressure fold that shrank the agent's own leaf. It says what happened and offers
+ * the same choice as the size tap, because the agent's next step depends on whether the span is done.
+ */
+export function floorFoldNote(task: { slug: string; id: string; title: string }): string {
+	return [
+		`[accordion tasks] Taskfold folded part of the span of ${task.id} "${task.title}" of "${task.slug}" to stay inside the budget.`,
+		`The content is still recoverable (its {#… FOLDED} tags), but this leaf has now outgrown its span: finish the verifiable part and tasks complete {list: "${task.slug}", id: "${task.id}", report: {…}}, then start or add the next task.`,
+	].join("\n");
+}
