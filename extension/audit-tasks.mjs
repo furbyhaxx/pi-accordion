@@ -83,7 +83,7 @@ export function auditSession(entries, diagnostics = []) {
 	let bound = null;
 	let firstStart = false;
 	let beforeStartAmbiguous = false;
-	let stateKnown = false;
+	let stateKnown = entries[0]?.type === "session" && !entries[0].parentSession;
 	let incompleteNested = 0;
 	let incompleteTasks = 0;
 	const concurrent = new Set();
@@ -160,8 +160,8 @@ export function auditSession(entries, diagnostics = []) {
 		if (entry.type === "custom" && entry.customType === "accordion.tasks.binding") {
 			active.clear();
 			blocked.clear();
-			stateKnown = false;
 			bound = typeof entry.data?.slug === "string" ? entry.data.slug : null;
+			stateKnown = bound === null && entry.data?.slug === null;
 			if (bound && orders.has(bound)) orders.set(bound, null);
 			if (bound) seenLists.add(bound);
 		}

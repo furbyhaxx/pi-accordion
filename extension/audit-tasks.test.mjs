@@ -170,3 +170,17 @@ test("does not infer lifecycle order from multiple nested call records", () => {
 	assert.equal(result.orderUnknownStarts, 1);
 	assert.equal(result.outOfOrderStarts, null);
 });
+
+test("fresh sessions have no active task until a binding, while inherited state remains unknown", () => {
+	const calls = [
+		{ type: "message", id: "a", parentId: null, message: { role: "assistant", content: [{ type: "toolCall", id: "r", name: "read" }] } },
+		{ type: "message", id: "b", parentId: "a", message: { role: "toolResult", toolCallId: "r", toolName: "read" } },
+	];
+	const fresh = auditSession([{ type: "session", id: "s" }, ...calls]);
+	assert.equal(fresh.workResults, 1);
+	assert.equal(fresh.uncertainResults, 0);
+	assert.equal(fresh.trackedFraction, 0);
+	const inherited = auditSession([{ type: "session", id: "s", parentSession: "prior" }, ...calls]);
+	assert.equal(inherited.uncertainResults, 1);
+	assert.equal(inherited.trackedFraction, null);
+});

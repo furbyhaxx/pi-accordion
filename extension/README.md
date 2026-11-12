@@ -254,8 +254,9 @@ before sharing. To inspect the archive: `gzip -dc <file> | jq .files`.
 
 From a source checkout, `node extension/audit-tasks.mjs <session.jsonl> [--diagnostics <debug.jsonl>]`
 prints aggregate task-protocol counts without message bodies. The diagnostics filename must match
-the session ID, but that alone does not pair its records to requests. Mixed or incomplete nested
-batches, concurrent calls and attachments to an unknown task state make attribution unknown.
+the session ID, but that alone does not pair its records to requests. A complete non-forked session
+starts without an active task; inherited sessions, mixed or incomplete nested batches, concurrent
+calls and attachments to an unknown task state make attribution unknown.
 Counts accompanied by `incompleteNested` or `incompleteTasks` are partial. Provider receipts and
 current diagnostics do not provide trusted, paired token counts, so budget and leaf-token metrics
 remain unknown. Out-of-order starts are counted only while the whole task tree can be reconstructed;
