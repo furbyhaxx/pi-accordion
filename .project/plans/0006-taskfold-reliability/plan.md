@@ -30,10 +30,12 @@ are evaluated against actual model behavior, not merely successful unit tests.
 
 - Done: source inventory, executable plan, shared settings foundation, Settings screen, protocol
   audit with paired token measurements, the live pre-enforcement baseline for Claude, GPT,
-  DeepSeek and GLM, and token truth (S2).
-- Now: store order (S3).
-- Next: consent decoupling and the coaching gate.
-- Later: consent decoupling, coaching/gate, span reminders, isolated prompt comparison and final gates.
+  DeepSeek and GLM, token truth (S2), and the ordered lifecycle (S3): ordered starts, the four
+  public block reasons with internal `dependency`, `stopOnBlock`, required leaf criteria with
+  repair-instead-of-refusal for older lists, and a live nine-call run
+  (`evidence/lifecycle-live.json`).
+- Now: consent decoupling and the coaching gate (S4).
+- Later: span reminders, isolated prompt comparison and final gates.
 - Blocked: the Kimi baseline needs a funded route (task 5).
 
 ## Current behavior and evidence
