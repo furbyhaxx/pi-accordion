@@ -1,0 +1,16 @@
+                                                       ↓ Jump to latest message · End
+── Accordion › Settings › Reload ─────────────────────────────────────────── ▲ 1 staged · 14.5k/372.0k tok · ○ folding off · no conductor ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+  Discard staged settings and reload from disk?
+  Saved settings are unchanged.
+ → Keep editing
+   Discard and reload
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ The first choice is the safe one.
+ ↑↓ move · enter choose · esc cancel
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/backlog-completion/.pi/settings-s3/project-b (feat/backlog-completion) • settings-s3-b
+$0.000 (sub) 0.0%/372k (auto)                                                                                 (openai) gpt-6.1-terra • xhigh
+accordion off

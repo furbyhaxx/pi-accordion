@@ -1,0 +1,16 @@
+             ↓ Jump to latest message · End
+── Accordion › Settings ───────────── 14.5k/372.0k tok ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+→ Folding               [ ] off                   session
+  Token budget          372k                 model window
+  Protected tail        20k                      built-in
+─────────────────────────────────────────────────────────
+ Armed: Accordion rewrites the outgoing context. Off: me…
+ enter toggle · alt+r reload · f1 help · esc close
+─────────────────────── ↓ 67 more ───────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/bac...
+$0.000 (sub) 0.0%/372k (auto)       gpt-6.1-terra • xhigh
+accordion off
