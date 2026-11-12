@@ -14,7 +14,12 @@ import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
 import { TASKFOLD_DEFAULTS, type TaskfoldOptions } from "../conductors/in-process/taskfold/taskfold";
 import { isFoldTiming, type FoldTiming } from "../core/conductor/contract";
 
-export type CompactMode = "accordion" | "suppress" | "native";
+/** Independent policies for manual, threshold and saturated-overflow compaction. */
+export interface CompactSettings {
+	manual: "pass" | "aggressive" | "bake" | "native";
+	threshold: "pass" | "native";
+	onSaturated: "native" | "bake" | "warn";
+}
 
 /** The kinds of model a conductor can request from the host. */
 export type ModelType = "chat" | "classifier";
@@ -69,7 +74,7 @@ export interface AccordionSettings {
 	/** Default conductor attached when autoArm is enabled (or when /compact triggers a pass). */
 	defaultConductor: string;
 	/** How Accordion handles Pi's /compact and auto-compaction when folding is armed. */
-	compactMode: CompactMode;
+	compact: CompactSettings;
 	/** IP/hostname for the Web UI and Door listener (e.g. "127.0.0.1", "0.0.0.0", Tailscale IP). */
 	bindHost: string;
 	/** Fixed Door port (0 disables the shared Door listener). */
@@ -91,7 +96,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	debug: false,
 	autoArm: true,
 	defaultConductor: "keel-lite",
-	compactMode: "accordion",
+	compact: { manual: "pass", threshold: "pass", onSaturated: "native" },
 	bindHost: "127.0.0.1",
 	doorPort: DOOR_PORT,
 	customToken: null,
@@ -160,9 +165,20 @@ export function sanitizeDoorPort(value: unknown): number {
 	return n;
 }
 
-export function sanitizeCompactMode(value: unknown): CompactMode {
-	if (value === "accordion" || value === "suppress" || value === "native") return value;
-	return DEFAULT_SETTINGS.compactMode;
+/** Migrate the legacy compactMode setting and its environment override. */
+export function migrateCompactMode(value: unknown): CompactSettings {
+	if (value === "native") return { manual: "native", threshold: "native", onSaturated: "native" };
+	return { ...DEFAULT_SETTINGS.compact, onSaturated: value === "suppress" ? "warn" : "native" };
+}
+
+/** Read independent compaction policies, defaulting malformed file values field by field. */
+export function sanitizeCompactSettings(value: unknown): CompactSettings {
+	const input = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	return {
+		manual: input.manual === "pass" || input.manual === "aggressive" || input.manual === "bake" || input.manual === "native" ? input.manual : DEFAULT_SETTINGS.compact.manual,
+		threshold: input.threshold === "pass" || input.threshold === "native" ? input.threshold : DEFAULT_SETTINGS.compact.threshold,
+		onSaturated: input.onSaturated === "native" || input.onSaturated === "bake" || input.onSaturated === "warn" ? input.onSaturated : DEFAULT_SETTINGS.compact.onSaturated,
+	};
 }
 
 /** A canonical model spec: `provider/model-id` (the id may itself contain `/`), or `"current"` for chat. */
@@ -325,7 +341,9 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 				? fileData.defaultConductor.trim()
 				: DEFAULT_SETTINGS.defaultConductor;
 
-	const compactMode = sanitizeCompactMode(env.ACCORDION_COMPACT_MODE ?? fileData.compactMode);
+	const compact = env.ACCORDION_COMPACT_MODE !== undefined
+		? migrateCompactMode(env.ACCORDION_COMPACT_MODE)
+		: fileData.compact === undefined ? migrateCompactMode(fileData.compactMode) : sanitizeCompactSettings(fileData.compact);
 	const bindHost = sanitizeBindHost(env.ACCORDION_HOST ?? fileData.bindHost);
 	const doorPort =
 		env.ACCORDION_DOOR_PORT !== undefined
@@ -339,7 +357,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		debug: typeof fileData.debug === "boolean" ? fileData.debug : DEFAULT_SETTINGS.debug,
 		autoArm,
 		defaultConductor,
-		compactMode,
+		compact,
 		bindHost,
 		doorPort,
 		customToken,
@@ -357,7 +375,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		debug: settings.debug === true,
 		autoArm: !!settings.autoArm,
 		defaultConductor: (settings.defaultConductor || DEFAULT_SETTINGS.defaultConductor).trim(),
-		compactMode: sanitizeCompactMode(settings.compactMode),
+		compact: sanitizeCompactSettings(settings.compact),
 		bindHost: sanitizeBindHost(settings.bindHost),
 		doorPort: sanitizeDoorPort(settings.doorPort),
 		customToken: sanitizeCustomToken(settings.customToken),

@@ -5,8 +5,8 @@ import { type AccordionSettings, DEFAULT_SETTINGS, sanitizeBindHost, sanitizeCus
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
 
-type GlobalKey = "debug" | "autoArm" | "defaultConductor" | "compactMode" | "bindHost" | "doorPort" | "customToken" | "timing";
-type Globals = Pick<AccordionSettings, Exclude<GlobalKey, "timing">> & { timing: FoldTiming };
+type GlobalKey = "debug" | "autoArm" | "defaultConductor" | "manual" | "bindHost" | "doorPort" | "customToken" | "timing";
+type Globals = Pick<AccordionSettings, Exclude<GlobalKey, "timing" | "manual">> & { timing: FoldTiming; manual: AccordionSettings["compact"]["manual"] };
 type RowId = "folding" | NumericDialKind | GlobalKey;
 interface Row {
 	id: RowId;
@@ -15,7 +15,7 @@ interface Row {
 }
 
 const CONFIG_PATH = "~/.accordion/config.json";
-const GLOBAL_DEFAULTS: Globals = { ...DEFAULT_SETTINGS, timing: DEFAULT_SETTINGS.taskfold.timing };
+const GLOBAL_DEFAULTS: Globals = { ...DEFAULT_SETTINGS, manual: DEFAULT_SETTINGS.compact.manual, timing: DEFAULT_SETTINGS.taskfold.timing };
 const SESSION_ROWS: Row[] = [
 	{ id: "folding", label: "Folding", description: "Armed: Accordion rewrites the outgoing context. Off: messages pass through untouched. Applies at once." },
 	{ id: "budget", label: "Token budget", description: "Size this session folds toward, e.g. 200k, 1M or 85%. Applies at once; can also be saved as the model's default." },
@@ -24,14 +24,14 @@ const SESSION_ROWS: Row[] = [
 const GLOBAL_ROWS: Row[] = [
 	{ id: "autoArm", label: "Arm on startup", description: `Arm folding when a session starts. Stored in ${CONFIG_PATH}; applies to new sessions.` },
 	{ id: "defaultConductor", label: "Default conductor", description: `Conductor attached when a session starts armed. Stored in ${CONFIG_PATH}.` },
-	{ id: "compactMode", label: "/compact behavior", description: "What Pi's /compact does while folding is armed: accordion (one pass), suppress, or native." },
+	{ id: "manual", label: "/compact behavior", description: "What Pi's /compact does while folding is armed: pass (one Accordion pass), or native." },
 	{ id: "bindHost", label: "Web UI address", description: "Address the web UI listens on; 0.0.0.0 is reachable from the network." },
 	{ id: "doorPort", label: "Web UI door port", description: "Fixed port shared by all sessions; 0 disables it." },
 	{ id: "customToken", label: "Web access token", description: "3-64 URL-safe characters; empty uses a generated token." },
 	{ id: "debug", label: "Debug log", description: "Private session diagnostics in ~/.accordion/debug/. /accordion debug on|off overrides this session." },
 	{ id: "timing", label: "Task fold timing", description: "eager: next safe request. lazy: cold/expired cache or high pressure. pressure: high pressure only. Session/model overrides win." },
 ];
-const COMPACT_MODES = ["accordion", "suppress", "native"] as const;
+const COMPACT_MODES = ["pass", "native"] as const;
 const isGlobal = (id: RowId): id is GlobalKey => GLOBAL_ROWS.some((row) => row.id === id);
 
 /** Check typed text for a global field; returns the value to stage or the reason it is refused. */
@@ -54,7 +54,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 
 	const saved = (): Globals => {
 		const settings = host.settings?.() ?? DEFAULT_SETTINGS;
-		return { ...settings, timing: settings.taskfold.timing };
+		return { ...settings, manual: settings.compact.manual, timing: settings.taskfold.timing };
 	};
 	const value = <K extends GlobalKey>(key: K): Globals[K] => (key in staged ? (staged[key] as Globals[K]) : saved()[key]);
 	const stage = <K extends GlobalKey>(key: K, next: Globals[K]) => {
@@ -66,11 +66,11 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		return ids.includes(value("defaultConductor")) ? ids : [value("defaultConductor"), ...ids];
 	};
 	const cycle = (id: RowId, step: number): boolean => {
-		if (id !== "defaultConductor" && id !== "compactMode" && id !== "timing") return false;
+		if (id !== "defaultConductor" && id !== "manual" && id !== "timing") return false;
 		const options: readonly string[] = id === "defaultConductor" ? conductorIds() : id === "timing" ? FOLD_TIMINGS : COMPACT_MODES;
 		const next = options[(options.indexOf(value(id)) + step + options.length) % options.length];
 		if (id === "defaultConductor") stage(id, next);
-		else if (id === "compactMode") stage(id, next as AccordionSettings["compactMode"]);
+		else if (id === "manual") stage(id, next as Globals["manual"]);
 		else stage(id, next as FoldTiming);
 		return true;
 	};
@@ -87,7 +87,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		}
 		const source = id in staged ? theme.fg("warning", "▲ staged") : theme.fg("dim", saved()[id] === GLOBAL_DEFAULTS[id] ? "default" : "user");
 		if (id === "autoArm" || id === "debug") return { value: value(id) ? "[x] on" : "[ ] off", source };
-		if (id === "defaultConductor" || id === "compactMode" || id === "timing") return { value: `‹ ${clean(value(id))} ›`, source };
+		if (id === "defaultConductor" || id === "manual" || id === "timing") return { value: `‹ ${clean(value(id))} ›`, source };
 		if (id === "customToken") return { value: value(id) === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(value(id) ?? ""), source };
 		return { value: clean(String(value(id))), source };
 	};
@@ -128,8 +128,12 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	};
 
 	const save = () => {
-		const { timing, ...globals } = staged;
-		const patch: Partial<AccordionSettings> = { ...globals, ...(timing !== undefined ? { taskfold: { ...(host.settings?.() ?? DEFAULT_SETTINGS).taskfold, timing } } : {}) };
+		const { timing, manual, ...globals } = staged;
+		const current = host.settings?.() ?? DEFAULT_SETTINGS;
+		const patch: Partial<AccordionSettings> = { ...globals,
+			...(manual !== undefined ? { compact: { ...current.compact, manual } } : {}),
+			...(timing !== undefined ? { taskfold: { ...current.taskfold, timing } } : {}),
+		};
 		const n = Object.keys(staged).length;
 		if (!n) return shell.say("Nothing staged", "info");
 		if (!host.updateSettings) return shell.say("Settings cannot be saved from this session");
@@ -192,7 +196,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			const row = rows[selected];
 			const web = host.webInfo?.();
 			const webNote = row.id === "bindHost" || row.id === "doorPort" || row.id === "customToken" ? ` Browser URL: ${web?.url ?? "starting…"} (${web?.clients ?? 0} connected).` : "";
-			const action = row.id === "defaultConductor" || row.id === "compactMode" || row.id === "timing" ? "next value" : row.id === "folding" || row.id === "autoArm" || row.id === "debug" ? "toggle" : "edit";
+			const action = row.id === "defaultConductor" || row.id === "manual" || row.id === "timing" ? "next value" : row.id === "folding" || row.id === "autoArm" || row.id === "debug" ? "toggle" : "edit";
 			return {
 				body: display.slice(top, top + bodyRows),
 				crumbs: [],
@@ -200,7 +204,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				hints: [
 					bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2),
 					...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
-					...(row.id === "defaultConductor" || row.id === "compactMode" || row.id === "timing" ? [rawHint(theme, "←→", "change", 3)] : []),
+					...(row.id === "defaultConductor" || row.id === "manual" || row.id === "timing" ? [rawHint(theme, "←→", "change", 3)] : []),
 					...(isGlobal(row.id) ? [rawHint(theme, "alt+u", "default", 6)] : []),
 					...(row.id === "customToken" ? [rawHint(theme, "alt+r", "new token", 5)] : []),
 				],

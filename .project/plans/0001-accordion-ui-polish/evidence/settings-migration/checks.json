@@ -1,0 +1,27 @@
+{
+  "viewports": [
+    [
+      36,
+      40
+    ],
+    [
+      57,
+      40
+    ],
+    [
+      80,
+      40
+    ],
+    [
+      140,
+      40
+    ]
+  ],
+  "realPiSave": true,
+  "legacyKeyRemoved": true,
+  "persistedCompact": {
+    "manual": "native",
+    "threshold": "pass",
+    "onSaturated": "warn"
+  }
+}

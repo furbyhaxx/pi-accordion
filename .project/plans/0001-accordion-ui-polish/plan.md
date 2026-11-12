@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 6
+  revision: 7
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T03:22:08+01:00"
+  updated_at: "2026-11-12T03:33:22+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 6
-      reason: "start the shared settings foundation before configurable reliability controls"
-      changes: ["sidecar mutex extracted and verified", "S2–S3 precede the independent footer work"]
+    - revision: 7
+      reason: "migrate compaction configuration to independent policies"
+      changes: ["legacy file and environment mapping", "new compact object persistence", "affected native and Settings callers", "four-width live migration check"]
 ---
 
 # Accordion UI polish: plan
@@ -193,6 +193,11 @@ Result: 227 bun tests and smoke pass. The control takeover prompt lists `Open re
 ## S2: settings store, sync and schema
 
 Delivered: the shared permanent SQLite mutex; five focused tests, strict typecheck and native smoke pass.
+Compaction configuration now migrates the legacy file/environment enum to independent policies;
+the existing native callers and manual Settings picker use the new object. A real Pi-Bolt save
+removed the legacy key and preserved threshold/saturation policies; captures at 36/57/80/140
+columns pass width checks (`evidence/settings-migration/`). The 137 settings/TUI tests, all native
+smokes, clean Svelte check and 1,076 app tests pass. Aggressive/bake execution remains in S4.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

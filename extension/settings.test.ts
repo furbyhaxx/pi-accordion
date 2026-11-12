@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+	configPathForHome,
 	generateMemorableToken,
 	loadSettings,
 	saveSettings,
@@ -39,7 +40,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.debug).toBe(false);
 			expect(defaults.autoArm).toBe(true);
 			expect(defaults.defaultConductor).toBe("keel-lite");
-			expect(defaults.compactMode).toBe("accordion");
+			expect(defaults.compact).toEqual({ manual: "pass", threshold: "pass", onSaturated: "native" });
 			expect(defaults.bindHost).toBe("127.0.0.1");
 
 			saveSettings(tmp, {
@@ -48,7 +49,7 @@ describe("accordion settings & memorable tokens", () => {
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
-				compactMode: "suppress",
+				compact: { manual: "pass", threshold: "pass", onSaturated: "warn" },
 				bindHost: "0.0.0.0",
 				doorPort: 25000,
 				customToken: "my-custom-8",
@@ -65,7 +66,7 @@ describe("accordion settings & memorable tokens", () => {
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
-				compactMode: "suppress",
+				compact: { manual: "pass", threshold: "pass", onSaturated: "warn" },
 				bindHost: "0.0.0.0",
 				doorPort: 25000,
 				customToken: "my-custom-8",
@@ -87,6 +88,45 @@ describe("accordion settings & memorable tokens", () => {
 			expect(envOverridden.autoArm).toBe(true);
 		} finally {
 			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
+	test.each([
+		["accordion", { manual: "pass", threshold: "pass", onSaturated: "native" }],
+		["suppress", { manual: "pass", threshold: "pass", onSaturated: "warn" }],
+		["native", { manual: "native", threshold: "native", onSaturated: "native" }],
+	] as const)("migrates legacy compaction %s and drops the old key on save", (compactMode, compact) => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-compact-"));
+		try {
+			const file = configPathForHome(home);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, JSON.stringify({ compactMode }));
+			const loaded = loadSettings(home, {});
+			expect(loaded.compact).toEqual(compact);
+			saveSettings(home, loaded);
+			const written = JSON.parse(fs.readFileSync(file, "utf8"));
+			expect(written.compact).toEqual(compact);
+			expect(written).not.toHaveProperty("compactMode");
+			expect(loadSettings(home, {}).compact).toEqual(compact);
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	test("prefers compact over the old key and maps the legacy environment override", () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-compact-"));
+		try {
+			const file = configPathForHome(home);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			const compact = { manual: "native", threshold: "pass", onSaturated: "warn" };
+			fs.writeFileSync(file, JSON.stringify({ compactMode: "suppress", compact }));
+			expect(loadSettings(home, {}).compact).toEqual(compact);
+			expect(loadSettings(home, { ACCORDION_COMPACT_MODE: "accordion" }).compact).toEqual({ manual: "pass", threshold: "pass", onSaturated: "native" });
+			expect(loadSettings(home, { ACCORDION_COMPACT_MODE: "native" }).compact).toEqual({ manual: "native", threshold: "native", onSaturated: "native" });
+			fs.writeFileSync(file, JSON.stringify({ compact: { manual: "bake", threshold: "invalid", onSaturated: "warn" } }));
+			expect(loadSettings(home, {}).compact).toEqual({ manual: "bake", threshold: "pass", onSaturated: "warn" });
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
 		}
 	});
 

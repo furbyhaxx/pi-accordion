@@ -3448,22 +3448,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		messages.forEach((msg, i) => ingestFinishedMessage(msg, i === lastAssistantIdx));
 	});
 
-	// ── suppress pi's native compaction ONLY while folding is actually armed ────
-	// Owner-approved policy: suppression is gated on `foldingEnabled`, NOT on `attached()`. A
-	// connected client with folding OFF (a read-only mirror, or a preview with an attached conductor
-	// but folding disarmed) leaves pi's own overflow safety net fully intact — whoever is actually
-	// rewriting the wire owns overflow, not whoever merely has a socket open. While folding IS armed,
-	// suppression stays unconditional (no hard-overflow escape valve) — Accordion's own budget/fold
-	// state is the only thing standing between the session and overflow at that point, so pi's native
-	// compaction must not race it. When a native compaction DOES run because folding was off, the
-	// paired `session_compact` handler below immediately reconciles the Truth against the compacted
-	// history (the same `ingestMessages` → `rebuildTruth` structural-divergence path the hooks use —
-	// including conductor resync via `liveHost.dispatchResync()`) and then notifies.
 	pi.on("session_before_compact", (event, ctx: ExtensionContext) => {
 		if (!foldingEnabled) return;
-		if (settings.compactMode === "native") return;
 		const reason = (event as { reason?: string } | undefined)?.reason;
-		if (reason === "manual" && settings.compactMode === "accordion") {
+		if (reason !== "overflow" && (reason === "manual" ? settings.compact.manual === "native" : settings.compact.threshold === "native")) return;
+		if (reason === "manual") {
 			const res = compactNow();
 			const note = `${res.message} — native compaction suppressed.`;
 			try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
@@ -3472,7 +3461,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		if (reason === "overflow") {
 			const res = compactNow();
-			if (res.afterTokens < res.beforeTokens || settings.compactMode === "suppress") {
+			if (res.afterTokens < res.beforeTokens || settings.compact.onSaturated === "warn") {
 				const note = `${res.message} — native compaction suppressed.`;
 				try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
 				broadcast({ type: "notice", text: res.message });
@@ -3483,7 +3472,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
-		if (settings.compactMode === "accordion" && truth) {
+		if (settings.compact.threshold === "pass" && truth) {
 			const last = truth.blocks[truth.blocks.length - 1];
 			liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
 		}

@@ -1,0 +1,40 @@
+ Update Available
+ New Pi-Bolt version 1.2.1 is available. Run pi-bolt
+ update
+ pi-bolt update merges upstream and rebuilds this fork
+ build.
+ Changelog:
+ https://github.com/opensec-git/Pi-Bolt/releases
+─────────────────────────────────────────────────────────
+
+── Accordion › Settings ─────────────── 14.1k/1.0M tok ──
+ ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+ This session · applies at once
+  Folding               [ ] off                   session
+  Token budget          1M                   model window
+  Protected tail        20k                      built-in
+ All sessions · ~/.accordion/config.json · staged until …
+  Arm on startup        [ ] off                      user
+  Default conductor     ‹ keel-lite ›             default
+→ /compact behavior     ‹ native ›                   user
+  Web UI address        127.0.0.1                 default
+  Web UI door port      0                            user
+  Web access token      [REDACTED]
+  Debug log             [ ] off                   default
+  Task fold timing      ‹ eager ›                 default
+
+
+
+
+
+
+
+─────────────────────────────────────────────────────────
+ What Pi's /compact does while folding is armed: pass (o…
+ enter next value · ←→ change · f1 help · esc close
+─────────────────────────────────────────────────────────
+/mnt/Projects/furbyhaxx/pi-accordion/.pi/worktrees/bac...
+0.0%/1.0M (auto)         (deepseek) deepseek-flash • high
+accordion off

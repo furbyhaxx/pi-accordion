@@ -34,7 +34,6 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost) {
 		...DEFAULT_SETTINGS,
 		autoArm: true,
 		defaultConductor: "keel-lite",
-		compactMode: "accordion" as const,
 		bindHost: "127.0.0.1",
 		doorPort: 24317,
 		customToken: null as string | null,

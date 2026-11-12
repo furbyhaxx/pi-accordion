@@ -58,6 +58,10 @@ budget and protected tail (remembered per model; `--default` or `ctrl+s` in the 
 in `~/.accordion/config.json` or the Settings tab) and intercepts `/compact` with a reversible
 Accordion pass.
 
+Compaction policies are stored in `compact.manual`, `compact.threshold` and `compact.onSaturated`.
+Legacy `compactMode` configurations migrate on load and the old key is dropped on save.
+`ACCORDION_COMPACT_MODE` keeps the legacy mapping and overrides all three policies on load.
+
 Conductors that call models out of band route them through `models` in the same file. Set a
 default per model type and override it per conductor id. Chat uses its tuned default, else the session model.
 A classifier falls back to the model the conductor is tuned for, if it names one (taskfold uses
