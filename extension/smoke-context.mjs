@@ -162,6 +162,45 @@ check("native polling adopts hot policies, retains valid state on errors and rec
 		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
 	}
 });
+check("model default reloads update inherited dials and preserve session values", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	const previousPoll = process.env.ACCORDION_CONTROLLER_POLL_MS;
+	process.env.ACCORDION_CONTROLLER_POLL_MS = "10";
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", modelDefaults: { "*": { budget: "700k", protect: "12k", timing: "lazy" } } }));
+	const r = runtime();
+	try {
+		const host = await r.open();
+		assert.equal(host.truth().budget, 700_000);
+		assert.equal(host.truth().protectTokens, 12_000);
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", modelDefaults: { "*": { budget: "400k", protect: "15k", timing: "pressure" } } }));
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.truth().budget, 400_000);
+		assert.equal(host.truth().protectTokens, 15_000);
+		assert.equal(host.dials().timing, "pressure");
+		host.command({ kind: "setBudget", value: 300_000 });
+		await r.command("fold eager");
+		const saved = await host.updateSettings({ "modelDefaults.*.budget": "100k", "modelDefaults.*.protect": "8k", "modelDefaults.*.timing": "lazy" }, host.settings().rev);
+		assert.equal(saved.ok, true);
+		assert.equal(host.truth().budget, 300_000);
+		assert.equal(host.truth().protectTokens, 8_000, "local saves also re-resolve inherited values immediately");
+		assert.equal(host.dials().timing, "eager");
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none" }));
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.truth().budget, 300_000);
+		assert.equal(host.truth().protectTokens, 20_000, "removed defaults fall back to the built-in tail");
+		host.command({ kind: "setProtect", value: 7_000 });
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", modelDefaults: { "*": { budget: "100k", protect: "30k", timing: "pressure" } } }));
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(host.truth().budget, 300_000);
+		assert.equal(host.truth().protectTokens, 7_000);
+		assert.equal(host.dials().timing, "eager");
+		for (const source of Object.values(host.dials().sources)) assert.equal(source.kind, "session");
+	} finally {
+		r.close(); fs.rmSync(config, { force: true });
+		if (previousPoll === undefined) delete process.env.ACCORDION_CONTROLLER_POLL_MS;
+		else process.env.ACCORDION_CONTROLLER_POLL_MS = previousPoll;
+	}
+});
 check("task sizing guidance reaches the default system prompt only while tasks is selected", async () => {
 	const r = runtime();
 	try {

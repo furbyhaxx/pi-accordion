@@ -462,6 +462,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		settingsSnapshot = next;
 		settings = next.settings;
 		if (!changed.length) return;
+		if (changed.some(name => name.startsWith("modelDefaults."))) {
+			dialModel = null;
+			applyDials();
+		}
 		if (settings.customToken !== before.customToken) webToken = settings.customToken ?? generateMemorableToken();
 		if (settings.bindHost !== before.bindHost || settings.doorPort !== before.doorPort) {
 			closeDoor();

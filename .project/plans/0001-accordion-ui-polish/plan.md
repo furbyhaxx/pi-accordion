@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 11
+  revision: 12
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T04:25:28+01:00"
+  updated_at: "2026-11-12T04:31:40+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 11
-      reason: "adopt cross-instance hot-policy changes through the shared poll"
-      changes: ["shared adoption path for saves and polling", "retain valid state on read errors", "hot widget row limits", "native polling regression and automated gates"]
+    - revision: 12
+      reason: "re-resolve inherited dials when saved model defaults change"
+      changes: ["local and peer default changes take effect", "session values remain authoritative", "default removal restores built-ins", "runtime smoke reproduces and protects the stale-dial regression"]
 ---
 
 # Accordion UI polish: plan
@@ -206,11 +206,13 @@ replacement. Real Pi verifies env/flag locks, refused locked edits, preserved un
 and responsive renders at 36/57/80/140 columns (`evidence/settings-native/`). Polling now uses
 the same adoption path as native saves; hot compaction policies and widget mode/row limits update
 without restart. Malformed or unreadable files warn once per failure and retain the valid cache;
-repairing the file resumes adoption. The 162 settings, lock and TUI tests pass, as do native smokes,
-clean Svelte check and 1,076 app tests (21 existing skips). Expanded strict checking still reports
+repairing the file resumes adoption. Saved model defaults re-resolve inherited dials immediately,
+including removal back to built-ins, without replacing session-set values or timing. The 167
+settings, dials, lock and TUI tests pass, as do native smokes, clean Svelte check and 1,076 app
+tests (21 existing skips). Expanded strict checking still reports
 the seven unchanged diagnostics: three TS2612 conductor declarations, two optional URL arguments
 and two tool-result `details` signatures.
-Pending: model-default and privacy effects, door-secret adoption and safe rebind lifecycle,
+Pending: privacy effects, door-secret adoption and safe rebind lifecycle,
 conductor option declarations and the live two-Pi sync check. Settings WebSocket frames belong
 to S6's protocol work. Aggressive/bake execution remains in S4.
 

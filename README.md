@@ -286,6 +286,7 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   remembers them per model across resumes; the panel's scope prompt (or `--default`) also saves them as the model's
   default under `modelDefaults` in `~/.accordion/config.json`, keyed by `provider/model`,
   `provider/*` or `*`: `{ "anthropic/claude-opus-5-5": { "budget": "200k" }, "openai-codex/*": { "budget": "272k" } }`.
+  Default changes update running sessions unless that session has already set the affected dial.
 - Taskfold timing uses `/accordion fold eager|lazy|pressure`; `eager` is the default. `lazy` waits
   for a cold/expired cache or high pressure; `pressure` waits only for high pressure. The session
   mode overrides `modelDefaults` timing (exact model, provider wildcard, `*`), then global

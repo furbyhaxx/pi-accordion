@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 14
+  revision: 15
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T04:08:00+01:00"
+  updated_at: "2026-11-12T04:31:40+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 14
-      reason: "guard asynchronous native saves against session and controller changes"
-      changes: ["cancellable contention waits", "revisioned TUI host contract", "staged conflict retention and override locks"]
+    - revision: 15
+      reason: "make live default re-resolution explicit in the settings contract"
+      changes: ["saved model defaults re-resolve running sessions", "session-owned dials retain priority", "schema and runtime-effects table agree"]
 ---
 
 # Accordion UI polish
@@ -361,8 +361,9 @@ Implemented in `extension/dials.ts` and `extension/accordion.ts`.
 - **Resolution** for model `provider/id`: the last value set in this session for that model, else
   `modelDefaults` by most specific key (`provider/id`, `provider/*`, `*`), else the context window
   (budget) or 20k (tail). The budget is capped at the window.
-- **When:** on the first Truth build of a session start, and on every model change (`model_select`
-  and the late-learned model in `refreshFromCtx`); the budget follows the model.
+- **When:** on the first Truth build of a session start, every model change (`model_select`
+  and the late-learned model in `refreshFromCtx`), and every adopted `modelDefaults` change.
+  Session values retain priority when another instance changes or removes defaults.
 - **Session memory:** every `setBudget`/`setProtect` command (panel, web, `/accordion budget|tail`)
   appends `accordion.dials` `{ model, budget | protect }`; a resume reads them from the branch.
 - **Panel:** `b`/`t` (and Settings rows) open an input accepting amounts with a live parse preview,
@@ -650,7 +651,7 @@ All keys, after this change. Types are TypeScript; "env/flag" lists overrides th
 |---|---|---|---|---|---|
 | `autoArm` | `boolean` / `true` | Defaults | toggle | `ACCORDION_AUTO_ARM` | next session start |
 | `defaultConductor` | conductor id or `"none"` / `"keel-lite"` | Defaults | picker (registry, readiness shown) | `ACCORDION_DEFAULT_CONDUCTOR` | next session start |
-| `modelDefaults.<pattern>.budget` / `.protect` **delivered** | amount string (`"200k"`, `"1M"`, `"85%"`); pattern `provider/model`, `provider/*` or `*` | Budget & tail | list of patterns; add/edit/remove; amounts as in §4.12 | – | on the next resolution (session start, model switch) |
+| `modelDefaults.<pattern>.budget` / `.protect` **delivered** | amount string (`"200k"`, `"1M"`, `"85%"`); pattern `provider/model`, `provider/*` or `*` | Budget & tail | list of patterns; add/edit/remove; amounts as in §4.12 | – | on session start, model switch and adopted defaults change; session values win |
 | `compact.manual` **new** | `"pass" \| "aggressive" \| "bake" \| "native"` / `"pass"` | Compaction | picker | – | immediately |
 | `compact.threshold` **new** | `"pass" \| "native"` / `"pass"` | Compaction | picker | – | immediately |
 | `compact.onSaturated` **new** | `"native" \| "bake" \| "warn"` / `"native"` | Compaction | picker | – | immediately |
@@ -778,6 +779,7 @@ export class SettingsStore {
 | `compact.*`, `models.*`, `taskWidget.mode`, `taskWidget.maxRows` | none beyond re-read; next use reads the new value; widget `sync()` |
 | `privacyConsent.<id>` removed | if `<id>` is attached and needs consent (`leavesMachine`), detach it and notify "Taskfold detached: privacy consent revoked" |
 | `conductorOptions.<id>` | if `<id>` is attached, re-select it (detach + attach) |
+| `modelDefaults.*` | re-resolve budget/tail for the current model, preserving session-set values |
 | others | none (apply at next session start) |
 
 ## 7. Area D: compaction
