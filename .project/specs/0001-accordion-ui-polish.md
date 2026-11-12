@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 19
+  revision: 20
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T07:51:51+01:00"
+  updated_at: "2026-11-12T08:17:12+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 19
-      reason: "keep confirmation choices visible above Pi's reserved footer rows"
-      changes: ["reserve confirmation body space for question and choices", "move clipped facts to the description", "scroll choices with selection"]
+    - revision: 20
+      reason: "align editable conductor options with the delivered eager folding default"
+      changes: ["keepRecentTasks defaults to zero as specified in SPEC-0002", "pressure may waive recent-task retention"]
 ---
 
 # Accordion UI polish
@@ -339,8 +339,8 @@ extension coaches. Implemented in `extension/tasks.ts` and `extension/taskCoach.
   already in another group (or planned in this epoch) pulls that edge inward to the next whole
   message, so `complete A` + `start B` in one assistant message folds both tasks. Interior blocks
   in a foreign group still reject the span.
-- **`keepRecentTasks`** (default 1): the newest N finished top-level spans are never fold
-  candidates. The token tail still applies to every fold.
+- **`keepRecentTasks`** (default 0): keeps the newest N finished top-level spans raw unless
+  pressure requires them to reach the target. The token tail still applies to every fold.
 - **Aging ladder.** When folding every candidate still leaves the projection above `low · budget`,
   Taskfold rewrites its own folded records, oldest first, skipping the newest record and any group
   touched in the same epoch: level 1 for all of them first (`<tag> [task-record] <key> "<title>"
@@ -691,7 +691,7 @@ export interface ConductorOptionSpec {
 v1 declares options for Taskfold only: `high` (fraction 0.5–0.95, 0.8, "Start folding at this
 share of the budget"), `low` (fraction 0.3–0.9, 0.6, "Fold until live tokens reach this share";
 MUST be < `high`, else the save is rejected with that message), `maxLoss` (number 0–3, 0.3,
-"Fold a user message when its predicted loss is below this"), `keepRecentTasks` (number 0–10, 1,
+"Fold a user message when its predicted loss is below this"), `keepRecentTasks` (integer 0–10, 0,
 "Newest finished top-level tasks that stay open"; already a `TaskfoldOptions` field, §4.11).
 
 ### 6.2 Settings screen

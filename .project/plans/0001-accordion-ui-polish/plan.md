@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish implementation"
   description: "Slices, order, files and done criteria for implementing SPEC-0001 after the delivered Taskfold visibility unit."
   status: "published"
-  revision: 22
+  revision: 23
   created_at: "2026-11-05T09:55:00+01:00"
-  updated_at: "2026-11-12T08:08:51+01:00"
+  updated_at: "2026-11-12T08:17:12+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 22
-      reason: "complete the live sixteen-row Settings evaluation after repairing confirmation layout"
-      changes: ["six Settings paths at 36/57/80/140 columns", "review all 24 rendered screenshots", "prove config and dials unchanged by cancellation", "leave conductor options as the next S2 result"]
+    - revision: 23
+      reason: "deliver registry-backed conductor option declarations and factory resolution"
+      changes: ["declare four Taskfold options using engine defaults", "resolve options on each in-process attach", "protect default, retention, pressure and loss behavior with tests"]
 ---
 
 # Accordion UI polish: plan
@@ -262,6 +262,13 @@ The six-path Settings matrix now passes at 36/57/80/140 columns by 16 rows. All 
 reviewed: selected rows, caret, validation, safe/destructive choices, staged/locked cues and
 primary hints remain readable. Captures and `result.json` / `visual-review.json` are in
 `evidence/settings-sync/viewport-16/`; cancellation preserves config, dials and Truth.
+
+Registry options now declare the four Taskfold controls and resolve defaults on every in-process
+attach. Factory-driven tests exercise default eager folding, retention, pressure watermarks and
+the classifier loss boundary. `keepRecentTasks` remains zero per SPEC-0002 rather than reviving
+the older UI-spec default of one. Taskfold tests: 74 passed; host tests: 41 passed; Svelte check:
+zero errors and warnings. Expanded strict checking still reports the seven unchanged diagnostics
+listed above. Persistence validation and native reattachment remain the next S2 results.
 
 Steps:
 1. `extension/sidecarLock.ts`: `withSidecarLock(path, action)` and async retry wrapper extracted

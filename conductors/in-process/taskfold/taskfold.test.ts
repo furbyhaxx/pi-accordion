@@ -16,6 +16,7 @@ import { parseExtraction } from "../../../extension/taskRouting";
 import type { ConductorHost, FoldTiming } from "../../../core/conductor/contract";
 import { cacheProfileFor } from "../../../core/cacheProfiles";
 import type { TaskEvent } from "../../../core/taskEvents";
+import { entryById } from "../../../core/conductor/registry";
 
 class Session {
 	readonly blocks: Block[] = [];
@@ -94,6 +95,31 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 	s.work(3, "tail");
 	return { s, start, end };
 }
+
+	it("resolves registry defaults and keeps the configured number of recent tasks raw", async () => {
+		for (const keepRecentTasks of [undefined, 0, 1]) {
+			const { s, start } = oneTask();
+			const host = setup(s, 2);
+			const conductor = entryById("taskfold")!.create!(keepRecentTasks === undefined ? undefined : { keepRecentTasks });
+			conductor.attach(host);
+			await host.departWire();
+			expect(!!groupOf(host, start)).toBe(keepRecentTasks !== 1);
+			conductor.detach();
+		}
+	});
+
+	it("uses registry watermarks to trigger pressure folding", async () => {
+		for (const high of [0.7, 0.9]) {
+			const { s, start } = oneTask();
+			const host = setup(s, 1.25);
+			Object.assign(host, { foldPolicy: () => ({ timing: "pressure", cache: cacheProfileFor("*"), now: 1_000, lastRequestAt: null }) });
+			const conductor = entryById("taskfold")!.create!({ high, low: 0.4 });
+			conductor.attach(host);
+			await host.departWire();
+			expect(!!groupOf(host, start)).toBe(high === 0.7);
+			conductor.detach();
+		}
+	});
 
 	it("retries parse failures once but reports truncation and provider errors without retrying", async () => {
 		for (const mode of ["recover", "malformed", "length", "error"] as const) {
@@ -904,18 +930,22 @@ describe("taskfold", () => {
 		expect(resumed.get(userId)).toMatchObject({ loss: 0.1, source: "classifier", confidence: 0.9, model: "test/cls" });
 	});
 
-	it("keeps a user message whose loss reaches maxLoss verbatim", async () => {
-		const { s } = oneTask((s) => s.user("Don't touch the lexer."));
-		const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("lexer"))!.id;
-		const host = new TestHost();
-		host.classifier = () => ({ answers: { loss: { type: "score", score: 2, confidence: 0.8 } }, model: "test/cls" });
-		new TaskfoldConductor({ keepRecentTasks: 0 }).attach(host);
-		host.appendBlocks(s.blocks);
-		host.setProtect(200);
-		await new Promise((r) => setTimeout(r, 0));
-		host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
-		await host.commitTurn();
-		expect(groupOf(host, userId)).toBeUndefined();
+	it("uses the registry maxLoss threshold and keeps a user message at the boundary verbatim", async () => {
+		for (const maxLoss of [2, 2.1]) {
+			const { s } = oneTask((s) => s.user("Don't touch the lexer."));
+			const userId = s.blocks.find((b) => b.kind === "user" && b.text.includes("lexer"))!.id;
+			const host = new TestHost();
+			host.classifier = () => ({ answers: { loss: { type: "score", score: 2, confidence: 0.8 } }, model: "test/cls" });
+			const conductor = entryById("taskfold")!.create!({ maxLoss });
+			conductor.attach(host);
+			host.appendBlocks(s.blocks);
+			host.setProtect(200);
+			await new Promise((r) => setTimeout(r, 0));
+			host.setBudget(Math.ceil(host.stats().liveTokens * 0.7));
+			await host.commitTurn();
+			expect(!!groupOf(host, userId)).toBe(maxLoss > 2);
+			conductor.detach();
+		}
 	});
 
 	it("absorbs a folded child span when its parent finishes", async () => {

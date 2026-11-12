@@ -36,7 +36,7 @@ import type {
 } from "../protocol";
 import type { Conductor, ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "./contract";
 import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent } from "./hostAdapter";
-import { entryById, type RegistryEntry } from "./registry";
+import { entryById, resolveConductorOptions, type ConductorOptions, type RegistryEntry } from "./registry";
 import { estTokens } from "../tokens";
 import { digest } from "../digest";
 
@@ -62,8 +62,10 @@ export interface LiveHostDeps {
 	mintToken(): string;
 	/** Recheck a spawn conductor's required startup capabilities immediately before selection. */
 	readiness(entry: RegistryEntry): ConductorReadiness;
+	/** Validated per-conductor settings, resolved against registry defaults on every attach. */
+	conductorOptions?(id: string): ConductorOptions;
 	/** Create an in-process conductor with host configuration; omit to use the registry factory. */
-	createInProcess?(entry: RegistryEntry): Conductor | undefined;
+	createInProcess?(entry: RegistryEntry, options: ConductorOptions): Conductor | undefined;
 	/** Launch a spawn conductor's runner. Returns null if the runner is unavailable on this install. */
 	spawnRunner(entryFile: string, env: Record<string, string>): SpawnedRunner | null;
 	/** Run an out-of-band model completion off the hot path for `conductorId`'s model routing. Rejects
@@ -384,7 +386,8 @@ export class LiveConductorHost implements ConductorHost {
 		if (entry.kind === "in-process") {
 			let c: Conductor;
 			try {
-				c = this.deps.createInProcess?.(entry) ?? entry.create!();
+				const options = resolveConductorOptions(entry, this.deps.conductorOptions?.(entry.id));
+				c = this.deps.createInProcess?.(entry, options) ?? entry.create!(options);
 			} catch {
 				this.setAndBroadcastStatus(`${entry.label} failed to start.`, { level: "error" });
 				this.deps.broadcast({ type: "conductorState", active: null });

@@ -27,8 +27,34 @@ import { HandoffConductor } from "../../conductors/in-process/handoff/handoff";
 import { DoormanConductor } from "../../conductors/in-process/doorman/doorman";
 import { KeelLiteConductor, KEEL_LITE_DEFAULTS, type KeelLiteOptions } from "../../conductors/in-process/keel-lite/keel-lite";
 import { KeelNoteConductor, type KeelNoteOptions } from "../../conductors/in-process/keel-note/keel-note";
-import { TASKFOLD_CLASSIFIER, TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_CLASSIFIER, TASKFOLD_DEFAULTS, TaskfoldConductor } from "../../conductors/in-process/taskfold/taskfold";
 import { taskfoldVerdicts } from "../../conductors/in-process/taskfold/verdicts";
+
+/** An editable conductor option, validated before it reaches a factory. */
+export interface ConductorOptionSpec {
+	/** Stable key persisted under the conductor id. */
+	key: string;
+	/** Human-readable editor label. */
+	label: string;
+	/** Explanation shown beside the editor. */
+	description: string;
+	/** Editor and validation kind; number values may be fractional. */
+	type: "fraction" | "number" | "boolean";
+	/** Inclusive numeric lower bound. */
+	min?: number;
+	/** Inclusive numeric upper bound. */
+	max?: number;
+	/** Value used when the option is absent from settings. */
+	default: number | boolean;
+}
+
+/** Validated values keyed by the registry's declared option names. */
+export type ConductorOptions = Readonly<Record<string, number | boolean>>;
+
+/** Resolve declared defaults and validated overrides, excluding undeclared keys. */
+export function resolveConductorOptions(entry: Pick<RegistryEntry, "options">, overrides: ConductorOptions = {}): ConductorOptions {
+	return Object.fromEntries((entry.options ?? []).map((spec) => [spec.key, overrides[spec.key] ?? spec.default]));
+}
 
 /** One catalog entry: everything the host needs to attach (or detach to) this conductor. */
 export interface RegistryEntry {
@@ -52,8 +78,10 @@ export interface RegistryEntry {
 	defaultModels?: Partial<Record<"chat" | "classifier", string | readonly string[]>>;
 	/** Host tools the agent gets only while this conductor is attached. */
 	tools?: readonly string[];
-	/** In-process factory — a FRESH conductor per attach. */
-	create?: () => Conductor;
+	/** Editable options and their defaults. */
+	options?: readonly ConductorOptionSpec[];
+	/** In-process factory — a FRESH conductor per attach, with resolved options. */
+	create?: (options?: ConductorOptions) => Conductor;
 	/** Spawn descriptor — the runner file the extension launches out of process. `entryFile` is
 	 *  relative to `conductors/ws/` (e.g. `"thermocline/runner.mjs"`) so one resolver serves every
 	 *  spawn conductor; the extension sanitizes it (no absolute paths, no `..`). */
@@ -69,8 +97,9 @@ export interface RegistryEntry {
 }
 
 /** Build an in-process entry, sourcing its metadata from a sample instance of the conductor. */
-function inProcess(create: () => Conductor): RegistryEntry {
-	const sample = create();
+function inProcess(create: (options: ConductorOptions) => Conductor, options: readonly ConductorOptionSpec[] = []): RegistryEntry {
+	const resolved = resolveConductorOptions({ options });
+	const sample = create(resolved);
 	return {
 		id: sample.id,
 		label: sample.label,
@@ -79,7 +108,8 @@ function inProcess(create: () => Conductor): RegistryEntry {
 		tailTokens: sample.tailTokens ?? 0,
 		holdWireUpToMs: sample.holdWireUpToMs ?? 0,
 		kind: "in-process",
-		create,
+		options,
+		create: (overrides) => create(resolveConductorOptions({ options }, overrides)),
 	};
 }
 
@@ -187,7 +217,12 @@ export const ENTRIES: readonly RegistryEntry[] = [
 	inProcess(() => new KeelLiteConductor(keelLiteOptionsFromEnv())),
 	inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
 	{
-		...inProcess(() => new TaskfoldConductor({}, taskfoldVerdicts)),
+		...inProcess((options) => new TaskfoldConductor(options, taskfoldVerdicts), [
+			{ key: "high", label: "High water", description: "Start folding at this share of the budget", type: "fraction", min: 0.5, max: 0.95, default: TASKFOLD_DEFAULTS.high },
+			{ key: "low", label: "Low water", description: "Fold until live tokens reach this share", type: "fraction", min: 0.3, max: 0.9, default: TASKFOLD_DEFAULTS.low },
+			{ key: "maxLoss", label: "Maximum loss", description: "Fold a user message when its predicted loss is below this", type: "number", min: 0, max: 3, default: TASKFOLD_DEFAULTS.maxLoss },
+			{ key: "keepRecentTasks", label: "Keep recent tasks", description: "Newest finished top-level tasks that stay open", type: "number", min: 0, max: 10, default: TASKFOLD_DEFAULTS.keepRecentTasks },
+		]),
 		defaultModels: { chat: ["openai/gpt-6-luna", "openai-codex/gpt-6-luna"], classifier: TASKFOLD_CLASSIFIER },
 		privacy: {
 			models: ["classifier", "chat"],
