@@ -20,12 +20,21 @@ export interface FooterState {
 	timing?: FoldTiming | null;
 	statusText: string | null;
 	level: StatusLevel;
+	/** Live tokens and the budget they are measured against, when both are known. */
+	usage?: { live: number; budget: number } | null;
+}
+
+/** `28%` when a budget is set, else null. */
+export function usagePercent(usage: { live: number; budget: number } | null | undefined): string | null {
+	if (!usage || !(usage.budget > 0)) return null;
+	return `${Math.round((100 * usage.live) / usage.budget)}%`;
 }
 
 /** The footer text, trimmed to `max` columns: `accordion · <conductor> · [timing] · <status>`. */
 export function footerText(state: FooterState, max = 72): string {
 	if (!state.folding) return "accordion off";
-	const parts = ["accordion", state.conductor ?? "no conductor"];
+	const usage = usagePercent(state.usage);
+	const parts = [usage ? `accordion ${usage}` : "accordion", state.conductor ?? "no conductor"];
 	if (state.timing) parts.push(state.timing);
 	const status = state.statusText?.replace(/\s+/g, " ").trim();
 	if (status) parts.push(status);

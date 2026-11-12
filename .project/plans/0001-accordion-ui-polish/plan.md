@@ -30,7 +30,9 @@ done  S1  Panel shell on the dashboard standard (§3, §5.1–5.2)
 done  S1b Task views inside the panel (§4.9, §4.13, §4.14)
 done  S2  Settings store, sync, schema (§6.1, §6.3): automated gates and two-session checks pass
 done  S3  Settings screen (§6.2): native editor, live two-session changes and viewport checks pass
-now   S1c Footer (§8)
+done  S1c Footer (§8): usage percent in the footer; the status text stays, the spec's 24-column
+          glyph form was not adopted because it drops the status the footer exists to show
+later S1c-rest the spec's compact glyph form, if a live check shows the status text overflows
 later S4  Compaction (§7)
 later S5  Panel screens (§5.3–5.8)
 later S6  Protocol v24 and web app (§9)

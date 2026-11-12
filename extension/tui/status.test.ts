@@ -9,6 +9,8 @@ describe("conductor status presentation", () => {
 		expect(footerText({ folding: false, conductor: "Keel-lite", statusText: "epoch 3", level: "info" })).toBe("accordion off");
 		expect(footerText({ folding: true, conductor: null, statusText: null, level: "info" })).toBe("accordion · no conductor");
 		expect(footerText({ folding: true, conductor: "Taskfold", timing: "lazy", statusText: "held", level: "info" })).toBe("accordion · Taskfold · lazy · held");
+		expect(footerText({ folding: true, conductor: "Taskfold", statusText: null, level: "info", usage: { live: 28000, budget: 100000 } })).toBe("accordion 28% · Taskfold");
+		expect(footerText({ folding: true, conductor: "Taskfold", statusText: null, level: "info", usage: { live: 10, budget: 0 } })).toBe("accordion · Taskfold");
 		expect(footerText({ folding: false, conductor: "Taskfold", timing: "pressure", statusText: null, level: "info" })).toBe("accordion off");
 		const long = footerText({ folding: true, conductor: "Thermocline", statusText: "HOLD 82% · 12 folded · 3 strata\n· probe off (age fallback)", level: "warning" }, 40);
 		expect(long).toHaveLength(40);
