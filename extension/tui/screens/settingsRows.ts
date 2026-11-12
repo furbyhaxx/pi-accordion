@@ -7,9 +7,20 @@ export interface SettingsRow {
 	section: string;
 	label: string;
 	description: string;
-	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor" | "model";
-	choices?: readonly string[];
+	kind: "toggle" | "choice" | "number" | "text" | "list" | "conductor" | "model" | "add-pattern";
+	choices?: readonly (string | undefined)[];
 	defaultValue?: number | boolean;
+}
+
+export function modelDefaultRows(patterns: readonly string[]): SettingsRow[] {
+	return [
+		{ section: "Budget & tail", path: "modelDefaults.*.budget", label: "Add model pattern…", kind: "add-pattern", description: "Add *, provider/* or provider/model; then set its budget, protected tail or fold timing." },
+		...patterns.flatMap((pattern): SettingsRow[] => [
+			{ section: `Budget & tail · ${pattern}`, path: `modelDefaults.${pattern}.budget`, label: "Default budget", kind: "text", description: `Budget for ${pattern}; empty removes this value.` },
+			{ section: `Budget & tail · ${pattern}`, path: `modelDefaults.${pattern}.protect`, label: "Default tail", kind: "text", description: `Protected tail for ${pattern}; empty removes this value.` },
+			{ section: `Budget & tail · ${pattern}`, path: `modelDefaults.${pattern}.timing`, label: "Default timing", kind: "choice", choices: [undefined, ...FOLD_TIMINGS], description: `Taskfold timing for ${pattern}; inherited falls back to the global setting.` },
+		]),
+	];
 }
 
 export const SETTINGS_ROWS: readonly SettingsRow[] = [

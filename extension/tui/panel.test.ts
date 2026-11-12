@@ -584,6 +584,42 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("adds a model pattern with validated budget, tail and timing", async () => {
+		const s = setup(false, "settings");
+		let saved: SettingsPatch | undefined;
+		s.host.updateSettings = (patch) => { saved = patch; return { ok: true, snapshot: s.host.settings!() }; };
+		selectSetting(s, "Add model pattern"); s.panel.handleInput(K.enter);
+		s.panel.handleInput("bad-pattern");
+		expect(s.screen()).toContain("✗ enter *, provider/* or provider/model");
+		s.panel.handleInput(K.enter);
+		expect(s.screen()).toContain("✗ enter *, provider/* or provider/model");
+		s.panel.handleInput("\x15"); s.panel.handleInput("vendor/gpt.v1"); s.panel.handleInput(K.enter);
+		expect(s.cursor()).toContain("Default budget");
+		s.panel.handleInput(K.enter); s.panel.handleInput("bad");
+		expect(s.screen()).toContain("✗ modelDefaults.vendor/gpt.v1.budget");
+		s.panel.handleInput("\x15"); s.panel.handleInput("200k"); s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.down); s.panel.handleInput(K.enter); s.panel.handleInput("20k"); s.panel.handleInput(K.enter);
+		s.panel.handleInput(K.down); s.panel.handleInput(K.right); s.panel.handleInput(K.right); s.panel.handleInput(K.right);
+		expect(s.cursor()).toContain("pressure");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(saved).toEqual({ "modelDefaults.vendor/gpt.v1.budget": "200k", "modelDefaults.vendor/gpt.v1.protect": "20k", "modelDefaults.vendor/gpt.v1.timing": "pressure" });
+		s.close(); await s.opening;
+	});
+
+	test("removes individual model defaults without touching the others", async () => {
+		const s = setup(false, "settings");
+		s.settings().modelDefaults = { "vendor/gpt.v1": { budget: "200k", protect: "20k", timing: "lazy" } };
+		let saved: SettingsPatch | undefined;
+		s.host.updateSettings = (patch) => { saved = patch; return { ok: true, snapshot: s.host.settings!() }; };
+		selectSetting(s, "Default budget");
+		s.panel.handleInput(K.alt("u")); s.panel.handleInput(K.down); s.panel.handleInput(K.alt("u"));
+		s.panel.handleInput(K.down); s.panel.handleInput(K.alt("u"));
+		expect(s.cursor()).toContain("inherited");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(saved).toEqual({ "modelDefaults.vendor/gpt.v1.budget": undefined, "modelDefaults.vendor/gpt.v1.protect": undefined, "modelDefaults.vendor/gpt.v1.timing": undefined });
+		s.close(); await s.opening;
+	});
+
 	test("retains staged edits and their original revision when a save conflicts", async () => {
 		const s = setup(false, "settings");
 		for (let i = 0; i < 3; i++) s.panel.handleInput(K.down);

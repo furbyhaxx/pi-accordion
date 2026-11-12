@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "../../settings";
 import { settingParts, validateSetting, type SettingPath, type SettingsPatch } from "../../settingsValidation";
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
-import { SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
+import { modelDefaultRows, SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
 
 interface SessionRow {
 	id: "folding" | NumericDialKind;
@@ -28,6 +28,10 @@ function settingValue(settings: unknown, path: SettingPath): unknown {
 
 function parseInput(row: SettingsRow, text: string): { value: unknown } | { error: string } {
 	const trimmed = text.trim();
+	if (row.kind === "add-pattern") {
+		const result = validateSetting(`modelDefaults.${trimmed}.budget`, undefined);
+		return result.ok ? { value: trimmed } : { error: "enter *, provider/* or provider/model" };
+	}
 	let value: unknown = trimmed;
 	if (row.kind === "number") {
 		if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(trimmed)) return { error: "enter a number" };
@@ -35,6 +39,7 @@ function parseInput(row: SettingsRow, text: string): { value: unknown } | { erro
 	} else if (row.kind === "list") {
 		try { value = JSON.parse(trimmed); } catch { return { error: "enter a JSON array of directories" }; }
 	} else if (row.path === "customToken" && !trimmed) value = null;
+	else if (row.path.startsWith("modelDefaults.") && !trimmed) value = undefined;
 	const result = validateSetting(row.path, value);
 	return result.ok ? { value } : { error: result.error };
 }
@@ -42,13 +47,30 @@ function parseInput(row: SettingsRow, text: string): { value: unknown } | { erro
 /** The Settings tab: session values apply at once, global values are staged and saved with ctrl+s. */
 export function createSettingsTab(shell: Shell): PanelTab {
 	const { host } = shell;
-	const rows: Row[] = [...SESSION_ROWS, ...SETTINGS_ROWS];
+	let rows: Row[] = [];
 	let selected = 0;
 	let top = 0;
 	let staged: SettingsPatch = {};
 	let baseRev = "";
 	let input: { row: Row; text: string } | null = null;
 	let picker: Picker | null = null;
+	const newPatterns = new Set<string>();
+	const rebuildRows = () => {
+		const previous = rows[selected];
+		const settings = host.settings?.().settings ?? DEFAULT_SETTINGS;
+		const patterns = new Set([...Object.keys(settings.modelDefaults), ...newPatterns]);
+		for (const path of Object.keys(staged)) {
+			const parts = settingParts(path);
+			if (parts?.[0] === "modelDefaults") patterns.add(parts[1]);
+		}
+		const firstCompaction = SETTINGS_ROWS.findIndex((row) => row.section === "Compaction");
+		rows = [...SESSION_ROWS, ...SETTINGS_ROWS.slice(0, firstCompaction), ...modelDefaultRows([...patterns].sort()), ...SETTINGS_ROWS.slice(firstCompaction)];
+		if (previous) {
+			const index = rows.findIndex((row) => isGlobal(row) && isGlobal(previous) ? row.path === previous.path && row.kind === previous.kind : !isGlobal(row) && !isGlobal(previous) && row.id === previous.id);
+			if (index >= 0) selected = index;
+		}
+	};
+	rebuildRows();
 
 	const saved = (row: SettingsRow): unknown => settingValue(host.settings?.().settings ?? DEFAULT_SETTINGS, row.path);
 	const defaultValue = (row: SettingsRow): unknown => row.defaultValue ?? settingValue(DEFAULT_SETTINGS, row.path);
@@ -66,7 +88,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		if (JSON.stringify(next) === JSON.stringify(saved(row))) delete staged[row.path];
 		else staged[row.path] = next;
 	};
-	const options = (row: SettingsRow): readonly string[] => {
+	const options = (row: SettingsRow): readonly (string | undefined)[] => {
 		if (row.kind !== "conductor") return row.choices ?? [];
 		const ids = [...host.conductors().map((entry) => entry.id).filter((id) => id !== "none" && validateSetting(row.path, id).ok), "none"];
 		const current = value(row);
@@ -76,7 +98,9 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		if (!isGlobal(row) || row.kind !== "choice" && row.kind !== "conductor") return false;
 		const choices = options(row);
 		if (!choices.length) return true;
-		stage(row, choices[(choices.indexOf(String(value(row))) + step + choices.length) % choices.length]);
+		const current = value(row);
+		const index = choices.indexOf(typeof current === "string" ? current : undefined);
+		stage(row, choices[((index < 0 ? 0 : index) + step + choices.length) % choices.length]);
 		return true;
 	};
 	const filtered = () => picker?.items.filter((item) => `${item.label} ${item.description}`.toLowerCase().includes(picker!.filter.toLowerCase())) ?? [];
@@ -120,7 +144,8 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		const source = Object.hasOwn(staged, row.path) ? theme.fg("warning", "▲ staged") : theme.fg("dim", locked(row) ? `${locked(row)} · locked` : configured === "file" ? "user" : configured ?? "default");
 		const current = value(row);
 		if (row.kind === "toggle") return { value: current ? "[x] on" : "[ ] off", source };
-		if (row.kind === "choice" || row.kind === "conductor") return { value: `‹ ${clean(String(current))} ›`, source };
+		if (row.kind === "add-pattern") return { value: "›", source: "" };
+		if (row.kind === "choice" || row.kind === "conductor") return { value: `‹ ${clean(String(current ?? "inherited"))} ›`, source };
 		if (row.kind === "model") return { value: clean(String(current ?? "default")), source };
 		if (row.path === "customToken") return { value: current === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(String(current)), source };
 		return { value: clean(row.kind === "list" ? JSON.stringify(current) : String(current ?? "")), source };
@@ -152,6 +177,13 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		}
 		const parsed = parseInput(row, text);
 		if ("error" in parsed) return shell.say(parsed.error);
+		if (row.kind === "add-pattern") {
+			newPatterns.add(parsed.value as string);
+			rebuildRows();
+			selected = rows.findIndex((candidate) => isGlobal(candidate) && candidate.kind !== "add-pattern" && candidate.path === `modelDefaults.${parsed.value}.budget`);
+			input = null;
+			return;
+		}
 		stage(row, parsed.value);
 		input = null;
 	};
@@ -164,6 +196,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			const result = await update({ ...staged }, baseRev);
 			if (!result.ok) throw new Error(result.error);
 			staged = {};
+			newPatterns.clear();
 			return `Saved ${n} setting${n === 1 ? "" : "s"} to ${CONFIG_PATH}`;
 		});
 	};
@@ -188,13 +221,14 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				return { body: [`  ${theme.bold(row.label)}: ${clean(text)}${theme.fg("accent", "▏")}`, `  ${check}`, "", `  ${theme.fg("dim", `now ${now.value} · ${now.source}`)}`], crumbs: [row.label], description: row.description,
 					hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", isGlobal(row) ? "stage" : "apply", 1)], above: 0, below: 0 };
 			}
+			rebuildRows();
 			selected = Math.max(0, Math.min(selected, rows.length - 1));
 			const labelWidth = width >= 57 ? 20 : 16;
 			const display: string[] = [];
 			let section = "", at = 0;
 			for (const [index, row] of rows.entries()) {
 				const nextSection = isGlobal(row) ? row.section : "This session · applies at once";
-				if (nextSection !== section) { section = nextSection; display.push(theme.fg("muted", ` ${section}`)); }
+				if (nextSection !== section) { section = nextSection; display.push(theme.fg("muted", ` ${clean(section)}`)); }
 				if (index === selected) at = display.length;
 				const cell = shown(row), label = truncateToWidth(row.label, labelWidth, "…");
 				const head = `${index === selected ? theme.fg("accent", "→") : " "} ${index === selected ? theme.bold(label) : label}${" ".repeat(Math.max(0, labelWidth - visibleWidth(label)))}  `;
@@ -211,7 +245,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			return { body: display.slice(top, top + bodyRows), crumbs: [], description: `${row.description}${webNote}`,
 				hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2), ...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
 					...(isGlobal(row) && (row.kind === "choice" || row.kind === "conductor") ? [rawHint(theme, "←→", "change", 3)] : []),
-					...(isGlobal(row) ? [rawHint(theme, "alt+u", "default", 6)] : []), ...(isGlobal(row) && row.path === "customToken" ? [rawHint(theme, "alt+r", "new token", 5)] : [])],
+					...(isGlobal(row) && row.kind !== "add-pattern" ? [rawHint(theme, "alt+u", "default", 6)] : []), ...(isGlobal(row) && row.path === "customToken" && row.kind !== "add-pattern" ? [rawHint(theme, "alt+r", "new token", 5)] : [])],
 				above: top, below: Math.max(0, display.length - top - bodyRows) };
 		},
 		key(data) {
@@ -240,7 +274,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			else if (matchesKey(data, "left")) return cycle(row, -1);
 			else if (matchesKey(data, "right")) return cycle(row, 1);
 			else if (matchesKey(data, "alt+u")) {
-				if (isGlobal(row)) stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
+				if (isGlobal(row) && row.kind !== "add-pattern") stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
 				else shell.say("A session value has no stored default to return to");
 			} else if (matchesKey(data, "alt+r") && isGlobal(row) && row.path === "customToken") {
 				if (!host.regenerateToken) return true;
@@ -254,14 +288,14 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`);
 				else if (isGlobal(row) && row.kind === "toggle") stage(row, !value(row));
 				else if (isGlobal(row) && (row.kind === "conductor" || row.kind === "model")) openPicker(row);
-				else if (!cycle(row, 1)) input = { row, text: !isGlobal(row) ? "" : row.kind === "list" ? JSON.stringify(value(row)) : String(value(row) ?? "") };
+				else if (!cycle(row, 1)) input = { row, text: !isGlobal(row) || row.kind === "add-pattern" ? "" : row.kind === "list" ? JSON.stringify(value(row)) : String(value(row) ?? "") };
 			} else return false;
 			return true;
 		},
 		typing: () => input !== null, query: () => picker?.filter ?? null,
 		setFilter(query) { if (picker) { picker.filter = query; picker.selected = 0; } },
 		back() { if (input) { input = null; return true; } if (picker) { picker = null; return true; } return false; },
-		dirty: () => Object.keys(staged).length, discard() { staged = {}; },
+		dirty: () => Object.keys(staged).length, discard() { staged = {}; newPatterns.clear(); },
 		legend: () => [
 			"[x] / [ ] toggles, ‹ value › is changed with Left and Right, ▲ staged marks a value not saved yet.",
 			"The right column says where a value comes from: session, default, user (your config file) or staged.",
