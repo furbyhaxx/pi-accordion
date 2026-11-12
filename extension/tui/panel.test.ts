@@ -801,6 +801,25 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("token regeneration refuses environment locks and preserves unrelated staged edits", async () => {
+		const s = setup(false, "settings");
+		let regenerations = 0;
+		s.host.regenerateToken = () => { regenerations++; return "new-token"; };
+		selectSetting(s, "Arm on startup"); s.panel.handleInput(K.enter);
+		selectSetting(s, "Web access token");
+		s.host.settings!().sources.customToken = "env";
+		s.panel.handleInput(K.alt("r"));
+		expect(s.screen()).toContain("env · locked");
+		expect(regenerations).toBe(0);
+		s.host.settings!().sources.customToken = "default";
+		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter); await tick();
+		expect(regenerations).toBe(1);
+		expect(s.screen()).toContain("▲ 1 staged");
+		s.panel.handleInput(K.ctrlS); await tick();
+		expect(s.settings().autoArm).toBe(false);
+		s.close(); await s.opening;
+	});
+
 	test("typed settings are validated before they are staged", async () => {
 		const s = setup(false, "settings");
 		selectSetting(s, "Web UI address");

@@ -308,9 +308,10 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				if (isGlobal(row) && row.kind !== "add-pattern" && row.kind !== "privacy") stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
 				else shell.say("A session value has no stored default to return to");
 			} else if (matchesKey(data, "alt+r") && isGlobal(row) && row.path === "customToken") {
+				if (locked(row)) { shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`); return true; }
 				if (!host.regenerateToken) return true;
 				const regenerate = host.regenerateToken;
-				shell.confirm({ crumb: "New token", title: "Generate a new web access token?\nUse the new URL for browser access; existing connections stay open.\nThis applies at once and is not staged.",
+				shell.confirm({ crumb: "New token", title: `Generate a new web access token?\nUse the new URL for browser access; existing connections stay open.\n${Object.hasOwn(staged, "customToken") ? "The staged token will be discarded.\n" : ""}This applies at once and is not staged.`,
 					options: ["Keep token", "Generate new token"], then: (choice) => { if (choice !== 1) return; void shell.run("Generating token…", async () => {
 						await regenerate(); delete staged.customToken; return "New token generated; reconnect using the Web UI URL";
 					}); } });
