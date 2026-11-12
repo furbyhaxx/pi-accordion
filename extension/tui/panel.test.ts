@@ -48,7 +48,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, termin
 	const conductor: ActiveConductorMeta = { id: "exclusive", label: "Exclusive", locks: ["human-steering"], tailTokens: 0, holdWireUpToMs: 0, remote: false, readiness: { state: "ready" } };
 	const host: AccordionTuiHost = {
 		truth: () => currentTruth, folding: () => false,
-		conductors: () => [conductor],
+		conductors: () => [conductor, { ...conductor, id: "taskfold", label: "Taskfold" }],
 		activeConductor: () => null,
 		canSteer: () => steering,
 		settings: () => ({ settings: settingsState, sources, rev: String(settingsRevision) }),
@@ -99,6 +99,14 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, termin
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
 	return { host, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+}
+
+function selectSetting(s: ReturnType<typeof setup>, label: string) {
+	for (let i = 0; i < 100; i++) {
+		if (s.cursor().includes(label)) return;
+		s.panel.handleInput(K.down);
+	}
+	throw new Error(`Setting not found: ${label}`);
 }
 
 describe("accordion panel", () => {
@@ -420,13 +428,14 @@ describe("accordion panel", () => {
 		const reach: Record<string, string[]> = {
 			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1],
 			conductors: [K.tab], consent: [K.tab, K.down, K.enter],
-			settings: [K.tab, K.tab], confirm: [K.tab, K.tab, K.down, K.down, K.down, K.down, K.down, K.down, K.down, K.down, K.alt("r")],
-			timing: [K.tab, K.tab, ...Array(10).fill(K.down)],
+			settings: [K.tab, K.tab], confirm: [K.tab, K.tab], timing: [K.tab, K.tab],
 		};
 		for (const [name, path] of Object.entries(reach)) {
 			const s = setup();
 			s.truth.setProtect(0);
 			for (const key of path) s.panel.handleInput(key);
+			if (name === "confirm") { selectSetting(s, "Web access token"); s.panel.handleInput(K.alt("r")); }
+			if (name === "timing") selectSetting(s, "Task fold timing");
 			const rule = s.panel.render(100)[0];
 			for (const key of printable) s.panel.handleInput(key);
 			await tick();
@@ -442,7 +451,7 @@ describe("accordion panel", () => {
 		const s = setup(false, "settings");
 		const before = { ...s.settings().taskfold, high: 0.9 };
 		s.settings().taskfold = before;
-		for (let i = 0; i < 10; i++) s.panel.handleInput(K.down);
+		selectSetting(s, "Task fold timing");
 		expect(s.cursor()).toContain("Task fold timing");
 		s.panel.handleInput(K.right);
 		expect(s.settings().taskfold.timing).toBe("eager");
@@ -517,21 +526,21 @@ describe("accordion panel", () => {
 		expect(s.cursor()).toContain("[ ] off");
 		expect(s.cursor()).toContain("▲ staged");
 		s.panel.handleInput(K.down); s.panel.handleInput(K.right);
-		expect(s.cursor()).toContain("‹ exclusive ›");
+		expect(s.cursor()).toContain("‹ taskfold ›");
 		expect(s.screen()).toContain("▲ 2 staged");
 		s.panel.handleInput(K.esc);
 		expect(s.cursor()).toContain("Keep editing");
 		s.panel.handleInput(K.enter);
 		s.panel.handleInput(K.ctrlS);
 		await tick();
-		expect(s.settings()).toMatchObject({ autoArm: false, defaultConductor: "exclusive" });
+		expect(s.settings()).toMatchObject({ autoArm: false, defaultConductor: "taskfold" });
 		expect(s.screen()).toContain("Saved 2 settings");
 		expect(s.screen()).not.toContain("▲");
 		s.panel.handleInput(K.alt("u"));
 		expect(s.cursor()).toContain("‹ keel-lite ›");
 		s.panel.handleInput(K.esc); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		await s.opening;
-		expect(s.settings().defaultConductor).toBe("exclusive");
+		expect(s.settings().defaultConductor).toBe("taskfold");
 	});
 
 	test("retains staged edits and their original revision when a save conflicts", async () => {
@@ -574,7 +583,7 @@ describe("accordion panel", () => {
 	test("a failed asynchronous regeneration preserves a staged token", async () => {
 		const s = setup(false, "settings");
 		s.host.regenerateToken = async () => { throw new Error("token write refused"); };
-		for (let i = 0; i < 8; i++) s.panel.handleInput(K.down);
+		selectSetting(s, "Web access token");
 		s.panel.handleInput(K.enter); s.panel.handleInput("staged-token"); s.panel.handleInput(K.enter);
 		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
 		await tick();
@@ -586,12 +595,12 @@ describe("accordion panel", () => {
 
 	test("typed settings are validated before they are staged", async () => {
 		const s = setup(false, "settings");
-		for (let i = 0; i < 6; i++) s.panel.handleInput(K.down);
+		selectSetting(s, "Web UI address");
 		s.panel.handleInput(K.enter);
 		expect(s.panel.render(100)[0]).toContain("Settings › Web UI address");
 		for (let i = 0; i < 9; i++) s.panel.handleInput(K.backspace);
 		for (const ch of "bad host") s.panel.handleInput(ch);
-		expect(s.screen()).toContain("✗ not a host name or address");
+		expect(s.screen()).toContain("✗ bindHost: must be an IP address or hostname");
 		s.panel.handleInput(K.enter);
 		expect(s.panel.render(100)[0]).toContain("Web UI address");
 		for (let i = 0; i < 8; i++) s.panel.handleInput(K.backspace);
@@ -607,7 +616,7 @@ describe("accordion panel", () => {
 
 	test.each([24, 16])("a new token needs visible confirmation with %i terminal rows", async (terminalRows) => {
 		const s = setup(false, "settings", undefined, terminalRows);
-		for (let i = 0; i < 8; i++) s.panel.handleInput(K.down);
+		selectSetting(s, "Web access token");
 		expect(s.cursor()).toContain("kave4ton");
 		s.panel.handleInput(K.alt("r"));
 		expect(s.screen(36)).toContain("Generate a new web access token?");

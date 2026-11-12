@@ -1,155 +1,136 @@
 import { decodeKittyPrintable, matchesKey, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { describeSource, type NumericDialKind, formatTokens, parseTokens } from "../../dials";
-import { FOLD_TIMINGS, type FoldTiming } from "../../../core/conductor/contract";
-import { type AccordionSettings, DEFAULT_SETTINGS, sanitizeBindHost, sanitizeCustomToken } from "../../settings";
+import { DEFAULT_SETTINGS } from "../../settings";
+import { settingParts, validateSetting, type SettingPath, type SettingsPatch } from "../../settingsValidation";
 import { bindingHint, clean, rawHint } from "../chrome";
 import type { PanelTab, Shell } from "./types";
-import type { SettingPath, SettingsPatch } from "../../settingsValidation";
+import { SETTINGS_ROWS, type SettingsRow } from "./settingsRows";
 
-type GlobalKey = "debug" | "autoArm" | "defaultConductor" | "manual" | "bindHost" | "doorPort" | "customToken" | "timing";
-type Globals = Pick<AccordionSettings, Exclude<GlobalKey, "timing" | "manual">> & { timing: FoldTiming; manual: AccordionSettings["compact"]["manual"] };
-type RowId = "folding" | NumericDialKind | GlobalKey;
-interface Row {
-	id: RowId;
+interface SessionRow {
+	id: "folding" | NumericDialKind;
 	label: string;
 	description: string;
 }
-
+type Row = SessionRow | SettingsRow;
 const CONFIG_PATH = "~/.accordion/config.json";
-const GLOBAL_DEFAULTS: Globals = { ...DEFAULT_SETTINGS, manual: DEFAULT_SETTINGS.compact.manual, timing: DEFAULT_SETTINGS.taskfold.timing };
-const SESSION_ROWS: Row[] = [
+const SESSION_ROWS: SessionRow[] = [
 	{ id: "folding", label: "Folding", description: "Armed: Accordion rewrites the outgoing context. Off: messages pass through untouched. Applies at once." },
 	{ id: "budget", label: "Token budget", description: "Size this session folds toward, e.g. 200k, 1M or 85%. Applies at once; can also be saved as the model's default." },
 	{ id: "protect", label: "Protected tail", description: "Newest tokens that stay unfolded, e.g. 20k. Applies at once; can also be saved as the model's default." },
 ];
-const GLOBAL_ROWS: Row[] = [
-	{ id: "autoArm", label: "Arm on startup", description: `Arm folding when a session starts. Stored in ${CONFIG_PATH}; applies to new sessions.` },
-	{ id: "defaultConductor", label: "Default conductor", description: `Conductor attached when a session starts armed. Stored in ${CONFIG_PATH}.` },
-	{ id: "manual", label: "/compact behavior", description: "What Pi's /compact does while folding is armed: pass (one Accordion pass), or native." },
-	{ id: "bindHost", label: "Web UI address", description: "Address the web UI listens on; 0.0.0.0 is reachable from the network." },
-	{ id: "doorPort", label: "Web UI door port", description: "Fixed port shared by all sessions; 0 disables it." },
-	{ id: "customToken", label: "Web access token", description: "3-64 URL-safe characters; empty uses a generated token." },
-	{ id: "debug", label: "Debug log", description: "Private session diagnostics in ~/.accordion/debug/. /accordion debug on|off overrides this session." },
-	{ id: "timing", label: "Task fold timing", description: "eager: next safe request. lazy: cold/expired cache or high pressure. pressure: high pressure only. Session/model overrides win." },
-];
-const COMPACT_MODES = ["pass", "native"] as const;
-const isGlobal = (id: RowId): id is GlobalKey => GLOBAL_ROWS.some((row) => row.id === id);
-const settingPath = (id: GlobalKey): SettingPath => id === "manual" ? "compact.manual" : id === "timing" ? "taskfold.timing" : id;
+const isGlobal = (row: Row): row is SettingsRow => "path" in row;
 
-/** Check typed text for a global field; returns the value to stage or the reason it is refused. */
-function parseGlobal(id: "bindHost" | "doorPort" | "customToken", text: string): { value: string | number | null } | { error: string } {
+function settingValue(settings: unknown, path: SettingPath): unknown {
+	return settingParts(path)?.reduce<unknown>((value, part) => value && typeof value === "object" ? (value as Record<string, unknown>)[part] : undefined, settings);
+}
+
+function parseInput(row: SettingsRow, text: string): { value: unknown } | { error: string } {
 	const trimmed = text.trim();
-	if (id === "bindHost") return trimmed && sanitizeBindHost(trimmed) === trimmed ? { value: trimmed } : { error: "not a host name or address" };
-	if (id === "doorPort") return /^\d{1,5}$/.test(trimmed) && Number(trimmed) <= 65535 ? { value: Number(trimmed) } : { error: "a port is 0-65535" };
-	if (!trimmed) return { value: null };
-	return sanitizeCustomToken(trimmed) === trimmed ? { value: trimmed } : { error: "use 3-64 of A-Z a-z 0-9 . _ ~ -" };
+	let value: unknown = trimmed;
+	if (row.kind === "number") {
+		if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(trimmed)) return { error: "enter a number" };
+		value = Number(trimmed);
+	} else if (row.kind === "list") {
+		try { value = JSON.parse(trimmed); } catch { return { error: "enter a JSON array of directories" }; }
+	} else if (row.path === "customToken" && !trimmed) value = null;
+	const result = validateSetting(row.path, value);
+	return result.ok ? { value } : { error: result.error };
 }
 
 /** The Settings tab: session values apply at once, global values are staged and saved with ctrl+s. */
 export function createSettingsTab(shell: Shell): PanelTab {
 	const { host } = shell;
-	const rows = [...SESSION_ROWS, ...GLOBAL_ROWS];
+	const rows: Row[] = [...SESSION_ROWS, ...SETTINGS_ROWS];
 	let selected = 0;
 	let top = 0;
-	let staged: Partial<Globals> = {};
+	let staged: SettingsPatch = {};
 	let baseRev = "";
 	let input: { row: Row; text: string } | null = null;
 
-	const saved = (): Globals => {
-		const settings = host.settings?.().settings ?? DEFAULT_SETTINGS;
-		return { ...settings, manual: settings.compact.manual, timing: settings.taskfold.timing };
-	};
-	const value = <K extends GlobalKey>(key: K): Globals[K] => (key in staged ? (staged[key] as Globals[K]) : saved()[key]);
-	const locked = (key: GlobalKey) => {
-		const source = host.settings?.().sources[settingPath(key)];
+	const saved = (row: SettingsRow): unknown => settingValue(host.settings?.().settings ?? DEFAULT_SETTINGS, row.path);
+	const defaultValue = (row: SettingsRow): unknown => row.defaultValue ?? settingValue(DEFAULT_SETTINGS, row.path);
+	const value = (row: SettingsRow): unknown => (Object.hasOwn(staged, row.path) ? staged[row.path] : saved(row)) ?? defaultValue(row);
+	const locked = (row: SettingsRow) => {
+		const source = host.settings?.().sources[row.path];
 		return source === "env" || source === "flag" ? source : null;
 	};
-	const stage = <K extends GlobalKey>(key: K, next: Globals[K]) => {
-		const source = locked(key);
-		if (source) return shell.say(`${settingPath(key)} is ${source} · locked; remove the override first`);
+	const stage = (row: SettingsRow, next: unknown) => {
+		const source = locked(row);
+		if (source) return shell.say(`${row.path} is ${source} · locked; remove the override first`);
+		const valid = validateSetting(row.path, next);
+		if (!valid.ok) return shell.say(valid.error);
 		if (!Object.keys(staged).length) baseRev = host.settings?.().rev ?? "";
-		if (next === saved()[key]) delete staged[key];
-		else staged[key] = next;
+		if (JSON.stringify(next) === JSON.stringify(saved(row))) delete staged[row.path];
+		else staged[row.path] = next;
 	};
-	const conductorIds = (): string[] => {
-		const ids = [...host.conductors().map((entry) => entry.id).filter((id) => id !== "none"), "none"];
-		return ids.includes(value("defaultConductor")) ? ids : [value("defaultConductor"), ...ids];
+	const options = (row: SettingsRow): readonly string[] => {
+		if (row.kind !== "conductor") return row.choices ?? [];
+		const ids = [...host.conductors().map((entry) => entry.id).filter((id) => id !== "none" && validateSetting(row.path, id).ok), "none"];
+		const current = value(row);
+		return typeof current === "string" && !ids.includes(current) ? [current, ...ids] : ids;
 	};
-	const cycle = (id: RowId, step: number): boolean => {
-		if (id !== "defaultConductor" && id !== "manual" && id !== "timing") return false;
-		const options: readonly string[] = id === "defaultConductor" ? conductorIds() : id === "timing" ? FOLD_TIMINGS : COMPACT_MODES;
-		const next = options[(options.indexOf(value(id)) + step + options.length) % options.length];
-		if (id === "defaultConductor") stage(id, next);
-		else if (id === "manual") stage(id, next as Globals["manual"]);
-		else stage(id, next as FoldTiming);
+	const cycle = (row: Row, step: number): boolean => {
+		if (!isGlobal(row) || row.kind !== "choice" && row.kind !== "conductor") return false;
+		const choices = options(row);
+		if (!choices.length) return true;
+		stage(row, choices[(choices.indexOf(String(value(row))) + step + choices.length) % choices.length]);
 		return true;
 	};
 	const stats = () => host.truth()?.stats();
-	const dialNow = (kind: NumericDialKind) => (kind === "budget" ? stats()?.budget : stats()?.protectTokens);
-
-	const shown = (id: RowId): { value: string; source: string } => {
+	const dialNow = (kind: NumericDialKind) => kind === "budget" ? stats()?.budget : stats()?.protectTokens;
+	const shown = (row: Row): { value: string; source: string } => {
 		const theme = shell.theme();
-		if (id === "folding") return { value: host.folding() ? "[x] armed" : "[ ] off", source: "session" };
-		if (id === "budget" || id === "protect") {
-			const now = dialNow(id);
+		if (!isGlobal(row)) {
+			if (row.id === "folding") return { value: host.folding() ? "[x] armed" : "[ ] off", source: theme.fg("dim", "session") };
+			const now = dialNow(row.id);
 			const dials = host.dials?.();
-			return { value: now === undefined ? "–" : formatTokens(now), source: dials ? describeSource(dials.sources[id]) : "session" };
+			return { value: now === undefined ? "–" : formatTokens(now), source: theme.fg("dim", dials ? describeSource(dials.sources[row.id]) : "session") };
 		}
-		const configured = host.settings?.().sources[settingPath(id)];
-		const source = id in staged ? theme.fg("warning", "▲ staged") : theme.fg("dim", locked(id) ? `${locked(id)} · locked` : configured === "file" ? "user" : configured ?? "default");
-		if (id === "autoArm" || id === "debug") return { value: value(id) ? "[x] on" : "[ ] off", source };
-		if (id === "defaultConductor" || id === "manual" || id === "timing") return { value: `‹ ${clean(value(id))} ›`, source };
-		if (id === "customToken") return { value: value(id) === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(value(id) ?? ""), source };
-		return { value: clean(String(value(id))), source };
+		const configured = host.settings?.().sources[row.path];
+		const source = Object.hasOwn(staged, row.path) ? theme.fg("warning", "▲ staged") : theme.fg("dim", locked(row) ? `${locked(row)} · locked` : configured === "file" ? "user" : configured ?? "default");
+		const current = value(row);
+		if (row.kind === "toggle") return { value: current ? "[x] on" : "[ ] off", source };
+		if (row.kind === "choice" || row.kind === "conductor") return { value: `‹ ${clean(String(current))} ›`, source };
+		if (row.path === "customToken") return { value: current === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(String(current)), source };
+		return { value: clean(row.kind === "list" ? JSON.stringify(current) : String(current ?? "")), source };
 	};
 
 	const applyDial = (kind: NumericDialKind, amount: number) => {
 		const model = host.dials?.()?.model ?? null;
-		const apply = (asDefault: boolean) =>
-			void shell.send({ kind: kind === "budget" ? "setBudget" : "setProtect", value: amount }).then(async () => {
-				if (asDefault && host.saveDialDefault) await shell.run("Saving default…", async () => {
-					if (host.dials?.()?.model !== model) throw new Error("Model changed; retry the edit");
-					return await host.saveDialDefault!(kind, amount);
-				});
+		const apply = (asDefault: boolean) => void shell.send({ kind: kind === "budget" ? "setBudget" : "setProtect", value: amount }).then(async () => {
+			if (asDefault && host.saveDialDefault) await shell.run("Saving default…", async () => {
+				if (host.dials?.()?.model !== model) throw new Error("Model changed; retry the edit");
+				return await host.saveDialDefault!(kind, amount);
 			});
+		});
 		if (!model || !host.saveDialDefault) return apply(false);
 		shell.confirm({
-			crumb: "Scope",
-			title: `Where does ${formatTokens(amount)} apply?\nThis session: until the session ends or you change it.\nDefault: also stored in ${CONFIG_PATH} for ${model}.`,
-			options: ["This session", `This session and default for ${model}`],
-			then: (choice) => {
-				if (choice !== null) apply(choice === 1);
-			},
+			crumb: "Scope", title: `Where does ${formatTokens(amount)} apply?\nThis session: until the session ends or you change it.\nDefault: also stored in ${CONFIG_PATH} for ${model}.`,
+			options: ["This session", `This session and default for ${model}`], then: (choice) => { if (choice !== null) apply(choice === 1); },
 		});
 	};
-
 	const confirmInput = () => {
 		if (!input) return;
 		const { row, text } = input;
-		if (row.id === "budget" || row.id === "protect") {
+		if (!isGlobal(row)) {
+			if (row.id === "folding") return;
 			const parsed = parseTokens(text, stats()?.contextWindow ?? null);
 			if (typeof parsed !== "number") return shell.say(parsed.error);
 			input = null;
 			return applyDial(row.id, parsed);
 		}
-		if (row.id !== "bindHost" && row.id !== "doorPort" && row.id !== "customToken") return;
-		const parsed = parseGlobal(row.id, text);
+		const parsed = parseInput(row, text);
 		if ("error" in parsed) return shell.say(parsed.error);
-		if (row.id === "doorPort") stage(row.id, parsed.value as number);
-		else if (row.id === "bindHost") stage(row.id, parsed.value as string);
-		else stage(row.id, parsed.value as string | null);
+		stage(row, parsed.value);
 		input = null;
 	};
-
 	const save = () => {
-		const patch: SettingsPatch = {};
-		for (const key of Object.keys(staged) as GlobalKey[]) patch[settingPath(key)] = staged[key];
 		const n = Object.keys(staged).length;
 		if (!n) return shell.say("Nothing staged", "info");
 		if (!host.updateSettings) return shell.say("Settings cannot be saved from this session");
 		const update = host.updateSettings;
 		void shell.run("Saving…", async () => {
-			const result = await update(patch, baseRev);
+			const result = await update({ ...staged }, baseRev);
 			if (!result.ok) throw new Error(result.error);
 			staged = {};
 			return `Saved ${n} setting${n === 1 ? "" : "s"} to ${CONFIG_PATH}`;
@@ -157,71 +138,42 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	};
 
 	return {
-		id: "settings",
-		title: "Settings",
+		id: "settings", title: "Settings",
 		view(width, bodyRows) {
-			const theme = shell.theme();
-			const keys = shell.keys();
+			const theme = shell.theme(), keys = shell.keys();
 			if (input) {
 				const { row, text } = input;
-				let check: string;
-				if (!text && row.id !== "customToken") check = theme.fg("dim", row.id === "budget" || row.id === "protect" ? "e.g. 200k, 272k, 1M, 0.5M, 200000 or 85% of the context window" : row.description);
-				else if (row.id === "budget" || row.id === "protect") {
-					const parsed = parseTokens(text, stats()?.contextWindow ?? null);
-					check = typeof parsed === "number" ? `= ${parsed.toLocaleString("en-US")} tokens` : `${theme.fg("error", "✗")} ${parsed.error}`;
-				} else {
-					const parsed = parseGlobal(row.id as "bindHost" | "doorPort" | "customToken", text);
-					check = "error" in parsed ? `${theme.fg("error", "✗")} ${parsed.error}` : parsed.value === null ? theme.fg("dim", "empty: a generated token is used") : `${theme.fg("success", "✓")} valid`;
-				}
-				const now = shown(row.id);
-				return {
-					body: [`  ${theme.bold(row.label)}: ${clean(text)}${theme.fg("accent", "▏")}`, `  ${check}`, "", `  ${theme.fg("dim", `now ${now.value} · ${now.source}`)}`],
-					crumbs: [row.label],
-					description: row.description,
-					hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", isGlobal(row.id) ? "stage" : "apply", 1)],
-					above: 0,
-					below: 0,
-				};
+				const parsed = isGlobal(row) ? parseInput(row, text) : row.id === "folding" ? { error: "not editable" } : parseTokens(text, stats()?.contextWindow ?? null);
+				const check = typeof parsed === "number" ? `= ${parsed.toLocaleString("en-US")} tokens` : "error" in parsed ? `${theme.fg("error", "✗")} ${parsed.error}` : `${theme.fg("success", "✓")} valid`;
+				const now = shown(row);
+				return { body: [`  ${theme.bold(row.label)}: ${clean(text)}${theme.fg("accent", "▏")}`, `  ${check}`, "", `  ${theme.fg("dim", `now ${now.value} · ${now.source}`)}`], crumbs: [row.label], description: row.description,
+					hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", isGlobal(row) ? "stage" : "apply", 1)], above: 0, below: 0 };
 			}
 			selected = Math.max(0, Math.min(selected, rows.length - 1));
 			const labelWidth = width >= 57 ? 20 : 16;
-			const line = (row: Row, index: number) => {
-				const cell = shown(row.id);
-				const label = truncateToWidth(row.label, labelWidth, "…");
+			const display: string[] = [];
+			let section = "", at = 0;
+			for (const [index, row] of rows.entries()) {
+				const nextSection = isGlobal(row) ? row.section : "This session · applies at once";
+				if (nextSection !== section) { section = nextSection; display.push(theme.fg("muted", ` ${section}`)); }
+				if (index === selected) at = display.length;
+				const cell = shown(row), label = truncateToWidth(row.label, labelWidth, "…");
 				const head = `${index === selected ? theme.fg("accent", "→") : " "} ${index === selected ? theme.bold(label) : label}${" ".repeat(Math.max(0, labelWidth - visibleWidth(label)))}  `;
 				const val = truncateToWidth(cell.value, Math.max(0, width - visibleWidth(head)), "…");
 				const gap = width - visibleWidth(head) - visibleWidth(val) - visibleWidth(cell.source);
-				return gap >= 2 ? `${head}${val}${" ".repeat(gap)}${theme.fg("dim", cell.source)}` : `${head}${val}`;
-			};
-			const display = [
-				theme.fg("muted", " This session · applies at once"),
-				...SESSION_ROWS.map((row, i) => line(row, i)),
-				theme.fg("muted", ` All sessions · ${CONFIG_PATH} · staged until saved`),
-				...GLOBAL_ROWS.map((row, i) => line(row, SESSION_ROWS.length + i)),
-			];
-			const at = selected + (selected < SESSION_ROWS.length ? 1 : 2);
-			// One row above the selection stays visible so a section title is never scrolled off alone.
+				display.push(gap >= 2 ? `${head}${val}${" ".repeat(gap)}${cell.source}` : `${head}${val}`);
+			}
 			if (at - 1 < top) top = at - 1;
 			if (at >= top + bodyRows) top = at - bodyRows + 1;
 			top = Math.max(0, Math.min(top, display.length - bodyRows));
-			const row = rows[selected];
-			const web = host.webInfo?.();
-			const webNote = row.id === "bindHost" || row.id === "doorPort" || row.id === "customToken" ? ` Browser URL: ${web?.url ?? "starting…"} (${web?.clients ?? 0} connected).` : "";
-			const action = row.id === "defaultConductor" || row.id === "manual" || row.id === "timing" ? "next value" : row.id === "folding" || row.id === "autoArm" || row.id === "debug" ? "toggle" : "edit";
-			return {
-				body: display.slice(top, top + bodyRows),
-				crumbs: [],
-				description: `${row.description}${webNote}`,
-				hints: [
-					bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2),
-					...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
-					...(row.id === "defaultConductor" || row.id === "manual" || row.id === "timing" ? [rawHint(theme, "←→", "change", 3)] : []),
-					...(isGlobal(row.id) ? [rawHint(theme, "alt+u", "default", 6)] : []),
-					...(row.id === "customToken" ? [rawHint(theme, "alt+r", "new token", 5)] : []),
-				],
-				above: top,
-				below: Math.max(0, display.length - top - bodyRows),
-			};
+			const row = rows[selected], web = host.webInfo?.();
+			const webNote = isGlobal(row) && ["bindHost", "doorPort", "customToken"].includes(row.path) ? ` Browser URL: ${web?.url ?? "starting…"} (${web?.clients ?? 0} connected).` : "";
+			const action = !isGlobal(row) ? row.id === "folding" ? "toggle" : "edit" : row.kind === "choice" || row.kind === "conductor" ? "next value" : row.kind === "toggle" ? "toggle" : "edit";
+			return { body: display.slice(top, top + bodyRows), crumbs: [], description: `${row.description}${webNote}`,
+				hints: [bindingHint(theme, keys, "tui.select.confirm", "enter", action, 2), ...(Object.keys(staged).length ? [rawHint(theme, "ctrl+s", "save", 1)] : []),
+					...(isGlobal(row) && (row.kind === "choice" || row.kind === "conductor") ? [rawHint(theme, "←→", "change", 3)] : []),
+					...(isGlobal(row) ? [rawHint(theme, "alt+u", "default", 6)] : []), ...(isGlobal(row) && row.path === "customToken" ? [rawHint(theme, "alt+r", "new token", 5)] : [])],
+				above: top, below: Math.max(0, display.length - top - bodyRows) };
 		},
 		key(data) {
 			const keys = shell.keys();
@@ -229,57 +181,36 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				if (matchesKey(data, "backspace")) input.text = [...input.text].slice(0, -1).join("");
 				else if (matchesKey(data, "ctrl+u")) input.text = "";
 				else if (keys.matches(data, "tui.select.confirm")) confirmInput();
-				else {
-					const text = decodeKittyPrintable(data) ?? data;
-					if (text && !/[\x00-\x1f\x7f-\x9f]/.test(text) && input.text.length + text.length <= 64) input.text += text;
-				}
+				else { const text = decodeKittyPrintable(data) ?? data; if (text && !/[\x00-\x1f\x7f-\x9f]/.test(text) && input.text.length + text.length <= 4096) input.text += text; }
 				return true;
 			}
 			const row = rows[selected];
 			if (keys.matches(data, "tui.select.up")) selected = Math.max(0, selected - 1);
 			else if (keys.matches(data, "tui.select.down")) selected = Math.min(rows.length - 1, selected + 1);
 			else if (matchesKey(data, "ctrl+s")) save();
-			else if (matchesKey(data, "left")) return cycle(row.id, -1);
-			else if (matchesKey(data, "right")) return cycle(row.id, 1);
+			else if (matchesKey(data, "left")) return cycle(row, -1);
+			else if (matchesKey(data, "right")) return cycle(row, 1);
 			else if (matchesKey(data, "alt+u")) {
-				if (isGlobal(row.id)) stage(row.id, GLOBAL_DEFAULTS[row.id]);
+				if (isGlobal(row)) stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
 				else shell.say("A session value has no stored default to return to");
-			} else if (matchesKey(data, "alt+r") && row.id === "customToken") {
+			} else if (matchesKey(data, "alt+r") && isGlobal(row) && row.path === "customToken") {
 				if (!host.regenerateToken) return true;
 				const regenerate = host.regenerateToken;
-				shell.confirm({
-					crumb: "New token",
-					title: "Generate a new web access token?\nUse the new URL for browser access; existing connections stay open.\nThis applies at once and is not staged.",
-					options: ["Keep token", "Generate new token"],
-					then: (choice) => {
-						if (choice !== 1) return;
-						void shell.run("Generating token…", async () => {
-							await regenerate();
-							delete staged.customToken;
-							return "New token generated; reconnect using the Web UI URL";
-						});
-					},
-				});
+				shell.confirm({ crumb: "New token", title: "Generate a new web access token?\nUse the new URL for browser access; existing connections stay open.\nThis applies at once and is not staged.",
+					options: ["Keep token", "Generate new token"], then: (choice) => { if (choice !== 1) return; void shell.run("Generating token…", async () => {
+						await regenerate(); delete staged.customToken; return "New token generated; reconnect using the Web UI URL";
+					}); } });
 			} else if (keys.matches(data, "tui.select.confirm")) {
-				if (row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
-				else if (isGlobal(row.id) && locked(row.id)) shell.say(`${settingPath(row.id)} is ${locked(row.id)} · locked; remove the override first`);
-				else if (row.id === "autoArm" || row.id === "debug") stage(row.id, !value(row.id));
-				else if (!cycle(row.id, 1)) input = { row, text: row.id === "budget" || row.id === "protect" ? "" : String(value(row.id as GlobalKey) ?? "") };
+				if (!isGlobal(row) && row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
+				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`);
+				else if (isGlobal(row) && row.kind === "toggle") stage(row, !value(row));
+				else if (!cycle(row, 1)) input = { row, text: !isGlobal(row) ? "" : row.kind === "list" ? JSON.stringify(value(row)) : String(value(row) ?? "") };
 			} else return false;
 			return true;
 		},
-		typing: () => input !== null,
-		query: () => null,
-		setFilter() {},
-		back() {
-			if (!input) return false;
-			input = null;
-			return true;
-		},
-		dirty: () => Object.keys(staged).length,
-		discard() {
-			staged = {};
-		},
+		typing: () => input !== null, query: () => null, setFilter() {},
+		back() { if (!input) return false; input = null; return true; },
+		dirty: () => Object.keys(staged).length, discard() { staged = {}; },
 		legend: () => [
 			"[x] / [ ] toggles, ‹ value › is changed with Left and Right, ▲ staged marks a value not saved yet.",
 			"The right column says where a value comes from: session, default, user (your config file) or staged.",
