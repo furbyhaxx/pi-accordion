@@ -32,7 +32,7 @@ done  S3  Expiry of recall results
 done  S4  Oversized tool-result guard
 done  S5  Bounded unfold
 done  S6  recall({ask}) through a side model
-next  S7  Fact ledger (only if its spike passes)
+next  S7  Fact ledger (spike passed 18/20, evidence/s7-ledger-spike.md)
 later S8  Replay, randomized admission test, gates, live run
 ```
 
