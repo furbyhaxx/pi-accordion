@@ -5,12 +5,15 @@ document:
   title: "Recall: bounded retrieval of folded content"
   description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, and the query language of archive search."
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T12:48:37+01:00"
+  updated_at: "2026-11-13T12:52:40+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 2
+      reason: "a refusal was final until recall results left the context by other means"
+      changes: ["§3: a call that cannot be served releases used results first", "§4: expiry of recall results", "§5: recall.keepSteps"]
     - revision: 1
       reason: "recall returned task transcripts and was bounded per call only, so several calls filled the context"
       changes: ["initial: tool contract, session account, report-first task codes, archive search, settings"]
@@ -105,24 +108,48 @@ Exact values: recall({codes:["k3m9qa"], query:"text"}) · entry list: recall({co
   when a prompt starts and when the session's Truth is first built.
 - `grant = min(callTokens, liveTokens − outstanding, budget − projection − reservations − margin)`.
   `margin` is 4,000 tokens and `minGrant` 1,000, each at most 2% of the budget.
-- `grant < minGrant`, or nothing the call asked for fits the grant: the call returns one line,
+- `grant < minGrant`, or nothing the call asked for fits the grant: used results are released
+  once (§4, including those of earlier prompts) and the grant is recomputed. Still not enough: the
+  call returns one line,
   `Recall refused: ~N tokens of recalled text are already in your context (limit M) or the context is near its budget. …`.
   A refusal never contains archive text.
 
-## 4. Settings (`~/.accordion/config.json`)
+## 4. Expiry
+
+`core/recallExpiry.ts` plans, the host applies (`releaseRecall` in `extension/accordion.ts`), only
+while folding is armed.
+
+- A recall result is **used** once `recall.keepSteps` later assistant messages exist.
+- Released means replaced (`replace`, not recoverable) by one line that repeats the call and
+  carries no fold code:
+  `[recall of #abc123 query "p95 latency" released to free context; run it again if you still need it]`.
+- When:
+  - a call cannot be served (§3): every used result; when none is used, every result that a later
+    user message follows;
+  - the `context` hook sees the projection at or above `taskfold.high · budget`: every used result;
+  - the enclosing task folds: the result goes into the task's group like any other block.
+- All results of one release go in one transaction, so the provider cache breaks once.
+- Never released: a result with a human override (it keeps counting as outstanding), a result
+  under 200 tokens, a result Truth protects (a sent block inside a conductor's protected tail; with
+  Taskfold attached there is none).
+- Fold state is not persisted, so a resumed session holds its old recall results whole again until
+  the first of the two triggers fires.
+
+## 5. Settings (`~/.accordion/config.json`)
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000 } }
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3 } }
 ```
 
-`callTokens` 2,000–50,000; `liveTokens` 2,000–200,000 and never below `callTokens`. Read on every
-call.
+`callTokens` 2,000–50,000; `liveTokens` 2,000–200,000 and never below `callTokens`; `keepSteps`
+0–100. Read on every call.
 
-## 5. Tests
+## 6. Tests
 
 | What | Where |
 |---|---|
 | parallel calls with many codes stay within the account; refusal text; landed results count across turns; projection stays within budget | `core/recallAccount.test.ts` |
 | whole/index/entry/paging/missing | `core/recallView.test.ts` |
+| used results become stubs in one transaction; recent, held, small and foreign results stay; a refused call is served after a release | `core/recallExpiry.test.ts` |
 | eleven task codes → eleven reports without transcript; subtasks as codes; `.entries`; archive search, terms, phrase, regex, partial, paging | `conductors/in-process/taskfold/taskReports.test.ts` |
 | the registered tool end to end, including codeless search | `extension/smoke.mjs` |

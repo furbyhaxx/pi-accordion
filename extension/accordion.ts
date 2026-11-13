@@ -82,6 +82,7 @@ import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfold } from "../core/agentView";
 import { RECALL_POLICY, RecallAccount, serveRecall } from "../core/recallAccount";
+import { expireRecall } from "../core/recallExpiry";
 import { taskReports } from "../conductors/in-process/taskfold/taskReports";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
@@ -448,7 +449,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	let settings: AccordionSettings = loadSettings(HOME);
-	const recallAccount = new RecallAccount(() => ({ ...RECALL_POLICY, ...settings.recall }));
+	const recallAccount = new RecallAccount(() => ({ ...RECALL_POLICY, callTokens: settings.recall.callTokens, liveTokens: settings.recall.liveTokens }));
 
 	function activeBindHost(): string {
 		try {
@@ -2638,6 +2639,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!prev) applyDials();
 	}
 
+	/** Replace used recall results by one-line stubs, all in one transaction so the cache breaks once (SPEC-0003 §4). */
+	function releaseRecall(earlierPrompts: boolean): void {
+		if (!truth || !foldingEnabled) return;
+		const ops = expireRecall(truth, { keepSteps: settings.recall.keepSteps, earlierPrompts });
+		if (ops.length) truth.apply(ops, "auto");
+	}
+
 	// ── budget and protected tail: per model, remembered in the session (see dials.ts) ──
 	let dialRecords: DialsRecord[] = [];
 	// The model the current budget/tail were resolved for; a different model re-resolves them.
@@ -3278,6 +3286,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// (a) Reconcile pi's messages against the Truth: append a new suffix, or rebuild on
 			//     structural divergence (both broadcast to clients via the Truth subscription).
 			ingestMessages(messages);
+			// Near the budget, recall results that were already used go first: they are copies.
+			if (truth && truth.budget > 0 && truth.stats().liveTokens >= settings.taskfold.high * truth.budget) releaseRecall(false);
 			if (truth) {
 				// (b) PHASE C: the wire-departing hold. ONLY paid when folding is armed AND the attached
 				//     conductor declares a hold window — the sync fast path (no conductor / no hold /
@@ -4265,7 +4275,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
 			}
 			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.
-			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query, page: typeof params.page === "number" ? params.page : undefined });
+			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query, page: typeof params.page === "number" ? params.page : undefined }, () => releaseRecall(true));
 			if (!served.view) return { content: [{ type: "text", text: served.text }], details: { restored: [], missing: [], refused: true } };
 			const view = served.view;
 			const ids = view.items.flatMap((r) => r.ids);

@@ -37,6 +37,7 @@ A fold that is not a task (a single block, a run of steps) comes back whole when
 
 - One call returns at most about 8k tokens across all its codes. Codes that did not fit are named; recall them separately.
 - At most about 24k tokens of recalled text stay in your context. Beyond that a call answers `Recall refused: …` and returns nothing. Work with what you have, write down the facts you need, and continue.
+- Recall results do not stay: after a few steps an old result may be replaced by `[recall of … released to free context; run it again if you still need it]`. Note the fact you needed when you read it; repeat the call only if you need the text again.
 - Do not recall many task codes to rebuild what happened: ask for the report of the one task you need, or search for the one value.
 
 ## When to use unfold instead

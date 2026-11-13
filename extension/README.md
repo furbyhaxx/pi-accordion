@@ -203,10 +203,12 @@ no timeout to tune, because the state the extension already holds *is* the state
 synchronously, every time.
 
 `recall` returns at most `callTokens` per call and keeps at most `liveTokens` of recalled text in
-the context; a call beyond that is refused with one line:
+the context. A recall result is replaced by a one-line note naming the call once `keepSteps`
+assistant messages followed it and room is needed; a call that still does not fit is refused with
+one line:
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000 } }
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3 } }
 ```
 
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
