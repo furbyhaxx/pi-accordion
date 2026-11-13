@@ -12,8 +12,9 @@ import { blockLabel, resolveRecall } from "./agentView";
 
 /** Characters one recall call may return across all its codes (~8k tokens). */
 export const RECALL_BUDGET_CHARS = 32_000;
-/** Below this remaining budget the next code is not rendered at all. */
 const MIN_SECTION_CHARS = 2_000;
+/** Reserved inside every call for the lines naming what was not shown. */
+const NOTE_CHARS = 600;
 const PREVIEW_CHARS = 100;
 const EXCERPT_RADIUS = 160;
 const MAX_EXCERPTS_PER_ENTRY = 5;
@@ -25,7 +26,10 @@ export interface RecallRequest {
 	query?: string;
 	/** 1-based page of an index, an entry or a query result. */
 	page?: number;
+	/** Page size of one call; fixed for a session so paging is stable. */
 	budgetChars?: number;
+	/** What this call may return, at most `budgetChars`. */
+	grantChars?: number;
 }
 
 export interface RecallItem {
@@ -41,6 +45,8 @@ export interface RecallView {
 	text: string;
 	items: RecallItem[];
 	missing: string[];
+	/** Addresses that exist but did not fit this call. */
+	skipped: string[];
 	/** True when budget or paging withheld content this call could have returned. */
 	truncated: boolean;
 }
@@ -55,7 +61,11 @@ interface Source {
 const ADDRESS = /^([0-9a-z]{6})(?:\.([1-9]\d*))?$/i;
 
 export function recallView(truth: Truth, req: RecallRequest): RecallView {
-	const budget = Math.max(MIN_SECTION_CHARS, req.budgetChars ?? RECALL_BUDGET_CHARS);
+	const budget = Math.max(MIN_SECTION_CHARS + NOTE_CHARS, req.budgetChars ?? RECALL_BUDGET_CHARS);
+	const grant = Math.min(budget, Math.max(0, req.grantChars ?? budget));
+	// Sections are paged against the fixed page size, never the grant, so page N means the same in any call.
+	const pageSize = budget - NOTE_CHARS;
+	const room = grant - NOTE_CHARS;
 	const query = req.query?.trim().slice(0, MAX_QUERY_CHARS) || undefined;
 	const page = Math.max(1, Math.floor(req.page ?? 1));
 	const sections: string[] = [];
@@ -71,32 +81,30 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 			missing.push(address);
 			continue;
 		}
-		if (budget - used < MIN_SECTION_CHARS) {
-			skipped.push(address);
-			continue;
-		}
 		const entryNo = m[2] ? Number(m[2]) : undefined;
-		// Every section is paged against the full budget so page N means the same in any call.
-		const section = render(truth, source, address, entryNo, query, page, budget);
+		const section = render(truth, source, address, entryNo, query, page, pageSize);
 		if (!section) {
 			missing.push(address);
 			continue;
 		}
-		if (used + section.text.length > budget) {
+		if (used + section.text.length + 2 > room) {
 			skipped.push(address);
 			continue;
 		}
 		sections.push(section.text);
 		items.push(section.item);
 		truncated ||= section.truncated;
-		used += section.text.length;
+		used += section.text.length + 2;
 	}
+	const notes: string[] = [];
 	if (skipped.length) {
 		truncated = true;
-		sections.push(`[budget reached] Not shown: ${skipped.map((c) => "#" + c).join(", ")}. Recall them in a separate call.`);
+		notes.push(`[budget reached] Not shown: ${skipped.map((c) => "#" + c).join(", ")}. Recall them in a separate call.`);
 	}
-	if (missing.length) sections.push(`No folded content for: ${missing.map((c) => "#" + c).join(", ")} (already full, not in this session's context, or no such entry).`);
-	return { text: sections.join("\n\n") || "Nothing to recall.", items, missing, truncated };
+	if (missing.length) notes.push(`No folded content for: ${missing.map((c) => "#" + c).join(", ")} (already full, not in this session's context, or no such entry).`);
+	const note = notes.join("\n");
+	if (note) sections.push(note.length > NOTE_CHARS - 2 ? `${note.slice(0, NOTE_CHARS - 3)}…` : note);
+	return { text: sections.join("\n\n") || "Nothing to recall.", items, missing, skipped, truncated };
 }
 
 function sourceOf(truth: Truth, code: string): Source | null {

@@ -81,7 +81,7 @@ import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage
 import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfold } from "../core/agentView";
-import { recallView } from "../core/recallView";
+import { RecallAccount, serveRecall } from "../core/recallAccount";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
 import {
@@ -612,6 +612,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// structural divergence (compaction / fork / tree-nav / another extension rewriting messages).
 	// pi's `context` hook operates against it LOCALLY. `unsubTruth` detaches the event forwarder.
 	let truth: Truth | null = null;
+	const recallAccount = new RecallAccount();
 	let unsubTruth: (() => void) | null = null;
 	// Folding the live agent is OPT-IN and OFF by default (today's armed semantics). Toggled by a
 	// GUI `setFolding` command; disabled ⇒ the model call is untouched. Broadcast on change and
@@ -2631,6 +2632,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			liveHost.dispatchTruthEvent(e);
 		});
 		truth = t;
+		if (!prev) recallAccount.reset();
 		setLastMessages(messages); // fingerprints the full array once (rare rebuild path) — see lastFps
 		if (!prev) applyDials();
 	}
@@ -3200,6 +3202,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// The agent hears about task list changes it did not make (a resume, the user attaching lists)
 	// with its next prompt. An open resume dialog is answered first.
 	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
+		recallAccount.reset();
 		const content = await taskSession?.takeNotice();
 		return content ? { message: { customType: NOTICE_MESSAGE, content, display: true } } : undefined;
 	});
@@ -4249,7 +4252,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			query: Type.Optional(Type.String({ description: "Case-insensitive literal text to search for inside the recalled content; returns matching excerpts with entry addresses." })),
 			page: Type.Optional(Type.Integer({ minimum: 1, description: "1-based page of an index, entry or search result, as named in the previous result." })),
 		}),
-		async execute(_toolCallId, params, _signal, _onUpdate, _ctx) {
+		async execute(toolCallId, params, _signal, _onUpdate, _ctx) {
 			const codes = Array.isArray(params.codes)
 				? params.codes.map((s) => String(s).trim().replace(/^#/, "")).filter((s) => s.length > 0)
 				: [];
@@ -4259,8 +4262,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (!truth) {
 				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
 			}
-			// LOCAL, pure read — never mutates fold state.
-			const view = recallView(truth, { codes, query: typeof params.query === "string" ? params.query : undefined, page: typeof params.page === "number" ? params.page : undefined });
+			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.
+			const served = serveRecall(truth, recallAccount, toolCallId, { codes, query: typeof params.query === "string" ? params.query : undefined, page: typeof params.page === "number" ? params.page : undefined });
+			if (!served.view) return { content: [{ type: "text", text: served.text }], details: { restored: [], missing: [], refused: true } };
+			const view = served.view;
 			const ids = view.items.flatMap((r) => r.ids);
 			if (ids.length) {
 				broadcast({ type: "recall", ids, by: "agent" });
