@@ -1,0 +1,16 @@
+ tmux.
+── Accordion › Lists ───────────────
+ …❱ Tasks ❱ Lists ❱ Conductors … 4/6
+ ⌕ Type to filter…
+
+   No task lists in this project ye…
+
+
+
+────────────────────────────────────
+ 0 task lists in this project.
+ f1 help · esc close
+────────────────────────────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0...
+accordion off

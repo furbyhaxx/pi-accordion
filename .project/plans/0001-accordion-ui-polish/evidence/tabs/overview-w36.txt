@@ -1,0 +1,16 @@
+ tmux.
+── … › Overview ────────────────────
+ ❱ Overview ❱ Context ❱ Tasks … 1/6
+ ⌕
+
+  ▕██████░░░░░░░░▏ 126.6k/1.0M (12%)
+  ■ System 18.0k · ■ User 371 · ■...
+
+  Pressure folding off: pi compacts…
+────────────────────────────────────
+ The session's context, its savings…
+ enter context · f1 help · esc close
+────────────────────────────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0...
+accordion off

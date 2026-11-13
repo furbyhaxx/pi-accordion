@@ -1,0 +1,16 @@
+ tmux.
+── … › Conductors ──────────────────
+ …❱ Tasks ❱ Lists ❱ Conductors … 5/6
+ ⌕
+
+→ ◉ None · attached
+  ◯ Naive compaction · ● ready
+  ◯ Handoff (fresh start) · ● ready
+  ◯ Doorman · ● ready · locks: none
+────────────────────────────────────
+ Detach the conductor: folds it mad…
+ enter detach · f1 help · esc close
+───────────── ↓ 5 more ─────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0...
+accordion off

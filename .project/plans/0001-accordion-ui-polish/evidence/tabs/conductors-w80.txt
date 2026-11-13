@@ -1,0 +1,16 @@
+ -g extended-keys on` to ~/.tmux.conf and restart tmux.
+── Accordion › Conductors ──── 126.6k/1.0M tok · ○ folding off · no conductor ──
+ ❱ Overview ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+→ ◉ None · attached · raw context, no strategy
+  ◯ Naive compaction · ● ready · locks: human-steering, agent-unfold
+  ◯ Handoff (fresh start) · ● ready
+  ◯ Doorman · ● ready · locks: none
+────────────────────────────────────────────────────────────────────────────────
+ Detach the conductor: folds it made become yours and stay.
+ enter detach · tab next tab · f1 help · esc close
+─────────────────────────────────── ↓ 5 more ───────────────────────────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0M (auto)        deepseek/deepseek-v4-pro • high
+accordion off

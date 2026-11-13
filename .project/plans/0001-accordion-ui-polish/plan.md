@@ -33,9 +33,11 @@ done  S3  Settings screen (§6.2): native editor, live two-session changes and v
 done  S1c Footer (§8): usage percent in the footer; the status text stays, the spec's 24-column
           glyph form was not adopted because it drops the status the footer exists to show
 later S1c-rest the spec's compact glyph form, if a live check shows the status text overflows
-later S4  Compaction (§7)
-later S5  Panel screens (§5.3–5.8)
-later S6  Protocol v24 and web app (§9)
+done  S4  Compaction (§7): four strategies, trigger mapping, undo, preview, transcript card
+done  S5  Panel screens (§5.3–5.8): Overview landing, turn timeline with grid and list, inspector
+          header, conductor badges and options jump, task widget default
+done  S6  Protocol v24 and web app (§9): settings/tasks/compaction messages and commands, web
+          settings tray, task tree, compact dialog with undo toast, MapHeader saved/pressure
 ```
 
 Dependencies: S1 → S3, S5. S2 → S3, S4 (compact settings), S6. S4 → S5 (Overview compact entry) and

@@ -1,0 +1,16 @@
+ tmux.
+── … › Settings ────────────────────
+ …❱ Conductors ❱ Settings  6/6
+ ⌕
+
+ This session · applies at once
+→ Folding           [ ] off  session
+  Token budget      1048576
+  Protected tail    20k     built-in
+────────────────────────────────────
+ Armed: Accordion rewrites the outg…
+ enter toggle · f1 help · esc close
+──────────── ↓ 107 more ────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0...
+accordion off

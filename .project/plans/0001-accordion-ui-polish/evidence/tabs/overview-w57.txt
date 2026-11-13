@@ -1,0 +1,16 @@
+ ~/.tmux.conf and restart tmux.
+── Accordion › Overview ────────────── 126.6k/1.0M tok ──
+ ❱ Overview ❱ Context ❱ Tasks ❱ Lists ❱ Conductors … 1/6
+ ⌕
+
+  ▕██████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏ 126.6k/1.0M (12%)
+  ■ System 18.0k · ■ User 371 · ■ Assistant 12.5k · ■ ...
+
+  Pressure folding off: pi compacts natively
+─────────────────────────────────────────────────────────
+ The session's context, its savings and its conductor. E…
+ enter context · alt+c compact · f1 help · esc close
+─────────────────────────────────────────────────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0M (auto)  deepseek/deeps
+accordion off

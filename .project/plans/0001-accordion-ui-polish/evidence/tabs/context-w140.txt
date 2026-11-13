@@ -1,0 +1,16 @@
+ Warning: tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.
+── Accordion › Context ─────────────────────────────────────────────────────────────────── 126.6k/1.0M tok · ○ folding off · no conductor ──
+ ❱ Overview ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕ Type to filter…
+
+turn prompt                           blocks    live    full
+›  ⛨ You are a coding assistant runn… ▪AHA▪▪HA▪▪HA▪▪HA▪▪HA▪▪HA▪▪HA▪▪   22092   22092
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ system sys:0 · live bolted · 15036 tok
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ One row per turn: U user · A answer · H thinking · ▣ folded group · ! system · ┃ protected tail
+ enter inspect · alt+f fold · alt+p pin · alt+u auto · alt+v grid · alt+e edit digest · alt+m mark range · f1 help · esc close
+──────────────────────────────────────────────────────────────── ↓ 14 more ─────────────────────────────────────────────────────────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0M (auto)                                                       (openrouter) deepseek/deepseek-v4-pro • high
+accordion off

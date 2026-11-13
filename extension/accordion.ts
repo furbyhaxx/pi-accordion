@@ -588,6 +588,29 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** The last pass, and its bake payload while Pi is storing one — both for undo and the card. */
 	let lastCompact: CompactRecord | null = null;
 	let lastBake: CompactOutcome["bake"];
+	/**
+	 * A strategy the human picked explicitly (panel, command or web) for the compaction Pi is about
+	 * to run. `bake` and `native` only exist inside `session_before_compact`, so asking for one has to
+	 * go through Pi; this carries the choice to that handler and is consumed there.
+	 */
+	let requestedBake = false;
+	/** Read-and-clear the requested bake, so one request bakes exactly one compaction. */
+	function takeRequestedBake(): boolean {
+		const value = requestedBake;
+		requestedBake = false;
+		return value;
+	}
+	/**
+	 * `bake` and `native` both mean "let Pi rewrite the range": the first with our summary, the second
+	 * with its own. Running them here would only fold blocks and claim a strategy that never happened.
+	 */
+	function requestPiCompaction(strategy: CompactStrategy, instructions: string | undefined, ctx: ExtensionContext): void {
+		if (strategy === "bake") requestedBake = true;
+		ctx.compact({
+			...(instructions ? { customInstructions: instructions } : {}),
+			onError: (error: Error) => ctx.ui.notify(`Compaction failed: ${error.message}`, "error"),
+		});
+	}
 
 	/** The compaction card in the transcript; it is an entry, so it never reaches the model. */
 	try {
@@ -655,14 +678,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const named: CompactStrategy | null = head === "pass" || head === "aggressive" || head === "bake" || head === "native" ? head : null;
 		const instructions = (named ? tail.join(" ") : rest).trim() || undefined;
 		const strategy: CompactStrategy = named ?? (settings.compact.manual === "native" ? "pass" : settings.compact.manual);
-		const { record } = await compact({ trigger: "command", strategy, ...(instructions ? { instructions } : {}) });
-		if (strategy === "native") {
-			// Pi's own summarizer runs off-thread and reports through the callbacks, not a promise.
-			ctx.compact({
-				...(instructions ? { customInstructions: instructions } : {}),
-				onError: (error) => ctx.ui.notify(`Native compaction failed: ${error.message}`, "error"),
-			});
+		if (strategy === "native" || strategy === "bake") {
+			requestPiCompaction(strategy, instructions, ctx);
+			return null;
 		}
+		const { record } = await compact({ trigger: "command", strategy, ...(instructions ? { instructions } : {}) });
 		return record;
 	}
 
@@ -3136,6 +3156,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				return { results: [], rev: truth.rev };
 			}
 			case "compact": {
+				if ((cmd.strategy === "bake" || cmd.strategy === "native") && !cmd.dryRun) {
+					const ctx = latestCtx;
+					if (ctx) requestPiCompaction(cmd.strategy, cmd.instructions, ctx);
+					else broadcast({ type: "notice", text: "No active session to compact." });
+					return { results: [], rev: truth.rev };
+				}
 				void compact({ trigger: "command", strategy: cmd.strategy, ...(cmd.instructions ? { instructions: cmd.instructions } : {}), ...(cmd.dryRun ? { dryRun: true } : {}) }, { card: !cmd.dryRun })
 					.catch(error => broadcast({ type: "notice", text: `Compaction failed: ${error instanceof Error ? error.message : String(error)}` }));
 				return { results: [], rev: truth.rev };
@@ -3792,8 +3818,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!foldingEnabled) return;
 		const ev = event as { reason?: string; customInstructions?: string; preparation?: { firstKeptEntryId?: string; tokensBefore?: number; messagesToSummarize?: unknown[]; settings?: { reserveTokens?: number } } };
 		const reason = ev.reason;
+		const bake = takeRequestedBake();
 		const strategy: CompactStrategy =
-			reason === "overflow" ? "pass" : reason === "manual" ? settings.compact.manual : settings.compact.threshold;
+			reason === "overflow" ? "pass" : reason === "manual" ? (bake ? "bake" : settings.compact.manual) : settings.compact.threshold;
 		if (strategy === "native") return;
 		const instructions = typeof ev.customInstructions === "string" && ev.customInstructions.trim() ? ev.customInstructions.trim() : undefined;
 		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
@@ -4375,6 +4402,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				conductorOptions: (id) => settings.conductorOptions[id] ?? {},
 				compactThreshold: () => settings.compact.threshold,
 				compact: async (strategy, instructions) => {
+					const ctx = latestCtx;
+					if (strategy === "native" || strategy === "bake") {
+						if (!ctx) return { before: 0, after: 0, message: "no active session to compact" };
+						requestPiCompaction(strategy, instructions, ctx);
+						return { before: truth?.stats().liveTokens ?? 0, after: truth?.stats().liveTokens ?? 0, message: strategy === "bake" ? "bake requested — pi writes the summary" : "pi summarizes (model call)" };
+					}
 					const outcome = await compact({ trigger: "panel", strategy, ...(instructions ? { instructions } : {}) });
 					return { before: outcome.record.before, after: outcome.record.after, message: outcome.record.message };
 				},

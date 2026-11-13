@@ -1,0 +1,30 @@
+ [38;5;3mon` to ~/.tmux.conf and restart tmux.[39m
+[38;5;5m──[39m [2mAccordion › Context › [0;1mCompact[0m [38;5;5m─────────────────[39m [2m126.6k/1.0M tok · ○ folding off · no conductor[0m [38;5;5m──
+[39m ❱[38;2;255;255;255m[48;2;114;114;115m Overview [39m[49m❱[1m[38;2;255;255;255m[48;5;5m Context [0m❱[38;2;255;255;255m[48;2;114;114;115m Tasks [39m[49m❱[38;2;255;255;255m[48;2;114;114;115m Lists [39m[49m❱[38;2;255;255;255m[48;2;114;114;115m Conductors [39m[49m❱[38;2;255;255;255m[48;2;114;114;115m Settings [39m[49m
+[2m ⌕[0m
+
+  [1mCompact the context now?[0m
+  [2mpass         Taskfold decides              conductor decides[0m
+  [2maggressive   fold every eligible block     −44479[0m
+  [2mbake         permanent summary, no recall  −107836[0m
+  [2mnative       pi summarizes (model call)    unknown[0m
+
+ [38;5;5m→[39m [1mpass[0m
+   aggressive
+   bake
+   native
+
+
+
+
+
+
+
+
+[38;5;5m────────────────────────────────────────────────────────────────────────────────────────────────────
+[39m [2mThe first choice is the safe one.[0m
+ [2m↑↓[0m [2mmove · enter[0m [2mchoose · esc[0m [2mcancel[0m
+[38;5;5m────────────────────────────────────────────────────────────────────────────────────────────────────
+[2m[39m/tmp/acc-live/proj (dev)[0m
+[2m↑4.5M ↓95k R9.8M $1.550 12.3%/1.0M (auto)               (openrouter) deepseek/deepseek-v4-pro • high
+accordion off[0m

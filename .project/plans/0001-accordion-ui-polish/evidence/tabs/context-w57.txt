@@ -1,0 +1,16 @@
+ ~/.tmux.conf and restart tmux.
+── Accordion › Context ─────────────── 126.6k/1.0M tok ──
+ ❱ Overview ❱ Context ❱ Tasks ❱ Lists ❱ Conductors … 2/6
+ ⌕ Type to filter…
+
+turn prompt       blocks    live
+›  ⛨ You are a c… ▪AHA▪▪HA▪▪HA▪▪HA▪▪HA▪▪HA▪▪HA▪▪   22092
+─────────────────────────────────────────────────────────
+ system sys:0 · live bolted · 15036 tok
+─────────────────────────────────────────────────────────
+ One row per turn: U user · A answer · H thinking · ▣ fo…
+ enter inspect · alt+f fold · f1 help · esc close
+─────────────────────── ↓ 14 more ───────────────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0M (auto)  deepseek/deeps
+accordion off

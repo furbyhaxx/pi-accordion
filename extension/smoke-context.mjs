@@ -90,6 +90,25 @@ check("chat extraction requires new consent even after classifier-only consent",
 		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
 	}
 });
+check("a requested bake goes to pi with our summary instead of folding and claiming to bake", async () => {
+	const r = runtime([
+		{ role: "user", timestamp: 0, content: [{ type: "text", text: "survey the repository" }] },
+		{ role: "assistant", timestamp: 1, content: [{ type: "text", text: "done: the layout is flat" }] },
+	]);
+	const compactCalls = [];
+	try {
+		const host = await r.open();
+		r.ctx.compact = (options) => compactCalls.push(options ?? {});
+		host.command({ kind: "compact", strategy: "bake" });
+		await new Promise(resolve => setImmediate(resolve));
+		assert.equal(compactCalls.length, 1, "bake must ask pi to compact");
+		const bak = await r.handlers.session_before_compact({ reason: "manual", preparation: { firstKeptEntryId: "e1", tokensBefore: 900 } }, r.ctx);
+		assert.match(bak?.compaction?.summary ?? "", /\[accordion-bake v1\]/);
+		assert.equal(bak?.compaction?.details?.accordionBake, 1);
+		const again = await r.handlers.session_before_compact({ reason: "manual", preparation: { firstKeptEntryId: "e1", tokensBefore: 900 } }, r.ctx);
+		assert.notEqual(again?.compaction?.details?.accordionBake, 1, "one request bakes exactly one compaction");
+	} finally { r.close(); }
+});
 check("settings saves cannot outlive their session or controller while waiting for the file lock", async () => {
 	for (const replacement of ["session", "controller"]) {
 		const r = runtime();

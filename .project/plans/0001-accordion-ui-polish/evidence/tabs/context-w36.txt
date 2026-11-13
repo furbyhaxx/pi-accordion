@@ -1,0 +1,16 @@
+ tmux.
+── … › Context ── 126.6k/1.0M tok ──
+ ❱ Overview ❱ Context ❱ Tasks … 2/6
+ ⌕ Type to filter…
+
+turn blocks    live
+›  ⛨ ▪AHA▪▪HA▪▪HA▪▪HA▪▪HA▪▪HA▪›   2…
+────────────────────────────────────
+ system sys:0 · live bolted · 15036…
+────────────────────────────────────
+ One row per turn: U user · A answe…
+ enter inspect · f1 help · esc close
+──────────── ↓ 14 more ─────────────
+/tmp/acc-live/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0...
+accordion off
