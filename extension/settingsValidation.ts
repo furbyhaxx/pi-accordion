@@ -68,6 +68,14 @@ const RULES = {
 	"taskfold.untracked.minSteps": number(1, 10000),
 	"taskfold.steps.enabled": boolean,
 	"taskfold.steps.minSteps": number(1, 10000),
+	"recall.callTokens": number(2000, 50000),
+	"recall.liveTokens": number(2000, 200000),
+	"recall.keepSteps": number(0, 100),
+	"recall.unfoldTokens": number(1000, 1000000),
+	"recall.ask.enabled": boolean,
+	"recall.ask.inputTokens": number(2000, 200000),
+	"recall.ledger.enabled": boolean,
+	"guard.resultTokens": value => value === 0 ? undefined : number(4000, 1000000)(value),
 	"calibration.minRatio": ratio(false),
 	"calibration.maxRatio": ratio(true),
 	"calibration.dedupeCacheWrite": boolean,
@@ -176,6 +184,13 @@ export function validateSettingsPatch(patch: unknown, current: AccordionSettings
 	for (const [name, value] of Object.entries(patch)) {
 		const result = validateSetting(name, value);
 		if (!result.ok) return result;
+	}
+	const recallCall = "recall.callTokens", recallLive = "recall.liveTokens";
+	if (recallCall in patch || recallLive in patch) {
+		const edits = patch as SettingsPatch;
+		const call = recallCall in edits ? edits[recallCall] : current.recall.callTokens;
+		const live = recallLive in edits ? edits[recallLive] : current.recall.liveTokens;
+		if (typeof call === "number" && typeof live === "number" && live < call) return { ok: false, error: `${recallLive}: must admit at least ${recallCall}` };
 	}
 	const highKey = "conductorOptions.taskfold.high";
 	const lowKey = "conductorOptions.taskfold.low";

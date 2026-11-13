@@ -1,6 +1,6 @@
 ---
 name: accordion-context-recall
-description: "Read this skill when you need content from a folded context block RIGHT NOW as a tool result — without opening it in your standing context. recall(codes, query?, page?) returns a small fold whole and a large fold as a bounded index you can search or drill into. Accordion may fold older parts of your context to keep token usage within a budget; folded blocks appear as {#<code> FOLDED} markers."
+description: "Read this skill when you need something from a folded context block RIGHT NOW as a tool result, without opening it in your standing context. recall(codes?, query?, page?) returns a task's report, searches all folded content, or reads one entry. Accordion may fold older parts of your context to keep token usage within a budget; folded blocks appear as {#<code> FOLDED} markers."
 ---
 
 Accordion, a Pi extension, may be folding parts of your context to save tokens. A folded block appears as:
@@ -11,19 +11,52 @@ Accordion, a Pi extension, may be folding parts of your context to save tokens. 
 
 The `3f9a2c` is a **fold code**; the text after `FOLDED}` is a digest. The original content is preserved and retrievable.
 
-## recall — bounded, read-only
+## recall: look something up
 
-Each call returns at most ~8k tokens. Your standing context is not changed.
+`recall` is a lookup, not a way to re-read past work. Your standing context is not changed.
 
-- **Small fold**: `recall({codes: ["3f9a2c"]})` returns it whole.
-- **Large fold** (a finished task can hold hundreds of thousands of tokens): the same call returns an **index** — subtask codes, then numbered entries (`.1`, `.2`, …) with kind, tool, size and a preview.
-- **Search**: `recall({codes: ["3f9a2c"], query: "ECONNREFUSED"})` returns excerpts around each case-insensitive literal match, each with its entry address. Usually the cheapest way to find a value, path or error.
-- **One entry**: `recall({codes: ["3f9a2c.12"]})` reads entry 12; a long entry comes in pages.
-- **Subtask**: recall its own code from the index to get its index.
-- **Paging**: results name the next call, e.g. `recall({codes: ["3f9a2c"], page: 2})`.
+| You need | Call | You get |
+|---|---|---|
+| what a finished task achieved or decided | `recall({codes: ["3f9a2c"]})` | its report: outcome, decisions, open items, files changed, checks run, and the codes of its subtasks |
+| a value, path, number or error, wherever it was | `recall({query: "ECONNREFUSED"})` | excerpts from all folded content, newest first, each with an address like `3f9a2c.12` |
+| the same, inside known folds | `recall({codes: ["3f9a2c"], query: "timeout retry"})` | matches inside those folds |
+| one whole entry | `recall({codes: ["3f9a2c.12"]})` | that entry; a long one comes in pages |
+| the list of a fold's entries | `recall({codes: ["3f9a2c.entries"]})` | subtask codes and numbered entries with previews |
 
-Search or address the entry you need. Do not page through a whole large fold: that refills the context the fold freed.
+A fold that is not a task (a single block, a run of steps) comes back whole when it is small and as its entry list otherwise.
+
+A search result may start with "Facts noted when the task was folded": short `key: value  #address` lines written down when the task ended. Their values are copied from the entry named, so you can use them directly; read the entry when you need the surroundings.
+
+## Questions
+
+For a question that needs reading and combining ("why did we drop the retry wrapper?", "what happened with the migration?"), pass `ask`:
+
+```
+recall({ask: "Why did we drop the retry wrapper?"})
+recall({ask: "Which port did the broker end up on?", codes: ["3f9a2c"], query: "broker port"})
+```
+
+Another model reads the matching reports and excerpts and returns a short answer; every statement cites an address like `[3f9a2c.12]`. `codes` narrows it to those folds, `query` sets the search terms. Before relying on an exact value, search the cited entry for it (`recall({codes:["3f9a2c.12"], query:"the value"})`); reading the entry whole costs far more. A result starting with `[no answer:` carries the closest excerpts instead.
+
+## Clipped tool results
+
+A very large tool result arrives clipped: its beginning, a line `[… ~N of ~M tokens clipped. …]` with a fold code, and its end. Nothing is lost. Search the hidden part with `recall({codes: ["<code>"], query: "…"})` or read it in pages with `recall({codes: ["<code>.1"], page: 1})`. Prefer narrowing the original command (a filter, a line range) when you can.
+
+## Queries
+
+- Several words must **all** occur in one entry: `timeout retry`.
+- Double quotes keep a phrase together: `"connection refused"`.
+- `/…/` is a regular expression: `/p9[05] = \d+ms/`.
+- Matching is case-insensitive. When no entry has every word, you get the hits of the rarest word, marked `PARTIAL`.
+- Results name the next call when there are more pages.
+
+## Limits
+
+- One call returns at most about 8k tokens across all its codes. Codes that did not fit are named; recall them separately.
+- At most about 24k tokens of recalled text stay in your context. Beyond that a call answers `Recall refused: …` and returns nothing. Work with what you have, write down the facts you need, and continue.
+- Recall results do not stay: after a few steps an old result may be replaced by `[recall of … released to free context; run it again if you still need it]`. Note the fact you needed when you read it; repeat the call only if you need the text again.
+- Do not recall many task codes to rebuild what happened: ask for the report of the one task you need, or search for the one value.
 
 ## When to use unfold instead
 
-`unfold({codes: [...]})` puts a block back into your **standing** context from your next turn until the human re-folds it. Use it only for a small block you will keep referencing over several turns.
+`unfold({codes: [...]})` puts a block back into your **standing** context from your next turn until the human re-folds it. Use it only for a small block you will keep referencing over several turns. A fold that is too large for that is refused and stays folded; the reply gives the `recall` calls to use instead.

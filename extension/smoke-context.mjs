@@ -36,7 +36,7 @@ function runtime(messages = [], options = {}) {
 		registerShortcut: () => {}, registerMessageRenderer: () => {}, getSessionName: () => undefined,
 		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
 	};
-	accordion(pi, { complete: options.complete, openPanel: (_ctx, h) => { host = h; return options.openPanel?.(_ctx, h); } });
+	accordion(pi, { openPanel: (_ctx, h) => { host = h; return options.openPanel?.(_ctx, h); }, ...(options.complete ? { complete: options.complete } : {}) });
 	const model = {
 		id: "test/model", name: "Test", provider: "openrouter", api: "openai-completions",
 		baseUrl: "http://localhost.invalid/v1", reasoning: false, input: ["text"],
@@ -820,6 +820,79 @@ check("task context rides in the start result and requests are never rewritten",
 		assert.deepEqual(metadata.task_lists[0].goals, [{ id: "g1", text: "Finish work" }]);
 		assert.equal(metadata.task_lists[0].version ?? 3, 3);
 		assert.equal(messages[0].content, "Always use decimal.");
+	} finally {
+		r.close();
+		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+check("a folded task gets a fact ledger once, recall finds a value by the ledger's words, and a resume keeps it", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-ledger-"));
+	const configDir = path.join(home, ".accordion");
+	const config = path.join(configDir, "config.json");
+	fs.mkdirSync(configDir, { recursive: true });
+	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
+	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
+	const messages = [{ role: "user", content: "Provision the volume.", timestamp: 1 }];
+	const prompts = [];
+	const complete = async (_model, context) => {
+		prompts.push(context.messages[0].content);
+		const entry = Number(/--- entry (\d+) \[tool_result bash\]\n\/mnt\/data/.exec(context.messages[0].content)?.[1]);
+		return { content: [{ type: "text", text: JSON.stringify({ rows: [{ key: "Btrfs subvolume id", value: "324", unit: "id", entry }, { key: "invented", value: "999", unit: "", entry }] }) }], usage: { input: 1, output: 1 } };
+	};
+	const r = runtime(messages, { cwd: dir, sessionId: "ledger", complete });
+	r.ctx.modelRegistry = { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k", headers: {} }) };
+	r.ctx.isIdle = () => true;
+	let call = 0;
+	const push = async (name, args, content, details) => {
+		const id = `led-${++call}`;
+		if (name !== "tasks") await r.handlers.tool_result({ toolName: name, toolCallId: id, input: args, content, details, isError: false }, r.ctx);
+		messages.push({ role: "assistant", responseId: id, timestamp: 2 * call, content: [{ type: "toolCall", id, name, arguments: args }] },
+			{ role: "toolResult", toolCallId: id, toolName: name, content, details, isError: false, timestamp: 2 * call + 1 });
+	};
+	const task = async args => { const res = await r.tools.tasks.execute(`led-${call + 1}`, args, undefined, undefined, r.ctx); await push("tasks", args, res.content, res.details); };
+	const ledgerEntries = () => r.entries.filter(e => e.customType === "accordion.recall.ledger");
+	const settle = async () => { for (let i = 0; i < 100 && !ledgerEntries().length; i++) await new Promise(resolve => setTimeout(resolve, 20)); };
+	try {
+		const host = await r.open();
+		await task({ action: "create", list: "w", title: "W", goals: ["Volume ready"], tasks: [{ title: "Provision", acceptanceCriteria: ["The volume is mounted at /mnt/data"] }, { title: "Verify", acceptanceCriteria: ["Volume attributes are verified"] }, { title: "Document", acceptanceCriteria: ["The volume configuration is documented"] }] });
+		await task({ action: "start", list: "w", id: "1" });
+		await push("bash", { command: "findmnt /mnt/data" }, [{ type: "text", text: "/mnt/data /dev/nvme1n1p1[/@data] btrfs rw,noatime,subvolid=324,subvol=/@data" }]);
+		for (let i = 0; i < 6; i++) await push("bash", { command: `journalctl -n ${i}` }, [{ type: "text", text: `log ${i} `.repeat(900) }]);
+		await task({ action: "complete", list: "w", id: "1", report: { outcome: "Volume provisioned." } });
+		await task({ action: "start", list: "w", id: "2" });
+		await push("bash", { command: "lsattr -d /mnt/data" }, [{ type: "text", text: "---------------C------ /mnt/data" }]);
+		await task({ action: "complete", list: "w", id: "2", report: { outcome: "Verified." } });
+		await task({ action: "start", list: "w", id: "3" });
+		await push("bash", { command: "true" }, [{ type: "text", text: "ok" }]);
+		host.command({ kind: "setBudget", value: 4000 });
+		await r.request(messages);
+		await r.request(messages);
+		await settle();
+		assert.equal(ledgerEntries().length >= 1, true, "a ledger entry is written for the folded task");
+		const provision = ledgerEntries().find(e => e.data.task === "w/1");
+		assert.ok(provision, `the provisioning task has a ledger (got ${JSON.stringify(ledgerEntries().map(e => e.data.task))})`);
+		assert.deepEqual(provision.data.rows.map(row => row.slice(0, 3)), [["Btrfs subvolume id", "324", "id"]], "the invented value is dropped");
+		assert.match(prompts[0], /<transcript>/);
+		const found = await r.tools.recall.execute("led-recall", { query: '"subvolume id"' }, undefined, undefined, r.ctx);
+		assert.match(found.content[0].text, /Provision · Btrfs subvolume id: 324 \(id\)  #[0-9a-z]{6}\.\d+/);
+		const calls = prompts.length;
+		await r.request(messages);
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(prompts.length, calls, "a task with a ledger is not read again");
+		// A resumed session restores the ledger from its entries and spends nothing.
+		r.close();
+		const again = runtime(messages, { cwd: dir, sessionId: "ledger", complete, entries: r.entries });
+		again.ctx.modelRegistry = r.ctx.modelRegistry;
+		const host2 = await again.open();
+		host2.command({ kind: "setBudget", value: 4000 });
+		await again.request(messages);
+		await again.request(messages);
+		await new Promise(resolve => setTimeout(resolve, 200));
+		assert.equal(prompts.length, calls, "a resume does not extract again");
+		const refound = await again.tools.recall.execute("led-recall-2", { query: '"subvolume id"' }, undefined, undefined, again.ctx);
+		assert.match(refound.content[0].text, /Btrfs subvolume id: 324/);
+		again.close();
 	} finally {
 		r.close();
 		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);

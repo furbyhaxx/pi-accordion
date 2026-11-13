@@ -159,8 +159,8 @@ at the first safe request into records carrying outcomes, decisions, changed fil
 finished roots become stable whole-outcome history. `/accordion fold eager|lazy|pressure` changes
 this session/model's timing without unfolding anything. Under pressure, open-task records can
 be condensed further. User messages stay verbatim unless routed into durable list facts or the
-classifier deems them safe to fold. Fold codes reach the original spans through `recall` and
-`unfold`. Starting a subtask starts its parents; working outside tasks triggers a reminder.
+classifier deems them safe to fold. Fold codes reach task reports through `recall`, transcript excerpts through search and entry
+addresses within the session recall account, and standing context through bounded `unfold`. Starting a subtask starts its parents; working outside tasks triggers a reminder.
 
 While taskfold is attached, the task list sits above the editor. Collapsed it shows progress,
 folded tasks (`≡`), working time and the tokens the task spans take before and after folding,

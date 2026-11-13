@@ -34,18 +34,18 @@ If you need folded content **for the current step** but do not want to change yo
 
 ```
 recall({codes: ["3f9a2c"]})
-recall({codes: ["3f9a2c"], query: "parseConfig"})
+recall({query: "parseConfig"})
 recall({codes: ["3f9a2c.12"]})
 ```
 
-`recall` answers **as this tool's result, immediately**, and is bounded to ~8k tokens per call. A small fold comes back whole; a large one comes back as an index of subtask codes and numbered entries. Search it with `query` or read one entry with `code.N`. Your standing context is unchanged.
+`recall` answers **as this tool's result, immediately**. A task's code returns its report; `query` searches all folded content and returns entry addresses; `code.N` reads one entry. It is limited to ~8k tokens per call and ~24k tokens of recalled text in your context; beyond that a call is refused. Your standing context is unchanged.
 
 Choose between them:
 
-- **recall** — read it once, now, bounded. Content (or an index of a large fold) comes back as the tool result this turn; your context is untouched.
+- **recall** — look it up once, now, bounded. A report, search hits or one entry come back as the tool result this turn; your context is untouched.
 - **unfold** — keep it open. The block returns to your context on your **next** turn and stays open until the human re-folds it.
 
-Prefer `recall` when you just need to glance at a value or quote; use `unfold` only for a small block you will keep referring to over several turns. Never unfold a large finished task to read one detail: search it with `recall`.
+Prefer `recall` when you just need to glance at a value or quote; use `unfold` only for a small block you will keep referring to over several turns. Never unfold a large finished task to read one detail: search it with `recall`. A fold too large to stand in the context is refused and stays folded.
 
 ## What to unfold
 

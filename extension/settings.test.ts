@@ -44,6 +44,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.defaultConductor).toBe("keel-lite");
 			expect(defaults.compact).toEqual({ manual: "pass", threshold: "pass", onSaturated: "native" });
 			expect(defaults.bindHost).toBe("127.0.0.1");
+			expect(defaults.recall.ledger.enabled).toBe(true);
 
 			const file = configPathForHome(tmp);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -63,6 +64,8 @@ describe("accordion settings & memorable tokens", () => {
 					largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
 					acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
 				},
+				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5, unfoldTokens: 12000, ask: { enabled: false, inputTokens: 12000 }, ledger: { enabled: false } },
+				guard: { resultTokens: 32000 },
 				autoArm: false,
 				defaultConductor: "keel-note",
 				compact: { manual: "pass", threshold: "pass", onSaturated: "warn" },
@@ -93,6 +96,8 @@ describe("accordion settings & memorable tokens", () => {
 					largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
 					acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
 				},
+				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5, unfoldTokens: 12000, ask: { enabled: false, inputTokens: 12000 }, ledger: { enabled: false } },
+				guard: { resultTokens: 32000 },
 				autoArm: false,
 				defaultConductor: "keel-note",
 				compact: { manual: "pass", threshold: "pass", onSaturated: "warn" },

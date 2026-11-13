@@ -175,17 +175,20 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 }
 
 /** The row for an `unfold` / `recall` call: the codes and what came back. */
-export function foldToolRow(theme: WidgetTheme, tool: "unfold" | "recall", args: Args, state: "pending" | "ok" | "error", details: { restored?: unknown[]; missing?: unknown[] } | undefined, resultText: string, expanded: boolean): string[] {
-	const codes = Array.isArray(args.codes) ? args.codes.map((c) => `#${String(c).trim()}`).join(" ") : "";
+export function foldToolRow(theme: WidgetTheme, tool: "unfold" | "recall", args: Args, state: "pending" | "ok" | "error", details: { restored?: unknown[]; missing?: unknown[]; answered?: boolean } | undefined, resultText: string, expanded: boolean): string[] {
+	const query = typeof args.query === "string" && args.query.trim() ? JSON.stringify(firstLine(args.query).slice(0, 60)) : "";
+	const ask = typeof args.ask === "string" && args.ask.trim() ? `ask ${JSON.stringify(firstLine(args.ask).slice(0, 60))}` : "";
+	const codes = [...(Array.isArray(args.codes) ? args.codes.map((c) => `#${String(c).trim()}`) : []), query, ask].filter(Boolean).join(" ");
 	const restored = details?.restored?.length ?? 0;
 	const missing = details?.missing?.length ?? 0;
-	const failed = state === "error" || (state === "ok" && details !== undefined && restored === 0);
+	const answered = details?.answered === true;
+	const failed = state === "error" || (state === "ok" && details !== undefined && restored === 0 && !answered);
 	const glyph = state === "pending" ? theme.fg("dim", "…") : failed ? theme.fg("error", "✗") : missing ? theme.fg("warning", "▲") : theme.fg("success", "✓");
 	const head = `${glyph} ${theme.bold(tool)} ${theme.fg("accent", codes)}`;
 	if (state === "pending") return [head];
 	const sep = theme.fg("dim", " · ");
 	const facts = details
-		? [restored ? `${restored} ${tool === "unfold" ? "unfolded" : "recalled"}` : "", missing ? theme.fg("warning", `${missing} not found`) : ""].filter(Boolean)
+		? [answered ? "answered" : "", restored ? `${restored} ${tool === "unfold" ? "unfolded" : "recalled"}` : "", missing ? theme.fg("warning", `${missing} not found`) : ""].filter(Boolean)
 		: [firstLine(resultText)];
 	const lines = [`${head}${facts.length ? sep + facts.join(sep) : ""}`];
 	if (expanded) lines.push(...resultText.split("\n").map((l) => theme.fg("dim", `  ${l}`)));

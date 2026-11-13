@@ -239,6 +239,44 @@ state locally, in-process, immediately before the model call: there's no GUI rou
 no timeout to tune, because the state the extension already holds *is* the state applied,
 synchronously, every time.
 
+`recall` returns at most `callTokens` per call and keeps at most `liveTokens` of recalled text in
+the context. A recall result is replaced by a one-line note naming the call once `keepSteps`
+assistant messages followed it and room is needed; a call that still does not fit is refused with
+one line:
+
+```json
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true } },
+  "guard": { "resultTokens": 16000 } }
+```
+
+While folding is armed, a tool result larger than `guard.resultTokens` is clipped to its first and
+last 1,500 tokens before the model sees it; the agent reaches the rest with `recall` (search or
+pages). `0` turns this off.
+
+The agent's `unfold` restores a fold only when it adds at most `recall.unfoldTokens` and the context
+has room for it; otherwise the fold stays folded and the agent is told to use `recall`. Your own
+unfolds in the panel are not limited.
+
+`recall({ask: "…"})` lets the agent put a question to folded context: another model call reads the
+matching task reports and excerpts (at most `recall.ask.inputTokens`) and returns a short answer
+with entry addresses as citations. It runs on the session's model unless you set
+`models.conductors.recall.chat`; a different remote model asks for consent once. Without a usable
+model the agent gets the matching excerpts instead.
+
+By default, the fact ledger reads finished folded tasks of at least 2,000 tokens and notes values
+(counts, hashes, paths, ports, errors). A note is kept only when its value occurs verbatim in the
+cited entry. Recall searches show matching notes first, so the agent can find "subvolume id" even
+when the transcript says `subvolid=324`. Extraction uses up to four additional model calls per task,
+which can incur cost; it uses `models.conductors.recall.chat`, the default chat model, or the session
+model. A different remote model requires prior recall privacy consent and is not prompted for in
+the background. Set `recall.ledger.enabled` to `false` to disable extraction.
+
+A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
+context) never appear on the `context` hook path. If you need their cost/usage for external
+accounting, set `ACCORDION_COMPLETION_LOG=<path>` and the extension appends one JSON line
+per completion (success or failure) to that file.
+
 ## Debug diagnostics
 
 Enable `debug` in Settings or `~/.accordion/config.json`, or use `/accordion debug on|off` for
@@ -271,9 +309,9 @@ This package registers three Pi skills:
 
 - **accordion-context-folding** — the `unfold` tool: restore a folded block into standing
   context (sticky, attributed to the agent).
-- **accordion-context-recall** — the `recall` tool: read folded content as a tool result
-  *without* mutating the view, like `read_file`. Bounded per call: a large fold comes back as an
-  index that can be searched (`query`) or read entry by entry (`code.N`). Never lockable.
+- **accordion-context-recall** — the `recall` tool: look up folded content as a tool result
+  *without* mutating the view. A task code returns its report; `query` searches all folded content
+  and `code.N` reads one entry. Bounded per call and per session. Never lockable.
 - **accordion-task-lists** — create and validate nested task-list JSON from an implementation plan;
   includes a Node validator and field reference.
 

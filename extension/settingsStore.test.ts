@@ -19,6 +19,17 @@ const write = (data: unknown) => fs.writeFileSync(file, JSON.stringify(data));
 const read = () => JSON.parse(fs.readFileSync(file, "utf8"));
 
 describe("revisioned settings store", () => {
+	test("recall and guard edits persist and propagate alongside unrelated settings", async () => {
+		write({ compact: { manual: "aggressive" }, future: "keep" });
+		const writer = new SettingsStore(home, {});
+		const peer = new SettingsStore(home, {});
+		const result = await writer.save({ "recall.callTokens": 6000, "recall.liveTokens": 18000, "recall.ledger.enabled": false, "guard.resultTokens": 32000 }, writer.current().rev);
+		expect(result.ok).toBe(true);
+		expect(peer.poll()).toEqual(expect.arrayContaining(["recall.callTokens", "recall.liveTokens", "recall.ledger.enabled", "guard.resultTokens"]));
+		expect(peer.current().settings.recall).toMatchObject({ callTokens: 6000, liveTokens: 18000, ledger: { enabled: false } });
+		expect(peer.current().settings.guard.resultTokens).toBe(32000);
+		expect(read()).toMatchObject({ compact: { manual: "aggressive" }, future: "keep" });
+	});
 	test("invalid isolation ports stay disabled while native flags still take precedence", () => {
 		const env = { ACCORDION_DOOR_PORT: "invalid" };
 		const isolated = new SettingsStore(home, env);

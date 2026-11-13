@@ -138,6 +138,40 @@ export function resolveUnfold(truth: Truth, codes: string[]): { restored: Unfold
 	return { restored, missing };
 }
 
+/** A code `resolveUnfoldBounded` left folded, and the tokens unfolding it would have added. */
+export interface UnfoldRefused {
+	code: string;
+	tokens: number;
+	reason: "size" | "budget";
+}
+
+/**
+ * `resolveUnfold` for the agent's tool (SPEC-0003 §6): a code is unfolded only when it adds at most
+ * `maxTokens` and leaves the projection below `ceiling`. A refused code changes nothing. Codes are
+ * decided in order, each against the projection the earlier ones left.
+ */
+export function resolveUnfoldBounded(truth: Truth, codes: string[], limits: { maxTokens: number; ceiling: number }): { restored: UnfoldRestored[]; missing: string[]; refused: UnfoldRefused[] } {
+	const restored: UnfoldRestored[] = [];
+	const missing: string[] = [];
+	const refused: UnfoldRefused[] = [];
+	for (const code of codes) {
+		const ids = new Set(resolveRecall(truth, [code]).restored.flatMap((r) => r.ids));
+		let tokens = 0;
+		for (const id of ids) {
+			const b = truth.get(id);
+			if (b) tokens += Math.max(0, b.tokens - truth.effTokens(b));
+		}
+		if (ids.size && tokens > limits.maxTokens) refused.push({ code, tokens, reason: "size" });
+		else if (ids.size && truth.liveTokens() + tokens >= limits.ceiling) refused.push({ code, tokens, reason: "budget" });
+		else {
+			const r = resolveUnfold(truth, [code]);
+			restored.push(...r.restored);
+			missing.push(...r.missing);
+		}
+	}
+	return { restored, missing, refused };
+}
+
 /**
  * Resolve an agent `recall` request against the Truth — a pure READ. Returns each matched folded
  * block's ORIGINAL full content (never the digest, never a mutation). Same match set as

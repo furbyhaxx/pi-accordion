@@ -15,6 +15,7 @@ import { TASKFOLD_DEFAULTS, type TaskfoldOptions } from "../conductors/in-proces
 import { CALIBRATION_DEFAULTS, sanitizeCalibrationSettings, type CalibrationSettings } from "./calibration";
 import { isFoldTiming, type FoldTiming } from "../core/conductor/contract";
 import { ENTRIES, type ConductorOptions } from "../core/conductor/registry";
+import { RECALL_POLICY } from "../core/recallAccount";
 
 /** Independent policies for manual, threshold and saturated-overflow compaction. */
 export interface CompactSettings {
@@ -81,6 +82,27 @@ export interface TaskfoldSettings {
 	steps: { enabled: boolean; minSteps: number };
 }
 
+/** Bounds of the agent's `recall` tool, in tokens. */
+export interface RecallSettings {
+	/** Most one call returns across all its codes. */
+	callTokens: number;
+	/** Most recalled text standing in the context at once. */
+	liveTokens: number;
+	/** Assistant messages after which a recall result may be released. */
+	keepSteps: number;
+	/** Most tokens one fold code may add to the standing context through the agent's `unfold`. */
+	unfoldTokens: number;
+	/** `recall({ask})`: a side model answers over a bounded selection of folded content. */
+	ask: { enabled: boolean; inputTokens: number };
+	/** Fact ledger: one extra model call per folded task notes values `recall` can look up. */
+	ledger: { enabled: boolean };
+}
+
+export interface GuardSettings {
+	/** A tool result above this many tokens is clipped before it is first sent; 0 turns the guard off. */
+	resultTokens: number;
+}
+
 export interface AccordionSettings {
 	/** Write private per-session diagnostics when enabled. */
 	debug: boolean;
@@ -106,6 +128,8 @@ export interface AccordionSettings {
 	/** How provider receipts and model priors decide the calibration multiplier. */
 	calibration: CalibrationSettings;
 	conductorOptions: Record<string, ConductorOptions>;
+	recall: RecallSettings;
+	guard: GuardSettings;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
 }
@@ -137,6 +161,8 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
 	calibration: { ...CALIBRATION_DEFAULTS, priors: { ...CALIBRATION_DEFAULTS.priors } },
 	conductorOptions: {},
+	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens, keepSteps: 3, unfoldTokens: 20000, ask: { enabled: true, inputTokens: 24000 }, ledger: { enabled: true } },
+	guard: { resultTokens: 16000 },
 	modelDefaults: {},
 };
 
@@ -355,6 +381,23 @@ export function sanitizeConductorOptions(value: unknown): Record<string, Conduct
 	return result;
 }
 
+export function sanitizeRecallSettings(value: unknown): RecallSettings {
+	const defaults = DEFAULT_SETTINGS.recall;
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const range = (v: unknown, fallback: number, min: number, max: number) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
+	const callTokens = range(raw.callTokens, defaults.callTokens, 2000, 50000);
+	const ask = raw.ask && typeof raw.ask === "object" && !Array.isArray(raw.ask) ? raw.ask as Record<string, unknown> : {};
+	// The standing limit must admit at least one full call.
+	const ledger = raw.ledger && typeof raw.ledger === "object" && !Array.isArray(raw.ledger) ? raw.ledger as Record<string, unknown> : {};
+	return { ledger: { enabled: typeof ledger.enabled === "boolean" ? ledger.enabled : defaults.ledger.enabled }, ask: { enabled: typeof ask.enabled === "boolean" ? ask.enabled : defaults.ask.enabled, inputTokens: range(ask.inputTokens, defaults.ask.inputTokens, 2000, 200000) }, callTokens, liveTokens: Math.max(callTokens, range(raw.liveTokens, defaults.liveTokens, 2000, 200000)), keepSteps: range(raw.keepSteps, defaults.keepSteps, 0, 100), unfoldTokens: range(raw.unfoldTokens, defaults.unfoldTokens, 1000, 1000000) };
+}
+
+export function sanitizeGuardSettings(value: unknown): GuardSettings {
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const v = raw.resultTokens;
+	return { resultTokens: v === 0 || (typeof v === "number" && Number.isInteger(v) && v >= 4000 && v <= 1000000) ? v : DEFAULT_SETTINGS.guard.resultTokens };
+}
+
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
@@ -467,6 +510,8 @@ export function resolveSettings(fileData: Record<string, unknown>, env: Record<s
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 		tasks: sanitizeTaskSettings(fileData.tasks),
 		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
+		recall: sanitizeRecallSettings(fileData.recall),
+		guard: sanitizeGuardSettings(fileData.guard),
 		calibration: sanitizeCalibrationSettings(fileData.calibration),
 		conductorOptions: sanitizeConductorOptions(fileData.conductorOptions),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),

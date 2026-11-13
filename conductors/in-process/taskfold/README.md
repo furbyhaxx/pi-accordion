@@ -57,7 +57,7 @@ or skip. Other provider APIs are unchanged; a cache hit is still not guaranteed.
 | a task with step carriers finishes | its record absorbs them |
 
 A history line is never rewritten, merged or shortened afterwards. Recalling a root's code returns
-its full record; recalling a child's code returns that child. A task that ended `failed` or whose
+its report with its children's codes; recalling a child's code returns that child's report. A task that ended `failed` or whose
 subtree has failed or abandoned work says so in its line.
 
 Finished children fold while their parent is open. A blocked task's separate working intervals do
