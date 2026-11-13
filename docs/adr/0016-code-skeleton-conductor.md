@@ -216,7 +216,7 @@ Claude Code manage code context) confirmed the technique and sharpened where it 
   and reversible. An optional LLM-enhancement layer atop the deterministic skeleton is possible
   future work, not the foundation.
 - **Re-implementing `foldCode`/`foldTag` inside the conductor.** Rejected: the engine is the
-  single source of truth for the tag (CLAUDE.md is emphatic — "not bolted on at the wire" or
+  single source of truth for the tag (AGENTS.md is emphatic — "not bolted on at the wire" or
   anywhere else), and a conductor can't import `$lib`. The additive `recoverable` flag keeps the
   tag engine-owned.
 - **Merging into the built-in.** Rejected: the built-in is golden-pinned and deliberately

@@ -120,7 +120,7 @@ second axis (the affine `base` term) to smooth alongside, not before.
   reply re-anchors it anyway.
 - **Read-only / demo / CC / file sessions:** `k` stays `1` forever. There is no live host — no
   `context` hook, no assistant `usage` — to ever call `setCalibration`, so the dial simply never moves.
-  No offline calibration in v1 ([the RULE in `CLAUDE.md`](../../CLAUDE.md) already requires these
+  No offline calibration in v1 ([the RULE in `AGENTS.md`](../../AGENTS.md) already requires these
   sessions behave exactly as the steering path would with nothing new to say).
 
 ### Display: the "≈" marker

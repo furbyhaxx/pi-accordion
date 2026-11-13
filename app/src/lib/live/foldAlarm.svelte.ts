@@ -25,7 +25,7 @@
  *      folds `computeFoldOps` produces) must be IDENTICAL. Note `computeFoldOps` is the
  *      WOULD-BE ARMED plan: when `folding.enabled` is off the agent's actual wire is empty,
  *      but the correct comparison is still the would-be plan, NOT the empty disarmed wire —
- *      per the CLAUDE.md rule, preview/listening must match what steering WOULD send, so a
+ *      per the AGENTS.md rule, preview/listening must match what steering WOULD send, so a
  *      fold the armed plan would refuse is a lie even while disarmed. (That is why this layer
  *      gates on connection, not on `folding.enabled`.) The interesting residual case it
  *      catches: a foldable-kind block folded in the view but dropped by `computeFoldOps`
@@ -91,7 +91,7 @@ export function runFoldCheck(store: AccordionStore, isLive: boolean): void {
 		}
 		// wireSet — the would-be ARMED wire plan (what computeFoldOps emits if steering is on).
 		// Comparing against this, not the possibly-empty disarmed wire, is intentional: preview
-		// must match what steering WOULD send (CLAUDE.md). See the Layer 2 note in the file doc.
+		// must match what steering WOULD send (AGENTS.md). See the Layer 2 note in the file doc.
 		const wireSet = new Set<string>(store.computeFoldOps().map((op) => op.id));
 
 		// In view but NOT on the wire — the screen shows a fold the agent never receives

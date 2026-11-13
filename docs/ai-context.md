@@ -1,6 +1,6 @@
 # AI context — the story behind the docs
 
-This file is not project documentation. The README, VISION.md, CLAUDE.md, and the ADRs
+This file is not project documentation. The README, VISION.md, AGENTS.md, and the ADRs
 describe *what Accordion is and how it works*. This captures things that are true about
 the project but lived only in the builder's head, not in any of those files — origin, real
 motivations, honest attribution, and the parts of the story that got smoothed over on the

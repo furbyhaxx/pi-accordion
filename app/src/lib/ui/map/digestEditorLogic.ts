@@ -2,7 +2,7 @@
  * digestEditorLogic.ts — pure prediction helpers for `DigestEditor.svelte`.
  *
  * Pulled out of the component (rather than left inline in its `$derived`s) for the same reason
- * `stripFoldTags` itself lives in `core/digest.ts` and not the widget (see CLAUDE.md's "the tag is
+ * `stripFoldTags` itself lives in `core/digest.ts` and not the widget (see AGENTS.md's "the tag is
  * the handle"): a plain function is trivially unit-testable without a DOM/component-render
  * environment, which this repo does not have wired up (no jsdom / @testing-library/svelte). The
  * component imports these directly, so a test against them is a test against the exact code path

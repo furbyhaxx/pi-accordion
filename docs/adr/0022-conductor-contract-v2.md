@@ -16,7 +16,7 @@ conductors, one public view — the framing this ADR keeps), [ADR 0011](0011-con
 The entire conductor strategy layer — the `conduct(view) → Command[]` contract, its in-process and
 WebSocket runners, the built-in folder, attach/detach/consent, and the out-of-band completion relay
 — was excised from this branch (`51ad4a7`/`f4bb4ed`/`51ade0c` and siblings) for a ground-up
-redesign; see the CLAUDE.md Conductors section. The old contract's per-turn model — a conductor
+redesign; see the AGENTS.md Conductors section. The old contract's per-turn model — a conductor
 returns its *complete* desired state every pass, and the host does an O(n) full-view recompute to
 materialize what changed — worked but did not scale to a strategy that wants **asynchronous,
 partial, incremental** reasoning: an attention probe scoring blocks in a side process, an LLM

@@ -85,7 +85,7 @@ exactly the case a confirmation exists to surface.
 
 A non-controller surface cannot mutate *anything* live-steering-related, with no per-action
 exception and no "are you sure, just this once" bypass. This mirrors the standing rule already in
-CLAUDE.md for CC transcripts and demo/preview sessions ("preview/read-only is NOT a more permissive
+AGENTS.md for CC transcripts and demo/preview sessions ("preview/read-only is NOT a more permissive
 mode") — read-only means read-only, uniformly, everywhere in the surface, not just for the
 higher-risk controls. The only way out of read-only is the same door every surface has: claim
 control.
@@ -353,7 +353,7 @@ under a CC session, so no further affordance is possible and none is added. A **
 currently steered from another surface shows `READ-ONLY · <WHO> STEERS` plus a `TAKE CONTROL` button
 — the same word, with a different affordance riding alongside it to reflect that this read-only state
 is escapable in a way a CC transcript's never is. "View-only" was deliberately not introduced as a
-second term: the two situations share the exact guarantee the standing CLAUDE.md rule already
+second term: the two situations share the exact guarantee the standing AGENTS.md rule already
 states (same foldability predicate, same UI affordances, same token accounting, zero write
 capability) — a second word would imply a behavioral difference between them that does not exist.
 The only real difference is the affordance next to the badge, not the badge's meaning.

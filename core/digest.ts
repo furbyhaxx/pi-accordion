@@ -48,7 +48,7 @@ export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text"
  * KIND ONLY — deliberately content- and id-independent. The durable-id guard (`isDurableId`)
  * is a LIVE-WIRE EMIT concern, NOT part of foldability: the on-disk / demo / Claude Code parse
  * assigns non-durable ids (`<eventId>:p<j>`), and those read-only sessions must still fold by
- * kind in every mode (preview === steering — see CLAUDE.md). So durable-id stays where it
+ * kind in every mode (preview === steering — see AGENTS.md). So durable-id stays where it
  * belongs, inside `computeFoldOps`, and is intentionally not mirrored here. Group collapse
  * (ADR 0006) is a SEPARATE mechanism — structural whole-message removal with its own rules —
  * and may legitimately include `tool_call`/`user`; this predicate governs only per-block

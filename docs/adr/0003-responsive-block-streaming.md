@@ -19,7 +19,7 @@ tracking reality or has stalled.
 The naive fix — stream raw tokens into blocks — was rejected (see Rejected). It forces
 blocks to mutate in place (a "patch" protocol verb, breaking the append-only model),
 makes per-token token estimates jitter so the protected-tail boundary thrashes, and
-floods a 982-tile grid with repaints CLAUDE.md explicitly warns against.
+floods a 982-tile grid with repaints AGENTS.md explicitly warns against.
 
 The deeper problem is **identity**. Today a block's id encodes its *position* in pi's
 message array (`m<i>:p<j>`). A block that is still streaming is not yet in that array, so
@@ -90,7 +90,7 @@ kind, right now," which is always true at the moment it is shown — not the fal
 - **Engine purity.** A ghost is **never** an entry in `store.blocks` and never on the
   block wire. It lives only in GUI presentation state, keyed by `contentIndex`, rendered
   as a third visual state alongside solid-live and recessed-folded. The engine continues
-  to hold only committed, complete, durable blocks (CLAUDE.md: "engine is the source of
+  to hold only committed, complete, durable blocks (AGENTS.md: "engine is the source of
   truth — the UI only renders it").
 - **Resolution.** When the message's committed blocks arrive (layer 2, at `message_end`),
   the GUI clears that message's ghosts and the real durable blocks take their place.

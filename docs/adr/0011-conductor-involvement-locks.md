@@ -5,7 +5,7 @@
 **Amends a founding invariant — read this first:** ADR 0007's **"Human GUI overrides
 always win"** and VISION's **"This protection is absolute"** both become **conditional**
 on a conductor's declared lock-set. This is a deliberate fork in what Accordion *is*, not
-a tweak; the product docs (VISION.md, README.md, CLAUDE.md) are rewritten to own it.
+a tweak; the product docs (VISION.md, README.md, AGENTS.md) are rewritten to own it.
 **Builds on:** [ADR 0007](0007-conductor-protocol.md) (the conductor contract —
 `conduct → Command[]`, clamp reports, the override rule this ADR makes conditional),
 [ADR 0008](0008-conductor-first-party-one-view.md) (first-party conductors; one public
@@ -234,7 +234,7 @@ did NOT lock."** Concretely:
   shared by `fold()` / `isFolded` / `computeFoldOps`. It simply gains the active conductor's
   lock-set as an input. There is **never a stricter rule on the wire than in the view, and
   never a looser one in preview** — preview/read-only obeys the lock-set exactly as the
-  steering path does (the [CLAUDE.md](../../CLAUDE.md) preview rule is unchanged; locks are
+  steering path does (the [AGENTS.md](../../AGENTS.md) preview rule is unchanged; locks are
   just one more rule it inherits).
 - `host/event: humanOverride` (and the in-process `onHumanOverride` callback) simply does not
   fire for an action the human is locked out of — there is no override to report.
@@ -334,7 +334,7 @@ This ADR was the **spec**; the implementation shipped in PR #46. Delivered scope
   preserves "no silent forgetting" — the agent's history is always reachable.
 - **A founding line in the docs flips.** VISION ("This protection is absolute"; the
   capability matrix; "overrule it with a pin"), README ("Three hands on the same controls"),
-  and CLAUDE.md ("human overrides always win") are rewritten to make the conditionality
+  and AGENTS.md ("human overrides always win") are rewritten to make the conditionality
   first-class, not a footnote.
 - **Ships additively.** The golden test is untouched; every existing conductor is
   unchanged; a user who never opts in never notices.

@@ -86,7 +86,7 @@
 		'square': `<rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>`,
 		// Brand 'fold' glyph — the signature action icon (stroke-width 2).
 		'fold': `<path stroke-width="2" d="M8 5l4 3 4-3"/><path stroke-width="2" d="M4 12h16"/><path stroke-width="2" d="M8 19l4-3 4 3"/>`,
-		// 'bolt' — the BOLTED mark (system prompt / `isBolted`, see CLAUDE.md "Visual grammar").
+		// 'bolt' — the BOLTED mark (system prompt / `isBolted`, see AGENTS.md "Visual grammar").
 		// A flat-top/bottom hex "bolt head" + centre dot, the SAME geometry as the canvas glyph
 		// `tileDraw.ts`'s `drawBoltHead` draws on the map tile, so the tile, the transcript row
 		// flag, and this Inspector-pill icon all read as one metaphor.

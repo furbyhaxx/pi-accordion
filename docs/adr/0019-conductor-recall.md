@@ -142,7 +142,7 @@ groups (coalesce adjacent same-role messages), and would live in `applyPlan`.
 - **The golden test is byte-identical** — `recalledTokens` is 0 with no recalls, and the raw path
   never issues one.
 - **Preview / read-only obey every rule.** A recall is a producible steering state, so the "recalled
-  to tail" indicator renders identically wherever recall is actually producible (per CLAUDE.md's
+  to tail" indicator renders identically wherever recall is actually producible (per AGENTS.md's
   RULE). In practice that excludes parsed transcripts: parsed pi/Claude-Code blocks carry
   event-style ids (e.g. `<eid>:r`, `<eid>:0`, `<eid>:u` — `app/src/lib/engine/parse.ts`), none of
   which match `isDurableId`'s `u:`/`a:`/`r:`/`s:` prefixes (`app/src/lib/live/mapping.ts`), so every

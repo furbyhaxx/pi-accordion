@@ -2,7 +2,7 @@
 
 This guide gets a new contributor from a fresh clone to a running dev build and a
 clean quality gate. For *what* the product is, read [VISION.md](VISION.md); for *how
-the code is organized and the conventions to follow*, read [CLAUDE.md](CLAUDE.md) — it
+the code is organized and the conventions to follow*, read [AGENTS.md](AGENTS.md) — it
 is the authoritative guide to working in this codebase.
 
 The active surface is the desktop app in **`app/`** (Tauri 2 + SvelteKit), the pi
@@ -172,7 +172,7 @@ launches. No reload needed for the *app*; the next `/accordion` opens the new bu
 
 - **Branch off `main`.** Never commit directly to `main`.
 - Make your change with the quality gate passing. Match existing conventions — see
-  [CLAUDE.md](CLAUDE.md) (Svelte 5 runes, the engine-is-source-of-truth rule, the tile-grid
+  [AGENTS.md](AGENTS.md) (Svelte 5 runes, the engine-is-source-of-truth rule, the tile-grid
   performance constraints, the visual grammar).
 - **Push your branch and open a Pull Request.** Maintainers handle merging to `main` and
   merging PRs.

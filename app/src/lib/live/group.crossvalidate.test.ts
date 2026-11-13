@@ -6,7 +6,7 @@ import type { ParsedSession } from "../engine/types";
 // ─────────────────────────────────────────────────────────────────────────────
 // CROSS-VALIDATION — the engine VIEW must mirror the WIRE byte-for-byte.
 //
-// The cardinal invariant (CLAUDE.md): the GUI's claimed savings must equal what
+// The cardinal invariant (AGENTS.md): the GUI's claimed savings must equal what
 // the agent's context actually changes by. The engine keeps a re-implementation
 // of the wire's group-collapse algorithm (classifyGroup / groupLiveTokens) and it
 // had drifted in two ways (PR #66) plus a residual in live sessions (issue #13):

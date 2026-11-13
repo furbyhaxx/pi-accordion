@@ -23,7 +23,7 @@
 	 * working tail (a lock-free conductor's birth-fold puts a FOLDED block in there, and the human
 	 * branch has no birth-fold exemption) and a block inside a folded group. A read-only Claude Code
 	 * transcript is NOT one of those states: it has a local Truth and no wire, so editing is a
-	 * legitimate preview — the RULE in CLAUDE.md requires preview to obey the same rules as
+	 * legitimate preview — the RULE in AGENTS.md requires preview to obey the same rules as
 	 * steering, not to be more restrictive than it.
 	 */
 	import Icon from "$lib/ui/Icon.svelte";

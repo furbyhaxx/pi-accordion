@@ -54,7 +54,7 @@ defer the low-severity cleanup to Slice 2 (see [BACKLOG.md](BACKLOG.md)).
   the smallest wire-safe form), so view == wire; the contract doc is updated to match.
 - **The wire path now actually consults `wireFoldable`.** `computeFoldOps` and `resolveUnfold`
   called `FOLDABLE_KINDS.has(b.kind)` directly while the `wireFoldable` docblock claimed they
-  "consult" it — a single-source drift vector and a false docblock (CLAUDE.md "one gate"). Both
+  "consult" it — a single-source drift vector and a false docblock (AGENTS.md "one gate"). Both
   now call `wireFoldable(b)`, so the gate is genuinely single-sourced across view and wire.
 
 Tests: `store.foldgate.test.ts` gains `foldedTokens`-honesty + builtin-never-proposes +
@@ -95,7 +95,7 @@ says folded; agent got it whole.
 | Group straggler balance | `applyPlan` re-derives | `classifyGroup` | **yes — already documented** ([ADR 0006](adr/0006-multiblock-folds.md) watch items: cross-group split tool-pair makes `savedTokens` understate) | **deferred** to Slice 2; alarm deliberately does NOT verify it |
 
 All the same root cause: the UI trusts its own state instead of rendering what actually goes
-out. This is governed by the CLAUDE.md rule "preview/read-only is NOT a more permissive
+out. This is governed by the AGENTS.md rule "preview/read-only is NOT a more permissive
 mode" — preview must match the *would-be* wire output too. **Slice 1 closes the per-block
 KIND lie (the one a user can actually trigger) and installs the alarm; the rarer rows are
 alarmed-or-deferred, not silently dropped.**
@@ -134,7 +134,7 @@ the view can no longer form a folded-state the wire would refuse.
    trusts its plan and keeps only the durable-id/kind/balanced-tool-pair structural guards.
 4. **Mode-aware, not mode-permissive.** Preview/read-only has no extension and no
    round-trip, so the projection simulates the wire rules locally. Preview === steering
-   except that no plan is sent. (Per the CLAUDE.md rule.)
+   except that no plan is sent. (Per the AGENTS.md rule.)
 
 **Cost:** medium. **Risk:** low–medium — shared code means a bug hits both sides identically,
 but they already diverge silently, which is worse. Keep the extension's final *structural*

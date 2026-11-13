@@ -436,7 +436,7 @@ export interface WireMsgShape extends MsgInfo {
  * The role-validity floor's decision, extracted to ONE function so `applyPlan` and `Truth`'s
  * group-token accounting can never drift apart. Drift here is not cosmetic: it would mean the
  * UI's claimed savings lies about what the model actually receives — the one thing this repo
- * promises never happens (CLAUDE.md). Two things come out:
+ * promises never happens (AGENTS.md). Two things come out:
  *
  *   • `owner` — Phase A's message→group cascade (a message may be removed by at most ONE group,
  *     and only if every tool-call/tool_result pair it holds is fully inside the removal set — see

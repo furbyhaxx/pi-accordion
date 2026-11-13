@@ -5,7 +5,7 @@
  * lives here so it is fully unit-testable via vitest (node env, no canvas API
  * needed for geometry tests).
  *
- * PERFORMANCE CONTRACT (per CLAUDE.md):
+ * PERFORMANCE CONTRACT (per AGENTS.md):
  *  - No per-tile gradients or ctx.filter in the hot draw loop.
  *  - Dice sprites are pre-rendered once to offscreen canvases, then blitted.
  *  - Folded desaturation is done in JS (HSL math) — NOT ctx.filter.
@@ -591,7 +591,7 @@ export function drawTile(
 }
 
 // ---------------------------------------------------------------------------
-// System corners — the BOLTED-kind mark (see CLAUDE.md "Visual grammar")
+// System corners — the BOLTED-kind mark (see AGENTS.md "Visual grammar")
 // ---------------------------------------------------------------------------
 
 const SYSTEM_CORNER_COLOR = "#9A9A9A"; // Smoke — neutral, distinct from every block-kind hue

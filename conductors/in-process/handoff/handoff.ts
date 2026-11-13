@@ -143,7 +143,7 @@ export class HandoffConductor extends AgedSummaryConductor {
 	 *     folds the whole current conversation into the handoff.
 	 *
 	 * Being exclusive over all three triggers the client-side one-time consent gate (ADR 0011,
-	 * `ConsentDialog.svelte` / `ConductorMenu.svelte` — see the Conductors section of CLAUDE.md);
+	 * `ConsentDialog.svelte` / `ConductorMenu.svelte` — see the Conductors section of AGENTS.md);
 	 * the human's recourse after consenting is always DETACH.
 	 */
 	readonly locks: readonly LockName[] = ["human-steering", "agent-unfold", "tail-size"];

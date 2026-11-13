@@ -5,15 +5,15 @@ document:
   title: "Taskfold fold timing, cache anchoring, report limits and debug mode"
   description: "Six slices that make finished tasks fold on completion, raise the report limits, fix row accounting and message routing, and add a debug log; amends SPEC-0002 slice by slice"
   status: "published"
-  revision: 10
+  revision: 11
   created_at: "2026-11-11T17:51:45+01:00"
-  updated_at: "2026-11-12T02:41:28+01:00"
+  updated_at: "2026-11-13T14:35:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 10
-      reason: "complete and verify the Anthropic task-frontier breakpoint"
-      changes: ["marker-only hash probe", "pure bounded frontier compiler", "gated native hook", "live updated-sibling prefix reuse"]
+    - revision: 11
+      reason: "use the sole repository agent instruction file"
+      changes: ["point the context-hook invariant at AGENTS.md"]
 ---
 
 # Taskfold fold timing, cache anchoring, report limits and debug mode
@@ -203,7 +203,7 @@ are approximated; three sessions.
 
 ## What not to do
 
-- No disk I/O on the `context` hook (CLAUDE.md invariant). The debug log is written off that path.
+- No disk I/O on the `context` hook (AGENTS.md invariant). The debug log is written off that path.
 - Never cut text the agent wrote: an over-limit report is rejected, not truncated.
 - A mode change never unfolds anything.
 - Do not change task end states or block reasons; that contract is not part of this plan.
