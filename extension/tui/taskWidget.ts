@@ -458,6 +458,11 @@ export class TaskWidgetController {
 		this.sync();
 	}
 
+	/** Whether the tree is expanded (the panel's alt+e toggles this default). */
+	isExpanded(): boolean {
+		return this.view.expanded;
+	}
+
 	setExpanded(expanded: boolean): void {
 		this.hidden = false;
 		if (this.view.expanded !== expanded) this.deps.saveExpanded(expanded);

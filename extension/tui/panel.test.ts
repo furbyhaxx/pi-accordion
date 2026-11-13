@@ -543,6 +543,24 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("tasks: alt+e flips the widget's expanded default and says so", async () => {
+		const at = new Date().toISOString();
+		const list: TaskList = { slug: "plan", title: "Plan", createdAt: at, updatedAt: at, claim: null, goals: [{ id: "g1", text: "Ship it" }],
+			tasks: [{ id: "1", title: "First", status: "done", createdAt: at, startedAt: at, endedAt: at, updatedAt: at, report: { outcome: "ok" } }] };
+		let expanded = false;
+		const tasks: TaskTabsHost = {
+			views: { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => true, apply: async () => "Applied.", subscribe: () => () => {} },
+			lists: null,
+			widget: { expanded: () => expanded, setExpanded: (value) => { expanded = value; } },
+		};
+		const s = setup(false, "tasks", tasks);
+		s.panel.handleInput(K.alt("e"));
+		await tick(1);
+		expect(expanded).toBe(true);
+		expect(s.screen()).toContain("expanded by default");
+		s.close(); await s.opening;
+	});
+
 	test("task tabs: printable keys never act, every line fits, the height stays fixed", async () => {
 		const at = new Date().toISOString();
 		const list: TaskList = { slug: "plan", title: "Plan", createdAt: at, updatedAt: at, claim: null, goals: [{ id: "g1", text: "Ship it" }],

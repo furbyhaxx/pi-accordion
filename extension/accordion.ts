@@ -4332,7 +4332,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					};
 				},
 				listSessions: () => discoverNativeSessions(),
-				tasks: { views: taskViewsHost(surfaceId, openedSessionId), lists: taskSession?.listsHost() ?? null },
+				tasks: {
+					views: taskViewsHost(surfaceId, openedSessionId),
+					lists: taskSession?.listsHost() ?? null,
+					widget: { expanded: () => taskWidget.isExpanded(), setExpanded: (value) => taskWidget.setExpanded(value) },
+				},
 				command: (command) => {
 					refreshControllerNow();
 					const lease = controllerLease;

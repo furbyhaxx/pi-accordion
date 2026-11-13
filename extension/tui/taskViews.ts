@@ -393,6 +393,7 @@ export const TASK_LEGEND = [
 	"alt+g shows a list's goals, claim, scoped pins and attachments.",
 	"alt+p pins transcript blocks; scoped facts use the tasks tool's pin and unpin.",
 	"A call folds through its result; user messages fold only inside a task record.",
+	"alt+e expands or collapses the task widget above the editor by default.",
 ];
 
 /** The task screens as one stack; the panel shell draws the frame and routes keys. */
