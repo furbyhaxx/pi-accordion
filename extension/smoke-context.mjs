@@ -69,6 +69,52 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("turn notifications avoid full-history boundary IPC and follow completed tool batches", async () => {
+	const { LiveConductorHost } = await jiti.import("../core/conductor/liveHost.ts");
+	const original = LiveConductorHost.prototype.fireTurnCommitted;
+	const r = runtime([{ role: "user", timestamp: 1, content: "Inspect and report" }]);
+	const commits = [];
+	let host;
+	let observe = true;
+	LiveConductorHost.prototype.fireTurnCommitted = function(turn, rev) {
+		if (observe) commits.push({ turn, rev, texts: host.truth().blocks.map(b => b.text) });
+		return original.call(this, turn, rev);
+	};
+	const assistant = { role: "assistant", responseId: "boundary-tools", timestamp: 2, content: [{ type: "toolCall", id: "boundary-call", name: "bash", arguments: { command: "pwd" } }] };
+	const result = { role: "toolResult", toolCallId: "boundary-call", toolName: "bash", timestamp: 3, content: [{ type: "text", text: "TOOL_BATCH_COMPLETE" }] };
+	const final = { role: "assistant", responseId: "boundary-final", timestamp: 4, content: [{ type: "text", text: "FINAL_REPLY" }] };
+	try {
+		host = await r.open();
+		assert.equal(r.handlers.turn_end, undefined, "subscribing causes the host to encode the entire boundary context");
+		await r.handlers.turn_start({ turnIndex: 0 }, r.ctx);
+		assert.equal(commits.length, 0);
+		await r.handlers.message_end({ message: assistant }, r.ctx);
+		await r.handlers.message_end({ message: result }, r.ctx);
+		assert.equal(commits.length, 0, "do not run a conductor in the middle of a tool batch");
+		await r.handlers.turn_start({ turnIndex: 1 }, r.ctx);
+		assert.equal(commits.length, 1);
+		assert.ok(commits[0].texts.includes("TOOL_BATCH_COMPLETE"));
+		await r.handlers.message_end({ message: final }, r.ctx);
+		await r.handlers.agent_end({ messages: [assistant, result, final] }, r.ctx);
+		assert.equal(commits.length, 2);
+		assert.ok(commits[1].texts.includes("FINAL_REPLY"));
+		await r.handlers.turn_start({ turnIndex: 2 }, r.ctx);
+		assert.equal(commits.length, 2, "agent_end and next turn_start must not double-commit");
+		const missed = { ...final, responseId: "boundary-missed", timestamp: 5, content: [{ type: "text", text: "BACKSTOP_REPLY" }] };
+		await r.handlers.agent_end({ messages: [missed] }, r.ctx);
+		assert.equal(commits.length, 3);
+		assert.ok(commits[2].texts.includes("BACKSTOP_REPLY"));
+		await r.handlers.message_end({ message: { ...final, responseId: "boundary-old-session", timestamp: 6 } }, r.ctx);
+		observe = false;
+		await r.handlers.session_start({ reason: "new" }, r.ctx);
+		observe = true;
+		await r.handlers.turn_start({ turnIndex: 0 }, r.ctx);
+		assert.equal(commits.length, 3, "a new session must not commit the previous session's pending turn");
+	} finally {
+		LiveConductorHost.prototype.fireTurnCommitted = original;
+		r.close();
+	}
+});
 check("chat extraction requires new consent even after classifier-only consent", async () => {
 	const config = path.join(home, ".accordion", "config.json");
 	fs.mkdirSync(path.dirname(config), { recursive: true });

@@ -773,6 +773,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// structural divergence (compaction / fork / tree-nav / another extension rewriting messages).
 	// pi's `context` hook operates against it LOCALLY. `unsubTruth` detaches the event forwarder.
 	let truth: Truth | null = null;
+	let turnPending = false;
 	let unsubTruth: (() => void) | null = null;
 	// Folding the live agent is OPT-IN and OFF by default (today's armed semantics). Toggled by a
 	// GUI `setFolding` command; disabled ⇒ the model call is untouched. Broadcast on change and
@@ -3144,6 +3145,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (allowCalibration) maybeObserveCalibration(msg);
 		appendSuffix([...lastMessages, msg], lastMessages.length);
 		setLastMessages([...lastMessages, msg], [...lastFps, contentFingerprint(msg)]);
+		if (msg.role === "assistant") turnPending = true;
 	}
 
 	/** Apply a client command to the authoritative Truth; returns the per-op results + resulting rev. */
@@ -3335,6 +3337,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			unsubTruth = null;
 		}
 		truth = null;
+		turnPending = false;
 		// issue #11 stage 1: a pending/observed calibration pairing belongs to the OLD session's Truth
 		// (which just went away) — carrying it over would either mispair the new session's first
 		// assistant reply against a stale estimate, or report a stale realTokens/estWireTokens in
@@ -3791,16 +3794,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		applyDials();
 	});
 
-	// ── turn settled: the canonical re-plan trigger for a turn-based conductor ───
-	// `turn_end` fires after each LLM turn. It is the host-lifecycle equivalent of
-	// `TestHost.commitTurn` — an attached conductor (in-process) or the remote replica (over the
-	// wire) treats it as the moment to re-run its pass. Purely a notification; folding still happens
-	// only at `context`, and there is no conductor attached ⇒ this is a no-op.
-	pi.on("turn_end", () => {
-		if (!truth) return;
+	// PiG's turn_end includes full-history boundary context; notifications need none of it.
+	function commitPendingTurn(): void {
+		if (!turnPending || !truth) return;
+		turnPending = false;
 		const last = truth.blocks[truth.blocks.length - 1];
 		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
-	});
+	}
+
+	pi.on("turn_start", commitPendingTurn);
 
 	// ── committed streaming: append finished messages to the Truth immediately ──
 	// `context` only fires BEFORE a model call (messages going IN); `agent_end` fires once at loop
@@ -3854,6 +3856,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 		}
 		messages.forEach((msg, i) => ingestFinishedMessage(msg, i === lastAssistantIdx));
+		commitPendingTurn();
 	});
 
 	pi.on("session_before_compact", async (event, ctx: ExtensionContext) => {
@@ -3995,6 +3998,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			unsubTruth = null;
 		}
 		truth = null;
+		turnPending = false;
 		nativeSurfaceId = null;
 		sessionId = "";
 		for (const remote of nativeRemotes) remote.close();
