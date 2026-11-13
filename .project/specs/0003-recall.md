@@ -5,12 +5,15 @@ document:
   title: "Recall: bounded retrieval of folded content"
   description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results the bound on the agent's unfold questions answered by a side model and the fact ledger written when a task is folded."
   status: "published"
-  revision: 6
+  revision: 7
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T13:15:15+01:00"
+  updated_at: "2026-11-13T13:23:36+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 7
+      reason: "the randomized test found refusal lines and stubs accumulating in the account"
+      changes: ["§3: results under 200 tokens are not counted", "§10: randomized invariant test"]
     - revision: 6
       reason: "the ledger spike passed its gate (18 of 20 questions answered from rows)"
       changes: ["§8: fact ledger", "§9: recall.ledger"]
@@ -114,7 +117,9 @@ Exact values: recall({codes:["k3m9qa"], query:"text"}) · entry list: recall({co
 `core/recallAccount.ts`; one `RecallAccount` per extension instance.
 
 - `outstanding` = tokens of `recall` tool results that are live in the projection (not inside a
-  folded group; a replaced result counts at its replacement's size) + reservations.
+  folded group; a replaced result counts at its replacement's size) + reservations. A result under
+  200 tokens (a refusal, a released stub, "no match") is not counted: such lines are never
+  released, so counting them would close the account for good in a long session.
 - A reservation is made synchronously when a call returns and dropped when its result block is in
   the log, so parallel calls of one assistant message share the account. Reservations are cleared
   when a prompt starts and when the session's Truth is first built.
@@ -248,5 +253,6 @@ Off by default (`recall.ledger.enabled`). `core/factLedger.ts` plans and checks;
 | ask through the registered tool: fallback without a model, answered with a mocked completion | `extension/smoke.mjs` |
 | ledger rows kept only when verbatim in the cited entry; bounded prompts; rows shown before hits and alone; session-entry round trip | `core/factLedger.test.ts` |
 | ledger through the running extension: folded task extracted once, invented value dropped, recall finds it by the ledger's words, resume restores without a call | `extension/smoke-context.mjs` |
+| random agents (recall with many codes, parallel calls, paging, search, unfold, oversized results): call cap, standing cap, budget, unfold ceiling, guard, and an empty account after release | `core/recallInvariant.test.ts` (`RECALL_SEEDS=N` widens it) |
 | eleven task codes → eleven reports without transcript; subtasks as codes; `.entries`; archive search, terms, phrase, regex, partial, paging | `conductors/in-process/taskfold/taskReports.test.ts` |
 | the registered tool end to end, including codeless search | `extension/smoke.mjs` |

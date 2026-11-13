@@ -9,10 +9,8 @@ import type { Op } from "./ops";
 import type { Truth } from "./truth";
 import { messageKey } from "./groupShape";
 import { estTokens } from "./tokens";
-import { isRecallResult, RECALL_TOOL } from "./recallAccount";
+import { isRecallResult, RECALL_TOOL, SMALL_RESULT_TOKENS } from "./recallAccount";
 
-/** Results smaller than this are not worth a cache break. */
-const MIN_EXPIRE_TOKENS = 200;
 const STUB_QUERY_CHARS = 80;
 
 export interface ExpiryRequest {
@@ -66,7 +64,7 @@ export function expireRecall(truth: Truth, req: ExpiryRequest): Op[] {
 			if (b.kind === "tool_call" && b.toolName === RECALL_TOOL && b.callId) calls.set(b.callId, b);
 		}
 	}
-	const live = blocks.flatMap((b, i) => (isRecallResult(b) && b.override === null && b.subst === undefined && !truth.inFoldedGroup(b.id) && b.tokens >= MIN_EXPIRE_TOKENS ? [i] : []));
+	const live = blocks.flatMap((b, i) => (isRecallResult(b) && b.override === null && b.subst === undefined && !truth.inFoldedGroup(b.id) && b.tokens >= SMALL_RESULT_TOKENS ? [i] : []));
 	let chosen = live.filter((i) => later[i] >= req.keepSteps);
 	if (!chosen.length && req.earlierPrompts) chosen = live.filter((i) => promptAfter[i]);
 	return chosen.flatMap((i) => {

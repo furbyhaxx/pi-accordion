@@ -24,6 +24,8 @@ export const RECALL_POLICY: RecallPolicy = { callTokens: 8_000, liveTokens: 24_0
 
 /** The tool whose results the account owns. */
 export const RECALL_TOOL = "recall";
+/** Results below this (refusals, released stubs, "no match") are neither counted nor released. */
+export const SMALL_RESULT_TOKENS = 200;
 const SMALL_BUDGET_SHARE = 0.02;
 
 export function isRecallResult(b: Block): boolean {
@@ -43,7 +45,11 @@ export class RecallAccount {
 	/** Tokens of recalled text the context holds or is about to receive. */
 	outstanding(truth: Truth): number {
 		let n = this.pending(truth);
-		for (const b of truth.blocks) if (isRecallResult(b) && !truth.inFoldedGroup(b.id)) n += truth.effTokens(b);
+		for (const b of truth.blocks) {
+			if (!isRecallResult(b) || truth.inFoldedGroup(b.id)) continue;
+			const tokens = truth.effTokens(b);
+			if (tokens >= SMALL_RESULT_TOKENS) n += tokens;
+		}
 		return n;
 	}
 
