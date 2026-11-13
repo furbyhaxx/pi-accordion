@@ -16,3 +16,17 @@ Session: `pi-bolt --offline` resumed on the 982-block sample, extension bundle f
 
 Terminal captures for the panel and the compact preview: `evidence/tabs/` (`*-w36|57|80|140.txt` and `.ansi`).
 Footer live: `accordion 12% · no conductor`.
+
+## Full gates after the slices
+
+| Gate | Result |
+|---|---|
+| `bun test extension/{settings,settingsStore,sidecarLock,tasks,dials}.test.ts extension/tui/ conductors/in-process/taskfold/` | 335 pass, 0 fail |
+| `npm --prefix app test -- ../core/conductor/{liveHost,remote}.test.ts` | 63 pass |
+| `npm --prefix extension run smoke` (with the built client) | OK, thermocline spawn and autoArm included |
+| `npm --prefix app run check` | 0 errors, 0 warnings |
+| `npm --prefix app test` | 1106 pass, 21 skipped |
+| `npm --prefix extension pack --dry-run` | 502 files, 36.3 MB, `dist/client/index.html` and the skills present |
+
+Core tests are vitest-only (`vi.advanceTimersByTimeAsync`); running them under `bun test` reports
+seven failures that are an environment mismatch, not regressions — they pass under `app`'s vitest.

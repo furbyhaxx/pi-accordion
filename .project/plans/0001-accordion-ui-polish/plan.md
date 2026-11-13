@@ -43,6 +43,11 @@ done  S6  Protocol v24 and web app (§9): settings/tasks/compaction messages and
 Dependencies: S1 → S3, S5. S2 → S3, S4 (compact settings), S6. S4 → S5 (Overview compact entry) and
 S6. S3 and S4 can run in parallel after S2.
 
+Live evidence for the slices is in `evidence/tabs/` (six tabs × 36/57/80/140 columns at 16 rows,
+plus the compact preview) and `evidence/web-parity-live.md`. Live verification found one real
+defect: choosing `bake` folded aggressively and reported a strategy that never ran; it now hands the
+request to pi, which owns both `bake` and `native`.
+
 ## Branching and environment
 
 - Base: `origin/feat/pi-native` (S0–S1b are merged there). Never `origin/devmain`: it lacks
