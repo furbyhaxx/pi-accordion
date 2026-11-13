@@ -4247,9 +4247,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			"When you see a `{#<code> FOLDED}` marker and need its detail for the current step, call `recall`. Your standing context is unchanged. For a large fold, search it with `query` for the specific value you need, or read one entry via `code.N` from its index, instead of paging through the whole fold. Use `unfold` only when a small block must stay open across turns.",
 		],
 		parameters: Type.Object({
-			codes: Type.Array(Type.String({ description: 'A fold code from a {#<code> FOLDED} tag, e.g. "3f9a2c", or an entry address from a recall index, e.g. "3f9a2c.12". Always a string (codes may have leading zeros).' }), {
-				description: "One or more fold codes or entry addresses to read.",
-			}),
+			codes: Type.Optional(Type.Array(Type.String({ description: 'A fold code from a {#<code> FOLDED} tag, e.g. "3f9a2c", or an entry address from a recall index, e.g. "3f9a2c.12". Always a string (codes may have leading zeros).' }), {
+				description: "Fold codes or entry addresses to read. Omit it with `query` to search all folded content.",
+			})),
 			query: Type.Optional(Type.String({ description: "Case-insensitive literal text to search for inside the recalled content; returns matching excerpts with entry addresses." })),
 			page: Type.Optional(Type.Integer({ minimum: 1, description: "1-based page of an index, entry or search result, as named in the previous result." })),
 		}),
@@ -4257,14 +4257,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const codes = Array.isArray(params.codes)
 				? params.codes.map((s) => String(s).trim().replace(/^#/, "")).filter((s) => s.length > 0)
 				: [];
-			if (!codes.length) {
-				return { content: [{ type: "text", text: 'No fold codes given. Pass the code(s) from a {#<code> FOLDED} tag, e.g. recall({codes:["3f9a2c"]}).' }] };
+			const query = typeof params.query === "string" && params.query.trim() ? params.query : undefined;
+			if (!codes.length && !query) {
+				return { content: [{ type: "text", text: 'Nothing to recall: pass codes from {#<code> FOLDED} tags, e.g. recall({codes:["3f9a2c"]}), or a query to search all folded content, e.g. recall({query:"ECONNREFUSED"}).' }] };
 			}
 			if (!truth) {
 				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
 			}
 			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.
-			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query: typeof params.query === "string" ? params.query : undefined, page: typeof params.page === "number" ? params.page : undefined });
+			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query, page: typeof params.page === "number" ? params.page : undefined });
 			if (!served.view) return { content: [{ type: "text", text: served.text }], details: { restored: [], missing: [], refused: true } };
 			const view = served.view;
 			const ids = view.items.flatMap((r) => r.ids);

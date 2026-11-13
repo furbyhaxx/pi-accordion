@@ -758,6 +758,10 @@ if (recallTool && foldCodeStr) {
 	await waitFor(() => a.inbox.recall.length > 0, 1000, "recall observation").catch(
 		() => fails.push("recall did not broadcast a `recall` observation"),
 	);
+	// Without codes, `query` searches all folded content and returns the entry's address.
+	const found = await recallTool.execute("call-recall-search", { query: "ORIGINAL ASSISTANT" }, null, () => {}, ctx);
+	const foundText = found?.content?.map((c) => c.text).join("\n") || "";
+	if (!foundText.includes(`#${foldCodeStr}.1 `)) fails.push(`recall({query}) did not address the folded block (got ${JSON.stringify(foundText.slice(0, 200))})`);
 } else if (!recallTool) {
 	fails.push("recall tool was not registered");
 }

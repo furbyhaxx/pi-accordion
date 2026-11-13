@@ -101,4 +101,46 @@ describe("recall of task codes", () => {
 		expect(entry.items[0].mode).toBe("entry");
 		expect(entry.text).toContain("phase-1-2-3.log");
 	});
+
+	it("searches all folded content without codes and returns addresses that open the entry", async () => {
+		const host = await folded(4, 6);
+		const reportOf = taskReports(host.truth);
+		const v = recallView(host.truth, { codes: [], query: "phase-3-2-4.log", reportOf });
+		expect(v.items[0].mode).toBe("query");
+		expect(v.text.length).toBeLessThanOrEqual(RECALL_BUDGET_CHARS);
+		expect(v.text).toContain("work/3.2 · ");
+		const address = /#([0-9a-z]{6}\.\d+) /.exec(v.text)![1];
+		expect(address.startsWith(foldCode("t:work/3.2"))).toBe(true);
+		const entry = recallView(host.truth, { codes: [address], reportOf });
+		expect(entry.text).toContain("phase-3-2-4.log");
+	});
+
+	it("requires every term in one entry, accepts a phrase and a regex, and marks a partial result", async () => {
+		const host = await folded(4, 6);
+		const ask = (query: string) => recallView(host.truth, { codes: [], query });
+		// Both words occur in many entries, together only in the edit call of phase 2 part 1.
+		const both = ask("phase2/part1.ts oldText");
+		expect(both.items[0].ids.length).toBe(1);
+		expect(ask('"part 2 of phase 4 works"').items[0].ids.length).toBe(1);
+		const re = ask("/phase-[34]-1-0\\.log/");
+		expect(re.items[0].ids.length).toBe(2);
+		// Newest first.
+		expect(re.text.indexOf("phase-4-1-0.log")).toBeLessThan(re.text.indexOf("phase-3-1-0.log"));
+		const partial = ask("phase-1-1-0.log no-such-term-anywhere");
+		expect(partial.text).toContain("PARTIAL");
+		expect(partial.text).toContain("phase-1-1-0.log");
+		expect(ask("no-such-term-anywhere").text).toContain("No match");
+		expect(ask("/(a+)+$/").text).toContain("nested repetition");
+		expect(ask("/[/").text).toContain("Invalid pattern");
+	});
+
+	it("pages a search with many hits within the call limit", async () => {
+		const host = await folded(6, 8);
+		const first = recallView(host.truth, { codes: [], query: "TRANSCRIPT-ONLY-PAYLOAD" });
+		expect(first.text.length).toBeLessThanOrEqual(RECALL_BUDGET_CHARS);
+		expect(first.truncated).toBe(true);
+		expect(first.text).toContain('next: recall({query:"TRANSCRIPT-ONLY-PAYLOAD", page:2})');
+		const second = recallView(host.truth, { codes: [], query: "TRANSCRIPT-ONLY-PAYLOAD", page: 2 });
+		expect(second.items[0].ids.some((id) => first.items[0].ids.includes(id))).toBe(false);
+	});
 });

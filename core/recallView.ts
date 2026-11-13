@@ -10,6 +10,7 @@ import type { Truth } from "./truth";
 import { foldCode } from "./digest";
 import { blockLabel, resolveRecall } from "./agentView";
 import { clip } from "./tokens";
+import { parseQuery } from "./recallSearch";
 
 /** Characters one recall call may return across all its codes (~8k tokens). */
 export const RECALL_BUDGET_CHARS = 32_000;
@@ -27,7 +28,7 @@ export interface RecallRequest {
 	query?: string;
 	/** 1-based page of an index, an entry or a query result. */
 	page?: number;
-	/** The report of task `<list>/<id>`; without it a task code returns its entry index. */
+	/** The report of task `<list>/<id>`; a task without one reads like any other fold. */
 	reportOf?: (taskKey: string) => TaskReport | null;
 	/** Page size of one call; fixed for a session so paging is stable. */
 	budgetChars?: number;
@@ -123,6 +124,11 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 			used += section.text.length + 2;
 		}
 	};
+	if (!req.codes.length && query) {
+		const section = querySection(archive(truth), { codes: [], label: "all folded content", itemCode: "*" }, query, page, pageSize);
+		if (section.text.length > room) return { text: "[budget reached] The search result does not fit this call.", items: [], missing: [], skipped: ["*"], truncated: true };
+		return { text: section.text, items: [section.item], missing: [], skipped: [], truncated: section.truncated };
+	}
 	place(false);
 	// Many reports in one call: shorter reports for all beat full reports for some.
 	if (skipped.length && items.some((i) => i.mode === "report")) place(true);
@@ -165,11 +171,10 @@ function render(
 		const entry = src.entries[target - 1];
 		if (!entry) return null;
 		const label = `${blockLabel(entry)} · entry ${target} of #${src.code}`;
-		if (query) return querySection(src, [[target, entry]], address, label, query, page, budget);
+		if (query) return querySection([{ address: `${src.code}.${target}`, block: entry }], { codes: [address], label, itemCode: address }, query, page, budget);
 		return entrySection(entry, address, label, page, budget);
 	}
-	const numbered = src.entries.map((b, i) => [i + 1, b] as [number, Block]);
-	if (query) return querySection(src, numbered, address, src.label, query, page, budget);
+	if (query) return querySection(src.entries.map((block, i) => ({ address: `${src.code}.${i + 1}`, block })), { codes: [address], label: src.label, itemCode: address }, query, page, budget);
 	if (target === "entries") return indexSection(truth, src, address, page, budget);
 	// A task code returns its report, never its transcript.
 	const report = src.taskKey ? reportOf?.(src.taskKey) : null;
@@ -248,30 +253,100 @@ function indexSection(truth: Truth, src: Source, address: string, page: number, 
 	return { text: `${head}\n${pages[p - 1]}${nav}`, item: { code: address, label: src.label, mode: "index" as const, ids: [] }, truncated: true };
 }
 
-function querySection(src: Source, entries: [number, Block][], address: string, label: string, query: string, page: number, budget: number) {
-	const needle = query.toLowerCase();
-	const hits: { no: number; block: Block; line: string }[] = [];
-	let matches = 0;
-	for (const [no, b] of entries) {
-		const hay = b.text.toLowerCase();
-		const at: number[] = [];
-		for (let i = hay.indexOf(needle); i >= 0; i = hay.indexOf(needle, i + needle.length)) at.push(i);
-		if (!at.length) continue;
-		matches += at.length;
-		const shown = at.slice(0, MAX_EXCERPTS_PER_ENTRY).map((i) => excerpt(b.text, i, needle.length));
-		const extra = at.length > MAX_EXCERPTS_PER_ENTRY ? ` (+${at.length - MAX_EXCERPTS_PER_ENTRY} more)` : "";
-		hits.push({ no, block: b, line: `  #${src.code}.${no}  ${blockLabel(b)}${extra}\n${shown.map((s) => `    …${s}…`).join("\n")}` });
+/** One searchable entry and the address a hit prints for it. */
+interface Candidate {
+	address: string;
+	block: Block;
+	/** `<list>/<id>` of the task the address belongs to, shown on archive hits. */
+	task?: string;
+}
+
+interface Scope {
+	/** The `codes` of the follow-up call that pages this search; empty for the whole archive. */
+	codes: string[];
+	label: string;
+	itemCode: string;
+}
+
+function querySection(candidates: Candidate[], scope: Scope, query: string, page: number, budget: number) {
+	const item = (ids: string[]): RecallItem => ({ code: scope.itemCode, label: scope.label, mode: "query", ids });
+	const where = scope.codes.length ? `#${scope.codes.join(", #")}` : "all folded content";
+	const parsed = parseQuery(query);
+	if ("error" in parsed) return { text: `[search ${where} for ${JSON.stringify(query)}] ${parsed.error}`, item: item([]), truncated: false };
+	const { terms } = parsed;
+	const found = candidates.map((c) => {
+		const lower = c.block.text.toLowerCase();
+		return { c, per: terms.map((t) => t.find(c.block.text, lower)) };
+	});
+	let hits = found.filter((f) => f.per.every((m) => m.length));
+	let partial: string | null = null;
+	if (!hits.length && terms.length > 1) {
+		// No entry has every term: fall back to the rarest term that occurs at all.
+		const counts = terms.map((_, i) => found.filter((f) => f.per[i].length).length);
+		const rarest = counts.reduce((best, n, i) => (n > 0 && (best < 0 || n < counts[best]) ? i : best), -1);
+		if (rarest >= 0) {
+			partial = terms[rarest].label;
+			hits = found.filter((f) => f.per[rarest].length).map((f) => ({ c: f.c, per: [f.per[rarest]] }));
+		}
 	}
+	const codesArg = scope.codes.length ? `codes:[${scope.codes.map((c) => `"${c}"`).join(",")}], ` : "";
 	if (!hits.length) {
-		return { text: `[search #${address} for "${query}"] No match in ${entries.length} entries. Try a shorter literal term, or recall({codes:["${address}"]}) for the index.`, item: { code: address, label, mode: "query" as const, ids: [] }, truncated: false };
+		return { text: `[search ${where} for ${JSON.stringify(query)}] No match in ${candidates.length} entries. Try fewer or shorter terms.`, item: item([]), truncated: false };
 	}
-	const head = `[search ${label} (#${address}) for "${query}" · ${matches} matches in ${hits.length} entries]\nRead a whole entry: recall({codes:["${src.code}.N"]})`;
-	const size = budget - head.length - 200 - query.length;
-	const pages = splitLines(hits.map((h) => (h.line.length > size ? h.line.slice(0, size) : h.line)), size);
+	const matches = hits.reduce((n, h) => n + h.per.reduce((k, m) => k + m.length, 0), 0);
+	const lines = hits.map((h) => {
+		const single = h.per.length === 1;
+		const shown = single ? h.per[0].slice(0, MAX_EXCERPTS_PER_ENTRY) : h.per.map((m) => m[0]);
+		const extra = single && h.per[0].length > MAX_EXCERPTS_PER_ENTRY ? ` (+${h.per[0].length - MAX_EXCERPTS_PER_ENTRY} more)` : "";
+		const excerpts = mergeExcerpts(h.c.block.text, shown);
+		return `  #${h.c.address}  ${h.c.task ? `${h.c.task} · ` : ""}${blockLabel(h.c.block)}${extra}\n${excerpts.map((s) => `    …${s}…`).join("\n")}`;
+	});
+	const head = [
+		`[search ${where} for ${JSON.stringify(query)} · ${matches} matches in ${hits.length} entries${partial ? ` · PARTIAL: no entry has every term, showing ${JSON.stringify(partial)} only` : ""}]`,
+		`Read a whole entry: recall({codes:["<address>"]}), e.g. "${hits[0].c.address}"`,
+	].join("\n");
+	const size = budget - head.length - 200 - query.length - codesArg.length;
+	const pages = splitLines(lines.map((l) => (l.length > size ? l.slice(0, size) : l)), size);
 	const p = Math.min(page, pages.length);
-	const shownIds = hits.filter((h) => pages[p - 1].includes(`#${src.code}.${h.no} `)).map((h) => h.block.id);
-	const nav = pages.length > 1 ? `\n[result page ${p}/${pages.length}${p < pages.length ? `; next: recall({codes:["${address}"], query:${JSON.stringify(query)}, page:${p + 1}})` : ""}]` : "";
-	return { text: `${head}\n${pages[p - 1]}${nav}`, item: { code: address, label, mode: "query" as const, ids: shownIds }, truncated: pages.length > 1 };
+	const shownIds = hits.filter((h) => pages[p - 1].includes(`#${h.c.address} `)).map((h) => h.c.block.id);
+	const nav = pages.length > 1 ? `\n[result page ${p}/${pages.length}${p < pages.length ? `; next: recall({${codesArg}query:${JSON.stringify(query)}, page:${p + 1}})` : ""}]` : "";
+	return { text: `${head}\n${pages[p - 1]}${nav}`, item: item(shownIds), truncated: pages.length > 1 };
+}
+
+/** Excerpts around the matches, one per stretch of text: overlapping windows are joined. */
+function mergeExcerpts(text: string, matches: { at: number; len: number }[]): string[] {
+	const spans = matches.map((m) => [Math.max(0, m.at - EXCERPT_RADIUS), Math.min(text.length, m.at + Math.min(m.len, EXCERPT_RADIUS) + EXCERPT_RADIUS)] as [number, number]).sort((a, b) => a[0] - b[0]);
+	const merged: [number, number][] = [];
+	for (const s of spans) {
+		const last = merged[merged.length - 1];
+		if (last && s[0] <= last[1]) last[1] = Math.max(last[1], s[1]);
+		else merged.push([s[0], s[1]]);
+	}
+	return merged.map(([from, to]) => text.slice(from, to).replace(/\s+/g, " ").trim());
+}
+
+/**
+ * Every agent-reachable folded entry once, newest first, addressed through the smallest fold that
+ * holds it, so a hit names its task and the address opens the entry directly.
+ */
+function archive(truth: Truth): Candidate[] {
+	const codes = new Set<string>();
+	for (const g of truth.groups) {
+		if (!g.folded) continue;
+		codes.add(foldCode(g.id));
+		for (const h of g.handles ?? []) codes.add(foldCode(h.id));
+	}
+	for (const b of truth.blocks) if (truth.isFolded(b) && !truth.groupOf(b)) codes.add(foldCode(b.id));
+	const best = new Map<string, { c: Candidate; size: number }>();
+	for (const code of codes) {
+		const src = sourceOf(truth, code);
+		if (!src) continue;
+		src.entries.forEach((block, i) => {
+			const prev = best.get(block.id);
+			if (!prev || src.entries.length < prev.size) best.set(block.id, { c: { address: `${code}.${i + 1}`, block, ...(src.taskKey ? { task: src.taskKey } : {}) }, size: src.entries.length });
+		});
+	}
+	return [...best.values()].map((v) => v.c).sort((a, b) => b.block.order - a.block.order);
 }
 
 /** Recallable handles strictly inside `memberIds`, keeping only the outermost ones. */
@@ -326,13 +401,6 @@ function splitLines(lines: string[], size: number): string[] {
 function preview(text: string): string {
 	const flat = text.replace(/\s+/g, " ").trim();
 	return JSON.stringify(flat.length > PREVIEW_CHARS ? `${flat.slice(0, PREVIEW_CHARS)}…` : flat);
-}
-
-function excerpt(text: string, at: number, len: number): string {
-	return text
-		.slice(Math.max(0, at - EXCERPT_RADIUS), at + len + EXCERPT_RADIUS)
-		.replace(/\s+/g, " ")
-		.trim();
 }
 
 function fmt(n: number): string {

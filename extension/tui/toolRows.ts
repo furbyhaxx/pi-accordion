@@ -176,7 +176,8 @@ export function tasksRow(theme: WidgetTheme, args: Args, state: "pending" | "ok"
 
 /** The row for an `unfold` / `recall` call: the codes and what came back. */
 export function foldToolRow(theme: WidgetTheme, tool: "unfold" | "recall", args: Args, state: "pending" | "ok" | "error", details: { restored?: unknown[]; missing?: unknown[] } | undefined, resultText: string, expanded: boolean): string[] {
-	const codes = Array.isArray(args.codes) ? args.codes.map((c) => `#${String(c).trim()}`).join(" ") : "";
+	const query = typeof args.query === "string" && args.query.trim() ? JSON.stringify(firstLine(args.query).slice(0, 60)) : "";
+	const codes = [...(Array.isArray(args.codes) ? args.codes.map((c) => `#${String(c).trim()}`) : []), query].filter(Boolean).join(" ");
 	const restored = details?.restored?.length ?? 0;
 	const missing = details?.missing?.length ?? 0;
 	const failed = state === "error" || (state === "ok" && details !== undefined && restored === 0);
