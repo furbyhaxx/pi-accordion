@@ -32,8 +32,8 @@ done  S3  Expiry of recall results
 done  S4  Oversized tool-result guard
 done  S5  Bounded unfold
 done  S6  recall({ask}) through a side model
-next  S7  Fact ledger (spike passed 18/20, evidence/s7-ledger-spike.md)
-later S8  Replay, randomized admission test, gates, live run
+done  S7  Fact ledger (spike passed 18/20, evidence/s7-ledger-spike.md; off by default)
+next  S8  Replay, randomized admission test, gates, live run
 ```
 
 ## Why
@@ -174,7 +174,7 @@ recall({ codes?: string[], query?: string, ask?: string, page?: number })
 
 ```jsonc
 "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-            "ask": { "enabled": true, "inputTokens": 24000 } },
+            "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": false } },
 "guard":  { "resultTokens": 16000 }
 ```
 

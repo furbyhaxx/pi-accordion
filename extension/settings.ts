@@ -71,6 +71,8 @@ export interface RecallSettings {
 	unfoldTokens: number;
 	/** `recall({ask})`: a side model answers over a bounded selection of folded content. */
 	ask: { enabled: boolean; inputTokens: number };
+	/** Fact ledger: one extra model call per folded task notes values `recall` can look up. */
+	ledger: { enabled: boolean };
 }
 
 export interface GuardSettings {
@@ -116,7 +118,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
-	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens, keepSteps: 3, unfoldTokens: 20000, ask: { enabled: true, inputTokens: 24000 } },
+	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens, keepSteps: 3, unfoldTokens: 20000, ask: { enabled: true, inputTokens: 24000 }, ledger: { enabled: false } },
 	guard: { resultTokens: 16000 },
 	modelDefaults: {},
 };
@@ -267,7 +269,8 @@ export function sanitizeRecallSettings(value: unknown): RecallSettings {
 	const callTokens = range(raw.callTokens, defaults.callTokens, 2000, 50000);
 	const ask = raw.ask && typeof raw.ask === "object" && !Array.isArray(raw.ask) ? raw.ask as Record<string, unknown> : {};
 	// The standing limit must admit at least one full call.
-	return { ask: { enabled: typeof ask.enabled === "boolean" ? ask.enabled : defaults.ask.enabled, inputTokens: range(ask.inputTokens, defaults.ask.inputTokens, 2000, 200000) }, callTokens, liveTokens: Math.max(callTokens, range(raw.liveTokens, defaults.liveTokens, 2000, 200000)), keepSteps: range(raw.keepSteps, defaults.keepSteps, 0, 100), unfoldTokens: range(raw.unfoldTokens, defaults.unfoldTokens, 1000, 1000000) };
+	const ledger = raw.ledger && typeof raw.ledger === "object" && !Array.isArray(raw.ledger) ? raw.ledger as Record<string, unknown> : {};
+	return { ledger: { enabled: typeof ledger.enabled === "boolean" ? ledger.enabled : defaults.ledger.enabled }, ask: { enabled: typeof ask.enabled === "boolean" ? ask.enabled : defaults.ask.enabled, inputTokens: range(ask.inputTokens, defaults.ask.inputTokens, 2000, 200000) }, callTokens, liveTokens: Math.max(callTokens, range(raw.liveTokens, defaults.liveTokens, 2000, 200000)), keepSteps: range(raw.keepSteps, defaults.keepSteps, 0, 100), unfoldTokens: range(raw.unfoldTokens, defaults.unfoldTokens, 1000, 1000000) };
 }
 
 export function sanitizeGuardSettings(value: unknown): GuardSettings {

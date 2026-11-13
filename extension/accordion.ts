@@ -82,6 +82,8 @@ import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfoldBounded } from "../core/agentView";
 import { RECALL_POLICY, RecallAccount, recallRefusal, serveRecall } from "../core/recallAccount";
+import { FactLedger, LEDGER_ENTRY, LEDGER_MIN_TOKENS, LEDGER_OUTPUT_TOKENS, LEDGER_SYSTEM, ledgerChunks, ledgerData, ledgerOf, verifiedRows, type FactRow } from "../core/factLedger";
+import { foldedTasks } from "../core/recallView";
 import { ASK_ANSWER_TOKENS, ASK_SYSTEM, askAnswer, askFallback, askMaterial, askPrompt } from "../core/recallAsk";
 import { expireRecall } from "../core/recallExpiry";
 import { guardResults } from "../core/resultGuard";
@@ -451,6 +453,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	let settings: AccordionSettings = loadSettings(HOME);
+	const factLedger = new FactLedger();
+	// Tasks whose extraction failed in this process; not retried until the next start.
+	const ledgerTried = new Set<string>();
+	let ledgerBusy = false;
+	// The Truth revision at which every folded task had its ledger; nothing to scan until it changes.
+	let ledgerIdleRev = -1;
+	let ledgerWarned = false;
 	// A session's first Truth holds its history as already sent; the guard repairs that once.
 	let guardLoadedSession = false;
 	const recallAccount = new RecallAccount(() => ({ ...RECALL_POLICY, callTokens: settings.recall.callTokens, liveTokens: settings.recall.liveTokens }));
@@ -3097,6 +3106,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		try {
 			const entries = typeof ctx.sessionManager?.getBranch === "function" ? ctx.sessionManager.getBranch() : [];
 			adoption = adoptionOf(entries);
+			factLedger.reset(ledgerOf(entries));
+			ledgerTried.clear();
+			ledgerWarned = false;
+			ledgerIdleRev = -1;
 			taskfoldVerdicts.reset(verdictsOf(entries), (id, v) => {
 				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
 			}, unfoldStatesOf(entries), (key, state) => {
@@ -3360,6 +3373,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// (e) Measure the whole hook (guarded body included, hold window and all) and stream it as
 		// telemetry — lastHoldMs/holdTimeouts (from the live host) ride alongside the hook duration.
 		recordHook(Date.now() - t0);
+		// Off the hook's own time: the scan for tasks without a ledger and the model calls after it.
+		if (settings.recall.ledger.enabled) setTimeout(() => void noteFacts(), 0);
 		broadcastTelemetry();
 		return ret;
 	});
@@ -4260,8 +4275,55 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "unfold", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});
 
+	/**
+	 * Note the facts of folded tasks that have no ledger yet (SPEC-0003 §8), newest first, one task at
+	 * a time and off the request path. A task is stored once all its parts answered; a failure leaves
+	 * it without rows until the next start.
+	 */
+	async function noteFacts(): Promise<void> {
+		if (ledgerBusy || !settings.recall.ledger.enabled || !truth || !foldingEnabled || truth.rev === ledgerIdleRev) return;
+		ledgerBusy = true;
+		const session = sessionId;
+		try {
+			for (;;) {
+				const t = truth;
+				if (!t || session !== sessionId || !settings.recall.ledger.enabled) return;
+				const reportOf = taskReports(t);
+				const next = foldedTasks(t).find((f) => !factLedger.has(f.task) && !ledgerTried.has(f.task) && reportOf(f.task)?.status);
+				if (!next) {
+					ledgerIdleRev = t.rev;
+					return;
+				}
+				ledgerTried.add(next.task);
+				if (next.entries.reduce((n, b) => n + b.tokens, 0) < LEDGER_MIN_TOKENS) {
+					factLedger.set(next.task, []);
+					continue;
+				}
+				const blocked = await askModelAllowed(false);
+				if (blocked) throw new Error(blocked);
+				const rows: FactRow[] = [];
+				for (const chunk of ledgerChunks(next.entries).chunks) {
+					const res = await runCompletion({ system: LEDGER_SYSTEM, prompt: chunk.prompt, maxOutputTokens: LEDGER_OUTPUT_TOKENS }, new AbortController().signal, "recall");
+					const found = verifiedRows(res.text, chunk, (id) => t.get(id)?.text ?? "");
+					if (!found) throw new Error("the model returned no row list");
+					rows.push(...found);
+				}
+				if (session !== sessionId) return;
+				factLedger.set(next.task, rows);
+				pi.appendEntry(LEDGER_ENTRY, ledgerData(next.task, rows));
+			}
+		} catch (err) {
+			if (!ledgerWarned && session === sessionId) {
+				ledgerWarned = true;
+				latestCtx?.ui.notify(`Accordion could not note the facts of a folded task (recall.ledger): ${err instanceof Error ? err.message : String(err)}`, "warning");
+			}
+		} finally {
+			ledgerBusy = false;
+		}
+	}
+
 	/** May the recall side model receive session content? The session's own model and local models may. */
-	async function askModelAllowed(): Promise<string | null> {
+	async function askModelAllowed(interactive = true): Promise<string | null> {
 		const ctx = latestCtx;
 		let m: any;
 		try {
@@ -4273,7 +4335,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const own = latestModelObj ?? (ctx.model as any);
 		if ((own && m.provider === own.provider && m.id === own.id) || isLoopbackUrl(m.baseUrl) || settings.privacyConsent.recall) return null;
 		const refused = `the recall model ${m.provider}/${m.id} is a remote model other than this session's and has no consent`;
-		if (!ctx.hasUI) return refused;
+		if (!interactive || !ctx.hasUI) return refused;
 		const session = sessionId;
 		const accepted = await ctx.ui.confirm("Recall: privacy notice", `recall({ask}) sends task reports and excerpts of this session's folded context to ${m.provider}/${m.id}.\n\nAccept once and allow it?`).catch(() => false);
 		if (!accepted || session !== sessionId) return refused;
@@ -4289,7 +4351,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			grant = recallAccount.grant(t);
 		}
 		if (grant < recallAccount.minGrant(t)) return { content: [{ type: "text" as const, text: recallRefusal(recallAccount.outstanding(t), recallAccount.policy) }], details: { restored: [], missing: [], refused: true } };
-		const material = askMaterial(t, { question, codes, query, reportOf: taskReports(t), inputTokens: settings.recall.ask.inputTokens });
+		const material = askMaterial(t, { question, codes, query, reportOf: taskReports(t), facts: factLedger.all(), inputTokens: settings.recall.ask.inputTokens });
 		let text: string;
 		let answered = false;
 		const blocked = !settings.recall.ask.enabled ? "recall.ask is turned off in ~/.accordion/config.json" : !material.text ? "nothing folded matches" : await askModelAllowed();
@@ -4352,7 +4414,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 			if (ask) return answerRecall(truth, toolCallId, ask, codes, query, signal);
 			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.
-			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query, page: typeof params.page === "number" ? params.page : undefined }, () => releaseRecall(true));
+			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), facts: factLedger.all(), query, page: typeof params.page === "number" ? params.page : undefined }, () => releaseRecall(true));
 			if (!served.view) return { content: [{ type: "text", text: served.text }], details: { restored: [], missing: [], refused: true } };
 			const view = served.view;
 			const ids = view.items.flatMap((r) => r.ids);

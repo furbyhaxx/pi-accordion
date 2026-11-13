@@ -10,7 +10,8 @@ import type { Truth } from "./truth";
 import { foldCode } from "./digest";
 import { blockLabel, resolveRecall } from "./agentView";
 import { clip } from "./tokens";
-import { parseQuery } from "./recallSearch";
+import { parseQuery, type Term } from "./recallSearch";
+import { matchFacts, type FactRow } from "./factLedger";
 
 /** Characters one recall call may return across all its codes (~8k tokens). */
 export const RECALL_BUDGET_CHARS = 32_000;
@@ -21,6 +22,9 @@ const PREVIEW_CHARS = 100;
 const EXCERPT_RADIUS = 160;
 const MAX_EXCERPTS_PER_ENTRY = 5;
 const MAX_QUERY_CHARS = 200;
+const MAX_FACTS = 12;
+const FACT_KEY_CHARS = 80;
+const FACT_VALUE_CHARS = 200;
 
 export interface RecallRequest {
 	codes: string[];
@@ -34,6 +38,8 @@ export interface RecallRequest {
 	budgetChars?: number;
 	/** What this call may return, at most `budgetChars`. */
 	grantChars?: number;
+	/** The session's fact ledger; a search shows the rows it matches before transcript hits. */
+	facts?: readonly FactRow[];
 }
 
 /** A finished or open task as its own report; what a task code returns instead of transcript. */
@@ -109,7 +115,7 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 				continue;
 			}
 			const suffix = m[2]?.toLowerCase();
-			const section = render(truth, source, address, suffix === "entries" ? "entries" : suffix ? Number(suffix) : undefined, query, page, pageSize, req.reportOf, compact);
+			const section = render(truth, source, address, suffix === "entries" ? "entries" : suffix ? Number(suffix) : undefined, query, page, pageSize, req.reportOf, compact, req.facts);
 			if (!section) {
 				missing.push(address);
 				continue;
@@ -125,7 +131,7 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 		}
 	};
 	if (!req.codes.length && query) {
-		const section = querySection(archive(truth), { codes: [], label: "all folded content", itemCode: "*" }, query, page, pageSize);
+		const section = querySection(archive(truth), { codes: [], label: "all folded content", itemCode: "*" }, query, page, pageSize, req.facts);
 		if (section.text.length > room) return { text: "[budget reached] The search result does not fit this call.", items: [], missing: [], skipped: ["*"], truncated: true };
 		return { text: section.text, items: [section.item], missing: [], skipped: [], truncated: section.truncated };
 	}
@@ -166,15 +172,16 @@ function render(
 	budget: number,
 	reportOf: RecallRequest["reportOf"],
 	compact: boolean,
+	facts?: readonly FactRow[],
 ): { text: string; item: RecallItem; truncated: boolean } | null {
 	if (typeof target === "number") {
 		const entry = src.entries[target - 1];
 		if (!entry) return null;
 		const label = `${blockLabel(entry)} · entry ${target} of #${src.code}`;
-		if (query) return querySection([{ address: `${src.code}.${target}`, block: entry }], { codes: [address], label, itemCode: address }, query, page, budget);
+		if (query) return querySection([{ address: `${src.code}.${target}`, block: entry }], { codes: [address], label, itemCode: address }, query, page, budget, facts);
 		return entrySection(entry, address, label, page, budget);
 	}
-	if (query) return querySection(src.entries.map((block, i) => ({ address: `${src.code}.${i + 1}`, block })), { codes: [address], label: src.label, itemCode: address }, query, page, budget);
+	if (query) return querySection(src.entries.map((block, i) => ({ address: `${src.code}.${i + 1}`, block })), { codes: [address], label: src.label, itemCode: address }, query, page, budget, facts);
 	if (target === "entries") return indexSection(truth, src, address, page, budget);
 	// A task code returns its report, never its transcript.
 	const report = src.taskKey ? reportOf?.(src.taskKey) : null;
@@ -268,7 +275,19 @@ interface Scope {
 	itemCode: string;
 }
 
-function querySection(candidates: Candidate[], scope: Scope, query: string, page: number, budget: number) {
+/** Ledger rows of the searched entries that the query matches, as lines; shown on the first page only. */
+function factLines(candidates: Candidate[], terms: Term[], facts: readonly FactRow[] | undefined): { text: string; ids: string[] } {
+	if (!facts?.length) return { text: "", ids: [] };
+	const addressOf = new Map(candidates.map((c) => [c.block.id, c.address]));
+	const rows = matchFacts(facts.filter((r) => addressOf.has(r.blockId)), terms);
+	if (!rows.length) return { text: "", ids: [] };
+	const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s).replace(/\s+/g, " ");
+	const lines = rows.slice(0, MAX_FACTS).map((r) => `  ${cut(r.key, FACT_KEY_CHARS)}: ${cut(r.value, FACT_VALUE_CHARS)}${r.unit ? ` (${r.unit})` : ""}  #${addressOf.get(r.blockId)}`);
+	const more = rows.length > MAX_FACTS ? `\n  (+${rows.length - MAX_FACTS} more; narrow the query)` : "";
+	return { text: `Facts noted when the task was folded (values copied from the entry named):\n${lines.join("\n")}${more}`, ids: [...new Set(rows.slice(0, MAX_FACTS).map((r) => r.blockId))] };
+}
+
+function querySection(candidates: Candidate[], scope: Scope, query: string, page: number, budget: number, ledger?: readonly FactRow[]) {
 	const item = (ids: string[]): RecallItem => ({ code: scope.itemCode, label: scope.label, mode: "query", ids });
 	const where = scope.codes.length ? `#${scope.codes.join(", #")}` : "all folded content";
 	const parsed = parseQuery(query);
@@ -290,7 +309,10 @@ function querySection(candidates: Candidate[], scope: Scope, query: string, page
 		}
 	}
 	const codesArg = scope.codes.length ? `codes:[${scope.codes.map((c) => `"${c}"`).join(",")}], ` : "";
+	const facts = factLines(candidates, terms, ledger);
 	if (!hits.length) {
+		// The ledger names things in other words than the transcript does, so it can match alone.
+		if (facts.text) return { text: `[search ${where} for ${JSON.stringify(query)} · no entry has the text itself]\n${facts.text}\nRead an entry: recall({codes:["<address>"]})`, item: item(facts.ids), truncated: false };
 		return { text: `[search ${where} for ${JSON.stringify(query)}] No match in ${candidates.length} entries. Try fewer or shorter terms.`, item: item([]), truncated: false };
 	}
 	const matches = hits.reduce((n, h) => n + h.per.reduce((k, m) => k + m.length, 0), 0);
@@ -305,12 +327,13 @@ function querySection(candidates: Candidate[], scope: Scope, query: string, page
 		`[search ${where} for ${JSON.stringify(query)} · ${matches} matches in ${hits.length} entries${partial ? ` · PARTIAL: no entry has every term, showing ${JSON.stringify(partial)} only` : ""}]`,
 		`Read a whole entry: recall({codes:["<address>"]}), e.g. "${hits[0].c.address}"`,
 	].join("\n");
-	const size = budget - head.length - 200 - query.length - codesArg.length;
+	const size = budget - head.length - 200 - query.length - codesArg.length - facts.text.length;
 	const pages = splitLines(lines.map((l) => (l.length > size ? l.slice(0, size) : l)), size);
 	const p = Math.min(page, pages.length);
 	const shownIds = hits.filter((h) => pages[p - 1].includes(`#${h.c.address} `)).map((h) => h.c.block.id);
 	const nav = pages.length > 1 ? `\n[result page ${p}/${pages.length}${p < pages.length ? `; next: recall({${codesArg}query:${JSON.stringify(query)}, page:${p + 1}})` : ""}]` : "";
-	return { text: `${head}\n${pages[p - 1]}${nav}`, item: item(shownIds), truncated: pages.length > 1 };
+	const lead = p === 1 && facts.text ? `${facts.text}\n` : "";
+	return { text: `${head}\n${lead}${pages[p - 1]}${nav}`, item: item(p === 1 ? [...new Set([...facts.ids, ...shownIds])] : shownIds), truncated: pages.length > 1 };
 }
 
 /** Excerpts around the matches, one per stretch of text: overlapping windows are joined. */
@@ -347,6 +370,14 @@ function archive(truth: Truth): Candidate[] {
 		});
 	}
 	return [...best.values()].map((v) => v.c).sort((a, b) => b.block.order - a.block.order);
+}
+
+/** Every recallable folded task with its entries, newest first. */
+export function foldedTasks(truth: Truth): { code: string; task: string; entries: Block[] }[] {
+	return foldedTaskCodes(truth).flatMap((code) => {
+		const src = sourceOf(truth, code);
+		return src?.taskKey ? [{ code, task: src.taskKey, entries: src.entries }] : [];
+	});
 }
 
 /** The codes of every recallable folded task, newest first. */

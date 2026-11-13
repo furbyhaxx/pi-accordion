@@ -21,6 +21,7 @@ export interface AskRequest {
 	/** Search text chosen by the caller; derived from the question when absent. */
 	query?: string;
 	reportOf?: RecallRequest["reportOf"];
+	facts?: RecallRequest["facts"];
 	inputTokens: number;
 }
 
@@ -56,7 +57,7 @@ export function askMaterial(truth: Truth, req: AskRequest): AskMaterial {
 	const reportCodes = req.codes.length ? req.codes.filter((c) => !c.includes(".")) : foldedTaskCodes(truth);
 	const reports = reportCodes.length ? recallView(truth, { codes: reportCodes, reportOf: req.reportOf, budgetChars: reportChars }) : null;
 	const query = req.query?.trim() || questionQuery(req.question);
-	const found = query ? recallView(truth, { codes: req.codes, query, budgetChars: total - reportChars }) : null;
+	const found = query ? recallView(truth, { codes: req.codes, query, facts: req.facts, budgetChars: total - reportChars }) : null;
 	// A search without a match still renders a section; it is not material.
 	const hits = found?.items.some((i) => i.ids.length) ? found.text : "";
 	const parts = [reports?.items.length ? reports.text : "", hits].filter((t) => t.length > 0);

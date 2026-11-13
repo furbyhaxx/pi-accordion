@@ -209,7 +209,7 @@ one line:
 
 ```json
 { "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-              "ask": { "enabled": true, "inputTokens": 24000 } },
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": false } },
   "guard": { "resultTokens": 16000 } }
 ```
 
@@ -226,6 +226,13 @@ matching task reports and excerpts (at most `recall.ask.inputTokens`) and return
 with entry addresses as citations. It runs on the session's model unless you set
 `models.conductors.recall.chat`; a different remote model asks for consent once. Without a usable
 model the agent gets the matching excerpts instead.
+
+With `recall.ledger.enabled`, each folded task is read once by a model that notes its values
+(counts, hashes, paths, ports, errors); a note is kept only when its value stands word for word in
+the transcript. A recall search then shows matching notes first, so the agent finds "subvolume id"
+even when the transcript only says `subvolid=324`. This costs one extra model call per folded task
+with that task's transcript as input, on the session's model unless `models.conductors.recall.chat`
+names a cheaper one. It is off by default.
 
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
 context) never appear on the `context` hook path. If you need their cost/usage for external

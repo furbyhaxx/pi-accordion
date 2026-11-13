@@ -25,6 +25,8 @@ The `3f9a2c` is a **fold code**; the text after `FOLDED}` is a digest. The origi
 
 A fold that is not a task (a single block, a run of steps) comes back whole when it is small and as its entry list otherwise.
 
+A search result may start with "Facts noted when the task was folded": short `key: value  #address` lines written down when the task ended. Their values are copied from the entry named, so you can use them directly; read the entry when you need the surroundings.
+
 ## Questions
 
 For a question that needs reading and combining ("why did we drop the retry wrapper?", "what happened with the migration?"), pass `ask`:

@@ -3,14 +3,17 @@ document:
   type: "specification"
   id: "SPEC-0003"
   title: "Recall: bounded retrieval of folded content"
-  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results the bound on the agent's unfold and questions answered by a side model."
+  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results the bound on the agent's unfold questions answered by a side model and the fact ledger written when a task is folded."
   status: "published"
-  revision: 5
+  revision: 6
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T13:01:59+01:00"
+  updated_at: "2026-11-13T13:15:15+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 6
+      reason: "the ledger spike passed its gate (18 of 20 questions answered from rows)"
+      changes: ["§8: fact ledger", "§9: recall.ledger"]
     - revision: 5
       reason: "questions that need reading and combining made the agent recall many entries"
       changes: ["§7: recall({ask})", "§8: recall.ask"]
@@ -196,18 +199,43 @@ in the panel and the web UI are not limited.
 - The account applies as to any call: refused below the minimum grant, the result is reserved, and
   it expires like other recall results (the stub names the question).
 
-## 8. Settings (`~/.accordion/config.json`)
+## 8. Fact ledger
+
+Off by default (`recall.ledger.enabled`). `core/factLedger.ts` plans and checks; `noteFacts` in
+`extension/accordion.ts` runs it after a `context` hook, off the request path, one task at a time.
+
+- Subject: every folded, recallable, finished task without a ledger, newest first. A task under
+  2,000 tokens gets an empty ledger without a model call.
+- Input: the task's entries, numbered, in prompts of at most 24,000 tokens; an entry over 6,000
+  characters is shown by its first and last 3,000. More than four prompts: the first and the last
+  three are read.
+- One completion per prompt, routing id `recall` as in §7, same privacy rule but never a dialog: a
+  model that needs consent and has none is not called.
+- Output rows `{key, value, unit, entry}`. A row is kept only when the cited entry exists and its
+  full text contains the value character for character, the key is at most 120 and the value at
+  most 300 characters. At most 60 rows per prompt, 120 per task.
+- Stored as one session entry `accordion.recall.ledger` `{task, rows: [[key, value, unit, blockId]]}`
+  once every prompt of the task answered; a later entry for a task replaces an earlier one. A
+  resumed session restores the ledger from its entries and does not extract again.
+- A failed task (no model, no consent, no row list) stays without rows until the next start; the
+  user is notified once per session.
+- Rows never enter the standing context. A search (§2, and the material of §7) shows up to twelve
+  rows whose key, value and unit together match every term and whose block is among the searched
+  entries, before the transcript hits and on the first page only, each with the entry's address.
+  When only rows match, they are the result.
+
+## 9. Settings (`~/.accordion/config.json`)
 
 ```json
 { "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-              "ask": { "enabled": true, "inputTokens": 24000 } },
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": false } },
   "guard": { "resultTokens": 16000 } }
 ```
 
 `callTokens` 2,000–50,000; `liveTokens` 2,000–200,000 and never below `callTokens`; `keepSteps`
 0–100; `unfoldTokens` 1,000–1,000,000; `ask.inputTokens` 2,000–200,000; `resultTokens` 4,000–1,000,000, or 0 to turn the guard off. Read on every call and request.
 
-## 9. Tests
+## 10. Tests
 
 | What | Where |
 |---|---|
@@ -218,5 +246,7 @@ in the panel and the web UI are not limited.
 | unfold of a 40k fold refused with no revision; small fold unfolded in the same call; refusal when the room below the ceiling is too small | `core/unfoldBounded.test.ts` |
 | ask material bounded and without transcript; caller query; question terms; invented citations removed; uncited answer marked; fallback within the grant | `core/recallAsk.test.ts` |
 | ask through the registered tool: fallback without a model, answered with a mocked completion | `extension/smoke.mjs` |
+| ledger rows kept only when verbatim in the cited entry; bounded prompts; rows shown before hits and alone; session-entry round trip | `core/factLedger.test.ts` |
+| ledger through the running extension: folded task extracted once, invented value dropped, recall finds it by the ledger's words, resume restores without a call | `extension/smoke-context.mjs` |
 | eleven task codes → eleven reports without transcript; subtasks as codes; `.entries`; archive search, terms, phrase, regex, partial, paging | `conductors/in-process/taskfold/taskReports.test.ts` |
 | the registered tool end to end, including codeless search | `extension/smoke.mjs` |
