@@ -209,7 +209,7 @@ one line:
 
 ```json
 { "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": false } },
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true } },
   "guard": { "resultTokens": 16000 } }
 ```
 
@@ -227,12 +227,13 @@ with entry addresses as citations. It runs on the session's model unless you set
 `models.conductors.recall.chat`; a different remote model asks for consent once. Without a usable
 model the agent gets the matching excerpts instead.
 
-With `recall.ledger.enabled`, each folded task is read once by a model that notes its values
-(counts, hashes, paths, ports, errors); a note is kept only when its value stands word for word in
-the transcript. A recall search then shows matching notes first, so the agent finds "subvolume id"
-even when the transcript only says `subvolid=324`. This costs one extra model call per folded task
-with that task's transcript as input, on the session's model unless `models.conductors.recall.chat`
-names a cheaper one. It is off by default.
+By default, the fact ledger reads finished folded tasks of at least 2,000 tokens and notes values
+(counts, hashes, paths, ports, errors). A note is kept only when its value occurs verbatim in the
+cited entry. Recall searches show matching notes first, so the agent can find "subvolume id" even
+when the transcript says `subvolid=324`. Extraction uses up to four additional model calls per task,
+which can incur cost; it uses `models.conductors.recall.chat`, the default chat model, or the session
+model. A different remote model requires prior recall privacy consent and is not prompted for in
+the background. Set `recall.ledger.enabled` to `false` to disable extraction.
 
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
 context) never appear on the `context` hook path. If you need their cost/usage for external

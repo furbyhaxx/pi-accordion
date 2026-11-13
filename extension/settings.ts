@@ -118,7 +118,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
-	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens, keepSteps: 3, unfoldTokens: 20000, ask: { enabled: true, inputTokens: 24000 }, ledger: { enabled: false } },
+	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens, keepSteps: 3, unfoldTokens: 20000, ask: { enabled: true, inputTokens: 24000 }, ledger: { enabled: true } },
 	guard: { resultTokens: 16000 },
 	modelDefaults: {},
 };

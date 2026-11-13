@@ -5,36 +5,15 @@ document:
   title: "Recall: bounded retrieval of folded content"
   description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results, the guard that clips oversized tool results, the bound on the agent's unfold, questions answered by a side model and the fact ledger written when a task is folded."
   status: "published"
-  revision: 8
+  revision: 9
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T13:34:37+01:00"
+  updated_at: "2026-11-13T13:42:30+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 8
-      reason: "the live run showed values in the middle of long output missing from the ledger, rows not found by task name, and recall finding its own results"
-      changes: ["§8: entries whole, task-tool entries left out, task title matches and is stored", "§2: archive search skips recall's own traffic"]
-    - revision: 7
-      reason: "the randomized test found refusal lines and stubs accumulating in the account"
-      changes: ["§3: results under 200 tokens are not counted", "§10: randomized invariant test"]
-    - revision: 6
-      reason: "the ledger spike passed its gate (18 of 20 questions answered from rows)"
-      changes: ["§8: fact ledger", "§9: recall.ledger"]
-    - revision: 5
-      reason: "questions that need reading and combining made the agent recall many entries"
-      changes: ["§7: recall({ask})", "§8: recall.ask"]
-    - revision: 4
-      reason: "the agent's unfold could put a fold of any size back into the standing context"
-      changes: ["§6: bounded unfold", "§7: recall.unfoldTokens"]
-    - revision: 3
-      reason: "one tool result larger than the budget could not be folded and ended a session as saturated"
-      changes: ["§5: oversized tool-result guard", "§6: guard.resultTokens"]
-    - revision: 2
-      reason: "a refusal was final until recall results left the context by other means"
-      changes: ["§3: a call that cannot be served releases used results first", "§4: expiry of recall results", "§5: recall.keepSteps"]
-    - revision: 1
-      reason: "recall returned task transcripts and was bounded per call only, so several calls filled the context"
-      changes: ["initial: tool contract, session account, report-first task codes, archive search, settings"]
+    - revision: 9
+      reason: "enable fact extraction by default while preserving an explicit opt-out"
+      changes: ["§8 and §9: default-on ledger"]
 ---
 
 # Recall
@@ -211,7 +190,7 @@ in the panel and the web UI are not limited.
 
 ## 8. Fact ledger
 
-Off by default (`recall.ledger.enabled`). `core/factLedger.ts` plans and checks; `noteFacts` in
+Enabled by default (`recall.ledger.enabled`); set it to `false` to opt out. `core/factLedger.ts` plans and checks; `noteFacts` in
 `extension/accordion.ts` runs it after a `context` hook, off the request path, one task at a time.
 
 - Subject: every folded, recallable, finished task without a ledger, newest first. A task under
@@ -239,7 +218,7 @@ Off by default (`recall.ledger.enabled`). `core/factLedger.ts` plans and checks;
 
 ```json
 { "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": false } },
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true } },
   "guard": { "resultTokens": 16000 } }
 ```
 

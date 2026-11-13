@@ -24,17 +24,17 @@ Branch `feat/recall-redesign`; worktree `.pi/worktrees/recall-redesign`. The cur
 ## Progress
 
 - Done: report-first retrieval, session-wide account, search, expiry, oversized-result guard,
-  bounded unfold, cited side-model answers and an optional verified fact ledger. Test coverage is
+  bounded unfold, cited side-model answers and a default-on verified fact ledger. Test coverage is
   listed in SPEC-0003.
 - Done: offline replay of session `01a1c624` fit the 272k estimated budget on the feature branch;
   the baseline did not. A live PiG run answered four questions using recall. Evidence and its
   limitations: `evidence/s8-session-replay.md`.
 - Done: a small, non-independent ledger spike passed its 18/20 gate; its limitations and cost are
   in `evidence/s7-ledger-spike.md`.
-- Now: enable the fact ledger by default and update the settings contract and tests. Explicit
-  `recall.ledger.enabled: false` must still disable it. Ledger completions use the configured
-  recall model or the session model and can incur cost; foreign providers require prior consent.
-- Next: run the required app, extension and Bun gates and verify report-first and expired recall
+- Done: the fact ledger is enabled by default; explicit `recall.ledger.enabled: false` opts out.
+  Extraction uses the recall chat route and can incur cost; a different remote model requires
+  prior recall consent. The settings test and default-on extension smoke pass.
+- Now: run the required app, extension and Bun gates and verify report-first and expired recall
   in a live PiG session. The prior live run did not establish either of those two acceptance cases;
   its post-run citation-search hint also has not been retested.
 - Next: review the final diff, merge into `feat/pi-native`, push, and update the installed PiG

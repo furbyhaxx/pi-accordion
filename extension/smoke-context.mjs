@@ -289,7 +289,7 @@ check("a folded task gets a fact ledger once, recall finds a value by the ledger
 	const config = path.join(configDir, "config.json");
 	fs.mkdirSync(configDir, { recursive: true });
 	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
-	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" }, recall: { ledger: { enabled: true } } }));
+	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
 	const messages = [{ role: "user", content: "Provision the volume.", timestamp: 1 }];
 	const prompts = [];
 	const complete = async (_model, context) => {
