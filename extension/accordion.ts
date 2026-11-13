@@ -4290,6 +4290,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (!t || session !== sessionId || !settings.recall.ledger.enabled) return;
 				const reportOf = taskReports(t);
 				const next = foldedTasks(t).find((f) => !factLedger.has(f.task) && !ledgerTried.has(f.task) && reportOf(f.task)?.status);
+				const title = next ? (reportOf(next.task)?.title ?? "").slice(0, 120) : "";
 				if (!next) {
 					ledgerIdleRev = t.rev;
 					return;
@@ -4309,8 +4310,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					rows.push(...found);
 				}
 				if (session !== sessionId) return;
-				factLedger.set(next.task, rows);
-				pi.appendEntry(LEDGER_ENTRY, ledgerData(next.task, rows));
+				factLedger.set(next.task, rows, title);
+				pi.appendEntry(LEDGER_ENTRY, ledgerData(next.task, rows, title));
 			}
 		} catch (err) {
 			if (!ledgerWarned && session === sessionId) {

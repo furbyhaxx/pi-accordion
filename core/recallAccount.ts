@@ -7,7 +7,7 @@
 import type { Block } from "./types";
 import type { Truth } from "./truth";
 import { estTokens } from "./tokens";
-import { recallView, type RecallRequest, type RecallView } from "./recallView";
+import { RECALL_TOOL, recallView, type RecallRequest, type RecallView } from "./recallView";
 
 export interface RecallPolicy {
 	/** Most tokens one call returns across all its codes. */
@@ -22,8 +22,6 @@ export interface RecallPolicy {
 
 export const RECALL_POLICY: RecallPolicy = { callTokens: 8_000, liveTokens: 24_000, margin: 4_000, minGrant: 1_000 };
 
-/** The tool whose results the account owns. */
-export const RECALL_TOOL = "recall";
 /** Results below this (refusals, released stubs, "no match") are neither counted nor released. */
 export const SMALL_RESULT_TOKENS = 200;
 const SMALL_BUDGET_SHARE = 0.02;

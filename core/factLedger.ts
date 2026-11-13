@@ -14,6 +14,8 @@ export interface FactRow {
 	unit?: string;
 	/** The block the value was copied from. */
 	blockId: string;
+	/** The title of the task the row belongs to; a query may name the task instead of the fact. */
+	about?: string;
 }
 
 export const LEDGER_ENTRY = "accordion.recall.ledger";
@@ -24,8 +26,9 @@ export const LEDGER_MIN_TOKENS = 2_000;
 const CHARS_PER_TOKEN = 4;
 const CHUNK_CHARS = 24_000 * CHARS_PER_TOKEN;
 const MAX_CHUNKS = 4;
-/** An entry longer than this is shown by its two ends; the check still runs against all of it. */
-const ENTRY_CHARS = 6_000;
+/** An entry longer than this continues as a further part, possibly in the next prompt. */
+const PART_CHARS = CHUNK_CHARS / 2;
+const TASKS_TOOL = "tasks";
 const ROWS_PER_CHUNK = 60;
 const MAX_ROWS = 120;
 const KEY_CHARS = 120;
@@ -50,23 +53,27 @@ export interface LedgerChunk {
 	ids: string[];
 }
 
-function shown(text: string): string {
-	return text.length <= ENTRY_CHARS ? text : `${text.slice(0, ENTRY_CHARS / 2)}\n[…]\n${text.slice(-ENTRY_CHARS / 2)}`;
-}
-
-/** The task's entries as prompts of bounded size. Of a task too long for all of them, the first and the last parts are read. */
+/**
+ * The task's entries as prompts of bounded size. Every entry is shown whole, since values sit in
+ * the middle of long output; one longer than a prompt continues in the next. Task-tool entries are
+ * left out: the report already holds them. Of a task too long for all prompts, the first and the
+ * last parts are read.
+ */
 export function ledgerChunks(entries: readonly Block[]): { chunks: LedgerChunk[]; skipped: number } {
 	const all: { text: string; ids: string[] }[] = [];
 	let cur: { text: string; ids: string[] } = { text: "", ids: [] };
 	for (const b of entries) {
-		if (!b.text) continue;
-		const body = shown(b.text);
-		if (cur.ids.length && cur.text.length + body.length > CHUNK_CHARS) {
-			all.push(cur);
-			cur = { text: "", ids: [] };
+		if (!b.text || b.toolName === TASKS_TOOL) continue;
+		const parts = Math.ceil(b.text.length / PART_CHARS);
+		for (let p = 0; p < parts; p++) {
+			const body = b.text.slice(p * PART_CHARS, (p + 1) * PART_CHARS);
+			if (cur.ids.length && cur.text.length + body.length > CHUNK_CHARS) {
+				all.push(cur);
+				cur = { text: "", ids: [] };
+			}
+			cur.ids.push(b.id);
+			cur.text += `--- entry ${cur.ids.length} [${b.kind}${b.toolName ? ` ${b.toolName}` : ""}]${parts > 1 ? ` (part ${p + 1} of ${parts})` : ""}\n${body}\n`;
 		}
-		cur.ids.push(b.id);
-		cur.text += `--- entry ${cur.ids.length} [${b.kind}${b.toolName ? ` ${b.toolName}` : ""}]\n${body}\n`;
 	}
 	if (cur.ids.length) all.push(cur);
 	const kept = all.length <= MAX_CHUNKS ? all : [all[0], ...all.slice(all.length - (MAX_CHUNKS - 1))];
@@ -123,7 +130,7 @@ export function verifiedRows(reply: string, chunk: LedgerChunk, textOf: (blockId
 /** The rows every term of a query matches, in ledger order. */
 export function matchFacts(rows: readonly FactRow[], terms: readonly Term[]): FactRow[] {
 	return rows.filter((r) => {
-		const text = `${r.key} ${r.value} ${r.unit ?? ""}`;
+		const text = `${r.about ?? ""} ${r.key} ${r.value} ${r.unit ?? ""}`;
 		const lower = text.toLowerCase();
 		return terms.every((t) => t.find(text, lower).length > 0);
 	});
@@ -138,8 +145,8 @@ export class FactLedger {
 		return this.byTask.has(task);
 	}
 
-	set(task: string, rows: FactRow[]): void {
-		this.byTask.set(task, rows.slice(0, MAX_ROWS));
+	set(task: string, rows: FactRow[], title = ""): void {
+		this.byTask.set(task, rows.slice(0, MAX_ROWS).map((r) => (title ? { ...r, about: title } : r)));
 		this.flat = null;
 	}
 
@@ -154,21 +161,22 @@ export class FactLedger {
 }
 
 /** What one task's rows are stored as in the session log. */
-export function ledgerData(task: string, rows: readonly FactRow[]): { task: string; rows: [string, string, string, string][] } {
-	return { task, rows: rows.slice(0, MAX_ROWS).map((r) => [r.key, r.value, r.unit ?? "", r.blockId]) };
+export function ledgerData(task: string, rows: readonly FactRow[], title = ""): { task: string; title: string; rows: [string, string, string, string][] } {
+	return { task, title, rows: rows.slice(0, MAX_ROWS).map((r) => [r.key, r.value, r.unit ?? "", r.blockId]) };
 }
 
 /** The ledger a session's entries hold; a later entry for a task replaces an earlier one. */
 export function ledgerOf(entries: readonly unknown[]): Map<string, FactRow[]> {
 	const out = new Map<string, FactRow[]>();
 	for (const raw of entries) {
-		const entry = raw as { type?: unknown; customType?: unknown; data?: { task?: unknown; rows?: unknown } };
+		const entry = raw as { type?: unknown; customType?: unknown; data?: { task?: unknown; title?: unknown; rows?: unknown } };
 		const data = entry?.data;
 		if (entry?.type !== "custom" || entry.customType !== LEDGER_ENTRY || typeof data?.task !== "string" || !Array.isArray(data.rows)) continue;
 		const rows: FactRow[] = [];
+		const about = typeof data.title === "string" && data.title ? { about: data.title.slice(0, KEY_CHARS) } : {};
 		for (const r of data.rows.slice(0, MAX_ROWS)) {
 			if (!Array.isArray(r) || r.length < 4 || !r.every((x) => typeof x === "string") || !r[0] || !r[1] || !r[3]) continue;
-			rows.push({ key: r[0], value: r[1], ...(r[2] ? { unit: r[2] } : {}), blockId: r[3] });
+			rows.push({ key: r[0], value: r[1], ...(r[2] ? { unit: r[2] } : {}), blockId: r[3], ...about });
 		}
 		out.set(data.task, rows);
 	}

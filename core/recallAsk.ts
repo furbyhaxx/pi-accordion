@@ -106,7 +106,7 @@ export function askAnswer(question: string, answer: string, addresses: Set<strin
 	const notes: string[] = [];
 	if (checked.removed) notes.push(`${checked.removed} citation(s) removed: they named addresses that were not in the material.`);
 	if (!checked.cited.length) notes.push("This answer cites no source; verify it before relying on it.");
-	else notes.push(`Read a cited entry with recall({codes:["${checked.cited[0]}"]}).`);
+	else notes.push(`Check a cited entry by searching it: recall({codes:["${checked.cited[0]}"], query:"<the value>"}). Reading it whole costs far more.`);
 	return { text: `[answer from folded context, written by a side model — check cited entries for anything critical]\nQ: ${question.trim()}\n\n${checked.text}\n\n[${notes.join(" ")}]`, cited: checked.cited };
 }
 

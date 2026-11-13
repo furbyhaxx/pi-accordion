@@ -60,11 +60,11 @@ describe("recall ask", () => {
 		expect(r.removed).toBe(2);
 	});
 
-	it("marks an answer without any valid citation and names a follow-up read otherwise", () => {
+	it("marks an answer without any valid citation and names a follow-up search otherwise", () => {
 		const addresses = new Set([`${CODE}.7`]);
 		expect(askAnswer("Q", "It was lock order.", addresses).text).toContain("cites no source");
 		const ok = askAnswer("Q", `It was lock order [${CODE}.7].`, addresses);
-		expect(ok.text).toContain(`recall({codes:["${CODE}.7"]})`);
+		expect(ok.text).toContain(`recall({codes:["${CODE}.7"], query:`);
 		expect(ok.cited).toEqual([`${CODE}.7`]);
 	});
 

@@ -9,7 +9,8 @@ import type { Op } from "./ops";
 import type { Truth } from "./truth";
 import { messageKey } from "./groupShape";
 import { estTokens } from "./tokens";
-import { isRecallResult, RECALL_TOOL, SMALL_RESULT_TOKENS } from "./recallAccount";
+import { isRecallResult, SMALL_RESULT_TOKENS } from "./recallAccount";
+import { RECALL_TOOL } from "./recallView";
 
 const STUB_QUERY_CHARS = 80;
 

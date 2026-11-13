@@ -332,7 +332,7 @@ check("a folded task gets a fact ledger once, recall finds a value by the ledger
 		assert.deepEqual(provision.data.rows.map(row => row.slice(0, 3)), [["Btrfs subvolume id", "324", "id"]], "the invented value is dropped");
 		assert.match(prompts[0], /<transcript>/);
 		const found = await r.tools.recall.execute("led-recall", { query: '"subvolume id"' }, undefined, undefined, r.ctx);
-		assert.match(found.content[0].text, /Btrfs subvolume id: 324 \(id\)  #[0-9a-z]{6}\.\d+/);
+		assert.match(found.content[0].text, /Provision · Btrfs subvolume id: 324 \(id\)  #[0-9a-z]{6}\.\d+/);
 		const calls = prompts.length;
 		await r.request(messages);
 		await new Promise(resolve => setTimeout(resolve, 100));

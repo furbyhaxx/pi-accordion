@@ -36,7 +36,7 @@ recall({ask: "Why did we drop the retry wrapper?"})
 recall({ask: "Which port did the broker end up on?", codes: ["3f9a2c"], query: "broker port"})
 ```
 
-Another model reads the matching reports and excerpts and returns a short answer; every statement cites an address like `[3f9a2c.12]`. `codes` narrows it to those folds, `query` sets the search terms. Read a cited entry before relying on an exact value. A result starting with `[no answer:` carries the closest excerpts instead.
+Another model reads the matching reports and excerpts and returns a short answer; every statement cites an address like `[3f9a2c.12]`. `codes` narrows it to those folds, `query` sets the search terms. Before relying on an exact value, search the cited entry for it (`recall({codes:["3f9a2c.12"], query:"the value"})`); reading the entry whole costs far more. A result starting with `[no answer:` carries the closest excerpts instead.
 
 ## Clipped tool results
 

@@ -97,4 +97,23 @@ describe("recallView", () => {
 		expect(v.missing).toEqual(["zzzzzz", `${foldCode(PARENT)}.9`, "not a code"]);
 		expect(v.items).toEqual([]);
 	});
+
+	it("leaves recall's own earlier calls and results out of an archive search; an address still reads them", () => {
+		const blocks = [
+			blk("u:0", "user", 0, "Do the work."),
+			blk("r:c1", "tool_result", 1, "port 7741 opened"),
+			{ ...blk("a:r2:p0", "tool_call", 2, 'recall {"query":"port 7741"}'), toolName: "recall", callId: "c2" },
+			{ ...blk("r:c2", "tool_result", 3, "[search all folded content for \"port 7741\"] …port 7741 opened…"), toolName: "recall", callId: "c2" },
+			blk("u:9", "user", 4, "Next."),
+		];
+		const t = new Truth({ meta: META, blocks, lineCount: 0, skipped: 0 });
+		t.setProtect(0);
+		const ids = ["r:c1", "a:r2:p0", "r:c2"];
+		expect(t.apply([{ kind: "group", ids, summary: `${foldTag(PARENT)} done`, handles: [{ id: PARENT, memberIds: ids }] }], "auto").results[0].applied).toBe(true);
+		const code = foldCode(PARENT);
+		const v = recallView(t, { codes: [], query: "7741" });
+		expect(v.text).toContain(`#${code}.1 `);
+		expect(v.text).toContain("in 1 entries");
+		expect(recallView(t, { codes: [`${code}.3`] }).text).toContain("search all folded content");
+	});
 });

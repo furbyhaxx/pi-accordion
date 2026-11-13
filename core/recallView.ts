@@ -21,9 +21,12 @@ const NOTE_CHARS = 600;
 const PREVIEW_CHARS = 100;
 const EXCERPT_RADIUS = 160;
 const MAX_EXCERPTS_PER_ENTRY = 5;
+/** The agent tool this module serves; its own calls and results are copies and are not searched. */
+export const RECALL_TOOL = "recall";
 const MAX_QUERY_CHARS = 200;
 const MAX_FACTS = 12;
 const FACT_KEY_CHARS = 80;
+const FACT_ABOUT_CHARS = 50;
 const FACT_VALUE_CHARS = 200;
 
 export interface RecallRequest {
@@ -282,7 +285,7 @@ function factLines(candidates: Candidate[], terms: Term[], facts: readonly FactR
 	const rows = matchFacts(facts.filter((r) => addressOf.has(r.blockId)), terms);
 	if (!rows.length) return { text: "", ids: [] };
 	const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s).replace(/\s+/g, " ");
-	const lines = rows.slice(0, MAX_FACTS).map((r) => `  ${cut(r.key, FACT_KEY_CHARS)}: ${cut(r.value, FACT_VALUE_CHARS)}${r.unit ? ` (${r.unit})` : ""}  #${addressOf.get(r.blockId)}`);
+	const lines = rows.slice(0, MAX_FACTS).map((r) => `  ${r.about ? `${cut(r.about, FACT_ABOUT_CHARS)} · ` : ""}${cut(r.key, FACT_KEY_CHARS)}: ${cut(r.value, FACT_VALUE_CHARS)}${r.unit ? ` (${r.unit})` : ""}  #${addressOf.get(r.blockId)}`);
 	const more = rows.length > MAX_FACTS ? `\n  (+${rows.length - MAX_FACTS} more; narrow the query)` : "";
 	return { text: `Facts noted when the task was folded (values copied from the entry named):\n${lines.join("\n")}${more}`, ids: [...new Set(rows.slice(0, MAX_FACTS).map((r) => r.blockId))] };
 }
@@ -365,6 +368,7 @@ function archive(truth: Truth): Candidate[] {
 		const src = sourceOf(truth, code);
 		if (!src) continue;
 		src.entries.forEach((block, i) => {
+			if (block.toolName === RECALL_TOOL) return;
 			const prev = best.get(block.id);
 			if (!prev || src.entries.length < prev.size) best.set(block.id, { c: { address: `${code}.${i + 1}`, block, ...(src.taskKey ? { task: src.taskKey } : {}) }, size: src.entries.length });
 		});

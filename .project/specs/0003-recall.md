@@ -3,14 +3,17 @@ document:
   type: "specification"
   id: "SPEC-0003"
   title: "Recall: bounded retrieval of folded content"
-  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results the bound on the agent's unfold questions answered by a side model and the fact ledger written when a task is folded."
+  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results, the guard that clips oversized tool results, the bound on the agent's unfold, questions answered by a side model and the fact ledger written when a task is folded."
   status: "published"
-  revision: 7
+  revision: 8
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T13:23:36+01:00"
+  updated_at: "2026-11-13T13:34:37+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 8
+      reason: "the live run showed values in the middle of long output missing from the ledger, rows not found by task name, and recall finding its own results"
+      changes: ["§8: entries whole, task-tool entries left out, task title matches and is stored", "§2: archive search skips recall's own traffic"]
     - revision: 7
       reason: "the randomized test found refusal lines and stubs accumulating in the account"
       changes: ["§3: results under 200 tokens are not counted", "§10: randomized invariant test"]
@@ -109,6 +112,8 @@ Exact values: recall({codes:["k3m9qa"], query:"text"}) · entry list: recall({co
 - Each hit: `#code.N`, the task (archive search), kind, tool, and excerpts of 160 characters around
   the matches (one per term; five for a single term), overlapping excerpts joined.
 - No entry has every term: the hits of the rarest term that occurs, with `PARTIAL` in the header.
+- Archive search leaves out the calls and results of `recall` itself (copies of what it finds
+  anyway); an address still reads them.
 - Archive search visits every agent-reachable folded entry once and addresses it through the
   smallest fold that holds it, so the address names the task and opens the entry directly.
 
@@ -211,23 +216,24 @@ Off by default (`recall.ledger.enabled`). `core/factLedger.ts` plans and checks;
 
 - Subject: every folded, recallable, finished task without a ledger, newest first. A task under
   2,000 tokens gets an empty ledger without a model call.
-- Input: the task's entries, numbered, in prompts of at most 24,000 tokens; an entry over 6,000
-  characters is shown by its first and last 3,000. More than four prompts: the first and the last
-  three are read.
+- Input: the task's entries except those of the `tasks` tool, numbered and whole, in prompts of at
+  most 24,000 tokens; an entry over 12,000 tokens continues as further parts under the same block.
+  More than four prompts: the first and the last three are read.
 - One completion per prompt, routing id `recall` as in §7, same privacy rule but never a dialog: a
   model that needs consent and has none is not called.
 - Output rows `{key, value, unit, entry}`. A row is kept only when the cited entry exists and its
   full text contains the value character for character, the key is at most 120 and the value at
   most 300 characters. At most 60 rows per prompt, 120 per task.
-- Stored as one session entry `accordion.recall.ledger` `{task, rows: [[key, value, unit, blockId]]}`
-  once every prompt of the task answered; a later entry for a task replaces an earlier one. A
-  resumed session restores the ledger from its entries and does not extract again.
+- Stored as one session entry `accordion.recall.ledger`
+  `{task, title, rows: [[key, value, unit, blockId]]}` once every prompt of the task answered; a
+  later entry for a task replaces an earlier one. A resumed session restores the ledger from its
+  entries and does not extract again.
 - A failed task (no model, no consent, no row list) stays without rows until the next start; the
   user is notified once per session.
 - Rows never enter the standing context. A search (§2, and the material of §7) shows up to twelve
-  rows whose key, value and unit together match every term and whose block is among the searched
-  entries, before the transcript hits and on the first page only, each with the entry's address.
-  When only rows match, they are the result.
+  rows whose task title, key, value and unit together match every term and whose block is among the
+  searched entries, before the transcript hits and on the first page only, each with its task title
+  and the entry's address. When only rows match, they are the result.
 
 ## 9. Settings (`~/.accordion/config.json`)
 

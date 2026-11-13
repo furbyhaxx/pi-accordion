@@ -56,12 +56,17 @@ describe("fact ledger", () => {
 		expect(verifiedRows('{"rows":[]}', chunks[0], () => "")).toEqual([]);
 	});
 
-	it("shows a long entry by its two ends and reads the first and last parts of a task too long for four prompts", () => {
-		const long = blk("r:big", "tool_result", 1, `HEAD-MARK ${"x".repeat(20_000)} TAIL-MARK`, "bash");
-		const one = ledgerChunks([long]).chunks[0].prompt;
-		expect(one).toContain("HEAD-MARK");
-		expect(one).toContain("TAIL-MARK");
-		expect(one.length).toBeLessThan(7_000);
+	it("shows every entry whole, continues a long one as parts, skips task-tool entries and reads the first and last parts of a task too long for four prompts", () => {
+		const long = blk("r:big", "tool_result", 1, `HEAD-MARK ${"x".repeat(60_000)} MIDDLE-MARK ${"x".repeat(60_000)} TAIL-MARK`, "bash");
+		const tasks = blk("r:tasks", "tool_result", 2, '{"ok":true,"started":[{"id":"3"}]}', "tasks");
+		const one = ledgerChunks([long, tasks]).chunks;
+		expect(one.map((c) => c.prompt).join("")).toContain("MIDDLE-MARK");
+		expect(one.flatMap((c) => c.ids)).toEqual(["r:big", "r:big", "r:big"]);
+		expect(one[0].prompt).toContain("--- entry 1 [tool_result bash] (part 1 of 3)");
+		expect(one.map((c) => c.prompt).join("")).not.toContain('"started"');
+		// A value from a later part verifies against the whole block.
+		const last = one[one.length - 1];
+		expect(verifiedRows(JSON.stringify({ rows: [{ key: "marker", value: "MIDDLE-MARK", unit: "", entry: last.ids.length }] }), last, () => long.text)).toHaveLength(1);
 		const many = Array.from({ length: 120 }, (_, i) => blk(`r:${i}`, "tool_result", i, `entry-${i} ${"y".repeat(5_900)}`, "bash"));
 		const { chunks, skipped } = ledgerChunks(many);
 		expect(chunks).toHaveLength(4);
@@ -77,10 +82,12 @@ describe("fact ledger", () => {
 		ledger.set("work/1", [
 			{ key: "Btrfs subvolume id", value: "324", unit: "id", blockId: "r:c1" },
 			{ key: "storage commit", value: "4dd3d08", unit: "commit", blockId: "r:c2" },
-		]);
+		], "Provision volume");
 		// "subvolume id" is the ledger's wording; the transcript only says `subvolid=324`.
 		const byMeaning = recallView(truth, { codes: [], query: '"subvolume id"', facts: ledger.all() });
-		expect(byMeaning.text).toContain(`Btrfs subvolume id: 324 (id)  #${CODE}.2`);
+		expect(byMeaning.text).toContain(`Provision volume · Btrfs subvolume id: 324 (id)  #${CODE}.2`);
+		// The task's title counts as part of each of its rows.
+		expect(recallView(truth, { codes: [], query: "provision commit", facts: ledger.all() }).text).toContain("storage commit: 4dd3d08");
 		expect(byMeaning.items[0].ids).toEqual(["r:c1"]);
 		const both = recallView(truth, { codes: [CODE], query: "4dd3d08", facts: ledger.all() });
 		expect(both.text.indexOf("storage commit: 4dd3d08")).toBeGreaterThan(0);
@@ -96,10 +103,10 @@ describe("fact ledger", () => {
 			{ type: "custom", customType: LEDGER_ENTRY, data: ledgerData("work/1", [rows[0]]) },
 			{ type: "custom", customType: "other", data: ledgerData("work/9", rows) },
 			{ type: "custom", customType: LEDGER_ENTRY, data: { task: "work/2", rows: [["k", "", "", "r:c1"], "junk", ["k", "v", "", "r:c1"]] } },
-			{ type: "custom", customType: LEDGER_ENTRY, data: ledgerData("work/1", rows) },
+			{ type: "custom", customType: LEDGER_ENTRY, data: ledgerData("work/1", rows, "Serve") },
 		];
 		const restored = ledgerOf(entries);
-		expect(restored.get("work/1")).toEqual(rows);
+		expect(restored.get("work/1")).toEqual(rows.map((r) => ({ ...r, about: "Serve" })));
 		expect(restored.get("work/2")).toEqual([{ key: "k", value: "v", blockId: "r:c1" }]);
 		expect(restored.has("work/9")).toBe(false);
 		const ledger = new FactLedger();
