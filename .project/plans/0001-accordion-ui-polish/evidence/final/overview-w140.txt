@@ -1,0 +1,16 @@
+ Warning: tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.
+── Accordion › Overview ────────────────────────────────────────────────────────────────── 126.6k/1.0M tok · ○ folding off · no conductor ──
+ ❱ Overview ❱ Context ❱ Tasks ❱ Lists ❱ Conductors ❱ Settings
+ ⌕
+
+  ▕███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▏ 126.6k/1.0M (12%)
+  ■ System 18.0k · ■ User 371 · ■ Assistant 12.5k · ■ Thinking 33.6k · ■ Tool Call 24.9k · ■ Tool Result 37.1k · ░ Free 922.0k
+
+  Pressure folding off: pi compacts natively
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ The session's context, its savings and its conductor. Enter opens the timeline.
+ enter context · alt+c compact · alt+o folding on/off · alt+t tasks · tab next tab · f1 help · esc close
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/acc-live2/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0M (auto)                                                       (openrouter) deepseek/deepseek-v4-pro • high
+accordion off

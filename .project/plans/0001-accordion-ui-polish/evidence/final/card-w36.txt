@@ -1,0 +1,16 @@
+ 0.0s
+ before ██████████████████████████
+ 126571
+ after  ███████████████░░░░░░░░░░░
+ 73196   −53375 (42%)
+ folded 103 thinking blocks · 92
+ tool results · 44 assistant texts
+ /accordion compact undo ·
+ /accordion to inspect
+
+────────────────────────────────────
+
+────────────────────────────────────
+/tmp/acc-live2/proj (dev)
+↑4.5M ↓95k R9.8M $1.550 12.3%/1.0...
+accordion 7% · no conductor
