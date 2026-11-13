@@ -840,6 +840,9 @@ const SERVER_TYPES = new Set([
 	"completeResult",
 	"controller",
 	"notice",
+	"settings",
+	"tasks",
+	"compaction",
 ]);
 
 export function isServerMessage(v: unknown): v is ServerMessage {
@@ -913,6 +916,19 @@ export function sanitizeCommand(cmd: unknown): WireCommand | null {
 			return typeof c.value === "boolean" ? { kind: "setFolding", value: c.value } : null;
 		case "selectConductor":
 			return c.id === null || typeof c.id === "string" ? { kind: "selectConductor", id: c.id } : null;
+		case "updateSettings": {
+			// The patch is an untyped document by design: the extension validates every path.
+			if (!c.patch || typeof c.patch !== "object" || Array.isArray(c.patch) || typeof c.baseRev !== "string") return null;
+			return { kind: "updateSettings", patch: c.patch as SettingsWirePatch, baseRev: c.baseRev };
+		}
+		case "compact": {
+			if (c.strategy !== "pass" && c.strategy !== "aggressive" && c.strategy !== "bake" && c.strategy !== "native") return null;
+			if (c.instructions !== undefined && typeof c.instructions !== "string") return null;
+			if (c.dryRun !== undefined && typeof c.dryRun !== "boolean") return null;
+			return { kind: "compact", strategy: c.strategy, ...(c.instructions !== undefined ? { instructions: c.instructions } : {}), ...(c.dryRun !== undefined ? { dryRun: c.dryRun } : {}) };
+		}
+		case "undoCompact":
+			return { kind: "undoCompact" };
 		default:
 			return null;
 	}

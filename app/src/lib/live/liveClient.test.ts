@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { connectLive, disconnectLive, setArmed, live, conductors, conductorState, conductorStatus, selectConductor, mySurfaceId } from "./liveClient.svelte";
+import { connectLive, disconnectLive, setArmed, live, conductors, conductorState, conductorStatus, selectConductor, mySurfaceId, hostSettings, hostTasks, lastCompaction, saveHostSettings, runCompaction } from "./liveClient.svelte";
 import { _resetSurfaceIdForTests } from "./surfaceId";
 import { notice } from "./notice.svelte";
 import { folding } from "./folding.svelte";
@@ -134,6 +134,24 @@ afterEach(() => {
 	(globalThis as any).WebSocket = savedWS;
 	if (hadWindow) (globalThis as any).window = savedWindow;
 	else delete (globalThis as any).window;
+});
+
+describe("liveClient — settings, tasks and compaction", () => {
+	it("adopts the host's settings, tasks and compaction, and stages a patch against the revision it saw", () => {
+		const ws = connectHelloSnapshot();
+		ws.emit({ type: "settings", snapshot: { settings: { autoArm: true }, sources: { autoArm: "file" }, rev: "r1" } });
+		ws.emit({ type: "tasks", list: { slug: "p", title: "Plan", claim: null, tasks: [{ id: "1", title: "One", status: "doing" }] }, folded: ["g1"], tokens: { full: 10, live: 5 } });
+		ws.emit({ type: "compaction", record: { id: "c1", at: 1, trigger: "command", strategy: "pass", conductor: null, before: 100, after: 60, durationMs: 5, folded: { blocks: 1, groups: 0, byKind: {} }, undo: [], message: "done" } });
+		expect(hostSettings.snapshot?.rev).toBe("r1");
+		expect(hostTasks.list?.slug).toBe("p");
+		expect(hostTasks.tokens).toEqual({ full: 10, live: 5 });
+		expect(lastCompaction.record?.strategy).toBe("pass");
+		saveHostSettings({ autoArm: false });
+		const sent = JSON.parse(ws.sent[ws.sent.length - 1]!);
+		expect(sent.cmd).toEqual({ kind: "updateSettings", patch: { autoArm: false }, baseRev: "r1" });
+		runCompaction("aggressive");
+		expect(JSON.parse(ws.sent[ws.sent.length - 1]!).cmd).toEqual({ kind: "compact", strategy: "aggressive" });
+	});
 });
 
 describe("liveClient — replica build + event replay", () => {

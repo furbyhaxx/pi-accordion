@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { session, isTauriEnv, loadSample, openFile, loadFilePath } from "$lib/session.svelte.ts";
-	import { connectLive, disconnectLive, live, claimController } from "$lib/live/liveClient.svelte";
+	import { connectLive, disconnectLive, live, claimController, lastCompaction, undoCompaction, hostTasks } from "$lib/live/liveClient.svelte";
 	import { discovery, startDiscovery, stopDiscovery, DEMO_ID } from "$lib/live/discovery.svelte";
 	import { startBrowserDiscovery, stopBrowserDiscovery } from "$lib/live/browserDiscovery.svelte";
 	import { claudeDiscovery, startClaudeDiscovery, stopClaudeDiscovery } from "$lib/live/claudeDiscovery.svelte";
@@ -19,6 +19,9 @@
 	import NoticeToast from "$lib/ui/live/NoticeToast.svelte";
 	import ToastRegion from "$lib/ui/live/ToastRegion.svelte";
 	import ReadOnlyHint from "$lib/ui/live/ReadOnlyHint.svelte";
+	import SettingsPanel from "$lib/ui/live/SettingsPanel.svelte";
+	import TasksPanel from "$lib/ui/live/TasksPanel.svelte";
+	import CompactDialog from "$lib/ui/live/CompactDialog.svelte";
 	import MapHeader from "$lib/ui/map/MapHeader.svelte";
 	import ContextMap from "$lib/ui/map/ContextMap.svelte";
 	import Inspector from "$lib/ui/map/Inspector.svelte";
@@ -26,6 +29,10 @@
 	import Logo from "$lib/ui/Logo.svelte";
 
 	let selectedId = $state<string | null>(null);
+	// The right-hand tray: the session host's settings and the task tree share it, one at a time.
+	let tray = $state<"none" | "settings" | "tasks">("none");
+	let compactOpen = $state(false);
+	const compaction = $derived(lastCompaction.record);
 	let manualPort = $state(DEFAULT_PORT);
 	let browserServed = $state(false);
 
@@ -246,6 +253,20 @@
 					<!-- Nav actions -->
 					<div class="nav-row">
 						{#if live.status === "connected"}
+							<button class="nav-btn" class:active={compactOpen} onclick={() => (compactOpen = true)}>
+								<Icon name="activity" size={12} />
+								Compact…
+							</button>
+							<button class="nav-btn" class:active={tray === "settings"} onclick={() => (tray = tray === "settings" ? "none" : "settings")}>
+								<Icon name="sliders-horizontal" size={12} />
+								Settings
+							</button>
+							{#if hostTasks.list}
+								<button class="nav-btn" class:active={tray === "tasks"} onclick={() => (tray = tray === "tasks" ? "none" : "tasks")}>
+									<Icon name="layers" size={12} />
+									Tasks
+								</button>
+							{/if}
 							<button class="nav-btn" onclick={disconnectLive}>
 								<Icon name="x" size={12} />
 								Disconnect
@@ -265,6 +286,15 @@
 					<div class="canvas">
 						<ContextMap store={s} {selectedId} onselect={(id) => (selectedId = selectedId === id ? null : id)} />
 					</div>
+					{#if tray !== "none"}
+						<div class="tray">
+							{#if tray === "settings"}
+								<SettingsPanel onClose={() => (tray = "none")} />
+							{:else}
+								<TasksPanel />
+							{/if}
+						</div>
+					{/if}
 					{#if selectedBlock || selectedGroup}
 						<Inspector
 							store={s}
@@ -357,6 +387,9 @@
      toasts mount inside ToastRegion (the app's single notification corner): it owns the fixed
      position and vertical stacking, so simultaneous toasts stack instead of overlapping. DOM
      order = stacking order — controller toasts above informational notices. -->
+{#if compactOpen && session.store}
+	<CompactDialog store={session.store} onclose={() => (compactOpen = false)} />
+{/if}
 {#if takeoverPopup.show}
 	<TakeoverPopup
 		label={takeoverPopup.label}
@@ -377,6 +410,16 @@
 				dismissDemotionToast();
 			}}
 		/>
+	{/if}
+	{#if compaction}
+		<div class="compact-toast" role="status">
+			<div class="mono">✓ compact · {compaction.strategy} · {compaction.before > compaction.after ? `−${Math.round(((compaction.before - compaction.after) / Math.max(1, compaction.before)) * 100)}%` : "no change"}</div>
+			<div class="mono sub">{compaction.folded.blocks} blocks folded · {compaction.folded.groups} groups</div>
+			{#if compaction.undo}
+				<button class="mono" onclick={() => { undoCompaction(); lastCompaction.record = null; }}>Undo</button>
+			{/if}
+			<button class="mono close" onclick={() => (lastCompaction.record = null)} aria-label="Dismiss">&times;</button>
+		</div>
 	{/if}
 	{#if notice.show}
 		<NoticeToast text={notice.text} onclose={dismissNotice} />
@@ -619,6 +662,52 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
+	}
+	/* The right-hand tray sits beside the canvas; the inspector still takes the rightmost column. */
+	.tray {
+		min-width: 0;
+		min-height: 0;
+		overflow: auto;
+		border-left: 1px solid var(--line);
+		background: var(--panel);
+		max-width: 32rem;
+	}
+	.main:has(.tray) {
+		grid-template-columns: minmax(0, 1fr) minmax(320px, 26vw);
+	}
+	.main:has(.tray).open {
+		grid-template-columns: minmax(0, 1fr) minmax(320px, 24vw) minmax(360px, 26vw);
+	}
+	.nav-btn.active {
+		color: var(--text);
+		background: var(--panel-3);
+		border-color: var(--line-strong);
+	}
+	.compact-toast {
+		display: flex;
+		align-items: center;
+		gap: var(--sp-3);
+		padding: var(--sp-3);
+		background: var(--panel);
+		border: 1px solid var(--line);
+		color: var(--text);
+		margin-top: var(--sp-2);
+	}
+	.compact-toast .sub {
+		color: var(--muted);
+		font-size: 11px;
+	}
+	.compact-toast button {
+		background: transparent;
+		border: 1px solid var(--line);
+		color: var(--text);
+		padding: 2px 8px;
+		cursor: pointer;
+		margin-left: auto;
+	}
+	.compact-toast button.close {
+		margin-left: 0;
+		border: none;
 	}
 
 	@media (max-width: 980px) {

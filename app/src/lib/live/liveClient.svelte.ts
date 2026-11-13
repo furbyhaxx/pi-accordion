@@ -26,7 +26,12 @@ import {
 	type SnapshotState,
 	type WireCommand,
 	type ActiveConductorMeta,
+	type CompactRecord,
 	type ControllerInfo,
+	type CompactStrategy,
+	type SettingsWirePatch,
+	type SettingsWireSnapshot,
+	type WireTaskList,
 } from "$core/protocol";
 import { ghostStart, ghostEnd, ghostClearAll } from "./ghostState.svelte";
 import { evaluateHelloController, noteControllerBroadcast, flashBlockedHintCenter, resetControllerUi, someoneElseControls } from "./controllerUi.svelte";
@@ -121,6 +126,23 @@ export const conductorStatus = $state<{ text: string | null; metrics?: Record<st
  * for a broadcast holder (a claim/heartbeat just wrote it) and mirrors the host's flag on connect.
  */
 export const controllerState = $state<{ info: ControllerInfo | null }>({ info: null });
+
+/**
+ * The session host's settings document (v24, additive `settings` message): the extension owns the
+ * schema and validates every write, so the app renders and stages whatever the host reports.
+ * `null` until the host has sent one.
+ */
+export const hostSettings = $state<{ snapshot: SettingsWireSnapshot | null }>({ snapshot: null });
+
+/** The session's task projection (additive `tasks` message), or null when no list is attached. */
+export const hostTasks = $state<{ list: WireTaskList | null; folded: string[]; tokens: { full: number; live: number } | null }>({
+	list: null,
+	folded: [],
+	tokens: null,
+});
+
+/** The last compaction the host reported, for the toast and its undo action. */
+export const lastCompaction = $state<{ record: CompactRecord | null }>({ record: null });
 
 /** This surface's per-tab id (sessionStorage-backed, with a duplicate-tab BroadcastChannel dedupe
  *  guard) lives in `surfaceId.ts` and is re-exported above. */
@@ -244,6 +266,23 @@ export function selectConductor(id: string | null): void {
 	sendCommand({ kind: "selectConductor", id });
 }
 
+/** Save a settings patch against the revision the client has seen; a stale one is a conflict. */
+export function saveHostSettings(patch: SettingsWirePatch): void {
+	const rev = hostSettings.snapshot?.rev;
+	if (!rev) return;
+	sendCommand({ kind: "updateSettings", patch, baseRev: rev });
+}
+
+/** Run a compaction from the web surface; `dryRun` asks for projections only. */
+export function runCompaction(strategy: CompactStrategy, instructions?: string, dryRun = false): void {
+	sendCommand({ kind: "compact", strategy, ...(instructions ? { instructions } : {}), ...(dryRun ? { dryRun } : {}) });
+}
+
+/** Reverse the last compaction the host reported. */
+export function undoCompaction(): void {
+	sendCommand({ kind: "undoCompact" });
+}
+
 /** Build the replica store from a snapshot and install the command sink. */
 function adoptSnapshot(state: SnapshotState): void {
 	ghostClearAll();
@@ -334,6 +373,10 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 	live.port = opts.targetPort ?? port;
 	live.telemetry = freshTelemetry();
 	resetConductorState();
+	hostSettings.snapshot = null;
+	hostTasks.list = null;
+	hostTasks.folded = [];
+	hostTasks.tokens = null;
 	session.error = "";
 
 	let ws: WebSocket;
@@ -433,6 +476,14 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 				noteControllerBroadcast(controllerState.info, { surfaceId: msg.surfaceId, label: msg.label }, mySurfaceId());
 				controllerState.info = { surfaceId: msg.surfaceId, label: msg.label, fresh: true };
 			}
+		} else if (msg.type === "settings") {
+			hostSettings.snapshot = msg.snapshot;
+		} else if (msg.type === "tasks") {
+			hostTasks.list = msg.list;
+			hostTasks.folded = msg.folded;
+			hostTasks.tokens = msg.tokens;
+		} else if (msg.type === "compaction") {
+			lastCompaction.record = msg.record;
 		} else if (msg.type === "notice") {
 			if (typeof msg.text === "string" && msg.text) showNotice(msg.text);
 		} else if (msg.type === "recall") {

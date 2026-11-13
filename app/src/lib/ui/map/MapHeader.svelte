@@ -5,7 +5,7 @@
 	import EditableNumber from "$lib/ui/EditableNumber.svelte";
 	import Icon from "$lib/ui/Icon.svelte";
 	import { folding } from "$lib/live/folding.svelte";
-	import { live, setArmed, conductorState, conductorStatus, controllerState, anotherSurfaceControls, claimController } from "$lib/live/liveClient.svelte";
+	import { live, setArmed, conductorState, conductorStatus, controllerState, anotherSurfaceControls, claimController, hostSettings } from "$lib/live/liveClient.svelte";
 	import { attemptSteer, flashBlockedHint, readOnlyTip } from "$lib/live/controllerUi.svelte";
 	import ConductorMenu from "./ConductorMenu.svelte";
 
@@ -37,6 +37,25 @@
 		return { x: r.left + r.width / 2, y: r.bottom };
 	}
 	let budgetFieldEl = $state<HTMLDivElement>();
+
+	// ── Overview numbers (SPEC-0001 §5.3): what folding saved, and where pressure starts ──
+	const savedTokens = $derived(Math.max(0, store.fullTokens - store.liveTokens));
+	const savedLabel = $derived(savedTokens > 0 ? `${formatK(savedTokens)} saved` : "");
+	const highWater = $derived.by(() => {
+		const snap = hostSettings.snapshot?.settings as Record<string, unknown> | undefined;
+		const id = conductorState.active?.id;
+		const options = id ? (snap?.conductorOptions as Record<string, Record<string, unknown>> | undefined)?.[id] : undefined;
+		const high = options?.high;
+		return typeof high === "number" && high > 0 && high <= 1 ? high : null;
+	});
+	const pressureLabel = $derived(
+		highWater === null
+			? ""
+			: `folds at ${Math.round(highWater * 100)}% (${formatK(Math.round(highWater * store.budget))})`,
+	);
+	function formatK(n: number): string {
+		return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+	}
 	let protectFieldEl = $state<HTMLDivElement>();
 
 	const LADDER: { kind: BlockKind; label: string }[] = [
@@ -310,6 +329,26 @@
 						STATUS
 					</span>
 					<span class="ctl-value mono">{conductorStatus.text}</span>
+				</div>
+			{/if}
+
+			{#if savedLabel}
+				<div class="ctl-field" title="Full size minus what the model actually receives">
+					<span class="ctl-eyebrow mono">
+						<Icon name="activity" size={10} />
+						SAVED
+					</span>
+					<span class="ctl-value mono tnum">{savedLabel}</span>
+				</div>
+			{/if}
+
+			{#if pressureLabel}
+				<div class="ctl-field" title="The attached conductor's high-water mark">
+					<span class="ctl-eyebrow mono">
+						<Icon name="activity" size={10} />
+						PRESSURE
+					</span>
+					<span class="ctl-value mono tnum">{pressureLabel}</span>
 				</div>
 			{/if}
 
