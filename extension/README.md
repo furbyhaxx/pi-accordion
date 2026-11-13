@@ -202,6 +202,13 @@ state locally, in-process, immediately before the model call: there's no GUI rou
 no timeout to tune, because the state the extension already holds *is* the state applied,
 synchronously, every time.
 
+`recall` returns at most `callTokens` per call and keeps at most `liveTokens` of recalled text in
+the context; a call beyond that is refused with one line:
+
+```json
+{ "recall": { "callTokens": 8000, "liveTokens": 24000 } }
+```
+
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
 context) never appear on the `context` hook path. If you need their cost/usage for external
 accounting, set `ACCORDION_COMPLETION_LOG=<path>` and the extension appends one JSON line
@@ -213,9 +220,9 @@ This package registers three Pi skills:
 
 - **accordion-context-folding** — the `unfold` tool: restore a folded block into standing
   context (sticky, attributed to the agent).
-- **accordion-context-recall** — the `recall` tool: read folded content as a tool result
-  *without* mutating the view, like `read_file`. Bounded per call: a large fold comes back as an
-  index that can be searched (`query`) or read entry by entry (`code.N`). Never lockable.
+- **accordion-context-recall** — the `recall` tool: look up folded content as a tool result
+  *without* mutating the view. A task code returns its report; `query` searches all folded content
+  and `code.N` reads one entry. Bounded per call and per session. Never lockable.
 - **accordion-task-lists** — create and validate nested task-list JSON from an implementation plan;
   includes a Node validator and field reference.
 

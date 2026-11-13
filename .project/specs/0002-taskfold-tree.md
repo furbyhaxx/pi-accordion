@@ -5,12 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 28
+  revision: 29
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-11T17:56:18+01:00"
+  updated_at: "2026-11-13T12:48:37+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 29
+      reason: "recall moved to its own specification and returns task reports"
+      changes: ["§6.3 and §7.3: what a task code returns is defined by SPEC-0003"]
     - revision: 28
       reason: "one long open task saturated the session and a handle recall exceeded the provider limit"
       changes: ["§9 step 6 and §9.4: step carriers inside open tasks under pressure", "§7.3: recall output is bounded, indexed and searchable", "§12: taskfold.steps"]
@@ -686,7 +689,7 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
 
 - One message per task; at most three lines when wrapped. `children` names the **direct** children by id, a title of at most 60 characters and their codes, so the agent can find a task by what it was called and recall it (the eval recalled the root in 11 of 18 cases without codes, and on the real session fell back to `bash` when a deep task could not be found by title).
 - `status` is truthful about the subtree: a failed or abandoned descendant shows in `subtasks`.
-- Recalling the root code returns its full record (§6.2); recalling a child code returns that child's.
+- Recalling the root code returns its report with the codes of its direct children; recalling a child code returns that child's (SPEC-0003 §2.1).
 
 ### 6.4 Parts and untracked work
 
@@ -735,11 +738,9 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
   must contain the handle's exact tag. Cross-group sources are created before the carrier.
 - Handle id: `t:<list>/<id>`. Its fold code is `foldCode("t:<list>/<id>")`, stable across
   recompiles.
-- `resolveRecall` resolves a handle code to its members' raw content. The `recall` tool bounds what
-  it returns (`core/recallView.ts`, about 8k tokens per call across all codes): a small fold comes
-  back whole, a large one as an index of subtask codes and `code.N` entries, readable entry by
-  entry, pageable (`page`) and searchable (`query`). Tool details do not copy the text. A handle
-  once returned every member in one result: 1.4M tokens against a 1M provider limit.
+- `resolveRecall` resolves a handle code to its members' raw content. What the `recall` tool returns
+  for it, and the session account that bounds all recall output, are specified in SPEC-0003: a task
+  code returns the task's report, its transcript is reached by search or entry address.
 - `resolveUnfold` on a handle code unfolds the carrier and every referenced group and emits a `state-changed` with
   `by:"agent"`. The native tasks UI sends the same handle-bearing operation through the controller
   lease with `by:"you"` and holds the selected blocks open through Truth's sticky human overrides.

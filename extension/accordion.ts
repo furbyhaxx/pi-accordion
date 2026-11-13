@@ -81,7 +81,7 @@ import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage
 import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfold } from "../core/agentView";
-import { RecallAccount, serveRecall } from "../core/recallAccount";
+import { RECALL_POLICY, RecallAccount, serveRecall } from "../core/recallAccount";
 import { taskReports } from "../conductors/in-process/taskfold/taskReports";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
@@ -448,6 +448,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	let settings: AccordionSettings = loadSettings(HOME);
+	const recallAccount = new RecallAccount(() => ({ ...RECALL_POLICY, ...settings.recall }));
 
 	function activeBindHost(): string {
 		try {
@@ -613,7 +614,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// structural divergence (compaction / fork / tree-nav / another extension rewriting messages).
 	// pi's `context` hook operates against it LOCALLY. `unsubTruth` detaches the event forwarder.
 	let truth: Truth | null = null;
-	const recallAccount = new RecallAccount();
 	let unsubTruth: (() => void) | null = null;
 	// Folding the live agent is OPT-IN and OFF by default (today's armed semantics). Toggled by a
 	// GUI `setFolding` command; disabled ⇒ the model call is untouched. Broadcast on change and
@@ -4230,10 +4230,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "unfold", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});
 
-	// ── recall tool: an UNBLOCKABLE, BOUNDED READ of folded content (ADR 0011) ──
+	// ── recall tool: an UNBLOCKABLE, BOUNDED READ of folded content (ADR 0011, SPEC-0003) ──
 	// recall returns folded content AS a tool result THIS turn (like read_file) without changing
-	// what is standing in the agent's context. A fold too large for one call's budget comes back as
-	// an index of addressable entries (`code.N`) and subtask codes, never whole (`core/recallView.ts`).
+	// what is standing in the agent's context. A task code returns its report; transcript is reached
+	// by search or entry address, and one session account bounds all of it (`core/recallAccount.ts`).
 	// Phase B: resolved LOCALLY against the Truth (a pure read, never a mutation). Because it
 	// changes no state it is never lockable — the net that keeps a locked `unfold` from blinding
 	// the agent. A `recall` observation is broadcast so clients/conductors can see the read.
@@ -4241,16 +4241,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		name: "recall",
 		label: "Recall Folded Content",
 		description:
-			"Read folded context WITHOUT changing what's standing in your context. Accordion may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`; the original is preserved. Pass codes from those tags. A small fold comes back whole. A large fold (e.g. a finished task) comes back as an INDEX: subtask codes and numbered entries with previews — read one entry with `code.N` (e.g. \"3f9a2c.12\"), search the fold with `query` (case-insensitive literal text, returns excerpts with entry addresses), and page long results with `page`. Each call returns at most ~8k tokens, so prefer `query` or a specific entry over paging through everything.",
-		promptSnippet: "recall(codes, query?, page?) — read folded content now, bounded: whole if small, else an index; `code.N` reads one entry, `query` searches.",
+			"Look something up in folded context WITHOUT changing what's standing in your context. Accordion may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`; the original is preserved. A task's code returns its REPORT (outcome, decisions, open items, files changed, checks run, subtask codes), never its transcript. To find a value, path, number or error, search: `query` alone searches everything folded, `query` with codes searches those folds; all terms must occur in one entry, `\"a phrase\"` is literal, `/re/` is a regular expression. Each hit has an address like `3f9a2c.12`; pass it as a code to read that entry. `3f9a2c.entries` lists a fold's entries. Recalled text is limited per call (~8k tokens) and in total (~24k tokens standing in your context); beyond that a call is refused, so ask for the one thing you need, not for whole tasks.",
+		promptSnippet: "recall(codes?, query?, page?) — look up folded content: a task code gives its report, `query` searches (all folds when no codes), `code.N` reads one entry.",
 		promptGuidelines: [
-			"When you see a `{#<code> FOLDED}` marker and need its detail for the current step, call `recall`. Your standing context is unchanged. For a large fold, search it with `query` for the specific value you need, or read one entry via `code.N` from its index, instead of paging through the whole fold. Use `unfold` only when a small block must stay open across turns.",
+			"When you need something from a `{#<code> FOLDED}` marker, call `recall`. For what a finished task achieved or decided, recall its code: you get its report. For an exact value, search with `query` (no codes needed) and read the hit's `code.N`. Do not recall many tasks to re-read their work: recalled text has a session limit and further calls are refused. Use `unfold` only when a small block must stay open across turns.",
 		],
 		parameters: Type.Object({
 			codes: Type.Optional(Type.Array(Type.String({ description: 'A fold code from a {#<code> FOLDED} tag, e.g. "3f9a2c", or an entry address from a recall index, e.g. "3f9a2c.12". Always a string (codes may have leading zeros).' }), {
 				description: "Fold codes or entry addresses to read. Omit it with `query` to search all folded content.",
 			})),
-			query: Type.Optional(Type.String({ description: "Case-insensitive literal text to search for inside the recalled content; returns matching excerpts with entry addresses." })),
+			query: Type.Optional(Type.String({ description: 'Search text: whitespace-separated terms that must all occur in one entry (case-insensitive), "a phrase" in double quotes, or /regex/. Returns excerpts with entry addresses.' })),
 			page: Type.Optional(Type.Integer({ minimum: 1, description: "1-based page of an index, entry or search result, as named in the previous result." })),
 		}),
 		async execute(toolCallId, params, _signal, _onUpdate, _ctx) {

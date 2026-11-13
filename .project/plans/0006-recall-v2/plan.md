@@ -26,9 +26,9 @@ the code. Until a slice lands, SPEC-0002 describes the shipped behaviour.
 ## Progress
 
 ```
-next  S1  Recall account and report-first task codes
-later S2  Archive-wide search
-later S3  Expiry of recall results
+done  S1  Recall account and report-first task codes
+done  S2  Archive-wide search
+next  S3  Expiry of recall results
 later S4  Oversized tool-result guard
 later S5  Bounded unfold
 later S6  recall({ask}) through a side model

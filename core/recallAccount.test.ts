@@ -97,4 +97,37 @@ describe("RecallAccount", () => {
 		const s = serveRecall(truth, account, "after", { codes: [`${codes[0]}.30`] }, release);
 		expect(s.view).not.toBeNull();
 	});
+
+	it("pages one huge entry against the account: three pages, then a refusal", () => {
+		const blocks = [blk("u:0", "user", 0, "Go."), blk("a:r1:p0", "text", 1, "small"), blk("r:big", "tool_result", 2, "line of output\n".repeat(40_000), { toolName: "bash", callId: "big" }), blk("u:9", "user", 3, "Next.")];
+		const truth = new Truth({ meta: META, blocks, lineCount: 0, skipped: 0 });
+		truth.setProtect(0);
+		truth.setBudget(400_000);
+		expect(truth.apply([{ kind: "group", ids: ["a:r1:p0", "r:big"], summary: `${foldTag("g:a:r1:p0")} done` }], "auto").results[0].applied).toBe(true);
+		const code = foldCode("g:a:r1:p0");
+		const account = new RecallAccount();
+		const pages: boolean[] = [];
+		for (let page = 1; page <= 5; page++) {
+			const s = serveRecall(truth, account, `p${page}`, { codes: [`${code}.2`], page });
+			pages.push(!!s.view);
+			if (s.view) {
+				expect(estTokens(s.text)).toBeLessThanOrEqual(RECALL_POLICY.callTokens);
+				land(truth, `p${page}`, s.text);
+			}
+		}
+		expect(pages).toEqual([true, true, true, false, false]);
+		expect(account.outstanding(truth)).toBeLessThanOrEqual(RECALL_POLICY.liveTokens);
+	});
+
+	it("reads its limits on every call", () => {
+		const { truth, codes } = archive(2);
+		let policy = { ...RECALL_POLICY, callTokens: 2_000, liveTokens: 2_000 };
+		const account = new RecallAccount(() => policy);
+		const small = serveRecall(truth, account, "c0", { codes: [`${codes[0]}.1`] });
+		expect(estTokens(small.text)).toBeLessThanOrEqual(2_000);
+		land(truth, "c0", small.text);
+		expect(serveRecall(truth, account, "c1", { codes: [`${codes[0]}.1`], page: 2 }).view).toBeNull();
+		policy = RECALL_POLICY;
+		expect(serveRecall(truth, account, "c2", { codes: [`${codes[1]}.1`] }).view).not.toBeNull();
+	});
 });

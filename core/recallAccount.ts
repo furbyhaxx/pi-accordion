@@ -33,7 +33,12 @@ export function isRecallResult(b: Block): boolean {
 export class RecallAccount {
 	private readonly reserved = new Map<string, number>();
 
-	constructor(readonly policy: RecallPolicy = RECALL_POLICY) {}
+	/** `policy` is read on every call, so a settings change applies to the next one. */
+	constructor(private readonly current: () => RecallPolicy = () => RECALL_POLICY) {}
+
+	get policy(): RecallPolicy {
+		return this.current();
+	}
 
 	/** Tokens of recalled text the context holds or is about to receive. */
 	outstanding(truth: Truth): number {

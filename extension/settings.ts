@@ -12,6 +12,7 @@ import { DOOR_PORT } from "../core/protocol";
 import { REGISTRY_DIR } from "../app/src/lib/live/registry";
 import { sanitizeModelDefaults, type ModelDefaults } from "./dials";
 import { TASKFOLD_DEFAULTS } from "../conductors/in-process/taskfold/taskfold";
+import { RECALL_POLICY } from "../core/recallAccount";
 
 export type CompactMode = "accordion" | "suppress" | "native";
 
@@ -58,6 +59,14 @@ export interface TaskfoldSettings {
 	steps: { enabled: boolean; minSteps: number };
 }
 
+/** Bounds of the agent's `recall` tool, in tokens. */
+export interface RecallSettings {
+	/** Most one call returns across all its codes. */
+	callTokens: number;
+	/** Most recalled text standing in the context at once. */
+	liveTokens: number;
+}
+
 export interface AccordionSettings {
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
@@ -78,6 +87,7 @@ export interface AccordionSettings {
 	taskWidget: TaskWidgetSettings;
 	tasks: TaskSettings;
 	taskfold: TaskfoldSettings;
+	recall: RecallSettings;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
 }
@@ -94,6 +104,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	taskWidget: { mode: "auto", expanded: false, maxRows: 12, toggleKey: "alt+t" },
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
+	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens },
 	modelDefaults: {},
 };
 
@@ -236,6 +247,15 @@ export function sanitizeTaskfoldSettings(value: unknown): TaskfoldSettings {
 	return { high, low, keepRecentTasks: range(raw.keepRecentTasks, defaults.keepRecentTasks, 0, 1000), recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
 }
 
+export function sanitizeRecallSettings(value: unknown): RecallSettings {
+	const defaults = DEFAULT_SETTINGS.recall;
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const range = (v: unknown, fallback: number, min: number, max: number) => typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : fallback;
+	const callTokens = range(raw.callTokens, defaults.callTokens, 2000, 50000);
+	// The standing limit must admit at least one full call.
+	return { callTokens, liveTokens: Math.max(callTokens, range(raw.liveTokens, defaults.liveTokens, 2000, 200000)) };
+}
+
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
@@ -337,6 +357,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		taskWidget: sanitizeTaskWidget(fileData.taskWidget),
 		tasks: sanitizeTaskSettings(fileData.tasks),
 		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
+		recall: sanitizeRecallSettings(fileData.recall),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
 }
@@ -354,6 +375,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		taskWidget: sanitizeTaskWidget(settings.taskWidget),
 		tasks: sanitizeTaskSettings(settings.tasks),
 		taskfold: sanitizeTaskfoldSettings(settings.taskfold),
+		recall: sanitizeRecallSettings(settings.recall),
 		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
 	};
 	try {
