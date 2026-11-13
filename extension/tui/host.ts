@@ -51,7 +51,9 @@ export interface AccordionTuiHost {
 	/** Save a budget or tail as the default for this session's model; returns a status message. */
 	saveDialDefault?(kind: NumericDialKind, value: number): string | Promise<string>;
 	/** One compaction pass with the given strategy; resolves once it has run. */
-	compact?(strategy: "pass" | "aggressive" | "bake" | "native"): { before: number; after: number; message: string } | Promise<{ before: number; after: number; message: string }>;
+	compact?(strategy: "pass" | "aggressive" | "bake" | "native", instructions?: string): { before: number; after: number; message: string } | Promise<{ before: number; after: number; message: string }>;
+	/** What each strategy would free right now, for the confirm screen; null means "cannot know". */
+	compactPreview?(): { pass: number | null; aggressive: number; bake: number; native: null } | null;
 	listSessions?(): Promise<SessionEntry[]>;
 	/** Task data for the Tasks and Lists tabs; absent for a remote session. */
 	tasks?: TaskTabsHost;

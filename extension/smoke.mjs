@@ -922,11 +922,14 @@ if (unfoldTool && foldCodeStr) {
 // Folding is ARMED (true) here (Phase C step (0) restored it). A connected client (`a`) is attached
 // throughout this block — the whole point of the policy is that attachment alone must NOT suppress.
 {
-	// (1) folding ON + client attached → suppressed, with the "armed" notify.
+	// (1) folding ON + client attached, but the context is already saturated and the configured
+	//     fallback is `native`: pi's own summarizer runs instead of being suppressed (SPEC-0001 §7.2).
+	//     A pass that does bring the context under the line suppresses it instead — see (1b) and the
+	//     unit tests for that branch, which need a window this fixture cannot shrink.
 	notifications.length = 0;
 	const armedRet = await Promise.resolve(handlers.session_before_compact({ reason: "threshold" }, ctx));
-	if (!armedRet || armedRet.cancel !== true) fails.push("folding ON did not suppress native compaction (expected {cancel:true})");
-	if (!notifications.some((n) => n.message.includes("suppressed"))) fails.push("folding-ON suppression did not notify");
+	if (armedRet !== undefined) fails.push(`a saturated threshold pass with onSaturated=native must leave native compaction alone (got ${JSON.stringify(armedRet)})`);
+	if (!notifications.some((n) => n.message.includes("native compaction"))) fails.push("the saturated threshold fallback did not notify");
 
 	// (1b) manual /compact while folding ON triggers an immediate Accordion compression pass and suppresses native compaction.
 	notifications.length = 0;

@@ -35,7 +35,8 @@ Context (map and block list, `alt+v` switches), Tasks, Lists, Conductors and Set
 typing filters the block list, `F1` lists the keys of the current tab. Every action is a modifier
 chord (`alt+f` fold, `alt+p` pin, `alt+e` edit digest, `alt+c` compact, …); settings for all
 sessions are staged and saved with `ctrl+s`. `/accordion context|conductors|settings` opens a tab
-directly, `/accordion tasks tree|lists` the Tasks or Lists tab. Use `/accordion compact` to run an immediate compression pass, `/accordion tasks` to expand or
+directly, `/accordion tasks tree|lists` the Tasks or Lists tab. Use `/accordion compact [pass|aggressive|bake|native] [instructions…]` to run a compression pass
+directly and `/accordion compact undo` to reverse the last one, `/accordion tasks` to expand or
 collapse the taskfold task list above the editor (also `alt+t`), `/accordion tasks lists` to browse
 and attach the project's task lists (tasks show as ☐ todo, ▶/◐ in progress, ⧗ blocked with its
 reason, ▣ done, ☒ failed, ⊘ abandoned) and drill into a task's details and folds. In the expanded

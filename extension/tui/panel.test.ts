@@ -76,7 +76,8 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, termin
 			token: tokenState,
 			clients: 1,
 		}),
-		compact: () => ({ before: 40, after: 20, message: "compacted 40 → 20 tok" }),
+		compact: (strategy: string) => { compactStrategies.push(strategy); return { before: 40, after: 20, message: "compacted 40 → 20 tok" }; },
+		compactPreview: () => ({ pass: 18_400, aggressive: 62_700, bake: 9_800, native: null }),
 		command: (cmd) => {
 			commands.push(cmd);
 			const result = refuse ? { results: [], rev: truth.rev, refused: "read-only" as const } : cmd.kind === "ops" ? truth.apply(cmd.ops, "you") : { results: [], rev: truth.rev };
@@ -91,6 +92,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, termin
 	let editorPrefill = "";
 	let editorHook = () => {};
 	let confirmResult = true;
+	const compactStrategies: string[] = [];
 	let confirmations: string[] = [];
 	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
 		finish = () => { component?.dispose?.(); resolve(undefined); };
@@ -98,7 +100,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, termin
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
-	return { host, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { host, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, compactStrategies: () => compactStrategies, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 function selectSetting(s: ReturnType<typeof setup>, label: string) {
@@ -403,10 +405,19 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
-	test("compacts with a chord", async () => {
+	test("compacts through the confirm screen, which projects each strategy before running", async () => {
 		const s = setup();
 		s.panel.handleInput(K.alt("c"));
+		await tick(1);
+		const screen = s.screen();
+		expect(screen).toContain("Compact the context now?");
+		expect(screen).toContain("−62.7k");
+		expect(screen).toContain("Taskfold decides");
+		expect(s.compactStrategies()).toEqual([]);
+		s.panel.handleInput(K.down);
+		s.panel.handleInput(K.enter);
 		await tick(2);
+		expect(s.compactStrategies()).toEqual(["aggressive"]);
 		expect(s.screen()).toContain("compacted 40 → 20 tok");
 		s.close(); await s.opening;
 	});

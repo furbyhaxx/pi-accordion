@@ -4,6 +4,7 @@ import type { Block } from "../../../core/types";
 import { bindingHint, clean, fitSegments, type Hint, rawHint } from "../chrome";
 import { buildContextMap, kindGlyph, renderCategoryBar } from "../map";
 import type { PanelTab, Shell, TabView } from "./types";
+import { formatTokens } from "../../dials";
 
 const PREVIEW_CHARS = 240;
 
@@ -198,7 +199,26 @@ export function createContextTab(shell: Shell): PanelTab {
 			else if (matchesKey(data, "alt+c")) {
 				const compact = host.compact?.bind(host);
 				if (!compact) shell.say("Compaction is not available on this host");
-				else void shell.run("Compacting context…", async () => (await compact("pass")).message);
+				else {
+					const preview = host.compactPreview?.() ?? null;
+					const saved = (n: number | null, unknown: string) => (n === null ? unknown : n > 0 ? `−${formatTokens(n)}` : "nothing");
+					shell.confirm({
+						crumb: "Compact",
+						title: [
+							"Compact the context now?",
+							`pass         Taskfold decides              ${saved(preview?.pass ?? null, "conductor decides")}`,
+							`aggressive   fold every eligible block     ${saved(preview?.aggressive ?? null, "unknown")}`,
+							`bake         permanent summary, no recall  ${saved(preview?.bake ?? null, "unknown")}`,
+							`native       pi summarizes (model call)    unknown`,
+						].join("\n"),
+						options: ["pass", "aggressive", "bake", "native"],
+						then: (choice) => {
+							const strategy = choice === null ? undefined : (["pass", "aggressive", "bake", "native"] as const)[choice];
+							if (!strategy) return;
+							void shell.run(`Compacting (${strategy})…`, async () => (await compact(strategy)).message);
+						},
+					});
+				}
 			} else if (matchesKey(data, "alt+e")) editDigest("edit");
 			else if (matchesKey(data, "alt+r")) editDigest("default");
 			else if (!block || !truth) return false;

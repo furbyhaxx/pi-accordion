@@ -270,7 +270,9 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
 
 - `alt+v` switches between the colored 2D context map and the block list; typing filters the blocks.
 - Every action is a modifier chord, e.g. `alt+f` fold, `alt+p` pin, `alt+e` edit digest; plain keys only type.
-- `alt+c` or `/accordion compact` runs an immediate Accordion compression pass.
+- `alt+c` previews a compaction pass: each strategy's projection, then `enter` to run it.
+  `/accordion compact [pass|aggressive|bake|native] [instructions…]` runs a strategy directly,
+  `/accordion compact undo` reverses the last reversible pass.
 - `/accordion context`, `/accordion conductors` and `/accordion settings` open the panel on that tab.
 - Folding auto-arms with the `keel-lite` conductor by default (configurable in `~/.accordion/config.json`
   or the Settings tab, where values for all sessions are staged and saved with `ctrl+s`), replacing Pi's native `/compact` and threshold auto-compaction with

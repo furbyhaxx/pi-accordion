@@ -56,7 +56,7 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
-import { applyUndo, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
+import { aggressiveProjection, applyUndo, buildBakeSummary, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
 import { compactCardLines, compactCardTitle } from "./compactCard";
 import { Text } from "@earendil-works/pi-tui";
 import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
@@ -3745,12 +3745,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			: first;
 		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
 		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
-		const underBudget = window > 0 && record.after <= window - reserve;
+		// Without a known window we cannot prove saturation, so the pass's result stands.
+		const underBudget = window > 0 ? record.after <= window - reserve : true;
 		const degraded = record.after >= record.before;
 		const note = `${record.message} — native compaction suppressed.`;
 		if (trigger === "threshold" && underBudget) return { cancel: true };
 		if (trigger === "threshold" && degraded && settings.compact.onSaturated !== "bake" && settings.compact.onSaturated !== "warn") {
 			// Nothing freed and the context is still over the line: leave Pi's own summarizer to it.
+			const fallbackNote = "Accordion could not free enough — falling back to native compaction.";
+			try { ctx.ui.notify(fallbackNote, "info"); } catch { /* ignore */ }
+			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
 		if (trigger === "threshold" && degraded && settings.compact.onSaturated === "warn") {
@@ -4307,9 +4311,22 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					refreshControllerNow();
 					return holdsControl(surfaceId, openedSessionId);
 				}),
-				compact: async (strategy) => {
-					const outcome = await compact({ trigger: "panel", strategy });
+				compact: async (strategy, instructions) => {
+					const outcome = await compact({ trigger: "panel", strategy, ...(instructions ? { instructions } : {}) });
 					return { before: outcome.record.before, after: outcome.record.after, message: outcome.record.message };
+				},
+				compactPreview: () => {
+					if (!truth) return null;
+					const window = truth.stats().contextWindow || 200_000;
+					const cap = Math.min(20_000, Math.max(1_000, Math.floor(0.1 * window)));
+					const summary = buildBakeSummary(truth.blocks, { capTokens: cap });
+					const saved = liveHost.cachedStatus()?.metrics?.saved;
+					return {
+						pass: typeof saved === "number" ? saved : null,
+						aggressive: aggressiveProjection(truth),
+						bake: Math.max(0, truth.stats().liveTokens - Math.ceil(summary.length / 4)),
+						native: null,
+					};
 				},
 				listSessions: () => discoverNativeSessions(),
 				tasks: { views: taskViewsHost(surfaceId, openedSessionId), lists: taskSession?.listsHost() ?? null },
