@@ -4338,7 +4338,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const refused = `the recall model ${m.provider}/${m.id} is a remote model other than this session's and has no consent`;
 		if (!interactive || !ctx.hasUI) return refused;
 		const session = sessionId;
-		const accepted = await ctx.ui.confirm("Recall: privacy notice", `recall({ask}) sends task reports and excerpts of this session's folded context to ${m.provider}/${m.id}.\n\nAccept once and allow it?`).catch(() => false);
+		const accepted = await ctx.ui.confirm("Recall: privacy notice", `recall({ask}) sends task reports and excerpts of this session's folded context to ${m.provider}/${m.id}. When the fact ledger is enabled, it also sends folded task entries to the same model automatically in the background.\n\nAccept once and allow both?`).catch(() => false);
 		if (!accepted || session !== sessionId) return refused;
 		settings = saveSettings(HOME, { ...settings, privacyConsent: { ...settings.privacyConsent, recall: new Date().toISOString() } });
 		return null;

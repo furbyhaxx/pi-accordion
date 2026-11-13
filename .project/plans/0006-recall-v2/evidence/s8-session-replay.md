@@ -37,3 +37,15 @@ named the task; searches returned earlier recall results. The third run is the t
 
 Still seen in the third run: the agent read the whole cited entry (7,800 tokens, one page) to check
 the `ask` answer. The hint under an answer now names a search of the entry instead; not re-run.
+
+# Additional live acceptance (2026-11-13)
+
+With a 48k budget and default-on ledger, a PiG session read three synthetic logs, folded tasks,
+and recalled the first task code. The result was its report, including `Finished alpha`, not its
+approximately 13k-token transcript. Largest measured provider input plus cache read was 23,849.
+After resuming this scratch session, the agent recalled a large entry, made four separate tool
+calls, then recalled it three more times. A separate observation hook saw a released recall stub
+in a later outgoing context. This uses synthetic data; it does not prove every expiry condition.
+
+A separate 24k-budget run was stopped after recall refused for lack of room; it did not demonstrate
+report retrieval. The changed `ask` citation-search hint remains untested in a live session.

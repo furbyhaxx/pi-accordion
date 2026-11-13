@@ -34,10 +34,10 @@ Branch `feat/recall-redesign`; worktree `.pi/worktrees/recall-redesign`. The cur
 - Done: the fact ledger is enabled by default; explicit `recall.ledger.enabled: false` opts out.
   Extraction uses the recall chat route and can incur cost; a different remote model requires
   prior recall consent. The settings test and default-on extension smoke pass.
-- Now: run the required app, extension and Bun gates and verify report-first and expired recall
-  in a live PiG session. The prior live run did not establish either of those two acceptance cases;
-  its post-run citation-search hint also has not been retested.
-- Next: review the final diff, merge into `feat/pi-native`, push, and update the installed PiG
+- Done: the required app, extension and Bun gates passed; a live PiG session demonstrated
+  report-first retrieval and a later released recall stub (`evidence/s8-session-replay.md`).
+  The changed `ask` citation-search hint has not been retested live.
+- Now: review the final diff, merge into `feat/pi-native`, push, and update the installed PiG
   package on devlap05 and devsrv01. Verify the installed revision and a live load on each host.
 
 ## Boundaries and remaining evidence
