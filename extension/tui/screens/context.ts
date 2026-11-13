@@ -196,9 +196,9 @@ export function createContextTab(shell: Shell): PanelTab {
 			} else if (matchesKey(data, "alt+v")) mapView = !mapView;
 			else if (matchesKey(data, "alt+o")) void shell.send({ kind: "setFolding", value: !host.folding() });
 			else if (matchesKey(data, "alt+c")) {
-				const compact = host.compactNow?.bind(host);
+				const compact = host.compact?.bind(host);
 				if (!compact) shell.say("Compaction is not available on this host");
-				else void shell.run("Compacting context…", async () => (await compact()).message);
+				else void shell.run("Compacting context…", async () => (await compact("pass")).message);
 			} else if (matchesKey(data, "alt+e")) editDigest("edit");
 			else if (matchesKey(data, "alt+r")) editDigest("default");
 			else if (!block || !truth) return false;

@@ -76,7 +76,7 @@ function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, termin
 			token: tokenState,
 			clients: 1,
 		}),
-		compactNow: () => ({ beforeTokens: 40, afterTokens: 20, message: "Accordion compacted context: 40 → 20 tok (−20 tok)" }),
+		compact: () => ({ before: 40, after: 20, message: "compacted 40 → 20 tok" }),
 		command: (cmd) => {
 			commands.push(cmd);
 			const result = refuse ? { results: [], rev: truth.rev, refused: "read-only" as const } : cmd.kind === "ops" ? truth.apply(cmd.ops, "you") : { results: [], rev: truth.rev };
@@ -407,7 +407,7 @@ describe("accordion panel", () => {
 		const s = setup();
 		s.panel.handleInput(K.alt("c"));
 		await tick(2);
-		expect(s.screen()).toContain("Accordion compacted context: 40 → 20 tok");
+		expect(s.screen()).toContain("compacted 40 → 20 tok");
 		s.close(); await s.opening;
 	});
 

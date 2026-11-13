@@ -141,29 +141,29 @@ check("native polling adopts hot policies, retains valid state on errors and rec
 	r.ctx.ui.notify = text => notices.push(text);
 	try {
 		const host = await r.open();
-		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx).cancel, true);
+		assert.equal((await r.handlers.session_before_compact({ reason: "manual" }, r.ctx))?.cancel, true);
 		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", compact: { manual: "native" } }));
 		await new Promise(resolve => setTimeout(resolve, 100));
 		assert.equal(host.settings().settings.compact.manual, "native");
-		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
+		assert.equal(await r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
 		const rev = host.settings().rev;
 		fs.writeFileSync(config, '{"customToken":"poll-private-tripwire",');
 		await new Promise(resolve => setTimeout(resolve, 100));
 		assert.equal(host.settings().rev, rev, "malformed files must not replace the valid cache");
-		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
+		assert.equal(await r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
 		assert.equal(notices.filter(text => text.startsWith("Accordion settings not reloaded:")).length, 1);
 		assert.doesNotMatch(notices.join("\n"), /poll-private-tripwire/);
 		fs.rmSync(config); fs.mkdirSync(config);
 		await new Promise(resolve => setTimeout(resolve, 100));
 		assert.equal(host.settings().rev, rev, "unreadable files must not replace the valid cache");
-		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
+		assert.equal(await r.handlers.session_before_compact({ reason: "manual" }, r.ctx), undefined);
 		assert.equal(notices.filter(text => text.startsWith("Accordion settings not reloaded:")).length, 2);
 		fs.rmSync(config, { recursive: true });
 		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "taskfold", compact: { manual: "pass" } }));
 		await new Promise(resolve => setTimeout(resolve, 100));
 		assert.equal(host.settings().settings.compact.manual, "pass");
 		assert.equal(host.activeConductor(), null, "a reloaded default conductor does not attach by itself");
-		assert.equal(r.handlers.session_before_compact({ reason: "manual" }, r.ctx).cancel, true);
+		assert.equal((await r.handlers.session_before_compact({ reason: "manual" }, r.ctx))?.cancel, true);
 		assert.equal(host.activeConductor()?.id, "taskfold", "running a compaction arms the default conductor, gated until consent");
 	} finally {
 		r.close(); fs.rmSync(config, { force: true, recursive: true });

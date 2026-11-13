@@ -50,7 +50,8 @@ export interface AccordionTuiHost {
 	dials?(): (ResolvedDials & { model: string | null }) | null;
 	/** Save a budget or tail as the default for this session's model; returns a status message. */
 	saveDialDefault?(kind: NumericDialKind, value: number): string | Promise<string>;
-	compactNow?(): { beforeTokens: number; afterTokens: number; message: string } | Promise<{ beforeTokens: number; afterTokens: number; message: string }>;
+	/** One compaction pass with the given strategy; resolves once it has run. */
+	compact?(strategy: "pass" | "aggressive" | "bake" | "native"): { before: number; after: number; message: string } | Promise<{ before: number; after: number; message: string }>;
 	listSessions?(): Promise<SessionEntry[]>;
 	/** Task data for the Tasks and Lists tabs; absent for a remote session. */
 	tasks?: TaskTabsHost;

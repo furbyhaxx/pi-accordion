@@ -56,6 +56,9 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
+import { applyUndo, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
+import { compactCardLines, compactCardTitle } from "./compactCard";
+import { Text } from "@earendil-works/pi-tui";
 import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
 import { cacheProfileFor } from "../core/cacheProfiles";
 import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
@@ -574,30 +577,88 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return next;
 	}
 
-	function compactNow(): { beforeTokens: number; afterTokens: number; message: string } {
-		if (!truth) return { beforeTokens: 0, afterTokens: 0, message: "No context to compact." };
-		const beforeTokens = truth.stats().liveTokens;
-		if (!foldingEnabled) setFolding(true);
-		if (!liveHost.activeMeta() && settings.defaultConductor && settings.defaultConductor !== "none") {
-			selectConductor(settings.defaultConductor);
+	/** The entry type of a compaction result card; it never reaches the model. */
+	const COMPACT_ENTRY = "accordion.compact";
+	/** The last pass, and its bake payload while Pi is storing one — both for undo and the card. */
+	let lastCompact: CompactRecord | null = null;
+	let lastBake: CompactOutcome["bake"];
+
+	/** The compaction card in the transcript; it is an entry, so it never reaches the model. */
+	try {
+		pi.registerEntryRenderer?.<CompactRecord>(COMPACT_ENTRY, (entry, _opts, theme) => {
+			const record = entry.data;
+			if (!record) return undefined;
+			const lines = compactCardLines(record);
+			return new Text(lines.map((line, i) => (i === 0 ? theme.fg("accent", line) : i === 4 ? theme.fg("dim", line) : line)).join("\n"), 1, 0);
+		});
+	} catch { /* renderer is TUI-only */ }
+
+	function recordCompact(record: CompactRecord): void {
+		try { pi.appendEntry(COMPACT_ENTRY, record); } catch { /* transcript only */ }
+		broadcast({ type: "notice", text: `${compactCardTitle(record)} — ${record.message}` });
+	}
+
+	/** One compaction pass, whichever entry point asked for it (SPEC-0001 §7). */
+	function compactionDeps(): CompactDeps {
+		return {
+			truth: () => truth,
+			folding: () => foldingEnabled,
+			armFolding: () => { if (!foldingEnabled) setFolding(true); },
+			conductor: () => {
+				const meta = liveHost.activeMeta();
+				return meta ? { id: meta.id, label: meta.label } : null;
+			},
+			attachDefault: () => {
+				if (settings.defaultConductor && settings.defaultConductor !== "none") selectConductor(settings.defaultConductor);
+			},
+			requestPass: (opts) => liveHost.requestPass(opts),
+			conductorSaved: () => {
+				const saved = liveHost.cachedStatus()?.metrics?.saved;
+				return typeof saved === "number" ? saved : null;
+			},
+			now: () => Date.now(),
+			id: () => crypto.randomUUID(),
+		};
+	}
+
+	/**
+	 * `/accordion compact [strategy] [instructions…] | undo`. Without a strategy the human's
+	 * configured manual policy decides; `undo` reverses the last pass when its blocks are still folded.
+	 */
+	async function handleCompactCommand(rest: string, ctx: ExtensionContext): Promise<CompactRecord | null> {
+		if (rest === "undo") {
+			const record = lastCompact;
+			if (!record?.undo) { ctx.ui.notify("Nothing to undo — the last pass folded nothing reversible.", "warning"); return null; }
+			if (!truth) { ctx.ui.notify("No session model yet", "warning"); return null; }
+			const { restored, skipped } = applyUndo(truth, record.undo);
+			lastCompact = null;
+			const text = `Undid the last compaction: ${restored} block(s) unfolded${skipped ? `, ${skipped} no longer folded` : ""}.`;
+			ctx.ui.notify(text, skipped ? "warning" : "info");
+			notifyNative();
+			return { ...record, after: truth.stats().liveTokens, message: text, undo: null };
 		}
-		const last = truth.blocks[truth.blocks.length - 1];
-		liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
-		if (truth.stats().liveTokens >= beforeTokens) {
-			const eligible = truth.blocks
-				.filter((b) => !truth!.isProtected(b) && !truth!.isFolded(b) && !truth!.held(b) && !truth!.groupOf(b) && wireFoldable(b) && truth!.foldedTokensOf(b) < b.tokens)
-				.map((b) => b.id);
-			if (eligible.length > 0) {
-				truth.apply([{ kind: "fold", ids: eligible }], "auto");
-			}
+		const [head, ...tail] = rest ? rest.split(/\s+/) : [];
+		const named: CompactStrategy | null = head === "pass" || head === "aggressive" || head === "bake" || head === "native" ? head : null;
+		const instructions = (named ? tail.join(" ") : rest).trim() || undefined;
+		const strategy: CompactStrategy = named ?? (settings.compact.manual === "native" ? "pass" : settings.compact.manual);
+		const { record } = await compact({ trigger: "command", strategy, ...(instructions ? { instructions } : {}) });
+		if (strategy === "native") {
+			// Pi's own summarizer runs off-thread and reports through the callbacks, not a promise.
+			ctx.compact({
+				...(instructions ? { customInstructions: instructions } : {}),
+				onError: (error) => ctx.ui.notify(`Native compaction failed: ${error.message}`, "error"),
+			});
 		}
-		const afterTokens = truth.stats().liveTokens;
-		const saved = Math.max(0, beforeTokens - afterTokens);
-		const message =
-			saved > 0
-				? `Accordion compacted context: ${beforeTokens} → ${afterTokens} tok (−${saved} tok)`
-				: `Accordion folding armed (${afterTokens} tok live; remaining blocks are protected or pinned)`;
-		return { beforeTokens, afterTokens, message };
+		return record;
+	}
+
+	/** Run a pass and keep its record for undo; `card` also reports it to the transcript. */
+	async function compact(req: CompactRequest, opts: { card?: boolean } = {}): Promise<CompactOutcome> {
+		const outcome = await runCompaction(req, compactionDeps());
+		lastCompact = outcome.record;
+		lastBake = outcome.bake;
+		if (opts.card !== false) recordCompact(outcome.record);
+		return outcome;
 	}
 
 	let wss: WebSocketServer | null = null;
@@ -909,8 +970,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// A pressure fold inside the agent's own leaf is invisible from its side: queue the note.
 		const floorSpans = status?.metrics?.floor_spans;
 		if (typeof floorSpans === "string" && floorSpans) taskCoach.floorTap(floorSpans.split(","));
-		const stats = truth.stats();
-		const text = footerText({ folding: foldingEnabled, conductor: active, timing, statusText: status?.text ?? null, level, usage: stats.budget > 0 ? { live: stats.liveTokens, budget: stats.budget } : null });
+		const stats = truth?.stats();
+		const text = footerText({ folding: foldingEnabled, conductor: active, timing, statusText: status?.text ?? null, level, usage: stats && stats.budget > 0 ? { live: stats.liveTokens, budget: stats.budget } : null });
 		try {
 			const color = level === "error" ? "error" : level === "warning" ? "warning" : foldingEnabled ? "accent" : "dim";
 			const footer = ctx.ui.theme.fg(color, text);
@@ -3667,38 +3728,62 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		messages.forEach((msg, i) => ingestFinishedMessage(msg, i === lastAssistantIdx));
 	});
 
-	pi.on("session_before_compact", (event, ctx: ExtensionContext) => {
+	pi.on("session_before_compact", async (event, ctx: ExtensionContext) => {
 		if (!foldingEnabled) return;
-		const reason = (event as { reason?: string } | undefined)?.reason;
-		if (reason !== "overflow" && (reason === "manual" ? settings.compact.manual === "native" : settings.compact.threshold === "native")) return;
-		if (reason === "manual") {
-			const res = compactNow();
-			const note = `${res.message} — native compaction suppressed.`;
-			try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
-			broadcast({ type: "notice", text: res.message });
+		const ev = event as { reason?: string; customInstructions?: string; preparation?: { firstKeptEntryId?: string; tokensBefore?: number; messagesToSummarize?: unknown[]; settings?: { reserveTokens?: number } } };
+		const reason = ev.reason;
+		const strategy: CompactStrategy =
+			reason === "overflow" ? "pass" : reason === "manual" ? settings.compact.manual : settings.compact.threshold;
+		if (strategy === "native") return;
+		const instructions = typeof ev.customInstructions === "string" && ev.customInstructions.trim() ? ev.customInstructions.trim() : undefined;
+		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
+		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}) }, { card: false });
+		// Saturated overflow: the configured fallback decides what happens after a pass frees nothing.
+		const saturatedFallback = trigger === "overflow" && first.record.after >= first.record.before;
+		const { record } = saturatedFallback && settings.compact.onSaturated === "bake"
+			? await compact({ trigger, strategy: "bake", ...(instructions ? { instructions } : {}) }, { card: false })
+			: first;
+		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
+		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
+		const underBudget = window > 0 && record.after <= window - reserve;
+		const degraded = record.after >= record.before;
+		const note = `${record.message} — native compaction suppressed.`;
+		if (trigger === "threshold" && underBudget) return { cancel: true };
+		if (trigger === "threshold" && degraded && settings.compact.onSaturated !== "bake" && settings.compact.onSaturated !== "warn") {
+			// Nothing freed and the context is still over the line: leave Pi's own summarizer to it.
+			return;
+		}
+		if (trigger === "threshold" && degraded && settings.compact.onSaturated === "warn") {
+			const saturated = "context threshold reached: Accordion cannot free more; switch /compact to native or bake";
+			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
+			broadcast({ type: "notice", text: saturated });
 			return { cancel: true };
 		}
-		if (reason === "overflow") {
-			const res = compactNow();
-			if (res.afterTokens < res.beforeTokens || settings.compact.onSaturated === "warn") {
-				const note = `${res.message} — native compaction suppressed.`;
-				try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
-				broadcast({ type: "notice", text: res.message });
-				return { cancel: true };
-			}
+		if (trigger === "overflow" && degraded && settings.compact.onSaturated !== "warn") {
 			const fallbackNote = "Accordion saturated on context overflow — falling back to native compaction.";
 			try { ctx.ui.notify(fallbackNote, "warning"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
-		if (settings.compact.threshold === "pass" && truth) {
-			const last = truth.blocks[truth.blocks.length - 1];
-			liveHost.fireTurnCommitted(last ? last.turn : 0, truth.rev);
+		if (trigger === "overflow" && degraded) {
+			const saturated = "context overflow: Accordion cannot free more; switch /compact to native or bake";
+			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
+			broadcast({ type: "notice", text: saturated });
+			return { cancel: true };
 		}
-		try {
-			ctx.ui.notify("Accordion folding armed — native compaction suppressed.", "info");
-		} catch {
-			/* ignore */
+		recordCompact(record);
+		try { ctx.ui.notify(note, "info"); } catch { /* ignore */ }
+		if (record.strategy === "bake" && lastBake) {
+			const preparation = ev.preparation;
+			return {
+				compaction: {
+					summary: lastBake.summary,
+					firstKeptEntryId: preparation?.firstKeptEntryId ?? "",
+					tokensBefore: preparation?.tokensBefore ?? record.before,
+					estimatedTokensAfter: lastBake.estimatedTokensAfter,
+					details: { accordionBake: 1 },
+				},
+			};
 		}
 		return { cancel: true };
 	});
@@ -4064,9 +4149,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				await handleAccordionWebCommand(ctx);
 				return;
 			}
-			if (argument === "compact") {
-				const res = compactNow();
-				ctx.ui.notify(res.message, "info");
+			if (/^compact(?:\s|$)/.test(argument)) {
+				const rest = argument.slice("compact".length).trim();
+				const record = await handleCompactCommand(rest, ctx);
+				if (record) ctx.ui.notify(record.message, record.after < record.before ? "info" : "warning");
 				return;
 			}
 			if (/^fold(?:\s|$)/.test(argument)) {
@@ -4221,7 +4307,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					refreshControllerNow();
 					return holdsControl(surfaceId, openedSessionId);
 				}),
-				compactNow: () => compactNow(),
+				compact: async (strategy) => {
+					const outcome = await compact({ trigger: "panel", strategy });
+					return { before: outcome.record.before, after: outcome.record.after, message: outcome.record.message };
+				},
 				listSessions: () => discoverNativeSessions(),
 				tasks: { views: taskViewsHost(surfaceId, openedSessionId), lists: taskSession?.listsHost() ?? null },
 				command: (command) => {
