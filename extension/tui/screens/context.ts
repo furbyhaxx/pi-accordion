@@ -2,7 +2,8 @@ import { matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Op } from "../../../core/ops";
 import type { Block } from "../../../core/types";
 import { bindingHint, clean, fitSegments, type Hint, rawHint } from "../chrome";
-import { buildContextMap, kindGlyph, renderCategoryBar } from "../map";
+import { buildContextMap, colorKind, kindGlyph, renderCategoryBar } from "../map";
+import { buildTimeline, clampCell, timelineColumns, type TimelineRow } from "../timeline";
 import type { PanelTab, Shell, TabView } from "./types";
 import { formatTokens } from "../../dials";
 
@@ -13,7 +14,10 @@ export function createContextTab(shell: Shell): PanelTab {
 	const { host } = shell;
 	let selectedId: string | undefined;
 	let lastIndex = 0;
-	let mapView = true;
+	/** `timeline` groups by turn; `grid` and `list` are the flat views. */
+	let mode: "timeline" | "grid" | "list" = "timeline";
+	let rowIndex = 0;
+	let cellIndex = 0;
 	let mapColumns = 1;
 	let rangeId: string | undefined;
 	let query = "";
@@ -22,6 +26,7 @@ export function createContextTab(shell: Shell): PanelTab {
 	let inspectDigest = false;
 	let pageRows = 1;
 
+	const mapView = () => mode !== "list";
 	const blocks = () => host.truth()?.blocks ?? [];
 	const filtered = (): readonly Block[] => {
 		const q = query.trim().toLowerCase();
@@ -119,7 +124,7 @@ export function createContextTab(shell: Shell): PanelTab {
 			rawHint(theme, "alt+f", "fold", 3),
 			rawHint(theme, "alt+p", "pin", 4),
 			rawHint(theme, "alt+u", "auto", 5),
-			rawHint(theme, "alt+v", mapView ? "list" : "map", 6),
+			rawHint(theme, "alt+v", mode === "timeline" ? "grid" : mode === "grid" ? "list" : "timeline", 6),
 			rawHint(theme, "alt+e", "edit digest", 7),
 			rawHint(theme, "alt+r", "engine digest", 11),
 			...(inGroup ? [rawHint(theme, "alt+g", "fold group", 8), rawHint(theme, "alt+d", "delete group", 9)] : []),
@@ -127,6 +132,88 @@ export function createContextTab(shell: Shell): PanelTab {
 			rawHint(theme, "alt+o", "folding on/off", 12),
 			rawHint(theme, "alt+c", "compact", 13),
 		];
+	};
+
+	/** Keep the timeline's row/cell cursor on the block `selectedId` names. */
+	const syncTimelineSelection = (rows: TimelineRow[]): void => {
+		for (let r = 0; r < rows.length; r++) {
+			const at = rows[r].cells.findIndex((c) => c.blockId === selectedId);
+			if (at >= 0) {
+				rowIndex = r;
+				cellIndex = at;
+				return;
+			}
+		}
+		rowIndex = Math.max(0, Math.min(rowIndex, rows.length - 1));
+		cellIndex = clampCell(cellIndex, rows[rowIndex]);
+		selectedId = rows[rowIndex]?.cells[cellIndex]?.blockId;
+	};
+
+	/** The turn timeline: header, one line per turn, then the selected cell's detail. */
+	const timelineView = (truth: NonNullable<ReturnType<typeof host.truth>>, width: number, rows: number): TabView => {
+		const theme = shell.theme();
+		const cols = timelineColumns(width);
+		const all = buildTimeline(truth);
+		syncTimelineSelection(all);
+		const header = fitSegments(
+			[
+				[
+					theme.fg("muted", "turn".padStart(cols.turn)),
+					...(cols.prompt ? [theme.fg("muted", "prompt".padEnd(cols.prompt))] : []),
+					theme.fg("muted", "blocks"),
+					theme.fg("muted", "live".padStart(cols.live)),
+					...(cols.full ? [theme.fg("muted", "full".padStart(cols.full))] : []),
+				].join(" "),
+			],
+			width,
+		);
+		const detailRows = 2;
+		const listRows = Math.max(1, rows - detailRows - 1);
+		const top = Math.max(0, Math.min(rowIndex - Math.floor(listRows / 2), all.length - listRows));
+		const visible = all.slice(top, top + listRows);
+		const body = [header];
+		for (let i = 0; i < visible.length; i++) {
+			const row = visible[i]!;
+			const selected = top + i === rowIndex;
+			const mark = selected ? "›" : " ";
+			const turn = row.system ? "⛨" : String(row.turn);
+			const strip = timelineStrip(row, cols.blocks, selected ? cellIndex : -1, theme);
+			const segments = [
+				theme.fg(selected ? "accent" : "dim", `${mark}${turn.padStart(cols.turn - 1)}`),
+				...(cols.prompt ? [fitSegments([clean(row.label)], cols.prompt)] : []),
+				strip,
+				theme.fg("muted", formatTokens(row.live).padStart(cols.live)),
+				...(cols.full ? [theme.fg("dim", formatTokens(row.full).padStart(cols.full))] : []),
+			];
+			body.push(fitSegments([segments.filter(Boolean).join(" ")], width));
+		}
+		const current = all[rowIndex]?.cells[cellIndex];
+		const block = current ? truth.get(current.blockId) : undefined;
+		body.push(theme.fg("dim", "─".repeat(Math.max(1, width))));
+		body.push(fitSegments([` ${current && block ? describe(block) : "No block selected"}`], width));
+		body.push(fitSegments([` ${block ? clean((block.subst ?? block.text).split("\n").find((l) => l.trim()) ?? "") : ""}`], width));
+		return {
+			body,
+			crumbs: [],
+			description: "One row per turn: U user · A answer · H thinking · ▣ folded group · ! system · ┃ protected tail",
+			hints: hints(block),
+			above: top,
+			below: Math.max(0, all.length - top - listRows),
+		};
+	};
+
+	/** A row's cell strip, windowed around the selected cell when it does not fit. */
+	const timelineStrip = (row: TimelineRow, width: number, selectedCell: number, theme: ReturnType<Shell["theme"]>): string => {
+		const glyphs = row.cells.map((cell, i) => {
+			const group = cell.groupId ? host.truth()?.groups.find((g) => g.id === cell.groupId) : undefined;
+			const painted = cell.glyph === "▣" ? theme.fg("accent", "▣") : colorKind(cell.kind, cell.glyph, cell.folded, !!group?.folded);
+			return `${cell.boundary ? theme.fg("warning", "┃") : ""}${i === selectedCell ? (theme.inverse?.(painted) ?? painted) : painted}`;
+		});
+		const joined = glyphs.join("");
+		const plain = row.cells.length;
+		if (plain <= width) return fitSegments([joined], width);
+		const start = Math.max(0, Math.min(selectedCell - Math.floor(width / 2), plain - width));
+		return `${theme.fg("dim", start > 0 ? "‹" : "")}${fitSegments([glyphs.slice(start, start + width).join("")], width)}${theme.fg("dim", start + width < plain ? "›" : "")}`;
 	};
 
 	return {
@@ -139,7 +226,8 @@ export function createContextTab(shell: Shell): PanelTab {
 			const truth = host.truth();
 			const block = current();
 			const visible = filtered();
-			if (mapView && truth && rows >= 3 && !query) {
+			if (mode === "timeline" && truth && rows >= 3 && !query) return timelineView(truth, width, rows);
+			if (mode === "grid" && truth && rows >= 3 && !query) {
 				const bar = rows >= 5 ? renderCategoryBar(truth, width, (text) => theme.fg("dim", text)) : [];
 				const map = buildContextMap(truth, selectedId, width, Math.max(1, rows - bar.length - 1), { colored: true });
 				mapColumns = map.columns;
@@ -178,9 +266,36 @@ export function createContextTab(shell: Shell): PanelTab {
 			}
 			const truth = host.truth();
 			const block = current();
-			const grid = mapView && !query;
-			const left = grid && matchesKey(data, "left");
-			const right = grid && matchesKey(data, "right");
+			const leftKey = matchesKey(data, "left");
+			const rightKey = matchesKey(data, "right");
+			if (mode === "timeline" && truth && !query) {
+				const all = buildTimeline(truth);
+				syncTimelineSelection(all);
+				if (up || down || leftKey || rightKey || pageUp || pageDown) {
+					if (up) rowIndex = Math.max(0, rowIndex - 1);
+					else if (down) rowIndex = Math.min(all.length - 1, rowIndex + 1);
+					else if (pageUp) rowIndex = Math.max(0, rowIndex - Math.max(1, pageRows - 3));
+					else if (pageDown) rowIndex = Math.min(all.length - 1, rowIndex + Math.max(1, pageRows - 3));
+					else if (leftKey) cellIndex = clampCell(cellIndex - 1, all[rowIndex]);
+					else cellIndex = clampCell(cellIndex + 1, all[rowIndex]);
+					cellIndex = clampCell(cellIndex, all[rowIndex]);
+					selectedId = all[rowIndex]?.cells[cellIndex]?.blockId;
+					return true;
+				}
+				if (matchesKey(data, "home")) { rowIndex = 0; cellIndex = 0; selectedId = all[0]?.cells[0]?.blockId; return true; }
+				if (matchesKey(data, "end")) { rowIndex = all.length - 1; cellIndex = 0; selectedId = all[rowIndex]?.cells[0]?.blockId; return true; }
+				if (matchesKey(data, "alt+v")) { mode = "grid"; return true; }
+				if (keys.matches(data, "tui.select.confirm")) {
+					if (!block) return true;
+					inspecting = true;
+					inspectTop = 0;
+					inspectDigest = false;
+					return true;
+				}
+			}
+			const grid = mode === "grid" && !query;
+			const left = grid && leftKey;
+			const right = grid && rightKey;
 			if (up || down || left || right || pageUp || pageDown) {
 				const visible = filtered();
 				const at = Math.max(0, visible.findIndex((b) => b.id === selectedId));
@@ -194,7 +309,7 @@ export function createContextTab(shell: Shell): PanelTab {
 				inspecting = true;
 				inspectTop = 0;
 				inspectDigest = false;
-			} else if (matchesKey(data, "alt+v")) mapView = !mapView;
+			} else if (matchesKey(data, "alt+v")) mode = mode === "timeline" ? "grid" : mode === "grid" ? "list" : "timeline";
 			else if (matchesKey(data, "alt+o")) void shell.send({ kind: "setFolding", value: !host.folding() });
 			else if (matchesKey(data, "alt+c")) {
 				const compact = host.compact?.bind(host);

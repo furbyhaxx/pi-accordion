@@ -48,6 +48,8 @@ export interface Shell {
 	/** Run a longer action that reports its own result text. */
 	run(started: string, action: () => string | Promise<string>): Promise<void>;
 	confirm(spec: ConfirmSpec): void;
+	/** Switch to another tab by id (Overview's jump keys). */
+	openTab?(id: string): void;
 	editDigest(action: DigestAction): void;
 	update(): void;
 }

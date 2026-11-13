@@ -22,7 +22,7 @@ const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.do
 const K = { up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
 const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
-function setup(delayed = false, start?: PanelTabId, tasks?: TaskTabsHost, terminalRows = 24) {
+function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsHost, terminalRows = 24) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
 	let currentTruth: Truth | null = truth;
@@ -223,6 +223,8 @@ describe("accordion panel", () => {
 
 	test("navigates the context map and switches to the list", async () => {
 		const s = setup();
+		s.panel.handleInput(K.alt("v"));
+		await tick(1);
 		expect(s.screen(36)).toContain("[A1P]");
 		s.panel.handleInput(K.right);
 		expect(s.screen(36)).toContain("[A1P]");
@@ -402,6 +404,19 @@ describe("accordion panel", () => {
 		expect(s.screen(120)).toContain("reopen /accordion");
 		s.panel.handleInput(K.down);
 		expect(s.screen(36)).toContain("reopen /accordion");
+		s.close(); await s.opening;
+	});
+
+	test("lands on the Overview and jumps to the context from it", async () => {
+		const s = setup(false, "overview");
+		const screen = s.screen();
+		expect(screen).toContain("Overview");
+		expect(screen).toContain("Pressure");
+		expect(screen).toContain("Conductor");
+		s.panel.handleInput(K.enter);
+		await tick(1);
+		expect(s.screen()).toContain("Context");
+		expect(s.screen()).toContain("folding off");
 		s.close(); await s.opening;
 	});
 

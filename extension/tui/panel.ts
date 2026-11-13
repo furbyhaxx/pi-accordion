@@ -8,13 +8,14 @@ import type { AccordionTuiHost } from "./host";
 import { formatCompactTokens } from "./map";
 import { createConductorsTab } from "./screens/conductors";
 import { createContextTab } from "./screens/context";
+import { createOverviewTab } from "./screens/overview";
 import { createSettingsTab } from "./screens/settings";
 import { createListsTab, createTasksTab } from "./screens/tasks";
 import type { ConfirmSpec, DigestAction, PanelTab, Shell } from "./screens/types";
 import { statusLevel } from "./status";
 
 /** The tabs of the panel, in bar order. */
-export type PanelTabId = "context" | "tasks" | "lists" | "conductors" | "settings";
+export type PanelTabId = "overview" | "context" | "tasks" | "lists" | "conductors" | "settings";
 
 type Level = "info" | "warning" | "error";
 interface Note {
@@ -41,7 +42,7 @@ function typed(data: string): string | null {
 }
 
 /** Open the current session's interactive context panel in Pi's TUI. */
-export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionTuiHost, start: PanelTabId = "context"): Promise<void> {
+export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionTuiHost, start: PanelTabId = "overview"): Promise<void> {
 	if (ctx.mode !== "tui" || !ctx.hasUI) return;
 	let theme: ChromeTheme = { fg: (_token, text) => text, bold: (text) => text };
 	let keys: ChromeKeys = { matches: () => false };
@@ -106,6 +107,10 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				update();
 			}
 		},
+		openTab: (id) => {
+			const at = tabs.findIndex((tab) => tab.id === id);
+			if (at >= 0) active = at;
+		},
 		confirm: (spec) => {
 			modal = { ...spec, selected: 0 };
 			update();
@@ -113,7 +118,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		editDigest: (action) => leave(action),
 		update,
 	};
-	const tabs: PanelTab[] = [createContextTab(shell), ...(host.tasks ? [createTasksTab(shell, host.tasks), ...(host.tasks.lists ? [createListsTab(shell, host.tasks)] : [])] : []), createConductorsTab(shell), createSettingsTab(shell)];
+	const tabs: PanelTab[] = [createOverviewTab(shell), createContextTab(shell), ...(host.tasks ? [createTasksTab(shell, host.tasks), ...(host.tasks.lists ? [createListsTab(shell, host.tasks)] : [])] : []), createConductorsTab(shell), createSettingsTab(shell)];
 	let active = Math.max(0, tabs.findIndex((tab) => tab.id === start));
 	const staged = () => tabs.reduce((n, tab) => n + tab.dirty(), 0);
 

@@ -42,6 +42,10 @@ export interface AccordionTuiHost {
 	thinkingLevel?(): string | null;
 	webInfo?(): AccordionWebInfo;
 	settings?(): SettingsSnapshot;
+	/** One conductor's saved options, for the Overview's pressure line. */
+	conductorOptions?(id: string): Readonly<Record<string, unknown>>;
+	/** The configured threshold policy (`pass` or `native`), for the Overview's pressure line. */
+	compactThreshold?(): "pass" | "native";
 	reloadSettings?(): SettingsSnapshot | Promise<SettingsSnapshot>;
 	models?(type: "chat" | "classifier"): Promise<readonly AccordionModelChoice[]>;
 	updateSettings?(patch: SettingsPatch, baseRev: string): SettingsSaveResult | Promise<SettingsSaveResult>;

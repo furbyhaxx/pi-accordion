@@ -4104,12 +4104,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	// ── /accordion : open the native context panel ─────────────────────────────
 	const ACCORDION_USAGE = "[context | tasks tree | tasks lists | conductors | settings | sessions | compact | web | tasks | budget | tail | fold]";
-	const PANEL_TAB_ALIASES: Record<string, PanelTabId | undefined> = { context: "context", blocks: "context", "tasks tree": "tasks", "tasks open": "tasks", "tasks lists": "lists", "tasks list": "lists", lists: "lists", conductors: "conductors", conductor: "conductors", settings: "settings", config: "settings" };
+	const PANEL_TAB_ALIASES: Record<string, PanelTabId | undefined> = { overview: "overview", context: "context", blocks: "context", "tasks tree": "tasks", "tasks open": "tasks", "tasks lists": "lists", "tasks list": "lists", lists: "lists", conductors: "conductors", conductor: "conductors", settings: "settings", config: "settings" };
 	pi.registerCommand("accordion", {
 		description: `${ACCORDION_USAGE} — open the Accordion context panel`,
 		getArgumentCompletions: (text: string) => {
 			const q = text.trim().toLowerCase();
 			const items = [
+				{ value: "overview", label: "overview", description: "Open the panel on the Overview: context, savings, conductor" },
 				{ value: "context", label: "context", description: "Open the panel on the Context tab: map and block list" },
 				{ value: "conductors", label: "conductors", description: "Open the panel on the Conductors tab" },
 				{ value: "settings", label: "settings", description: "Open the panel on the Settings tab" },
@@ -4311,6 +4312,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					refreshControllerNow();
 					return holdsControl(surfaceId, openedSessionId);
 				}),
+				conductorOptions: (id) => settings.conductorOptions[id] ?? {},
+				compactThreshold: () => settings.compact.threshold,
 				compact: async (strategy, instructions) => {
 					const outcome = await compact({ trigger: "panel", strategy, ...(instructions ? { instructions } : {}) });
 					return { before: outcome.record.before, after: outcome.record.after, message: outcome.record.message };
