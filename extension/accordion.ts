@@ -80,7 +80,7 @@ import { estTokens } from "../core/tokens";
 import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage } from "../core/wire";
 import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
-import { resolveUnfold } from "../core/agentView";
+import { resolveUnfoldBounded } from "../core/agentView";
 import { RECALL_POLICY, RecallAccount, serveRecall } from "../core/recallAccount";
 import { expireRecall } from "../core/recallExpiry";
 import { guardResults } from "../core/resultGuard";
@@ -4216,7 +4216,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		name: "unfold",
 		label: "Unfold Context",
 		description:
-			"Restore folded context. Accordion (the live context manager attached to this session) may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`. The original content is preserved, not lost. Call this tool with the short code(s) from those tags to restore the full content. The restored content reappears in your context on your NEXT turn (your past context changes); this call confirms what was scheduled. Only unfold what you actually need — it costs tokens.",
+			"Restore folded context. Accordion (the live context manager attached to this session) may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`. The original content is preserved, not lost. Call this tool with the short code(s) from those tags to restore the full content. The restored content reappears in your context on your NEXT turn (your past context changes) and stays in every later request; this call confirms what was scheduled. Use it only for a small block you will keep referring to. A large fold is refused: look things up in it with `recall` instead.",
 		promptSnippet: "unfold(codes) — restore context folded by Accordion (blocks tagged {#<code> FOLDED}).",
 		promptGuidelines: [
 			"When you see a `{#<code> FOLDED}` marker in your context (e.g. `{#3f9a2c FOLDED}`), that block was compacted by Accordion to save tokens — the full content is preserved, not lost. If the summary is not enough for your current task, call `unfold` with the code(s) from the marker(s) to restore them; the content returns on your next turn.",
@@ -4237,8 +4237,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (!truth || !foldingEnabled) {
 				return { content: [{ type: "text", text: "Accordion isn't folding your context right now, so nothing is folded to restore — it is already full." }] };
 			}
-			const res = resolveUnfold(truth, codes); // LOCAL: mutates the Truth (broadcasts to clients)
+			// LOCAL: mutates the Truth (broadcasts to clients). Bounded: a fold too large to stand in the
+			// context stays folded and the agent is pointed at `recall` (SPEC-0003 §6).
+			const ceiling = truth.budget > 0 ? settings.taskfold.high * truth.budget : Number.POSITIVE_INFINITY;
+			const res = resolveUnfoldBounded(truth, codes.map((c) => c.replace(/^#/, "")), { maxTokens: settings.recall.unfoldTokens, ceiling });
 			const lines: string[] = [];
+			for (const r of res.refused) {
+				const why = r.reason === "size" ? `more than one unfold may add (${settings.recall.unfoldTokens.toLocaleString("en-US")})` : "more than the context has room for";
+				lines.push(`#${r.code} stays folded: unfolding it would add ~${Math.round(r.tokens).toLocaleString("en-US")} tokens to every later request, ${why}. Look up what you need instead: recall({codes:["${r.code}"]}) for its report or entry list, recall({codes:["${r.code}"], query:"text"}) to search it.`);
+			}
 			if (res.restored.length) {
 				lines.push(`Unfolded ${res.restored.length} block(s); full content returns on your next turn:`);
 				for (const r of res.restored) lines.push(`  • ${r?.label ?? "block"} (#${r?.code ?? "?"})`);
@@ -4246,7 +4253,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			if (res.missing.length) {
 				lines.push(`No folded block for: ${res.missing.map((c) => "#" + c).join(", ")} (already full, or not in this session's context).`);
 			}
-			// Every input code resolves to restored or missing, so `lines` is always non-empty.
+			// Every input code resolves to restored, missing or refused, so `lines` is always non-empty.
 			return { content: [{ type: "text", text: lines.join("\n") }], details: res };
 		},
 		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "unfold", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),

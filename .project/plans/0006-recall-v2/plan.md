@@ -30,8 +30,8 @@ done  S1  Recall account and report-first task codes
 done  S2  Archive-wide search
 done  S3  Expiry of recall results
 done  S4  Oversized tool-result guard
-next  S5  Bounded unfold
-later S6  recall({ask}) through a side model
+done  S5  Bounded unfold
+next  S6  recall({ask}) through a side model
 later S7  Fact ledger (only if its spike passes)
 later S8  Replay, randomized admission test, gates, live run
 ```

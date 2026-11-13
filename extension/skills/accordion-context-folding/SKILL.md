@@ -45,7 +45,7 @@ Choose between them:
 - **recall** — look it up once, now, bounded. A report, search hits or one entry come back as the tool result this turn; your context is untouched.
 - **unfold** — keep it open. The block returns to your context on your **next** turn and stays open until the human re-folds it.
 
-Prefer `recall` when you just need to glance at a value or quote; use `unfold` only for a small block you will keep referring to over several turns. Never unfold a large finished task to read one detail: search it with `recall`.
+Prefer `recall` when you just need to glance at a value or quote; use `unfold` only for a small block you will keep referring to over several turns. Never unfold a large finished task to read one detail: search it with `recall`. A fold too large to stand in the context is refused and stays folded.
 
 ## What to unfold
 

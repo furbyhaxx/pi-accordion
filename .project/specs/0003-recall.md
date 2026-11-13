@@ -3,14 +3,17 @@ document:
   type: "specification"
   id: "SPEC-0003"
   title: "Recall: bounded retrieval of folded content"
-  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results."
+  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results and the bound on the agent's unfold."
   status: "published"
-  revision: 3
+  revision: 4
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T12:55:37+01:00"
+  updated_at: "2026-11-13T12:57:26+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 4
+      reason: "the agent's unfold could put a fold of any size back into the standing context"
+      changes: ["§6: bounded unfold", "§7: recall.unfoldTokens"]
     - revision: 3
       reason: "one tool result larger than the budget could not be folded and ended a session as saturated"
       changes: ["§5: oversized tool-result guard", "§6: guard.resultTokens"]
@@ -156,17 +159,30 @@ folding is armed, whichever conductor is attached.
 - Left alone: a result with a human override, a result already folded or inside a folded group.
 - The clipped block's code works with `recall` like any fold code: search, or `code.1` in pages.
 
-## 6. Settings (`~/.accordion/config.json`)
+## 6. Bounded unfold
+
+The agent's `unfold` tool goes through `resolveUnfoldBounded` (`core/agentView.ts`). Human unfolds
+in the panel and the web UI are not limited.
+
+- Per code, the cost is the full size of the blocks it would restore minus what they occupy now.
+- Refused `size`: the cost is above `recall.unfoldTokens`.
+- Refused `budget`: the projection plus the cost would reach `taskfold.high × budget`.
+- A refused code changes nothing (no revision). The reply names the cost and the two `recall` calls
+  that reach the content: the code alone, and the code with a query.
+- Codes of one call are decided in order, each against the projection the earlier ones left.
+- A leading `#` on a code is ignored.
+
+## 7. Settings (`~/.accordion/config.json`)
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3 },
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000 },
   "guard": { "resultTokens": 16000 } }
 ```
 
 `callTokens` 2,000–50,000; `liveTokens` 2,000–200,000 and never below `callTokens`; `keepSteps`
-0–100; `resultTokens` 4,000–1,000,000, or 0 to turn the guard off. Read on every call and request.
+0–100; `unfoldTokens` 1,000–1,000,000; `resultTokens` 4,000–1,000,000, or 0 to turn the guard off. Read on every call and request.
 
-## 7. Tests
+## 8. Tests
 
 | What | Where |
 |---|---|
@@ -174,5 +190,6 @@ folding is armed, whichever conductor is attached.
 | whole/index/entry/paging/missing | `core/recallView.test.ts` |
 | used results become stubs in one transaction; recent, held, small and foreign results stay; a refused call is served after a release | `core/recallExpiry.test.ts` |
 | a giant result at the tail of an open task saturates Taskfold without the guard and not with it; both ends kept, rest reachable by search and pages; sent, held and small results untouched; loaded-session repair; recall result → stub | `conductors/in-process/taskfold/resultGuard.test.ts` |
+| unfold of a 40k fold refused with no revision; small fold unfolded in the same call; refusal when the room below the ceiling is too small | `core/unfoldBounded.test.ts` |
 | eleven task codes → eleven reports without transcript; subtasks as codes; `.entries`; archive search, terms, phrase, regex, partial, paging | `conductors/in-process/taskfold/taskReports.test.ts` |
 | the registered tool end to end, including codeless search | `extension/smoke.mjs` |

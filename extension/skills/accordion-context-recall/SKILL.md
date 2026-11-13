@@ -46,4 +46,4 @@ A very large tool result arrives clipped: its beginning, a line `[… ~N of ~M t
 
 ## When to use unfold instead
 
-`unfold({codes: [...]})` puts a block back into your **standing** context from your next turn until the human re-folds it. Use it only for a small block you will keep referencing over several turns.
+`unfold({codes: [...]})` puts a block back into your **standing** context from your next turn until the human re-folds it. Use it only for a small block you will keep referencing over several turns. A fold that is too large for that is refused and stays folded; the reply gives the `recall` calls to use instead.

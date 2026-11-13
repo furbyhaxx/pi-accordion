@@ -208,13 +208,17 @@ assistant messages followed it and room is needed; a call that still does not fi
 one line:
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3 },
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000 },
   "guard": { "resultTokens": 16000 } }
 ```
 
 While folding is armed, a tool result larger than `guard.resultTokens` is clipped to its first and
 last 1,500 tokens before the model sees it; the agent reaches the rest with `recall` (search or
 pages). `0` turns this off.
+
+The agent's `unfold` restores a fold only when it adds at most `recall.unfoldTokens` and the context
+has room for it; otherwise the fold stays folded and the agent is told to use `recall`. Your own
+unfolds in the panel are not limited.
 
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
 context) never appear on the `context` hook path. If you need their cost/usage for external
