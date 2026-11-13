@@ -2257,7 +2257,10 @@ var SERVER_TYPES = /* @__PURE__ */ new Set([
   "proposeResult",
   "completeResult",
   "controller",
-  "notice"
+  "notice",
+  "settings",
+  "tasks",
+  "compaction"
 ]);
 function isServerMessage(v) {
   if (!v || typeof v !== "object" || !("type" in v)) return false;
