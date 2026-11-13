@@ -569,6 +569,9 @@ export interface TurnCommittedMessage {
 	type: "turnCommitted";
 	turn: number;
 	rev: number;
+	/** Additive: `compact` asks for one compaction pass now, with the human's optional guidance. */
+	reason?: "turn" | "compact";
+	instructions?: string;
 }
 
 /** Sent ONLY to the conductor-role client: the reply to its `propose` command. */

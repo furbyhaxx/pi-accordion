@@ -412,6 +412,59 @@ describe("initial pass on select (P1-6)", () => {
 	});
 });
 
+// ── requestPass: one explicit compaction pass, awaited ───────────────────────────
+
+describe("requestPass", () => {
+	it("awaits an in-process conductor's own pass and reports settled", async () => {
+		const t = liveTruth();
+		t.append(textSeq(4));
+		const host = new LiveConductorHost(makeDeps(t).deps);
+		await host.select("doorman");
+		let sawReason: string | undefined;
+		let instructions: string | undefined;
+		const off = host.on(async (e) => {
+			if (e.type !== "turn-committed") return;
+			sawReason = e.reason;
+			instructions = e.instructions;
+			await new Promise((r) => setTimeout(r, 10));
+		});
+		expect(await host.requestPass({ instructions: "keep the API notes" })).toBe("settled");
+		expect(sawReason).toBe("compact");
+		expect(instructions).toBe("keep the API notes");
+		off();
+		host.shutdown();
+	});
+
+	it("reports timeout when the pass outlives its budget, and no-conductor when nothing is attached", async () => {
+		const t = liveTruth();
+		t.append(textSeq(4));
+		const host = new LiveConductorHost(makeDeps(t).deps);
+		expect(await host.requestPass()).toBe("no-conductor");
+		await host.select("doorman");
+		const off = host.on(() => new Promise(() => undefined));
+		expect(await host.requestPass({ timeoutMs: 20 })).toBe("timeout");
+		off();
+		host.shutdown();
+	});
+
+	it("sends the compact reason to a remote conductor and settles after its propose goes quiet", async () => {
+		const t = liveTruth();
+		t.append(textSeq(6));
+		const h = makeDeps(t);
+		const host = new LiveConductorHost(h.deps);
+		host.select("thermocline");
+		const socket = {};
+		host.acceptConductorSocket(socket, host.pendingAttachToken);
+		h.conductorLog.length = 0;
+		const pending = host.requestPass({ instructions: "compress the tail" });
+		const tc = h.conductorLog.find((m) => m.type === "turnCommitted");
+		expect(tc && tc.type === "turnCommitted" && tc.reason === "compact" && tc.instructions === "compress the tail").toBe(true);
+		host.handleConductorMessage(socket, { type: "propose", seq: 1, baseRev: t.rev, ops: [] });
+		expect(await pending).toBe("settled");
+		host.shutdown();
+	});
+});
+
 // ── P1-5: detach inherits the conductor-enforced tail ────────────────────────────
 describe("detach — inherit the conductor's tail (P1-5)", () => {
 	it("adopts the tail-size conductor's enforced tail as protectTokens so the frozen fold isn't healed back", () => {

@@ -104,6 +104,11 @@ function isThenable(v: unknown): v is Promise<unknown> {
 }
 
 /** A cancellable timeout that resolves to `"timeout"` — used to bound a hold window. */
+/** How long `requestPass` waits for a pass to settle, in-process or remote. */
+const PASS_TIMEOUT_MS = 10_000;
+/** REMOTE settle rule: an applied propose followed by this much silence ends the pass. */
+const PASS_QUIET_MS = 300;
+
 function timeoutMarker(ms: number): { promise: Promise<"timeout">; cancel: () => void } {
 	let timer: ReturnType<typeof setTimeout>;
 	const promise = new Promise<"timeout">((resolve) => {
@@ -158,6 +163,8 @@ export class LiveConductorHost implements ConductorHost {
 	// the generation guard: a stale/unknown release — including one arriving after the hold already
 	// timed out — never resolves a later hold.
 	private holdWaiter: { holdId: number; resolve: () => void; timer: ReturnType<typeof setTimeout> } | null = null;
+	/** Set while `requestPass` waits on a REMOTE conductor; a propose or status report bumps it. */
+	private passWaiter: { bump: () => void; finish: (outcome: "settled" | "timeout") => void } | null = null;
 	private holdSeq = 0;
 	private lastHoldMsValue = 0;
 	private holdTimeoutsValue = 0;
@@ -494,6 +501,7 @@ export class LiveConductorHost implements ConductorHost {
 			const pm = msg as ProposeMessage;
 			const ops = Array.isArray(pm.ops) ? pm.ops : [];
 			const r = this.applyPropose(typeof pm.baseRev === "number" ? pm.baseRev : undefined, ops);
+			this.passWaiter?.bump();
 			this.deps.sendToConductor({ type: "proposeResult", seq: pm.seq, rev: r.rev, results: r.results });
 			// v14 (P1-2): a `propose` NO LONGER releases the wire-departing hold — the dedicated
 			// `holdRelease` message does. A propose here (even empty-ops) is just an ordinary proposal, so
@@ -515,6 +523,7 @@ export class LiveConductorHost implements ConductorHost {
 			if (entry && entry.generation === this.attachGeneration) entry.controller.abort();
 		} else if (m.type === "setConductorStatus") {
 			const sm = msg as SetConductorStatusMessage;
+			this.passWaiter?.finish("settled");
 			this.setAndBroadcastStatus(typeof sm.text === "string" ? sm.text : null, sm.metrics);
 		}
 		// `resnapshot` from a conductor replica is served by the extension (it owns the snapshot).
@@ -523,6 +532,7 @@ export class LiveConductorHost implements ConductorHost {
 	/** Tear down whatever is attached: freeze BEFORE clearLocks, then teardown + abort + release. */
 	private detachActive(): void {
 		if (!this.active) return;
+		this.passWaiter?.finish("settled");
 		const t = this.deps.truth();
 		// Kill switch: transfer strategy ownership to the human (subst preserved) BEFORE releasing the
 		// locks — a strategy fold outside the protected tail survives detach as a human fold.
@@ -652,6 +662,69 @@ export class LiveConductorHost implements ConductorHost {
 		if (!this.active || !t) return;
 		const last = t.blocks[t.blocks.length - 1];
 		this.fireTurnCommitted(last ? last.turn : 0, t.rev);
+	}
+
+	/**
+	 * Ask the attached conductor for ONE compaction pass and wait for it to settle.
+	 *
+	 * IN-PROCESS: fire a `turn-committed` with `reason: "compact"` and await the listeners' own
+	 * promises — the conductor's pass is synchronous work inside handler promises, so its settlement
+	 * IS the pass finishing. REMOTE: the conductor proposes over the socket, so settlement is inferred:
+	 * the first applied propose starts a short quiet window; a second propose restarts it, and a status
+	 * report or the timeout ends it. A detached conductor, or none attached, settles immediately.
+	 */
+	async requestPass(opts: { turn?: number; instructions?: string; timeoutMs?: number } = {}): Promise<"settled" | "timeout" | "no-conductor"> {
+		const t = this.deps.truth();
+		if (!this.active || !t) return "no-conductor";
+		const timeoutMs = opts.timeoutMs ?? PASS_TIMEOUT_MS;
+		const last = t.blocks[t.blocks.length - 1];
+		const turn = opts.turn ?? (last ? last.turn : 0);
+		if (this.mode === "in-process") {
+			const rets = this.dispatchToListeners({
+				type: "turn-committed",
+				turn,
+				rev: t.rev,
+				reason: "compact",
+				...(opts.instructions ? { instructions: opts.instructions } : {}),
+			});
+			const promises = rets.filter(isThenable);
+			if (!promises.length) return "settled";
+			const timer = timeoutMarker(timeoutMs);
+			const outcome = await Promise.race([Promise.allSettled(promises).then(() => "settled" as const), timer.promise]);
+			timer.cancel();
+			return outcome;
+		}
+		if (!this.conductorSocket) return "no-conductor";
+		this.deps.sendToConductor({
+			type: "turnCommitted",
+			turn,
+			rev: t.rev,
+			reason: "compact",
+			...(opts.instructions ? { instructions: opts.instructions } : {}),
+		});
+		return this.awaitPassSettle(timeoutMs);
+	}
+
+	private awaitPassSettle(timeoutMs: number): Promise<"settled" | "timeout"> {
+		return new Promise((resolve) => {
+			let quiet: ReturnType<typeof setTimeout> | null = null;
+			const finish = (outcome: "settled" | "timeout") => {
+				if (this.passWaiter !== waiter) return;
+				this.passWaiter = null;
+				clearTimeout(total);
+				if (quiet) clearTimeout(quiet);
+				resolve(outcome);
+			};
+			const bump = () => {
+				if (quiet) clearTimeout(quiet);
+				quiet = setTimeout(() => finish("settled"), PASS_QUIET_MS);
+				(quiet as { unref?: () => void }).unref?.();
+			};
+			const total = setTimeout(() => finish("timeout"), timeoutMs);
+			(total as { unref?: () => void }).unref?.();
+			const waiter = { bump, finish };
+			this.passWaiter = waiter;
+		});
 	}
 
 	/** An agent `recall` observation. In-process fires the derived state-changed; remote already

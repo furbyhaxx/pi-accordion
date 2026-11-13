@@ -934,7 +934,7 @@ export class TaskfoldConductor implements Conductor {
 	private floorSpans(ops: readonly Op[], blocks: readonly ViewBlock[], spans: readonly TaskSpan[], positions: ReadonlyMap<string, number>, coverage: { open: Uint8Array }): string[] {
 		const touched = new Set<string>();
 		for (const op of ops) {
-			const ids = op.kind === "fold" ? op.ids : op.kind === "group" ? op.ids : [op.id];
+			const ids = op.kind === "fold" || op.kind === "group" ? op.ids : "id" in op ? [op.id] : [];
 			for (const id of ids) {
 				const i = positions.get(id);
 				if (i === undefined || !coverage.open[i]) continue;

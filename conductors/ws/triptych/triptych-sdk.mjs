@@ -20,7 +20,10 @@ var CHARS_PER_TOKEN = 4;
 var BLOCK_OVERHEAD = 4;
 function estTokens(s) {
   if (!s) return 0;
-  return Math.ceil(s.length / CHARS_PER_TOKEN);
+  return charsToTokens(s.length);
+}
+function charsToTokens(chars) {
+  return chars > 0 ? Math.ceil(chars / CHARS_PER_TOKEN) : 0;
 }
 function clip(s, n) {
   const m = Math.max(1, n);
@@ -2509,7 +2512,7 @@ function runRemoteConductor(conductor, opts) {
           break;
         }
         case "turnCommitted": {
-          void dispatch({ type: "turn-committed", turn: msg.turn, rev: msg.rev });
+          void dispatch({ type: "turn-committed", turn: msg.turn, rev: msg.rev, ...msg.reason === "compact" ? { reason: "compact", ...typeof msg.instructions === "string" ? { instructions: msg.instructions } : {} } : {} });
           break;
         }
         case "recall": {

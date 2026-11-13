@@ -138,8 +138,9 @@ export interface GroupInfo {
 export type HostEvent =
 	/** New blocks entered the log. */
 	| { type: "blocks-appended"; blocks: readonly ViewBlock[]; rev: number; liveTokens: number; budget: number }
-	/** A turn settled — the canonical re-plan trigger for turn-based strategies. */
-	| { type: "turn-committed"; turn: number; rev: number }
+	/** A turn settled — the canonical re-plan trigger for turn-based strategies. `reason: "compact"`
+	 *  asks for one compaction pass now; `instructions` is the human's optional guidance for it. */
+	| { type: "turn-committed"; turn: number; rev: number; reason?: "turn" | "compact"; instructions?: string }
 	/** A human/agent edit changed the standing view (provenance included). */
 	| { type: "state-changed"; changes: readonly StateChange[]; rev: number }
 	/** The wire is about to depart to the model. A strategy that declares `holdWireUpToMs > 0` may

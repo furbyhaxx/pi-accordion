@@ -388,7 +388,7 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 					break;
 				}
 				case "turnCommitted": {
-					void dispatch({ type: "turn-committed", turn: msg.turn, rev: msg.rev });
+					void dispatch({ type: "turn-committed", turn: msg.turn, rev: msg.rev, ...(msg.reason === "compact" ? { reason: "compact" as const, ...(typeof msg.instructions === "string" ? { instructions: msg.instructions } : {}) } : {}) });
 					break;
 				}
 				case "recall": {
