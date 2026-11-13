@@ -100,7 +100,13 @@ const pi = {
 	},
 	appendEntry: () => {},
 };
+// Set by the recall({ask}) section; any other completion in this instance is unexpected.
+let askComplete = null;
 accordionLive(pi, {
+	complete: async (...args) => {
+		if (!askComplete) throw new Error("unexpected completion in the main smoke instance");
+		return askComplete(...args);
+	},
 	beforeControllerHeartbeatWrite: () => beforeControllerHeartbeatWrite?.(),
 	openPanel: async (_ctx, host) => {
 		if (nativeProbeMode === "read-only") {
@@ -762,6 +768,25 @@ if (recallTool && foldCodeStr) {
 	const found = await recallTool.execute("call-recall-search", { query: "ORIGINAL ASSISTANT" }, null, () => {}, ctx);
 	const foundText = found?.content?.map((c) => c.text).join("\n") || "";
 	if (!foundText.includes(`#${foldCodeStr}.1 `)) fails.push(`recall({query}) did not address the folded block (got ${JSON.stringify(foundText.slice(0, 200))})`);
+	// recall({ask}) without a usable model: the closest hits, marked as unanswered.
+	const noModel = await recallTool.execute("call-recall-ask-0", { ask: "What does the original assistant text say?" }, null, () => {}, ctx);
+	const noModelText = noModel?.content?.map((c) => c.text).join("\n") || "";
+	if (!noModelText.startsWith("[no answer:") || !noModelText.includes(`#${foldCodeStr}.1 `)) fails.push(`recall({ask}) without a model did not fall back to hits (got ${JSON.stringify(noModelText.slice(0, 200))})`);
+	// With a model: one completion over bounded material; invented citations are removed.
+	let asked = null;
+	askComplete = async (_model, context) => {
+		asked = context;
+		return { content: [{ type: "text", text: `It says folding saves tokens [${foldCodeStr}.1]. It was written in 1999 [zzzzzz.9].` }], usage: { input: 10, output: 5 } };
+	};
+	ctx.modelRegistry = { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key", headers: {} }) };
+	const answered = await recallTool.execute("call-recall-ask-1", { ask: "What does the original assistant text say?" }, null, () => {}, ctx);
+	delete ctx.modelRegistry;
+	askComplete = null;
+	const answeredText = answered?.content?.map((c) => c.text).join("\n") || "";
+	const material = asked?.messages?.[0]?.content ?? "";
+	if (!material.includes("ORIGINAL ASSISTANT TEXT") || !material.includes("Question: What does the original assistant text say?")) fails.push("recall({ask}) did not send the matching excerpt and the question to the model");
+	if (!answeredText.includes(`[${foldCodeStr}.1]`) || answeredText.includes("zzzzzz") || !answeredText.includes("1 citation(s) removed")) fails.push(`recall({ask}) answer lost its valid citation or kept an invented one (got ${JSON.stringify(answeredText.slice(0, 300))})`);
+	if (answered?.details?.answered !== true) fails.push("recall({ask}) did not mark the result as answered");
 } else if (!recallTool) {
 	fails.push("recall tool was not registered");
 }

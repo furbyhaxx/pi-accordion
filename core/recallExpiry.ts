@@ -39,7 +39,8 @@ export function recallStub(call: Block | undefined): string {
 	const codes = Array.isArray(args.codes) ? args.codes.map((c) => `#${String(c).trim().replace(/^#/, "")}`).slice(0, 12) : [];
 	const query = typeof args.query === "string" && args.query.trim() ? ` query ${JSON.stringify(args.query.trim().slice(0, STUB_QUERY_CHARS))}` : "";
 	const page = typeof args.page === "number" && args.page > 1 ? ` page ${args.page}` : "";
-	const what = `${codes.join(" ")}${query}${page}`.trim();
+	const ask = typeof args.ask === "string" && args.ask.trim() ? ` ask ${JSON.stringify(args.ask.trim().slice(0, STUB_QUERY_CHARS))}` : "";
+	const what = `${codes.join(" ")}${query}${page}${ask}`.trim();
 	return `[recall${what ? ` of ${what}` : ""} released to free context; run it again if you still need it]`;
 }
 

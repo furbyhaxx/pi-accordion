@@ -81,7 +81,8 @@ import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage
 import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfoldBounded } from "../core/agentView";
-import { RECALL_POLICY, RecallAccount, serveRecall } from "../core/recallAccount";
+import { RECALL_POLICY, RecallAccount, recallRefusal, serveRecall } from "../core/recallAccount";
+import { ASK_ANSWER_TOKENS, ASK_SYSTEM, askAnswer, askFallback, askMaterial, askPrompt } from "../core/recallAsk";
 import { expireRecall } from "../core/recallExpiry";
 import { guardResults } from "../core/resultGuard";
 import { taskReports } from "../conductors/in-process/taskfold/taskReports";
@@ -4259,6 +4260,60 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "unfold", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
 	});
 
+	/** May the recall side model receive session content? The session's own model and local models may. */
+	async function askModelAllowed(): Promise<string | null> {
+		const ctx = latestCtx;
+		let m: any;
+		try {
+			m = ctx ? resolveChatModel("recall", undefined) : null;
+		} catch (err) {
+			return err instanceof Error ? err.message : String(err);
+		}
+		if (!ctx || !m) return "no model available";
+		const own = latestModelObj ?? (ctx.model as any);
+		if ((own && m.provider === own.provider && m.id === own.id) || isLoopbackUrl(m.baseUrl) || settings.privacyConsent.recall) return null;
+		const refused = `the recall model ${m.provider}/${m.id} is a remote model other than this session's and has no consent`;
+		if (!ctx.hasUI) return refused;
+		const session = sessionId;
+		const accepted = await ctx.ui.confirm("Recall: privacy notice", `recall({ask}) sends task reports and excerpts of this session's folded context to ${m.provider}/${m.id}.\n\nAccept once and allow it?`).catch(() => false);
+		if (!accepted || session !== sessionId) return refused;
+		settings = saveSettings(HOME, { ...settings, privacyConsent: { ...settings.privacyConsent, recall: new Date().toISOString() } });
+		return null;
+	}
+
+	/** `recall({ask})`: one bounded side-model completion; without an answer, the closest hits (SPEC-0003 §7). */
+	async function answerRecall(t: Truth, callId: string, question: string, codes: string[], query: string | undefined, signal: AbortSignal | undefined) {
+		let grant = recallAccount.grant(t);
+		if (grant < recallAccount.minGrant(t)) {
+			releaseRecall(true);
+			grant = recallAccount.grant(t);
+		}
+		if (grant < recallAccount.minGrant(t)) return { content: [{ type: "text" as const, text: recallRefusal(recallAccount.outstanding(t), recallAccount.policy) }], details: { restored: [], missing: [], refused: true } };
+		const material = askMaterial(t, { question, codes, query, reportOf: taskReports(t), inputTokens: settings.recall.ask.inputTokens });
+		let text: string;
+		let answered = false;
+		const blocked = !settings.recall.ask.enabled ? "recall.ask is turned off in ~/.accordion/config.json" : !material.text ? "nothing folded matches" : await askModelAllowed();
+		if (blocked) text = askFallback(blocked, material, grant);
+		else {
+			try {
+				// Room for a reasoning model's thinking; the answer itself is cut to its limit below.
+				const res = await runCompletion({ system: ASK_SYSTEM, prompt: askPrompt(question, material.text), maxOutputTokens: ASK_ANSWER_TOKENS * 4 }, signal ?? new AbortController().signal, "recall");
+				const answer = res.text.trim().slice(0, Math.min(ASK_ANSWER_TOKENS, grant) * 4);
+				if (!answer) throw new Error("the model returned no text");
+				text = askAnswer(question, answer, material.addresses).text;
+				answered = true;
+			} catch (err) {
+				text = askFallback(err instanceof Error ? err.message : String(err), material, grant);
+			}
+		}
+		recallAccount.reserve(callId, estTokens(text));
+		if (!answered && material.ids.length) {
+			broadcast({ type: "recall", ids: material.ids, by: "agent" });
+			liveHost.dispatchRecall(material.ids, "agent");
+		}
+		return { content: [{ type: "text" as const, text }], details: { restored: [], missing: [], answered } };
+	}
+
 	// ── recall tool: an UNBLOCKABLE, BOUNDED READ of folded content (ADR 0011, SPEC-0003) ──
 	// recall returns folded content AS a tool result THIS turn (like read_file) without changing
 	// what is standing in the agent's context. A task code returns its report; transcript is reached
@@ -4270,8 +4325,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		name: "recall",
 		label: "Recall Folded Content",
 		description:
-			"Look something up in folded context WITHOUT changing what's standing in your context. Accordion may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`; the original is preserved. A task's code returns its REPORT (outcome, decisions, open items, files changed, checks run, subtask codes), never its transcript. To find a value, path, number or error, search: `query` alone searches everything folded, `query` with codes searches those folds; all terms must occur in one entry, `\"a phrase\"` is literal, `/re/` is a regular expression. Each hit has an address like `3f9a2c.12`; pass it as a code to read that entry. `3f9a2c.entries` lists a fold's entries. Recalled text is limited per call (~8k tokens) and in total (~24k tokens standing in your context); beyond that a call is refused, so ask for the one thing you need, not for whole tasks.",
-		promptSnippet: "recall(codes?, query?, page?) — look up folded content: a task code gives its report, `query` searches (all folds when no codes), `code.N` reads one entry.",
+			"Look something up in folded context WITHOUT changing what's standing in your context. Accordion may replace older parts of YOUR OWN context with a short summary tagged like `{#3f9a2c FOLDED}`; the original is preserved. A task's code returns its REPORT (outcome, decisions, open items, files changed, checks run, subtask codes), never its transcript. To find a value, path, number or error, search: `query` alone searches everything folded, `query` with codes searches those folds; all terms must occur in one entry, `\"a phrase\"` is literal, `/re/` is a regular expression. Each hit has an address like `3f9a2c.12`; pass it as a code to read that entry. `3f9a2c.entries` lists a fold's entries. Recalled text is limited per call (~8k tokens) and in total (~24k tokens standing in your context); beyond that a call is refused, so ask for the one thing you need, not for whole tasks. For a question that needs reading and combining (why, how, what happened with X), pass `ask`: you get a short cited answer instead of the material.",
+		promptSnippet: "recall(codes?, query?, page?, ask?) — look up folded content: a task code gives its report, `query` searches (all folds when no codes), `code.N` reads one entry, `ask` answers a question with citations.",
 		promptGuidelines: [
 			"When you need something from a `{#<code> FOLDED}` marker, call `recall`. For what a finished task achieved or decided, recall its code: you get its report. For an exact value, search with `query` (no codes needed) and read the hit's `code.N`. Do not recall many tasks to re-read their work: recalled text has a session limit and further calls are refused. Use `unfold` only when a small block must stay open across turns.",
 		],
@@ -4281,18 +4336,21 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			})),
 			query: Type.Optional(Type.String({ description: 'Search text: whitespace-separated terms that must all occur in one entry (case-insensitive), "a phrase" in double quotes, or /regex/. Returns excerpts with entry addresses.' })),
 			page: Type.Optional(Type.Integer({ minimum: 1, description: "1-based page of an index, entry or search result, as named in the previous result." })),
+			ask: Type.Optional(Type.String({ description: "A question in plain words about earlier folded work, e.g. \"Why did we drop the retry wrapper?\". Another model reads the relevant reports and excerpts and returns a short answer with entry addresses as citations. `codes` narrows it to those folds; `query` sets the search terms used to pick excerpts." })),
 		}),
-		async execute(toolCallId, params, _signal, _onUpdate, _ctx) {
+		async execute(toolCallId, params, signal, _onUpdate, _ctx) {
 			const codes = Array.isArray(params.codes)
 				? params.codes.map((s) => String(s).trim().replace(/^#/, "")).filter((s) => s.length > 0)
 				: [];
 			const query = typeof params.query === "string" && params.query.trim() ? params.query : undefined;
-			if (!codes.length && !query) {
+			const ask = typeof params.ask === "string" && params.ask.trim() ? params.ask.trim().slice(0, 1000) : undefined;
+			if (!codes.length && !query && !ask) {
 				return { content: [{ type: "text", text: 'Nothing to recall: pass codes from {#<code> FOLDED} tags, e.g. recall({codes:["3f9a2c"]}), or a query to search all folded content, e.g. recall({query:"ECONNREFUSED"}).' }] };
 			}
 			if (!truth) {
 				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
 			}
+			if (ask) return answerRecall(truth, toolCallId, ask, codes, query, signal);
 			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.
 			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query, page: typeof params.page === "number" ? params.page : undefined }, () => releaseRecall(true));
 			if (!served.view) return { content: [{ type: "text", text: served.text }], details: { restored: [], missing: [], refused: true } };
@@ -4306,7 +4364,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const details = { restored: view.items.map(({ code, label, mode, ids: shown }) => ({ code, label, mode, ids: shown.length })), missing: view.missing, truncated: view.truncated };
 			return { content: [{ type: "text", text: view.text }], details };
 		},
-		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "recall", args, state, details as { restored?: unknown[]; missing?: unknown[] } | undefined, text, expanded)),
+		...toolRowRenderers((theme, args, state, details, text, expanded) => foldToolRow(theme, "recall", args, state, details as { restored?: unknown[]; missing?: unknown[]; answered?: boolean } | undefined, text, expanded)),
 	});
 
 	// ── skill discovery: expose the unfold skill to pi's skill loader ──────────

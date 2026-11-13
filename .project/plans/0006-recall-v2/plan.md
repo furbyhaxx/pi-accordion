@@ -31,8 +31,8 @@ done  S2  Archive-wide search
 done  S3  Expiry of recall results
 done  S4  Oversized tool-result guard
 done  S5  Bounded unfold
-next  S6  recall({ask}) through a side model
-later S7  Fact ledger (only if its spike passes)
+done  S6  recall({ask}) through a side model
+next  S7  Fact ledger (only if its spike passes)
 later S8  Replay, randomized admission test, gates, live run
 ```
 

@@ -3,14 +3,17 @@ document:
   type: "specification"
   id: "SPEC-0003"
   title: "Recall: bounded retrieval of folded content"
-  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results and the bound on the agent's unfold."
+  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results the bound on the agent's unfold and questions answered by a side model."
   status: "published"
-  revision: 4
+  revision: 5
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T12:57:26+01:00"
+  updated_at: "2026-11-13T13:01:59+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 5
+      reason: "questions that need reading and combining made the agent recall many entries"
+      changes: ["§7: recall({ask})", "§8: recall.ask"]
     - revision: 4
       reason: "the agent's unfold could put a fold of any size back into the standing context"
       changes: ["§6: bounded unfold", "§7: recall.unfoldTokens"]
@@ -172,17 +175,39 @@ in the panel and the web UI are not limited.
 - Codes of one call are decided in order, each against the projection the earlier ones left.
 - A leading `#` on a code is ignored.
 
-## 7. Settings (`~/.accordion/config.json`)
+## 7. Ask
+
+`recall({ask: "question", codes?, query?})` returns a short answer written by a side model
+(`core/recallAsk.ts` plans, `answerRecall` in `extension/accordion.ts` runs it).
+
+- Material, at most `recall.ask.inputTokens`: one third for the reports of the named tasks (all
+  folded tasks, newest first, when no codes are given), the rest for search hits. The search uses
+  `query` when given, otherwise one alternation of the question's up to eight longest non-stopword
+  words. A whole transcript is never sent.
+- One completion through the host's completion executor with routing id `recall`
+  (`models.conductors.recall.chat`, then `models.defaults.chat`, then the session's model).
+- Privacy: the session's own model and loopback models need no consent. Any other model needs
+  `privacyConsent.recall`; an interactive session asks once, a non-interactive one does not answer.
+- The answer is cut to 800 tokens and to the account's grant. Citations are bracketed addresses.
+  A citation whose address the material did not show is removed and the result says how many were;
+  an answer left without a citation says so.
+- No answer (ask turned off, nothing matches, no model, no consent, failed or empty completion):
+  the result starts with `[no answer: <reason>.` and carries the search hits within the grant.
+- The account applies as to any call: refused below the minimum grant, the result is reserved, and
+  it expires like other recall results (the stub names the question).
+
+## 8. Settings (`~/.accordion/config.json`)
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000 },
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
+              "ask": { "enabled": true, "inputTokens": 24000 } },
   "guard": { "resultTokens": 16000 } }
 ```
 
 `callTokens` 2,000–50,000; `liveTokens` 2,000–200,000 and never below `callTokens`; `keepSteps`
-0–100; `unfoldTokens` 1,000–1,000,000; `resultTokens` 4,000–1,000,000, or 0 to turn the guard off. Read on every call and request.
+0–100; `unfoldTokens` 1,000–1,000,000; `ask.inputTokens` 2,000–200,000; `resultTokens` 4,000–1,000,000, or 0 to turn the guard off. Read on every call and request.
 
-## 8. Tests
+## 9. Tests
 
 | What | Where |
 |---|---|
@@ -191,5 +216,7 @@ in the panel and the web UI are not limited.
 | used results become stubs in one transaction; recent, held, small and foreign results stay; a refused call is served after a release | `core/recallExpiry.test.ts` |
 | a giant result at the tail of an open task saturates Taskfold without the guard and not with it; both ends kept, rest reachable by search and pages; sent, held and small results untouched; loaded-session repair; recall result → stub | `conductors/in-process/taskfold/resultGuard.test.ts` |
 | unfold of a 40k fold refused with no revision; small fold unfolded in the same call; refusal when the room below the ceiling is too small | `core/unfoldBounded.test.ts` |
+| ask material bounded and without transcript; caller query; question terms; invented citations removed; uncited answer marked; fallback within the grant | `core/recallAsk.test.ts` |
+| ask through the registered tool: fallback without a model, answered with a mocked completion | `extension/smoke.mjs` |
 | eleven task codes → eleven reports without transcript; subtasks as codes; `.entries`; archive search, terms, phrase, regex, partial, paging | `conductors/in-process/taskfold/taskReports.test.ts` |
 | the registered tool end to end, including codeless search | `extension/smoke.mjs` |

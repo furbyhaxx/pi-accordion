@@ -349,6 +349,21 @@ function archive(truth: Truth): Candidate[] {
 	return [...best.values()].map((v) => v.c).sort((a, b) => b.block.order - a.block.order);
 }
 
+/** The codes of every recallable folded task, newest first. */
+export function foldedTaskCodes(truth: Truth): string[] {
+	const first = new Map<string, number>();
+	for (const g of truth.groups) {
+		if (!g.folded) continue;
+		for (const h of g.handles ?? []) {
+			if (!h.id.startsWith("t:") || !truth.canRecallHandle(g, h)) continue;
+			const order = truth.get(h.memberIds[0])?.order ?? 0;
+			const code = foldCode(h.id);
+			first.set(code, Math.max(first.get(code) ?? 0, order));
+		}
+	}
+	return [...first].sort((a, b) => b[1] - a[1]).map(([code]) => code);
+}
+
 /** Recallable handles strictly inside `memberIds`, keeping only the outermost ones. */
 function childHandles(truth: Truth, code: string, memberIds: Set<string>): { id: string; memberIds: string[] }[] {
 	const seen = new Map<string, string[]>();

@@ -25,6 +25,17 @@ The `3f9a2c` is a **fold code**; the text after `FOLDED}` is a digest. The origi
 
 A fold that is not a task (a single block, a run of steps) comes back whole when it is small and as its entry list otherwise.
 
+## Questions
+
+For a question that needs reading and combining ("why did we drop the retry wrapper?", "what happened with the migration?"), pass `ask`:
+
+```
+recall({ask: "Why did we drop the retry wrapper?"})
+recall({ask: "Which port did the broker end up on?", codes: ["3f9a2c"], query: "broker port"})
+```
+
+Another model reads the matching reports and excerpts and returns a short answer; every statement cites an address like `[3f9a2c.12]`. `codes` narrows it to those folds, `query` sets the search terms. Read a cited entry before relying on an exact value. A result starting with `[no answer:` carries the closest excerpts instead.
+
 ## Clipped tool results
 
 A very large tool result arrives clipped: its beginning, a line `[… ~N of ~M tokens clipped. …]` with a fold code, and its end. Nothing is lost. Search the hidden part with `recall({codes: ["<code>"], query: "…"})` or read it in pages with `recall({codes: ["<code>.1"], page: 1})`. Prefer narrowing the original command (a filter, a line range) when you can.

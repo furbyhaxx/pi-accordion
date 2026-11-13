@@ -208,7 +208,8 @@ assistant messages followed it and room is needed; a call that still does not fi
 one line:
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000 },
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
+              "ask": { "enabled": true, "inputTokens": 24000 } },
   "guard": { "resultTokens": 16000 } }
 ```
 
@@ -219,6 +220,12 @@ pages). `0` turns this off.
 The agent's `unfold` restores a fold only when it adds at most `recall.unfoldTokens` and the context
 has room for it; otherwise the fold stays folded and the agent is told to use `recall`. Your own
 unfolds in the panel are not limited.
+
+`recall({ask: "…"})` lets the agent put a question to folded context: another model call reads the
+matching task reports and excerpts (at most `recall.ask.inputTokens`) and returns a short answer
+with entry addresses as citations. It runs on the session's model unless you set
+`models.conductors.recall.chat`; a different remote model asks for consent once. Without a usable
+model the agent gets the matching excerpts instead.
 
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
 context) never appear on the `context` hook path. If you need their cost/usage for external
