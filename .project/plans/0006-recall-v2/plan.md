@@ -33,7 +33,7 @@ done  S4  Oversized tool-result guard
 done  S5  Bounded unfold
 done  S6  recall({ask}) through a side model
 done  S7  Fact ledger (spike passed 18/20, evidence/s7-ledger-spike.md; off by default)
-next  S8  Replay, randomized admission test, gates, live run
+done  S8  Replay, randomized admission test, gates, live run (evidence/s8-session-replay.md)
 ```
 
 ## Why
