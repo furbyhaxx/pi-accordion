@@ -82,6 +82,7 @@ import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfold } from "../core/agentView";
 import { RecallAccount, serveRecall } from "../core/recallAccount";
+import { taskReports } from "../conductors/in-process/taskfold/taskReports";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
 import {
@@ -4263,7 +4264,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
 			}
 			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.
-			const served = serveRecall(truth, recallAccount, toolCallId, { codes, query: typeof params.query === "string" ? params.query : undefined, page: typeof params.page === "number" ? params.page : undefined });
+			const served = serveRecall(truth, recallAccount, toolCallId, { codes, reportOf: taskReports(truth), query: typeof params.query === "string" ? params.query : undefined, page: typeof params.page === "number" ? params.page : undefined });
 			if (!served.view) return { content: [{ type: "text", text: served.text }], details: { restored: [], missing: [], refused: true } };
 			const view = served.view;
 			const ids = view.items.flatMap((r) => r.ids);

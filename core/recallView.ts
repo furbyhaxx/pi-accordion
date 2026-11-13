@@ -9,6 +9,7 @@ import type { Block } from "./types";
 import type { Truth } from "./truth";
 import { foldCode } from "./digest";
 import { blockLabel, resolveRecall } from "./agentView";
+import { clip } from "./tokens";
 
 /** Characters one recall call may return across all its codes (~8k tokens). */
 export const RECALL_BUDGET_CHARS = 32_000;
@@ -26,17 +27,34 @@ export interface RecallRequest {
 	query?: string;
 	/** 1-based page of an index, an entry or a query result. */
 	page?: number;
+	/** The report of task `<list>/<id>`; without it a task code returns its entry index. */
+	reportOf?: (taskKey: string) => TaskReport | null;
 	/** Page size of one call; fixed for a session so paging is stable. */
 	budgetChars?: number;
 	/** What this call may return, at most `budgetChars`. */
 	grantChars?: number;
 }
 
+/** A finished or open task as its own report; what a task code returns instead of transcript. */
+export interface TaskReport {
+	title: string;
+	/** Null while the task is still open. */
+	status: string | null;
+	criteria?: string[];
+	outcome?: string;
+	decisions?: string[];
+	open?: string[];
+	changed?: string[];
+	verified?: string[];
+	/** Direct subtasks, in list order. */
+	children?: { id: string; title: string; status: string | null; outcome?: string }[];
+}
+
 export interface RecallItem {
 	/** The address as requested: `code` or `code.N`. */
 	code: string;
 	label: string;
-	mode: "full" | "entry" | "index" | "query";
+	mode: "full" | "entry" | "index" | "query" | "report";
 	/** Ids whose content (or excerpts of it) this result actually returned. */
 	ids: string[];
 }
@@ -56,9 +74,13 @@ interface Source {
 	label: string;
 	/** Members with text, in conversation order; entry `code.N` is `entries[N - 1]`. */
 	entries: Block[];
+	/** `<list>/<id>` when the code is a task handle. */
+	taskKey?: string;
 }
 
-const ADDRESS = /^([0-9a-z]{6})(?:\.([1-9]\d*))?$/i;
+const ADDRESS = /^([0-9a-z]{6})(?:\.([1-9]\d*|entries))?$/i;
+const CHILD_OUTCOME_CHARS = 160;
+const COMPACT_ITEM_CHARS = 160;
 
 export function recallView(truth: Truth, req: RecallRequest): RecallView {
 	const budget = Math.max(MIN_SECTION_CHARS + NOTE_CHARS, req.budgetChars ?? RECALL_BUDGET_CHARS);
@@ -74,28 +96,36 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 	const skipped: string[] = [];
 	let truncated = false;
 	let used = 0;
-	for (const address of req.codes) {
-		const m = ADDRESS.exec(address);
-		const source = m ? sourceOf(truth, m[1].toLowerCase()) : null;
-		if (!m || !source) {
-			missing.push(address);
-			continue;
+	const place = (compact: boolean): void => {
+		sections.length = items.length = missing.length = skipped.length = 0;
+		truncated = false;
+		used = 0;
+		for (const address of req.codes) {
+			const m = ADDRESS.exec(address);
+			const source = m ? sourceOf(truth, m[1].toLowerCase()) : null;
+			if (!m || !source) {
+				missing.push(address);
+				continue;
+			}
+			const suffix = m[2]?.toLowerCase();
+			const section = render(truth, source, address, suffix === "entries" ? "entries" : suffix ? Number(suffix) : undefined, query, page, pageSize, req.reportOf, compact);
+			if (!section) {
+				missing.push(address);
+				continue;
+			}
+			if (used + section.text.length + 2 > room) {
+				skipped.push(address);
+				continue;
+			}
+			sections.push(section.text);
+			items.push(section.item);
+			truncated ||= section.truncated;
+			used += section.text.length + 2;
 		}
-		const entryNo = m[2] ? Number(m[2]) : undefined;
-		const section = render(truth, source, address, entryNo, query, page, pageSize);
-		if (!section) {
-			missing.push(address);
-			continue;
-		}
-		if (used + section.text.length + 2 > room) {
-			skipped.push(address);
-			continue;
-		}
-		sections.push(section.text);
-		items.push(section.item);
-		truncated ||= section.truncated;
-		used += section.text.length + 2;
-	}
+	};
+	place(false);
+	// Many reports in one call: shorter reports for all beat full reports for some.
+	if (skipped.length && items.some((i) => i.mode === "report")) place(true);
 	const notes: string[] = [];
 	if (skipped.length) {
 		truncated = true;
@@ -112,29 +142,75 @@ function sourceOf(truth: Truth, code: string): Source | null {
 	if (!res.restored.length) return null;
 	// One code can match several carriers of the same task; each member is listed once.
 	const ids = [...new Set(res.restored.flatMap((r) => r.ids))];
+	const handle = truth.groups.flatMap((g) => g.handles ?? []).find((h) => h.id.startsWith("t:") && foldCode(h.id) === code);
 	const entries = ids
 		.map((id) => truth.get(id))
 		.filter((b): b is Block => !!b && b.text.length > 0)
 		.sort((a, b) => a.order - b.order);
-	return { code, label: res.restored[0].label, entries };
+	return { code, label: res.restored[0].label, entries, ...(handle ? { taskKey: handle.id.slice(2) } : {}) };
 }
 
-function render(truth: Truth, src: Source, address: string, entryNo: number | undefined, query: string | undefined, page: number, budget: number): { text: string; item: RecallItem; truncated: boolean } | null {
-	if (entryNo !== undefined) {
-		const entry = src.entries[entryNo - 1];
+function render(
+	truth: Truth,
+	src: Source,
+	address: string,
+	target: number | "entries" | undefined,
+	query: string | undefined,
+	page: number,
+	budget: number,
+	reportOf: RecallRequest["reportOf"],
+	compact: boolean,
+): { text: string; item: RecallItem; truncated: boolean } | null {
+	if (typeof target === "number") {
+		const entry = src.entries[target - 1];
 		if (!entry) return null;
-		const label = `${blockLabel(entry)} · entry ${entryNo} of #${src.code}`;
-		if (query) return querySection(src, [[entryNo, entry]], address, label, query, page, budget);
+		const label = `${blockLabel(entry)} · entry ${target} of #${src.code}`;
+		if (query) return querySection(src, [[target, entry]], address, label, query, page, budget);
 		return entrySection(entry, address, label, page, budget);
 	}
 	const numbered = src.entries.map((b, i) => [i + 1, b] as [number, Block]);
 	if (query) return querySection(src, numbered, address, src.label, query, page, budget);
+	if (target === "entries") return indexSection(truth, src, address, page, budget);
+	// A task code returns its report, never its transcript.
+	const report = src.taskKey ? reportOf?.(src.taskKey) : null;
+	if (report) return reportSection(truth, src, report, budget, compact);
 	const full = src.entries.map((b) => b.text).join("\n\n");
 	const head = `[recalled ${src.label} (#${address})]\n`;
 	if (head.length + full.length <= budget) {
 		return { text: head + full, item: { code: address, label: src.label, mode: "full", ids: src.entries.map((b) => b.id) }, truncated: false };
 	}
 	return indexSection(truth, src, address, page, budget);
+}
+
+function reportSection(truth: Truth, src: Source, report: TaskReport, budget: number, compact: boolean) {
+	const cut = (s: string) => (compact ? clip(s, COMPACT_ITEM_CHARS) : s.replace(/\s+/g, " ").trim());
+	const list = (name: string, xs: string[] | undefined) => (xs?.length ? [`${name}:`, ...xs.map((x) => `- ${cut(x)}`)] : []);
+	const codes = new Map(childHandles(truth, src.code, new Set(src.entries.map((b) => b.id))).map((c) => [c.id, c]));
+	const list0 = src.taskKey!.slice(0, src.taskKey!.indexOf("/"));
+	const total = src.entries.reduce((n, b) => n + b.tokens, 0);
+	const lines = [
+		`[report of task ${src.taskKey} (#${src.code}) · ${report.status ?? "open"} · ${src.entries.length} entries · ~${fmt(total)} tok of transcript, not shown]`,
+		`title: ${cut(report.title)}`,
+		...(report.outcome ? [`outcome: ${cut(report.outcome)}`] : []),
+		...list("decisions", report.decisions),
+		...list("open", report.open),
+		...(compact ? [] : list("criteria", report.criteria)),
+		...(report.changed?.length ? [`changed: ${report.changed.slice(0, compact ? 8 : 30).join(", ")}${report.changed.length > (compact ? 8 : 30) ? ` (+${report.changed.length - (compact ? 8 : 30)} more)` : ""}`] : []),
+		...list("verified", report.verified?.slice(compact ? -3 : -8)),
+	];
+	if (report.children?.length) {
+		lines.push("subtasks (recall a code for its report):");
+		for (const c of report.children) {
+			const h = codes.get(`t:${list0}/${c.id}`);
+			const outcome = !compact && c.outcome ? ` — ${clip(c.outcome, CHILD_OUTCOME_CHARS)}` : "";
+			lines.push(`  ${h ? `#${foldCode(h.id)}` : "(no code)"}  ${c.id} · ${c.status ?? "open"} · ${clip(c.title, 80)}${outcome}`);
+		}
+	}
+	lines.push(`Exact values: recall({codes:["${src.code}"], query:"text"}) · entry list: recall({codes:["${src.code}.entries"]}) · one entry: recall({codes:["${src.code}.N"]})`);
+	let text = lines.join("\n");
+	const over = text.length > budget;
+	if (over) text = `${text.slice(0, budget - 40)}\n[report cut at the call limit]`;
+	return { text, item: { code: src.code, label: src.label, mode: "report" as const, ids: [] }, truncated: over };
 }
 
 function entrySection(entry: Block, address: string, label: string, page: number, budget: number) {
