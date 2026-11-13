@@ -45,7 +45,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 		customToken: null as string | null,
 	};
 	let tokenState = "kave4ton";
-	const conductor: ActiveConductorMeta = { id: "exclusive", label: "Exclusive", locks: ["human-steering"], tailTokens: 0, holdWireUpToMs: 0, remote: false, readiness: { state: "ready" } };
+	const conductor: ActiveConductorMeta = { id: "exclusive", label: "Exclusive", locks: ["human-steering"], tailTokens: 0, holdWireUpToMs: 0, remote: false, readiness: { state: "ready" }, privacy: { models: ["chat"], notice: "sends content to a model" } };
 	const host: AccordionTuiHost = {
 		truth: () => currentTruth, folding: () => false,
 		conductors: () => [conductor, { ...conductor, id: "taskfold", label: "Taskfold" }],
@@ -404,6 +404,29 @@ describe("accordion panel", () => {
 		expect(s.screen(120)).toContain("reopen /accordion");
 		s.panel.handleInput(K.down);
 		expect(s.screen(36)).toContain("reopen /accordion");
+		s.close(); await s.opening;
+	});
+
+	test("conductors: a model-backed conductor is badged, and alt+i opens its options", async () => {
+		const s = setup();
+		s.panel.handleInput(K.tab);
+		await tick(1);
+		expect(s.screen()).toContain("sends content off-machine");
+		s.panel.handleInput(K.down);
+		expect(s.screen()).toContain("alt+i options");
+		s.panel.handleInput(K.alt("i"));
+		await tick(1);
+		expect(s.screen()).toContain("Accordion › Settings");
+		s.close(); await s.opening;
+	});
+
+	test("inspector header names the kind, id and size before the text", async () => {
+		const s = setup();
+		s.panel.handleInput(K.enter);
+		await tick(1);
+		const screen = s.screen(80);
+		expect(screen).toContain("text · a");
+		expect(screen).toContain("tok");
 		s.close(); await s.opening;
 	});
 

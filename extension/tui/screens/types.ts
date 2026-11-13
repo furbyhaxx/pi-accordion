@@ -50,6 +50,10 @@ export interface Shell {
 	confirm(spec: ConfirmSpec): void;
 	/** Switch to another tab by id (Overview's jump keys). */
 	openTab?(id: string): void;
+	/** Ask the Settings tab to select the first row in `section` (Conductors › alt+i). */
+	focusSettings?(section: string): void;
+	/** Take the pending Settings section, if any. */
+	takeSettingsFocus?(): string | null;
 	editDigest(action: DigestAction): void;
 	update(): void;
 }

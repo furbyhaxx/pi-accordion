@@ -264,6 +264,8 @@ export interface ActiveConductorMeta {
 	remote: boolean;
 	/** Host-computed readiness of the conductor's required startup capabilities. */
 	readiness: ConductorReadiness;
+	/** Set when the conductor sends session content to models, so the picker can warn. */
+	privacy?: { models: readonly ("chat" | "classifier")[]; notice: string };
 }
 
 /**

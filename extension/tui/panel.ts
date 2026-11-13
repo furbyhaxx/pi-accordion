@@ -57,6 +57,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 	let help = false;
 	let helpTop = 0;
 	let modal: (ConfirmSpec & { selected: number }) | null = null;
+	let settingsFocus: string | null = null;
 	let sizedFor = 0;
 	let bodyRows = 0;
 	const digestDrafts = new Map<string, string>();
@@ -106,6 +107,16 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 				pending = false;
 				update();
 			}
+		},
+		focusSettings: (section) => {
+			settingsFocus = section;
+			const at = tabs.findIndex((tab) => tab.id === "settings");
+			if (at >= 0) active = at;
+		},
+		takeSettingsFocus: () => {
+			const pending = settingsFocus;
+			settingsFocus = null;
+			return pending;
 		},
 		openTab: (id) => {
 			const at = tabs.findIndex((tab) => tab.id === id);

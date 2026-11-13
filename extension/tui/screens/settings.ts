@@ -241,6 +241,11 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	return {
 		id: "settings", title: "Settings",
 		view(width, bodyRows) {
+			const focus = shell.takeSettingsFocus?.() ?? null;
+			if (focus) {
+				const at = rows.findIndex((row) => isGlobal(row) && row.section === focus);
+				if (at >= 0) selected = at;
+			}
 			const theme = shell.theme(), keys = shell.keys();
 			if (picker) {
 				const items = filtered();

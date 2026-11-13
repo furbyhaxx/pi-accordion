@@ -275,6 +275,7 @@ export function catalogMeta(readinessOf?: (entry: RegistryEntry) => ConductorRea
 			holdWireUpToMs: e.holdWireUpToMs,
 			remote: e.kind === "spawn",
 			readiness,
+			...(e.privacy ? { privacy: { models: e.privacy.models, notice: e.privacy.notice } } : {}),
 		});
 	}
 	return out;

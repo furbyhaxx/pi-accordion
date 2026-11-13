@@ -104,14 +104,20 @@ export function createContextTab(shell: Shell): PanelTab {
 					? truth.digestOf(block)
 					: block.text;
 		const lines = content.split(/\r?\n/).flatMap((part) => wrapTextWithAnsi(clean(part), Math.max(1, width - 1))).map((line) => ` ${line}`);
-		inspectTop = Math.max(0, Math.min(inspectTop, lines.length - rows));
+		// Header row: kind, tool or id, size, state — the inspector's identity before its text.
+		const kindWord = block ? clean(block.kind.replace("_", " ")) : "block";
+		const who = block ? clean(block.toolName ?? block.id) : "";
+		const size = block && truth ? (inspectDigest && group?.folded ? truth.groupLiveTokens(group) : truth.effTokens(block)).toLocaleString("en-US") : "";
+		const headerLine = fitSegments([[kindWord, who, size ? `${size} tok` : "", describe(block)].filter(Boolean).join(" · ")], width);
+		const room = Math.max(1, rows - 1);
+		inspectTop = Math.max(0, Math.min(inspectTop, lines.length - room));
 		return {
-			body: lines.slice(inspectTop, inspectTop + rows),
+			body: [theme.fg("muted", headerLine), ...lines.slice(inspectTop, inspectTop + room)],
 			crumbs: ["Inspector"],
 			description: `${describe(block)} · showing ${inspectDigest ? "digest" : "original"}`,
 			hints: [rawHint(theme, "↑↓", "scroll", 2), rawHint(theme, "alt+v", inspectDigest ? "original" : "digest", 3), rawHint(theme, "alt+e", "edit digest", 4), bindingHint(theme, keys, "tui.select.pageDown", "pageDown", "page", 6)],
 			above: inspectTop,
-			below: Math.max(0, lines.length - inspectTop - rows),
+			below: Math.max(0, lines.length - inspectTop - room),
 		};
 	};
 

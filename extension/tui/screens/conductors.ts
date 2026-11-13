@@ -1,5 +1,6 @@
 import type { ActiveConductorMeta } from "../../../core/protocol";
-import { bindingHint, clean, fitSegments } from "../chrome";
+import { matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { bindingHint, clean, fitSegments, rawHint } from "../chrome";
 import { statusLevel } from "../status";
 import type { PanelTab, Shell } from "./types";
 
@@ -30,20 +31,43 @@ export function createConductorsTab(shell: Shell): PanelTab {
 				...list.map((c, i) =>
 					line(i + 1, activeId === c.id, c.label, [
 						c.readiness.state === "ready" ? `${theme.fg("success", "●")} ready` : `${theme.fg("error", "✗")} unavailable: ${clean(c.readiness.reason)}`,
+						...(c.privacy ? [theme.fg("warning", "▲ sends content off-machine")] : []),
 						theme.fg("muted", `locks: ${c.locks.join(", ") || "none"}`),
 					]),
 				),
 			];
-			const top = Math.max(0, Math.min(selected - rows + 1, all.length - rows));
 			const pick = selected === 0 ? null : list[selected - 1];
 			const status = host.conductorStatus?.() ?? null;
 			const level = statusLevel(status?.metrics);
 			const attachedStatus = pick && pick.id === activeId && status?.text ? `${level === "error" ? "✗ " : level === "warning" ? "▲ " : ""}${status.text}` : "";
+			// Below the list: the selected conductor's own description, then its live status.
+			const detail: string[] = [];
+			const detailRoom = Math.max(1, rows - all.length - 1);
+			if (pick && detailRoom > 0) {
+				detail.push("");
+				const text = clean(pick.description ?? `${pick.label}: no description.`);
+				const room = Math.max(1, width - 2);
+				const words = text.split(" ");
+				let current = "";
+				for (const word of words) {
+					if (!current) current = word;
+					else if (current.length + 1 + word.length <= room) current += ` ${word}`;
+					else {
+						detail.push(`  ${theme.fg("muted", current)}`);
+						current = word;
+						if (detail.length >= Math.min(3, detailRoom)) break;
+					}
+				}
+				if (current && detail.length < Math.min(3, detailRoom)) detail.push(`  ${theme.fg("muted", current)}`);
+				if (attachedStatus && detail.length < detailRoom) detail.push(...wrapTextWithAnsi(`  ${attachedStatus}`, Math.max(1, width)).slice(0, Math.max(1, detailRoom - detail.length)).map((l) => theme.fg(level === "info" ? "muted" : level, l)));
+			}
+			const top = Math.max(0, Math.min(selected - Math.max(1, rows - detail.length) + 1, all.length - Math.max(1, rows - detail.length)));
+			const listRows = Math.max(1, rows - detail.length);
 			return {
-				body: all.slice(top, top + rows),
+				body: [...all.slice(top, top + listRows), ...detail],
 				crumbs: [],
-				description: attachedStatus || (pick ? (pick.description ?? `${pick.label}: no description.`) : "Detach the conductor: folds it made become yours and stay."),
-				hints: [bindingHint(theme, shell.keys(), "tui.select.confirm", "enter", selected === 0 ? "detach" : "attach", 2)],
+				description: pick ? `${pick.label} · ${pick.locks.length ? "takes over steering" : "collaborative"}` : "Detach the conductor: folds it made become yours and stay.",
+				hints: [bindingHint(theme, shell.keys(), "tui.select.confirm", "enter", selected === 0 ? "detach" : "attach", 2), ...(pick ? [rawHint(theme, "alt+i", "options", 3)] : [])],
 				above: top,
 				below: Math.max(0, all.length - top - rows),
 			};
@@ -74,6 +98,10 @@ export function createConductorsTab(shell: Shell): PanelTab {
 						},
 					});
 				}
+			} else if (matchesKey(data, "alt+i")) {
+				const pick = selected === 0 ? null : list[selected - 1];
+				if (!pick) return true;
+				shell.focusSettings?.(`Conductor: ${pick.label}`);
 			} else return false;
 			return true;
 		},
