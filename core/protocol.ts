@@ -144,7 +144,7 @@
  *    numbers a peer derives from the same Truth state, so both sides must agree; a pre-v24 peer
  *    would report smaller estimates for the same blocks.
  */
-import type { Actor, Group, Override } from "./types";
+import type { Actor, BlockKind, Group, Override } from "./types";
 import type { LockName } from "./locks";
 import { sanitizeOps, type Op, type OpResult } from "./ops";
 
@@ -484,6 +484,12 @@ export interface CommandResultMessage {
 	 * setFolding/selectConductor) that carry no ops. `rev` is unchanged (nothing applied).
 	 */
 	refused?: "read-only";
+	/** The command failed for a reason worth showing (`updateSettings` validation or conflict). */
+	error?: string;
+	/** A settings write lost the revision race; the client should re-read and re-stage. */
+	conflict?: boolean;
+	/** The compaction a `compact` command ran. */
+	compaction?: CompactRecord;
 }
 
 /**
@@ -598,6 +604,86 @@ export interface CompleteResultMessage {
 	error?: string;
 }
 
+/**
+ * The settings document as it crosses the wire. The extension owns the schema and validates every
+ * patch; the app renders and stages whatever the host reports, so a new setting needs no protocol
+ * change. `sources` names where each path's effective value came from.
+ */
+export interface SettingsWireSnapshot {
+	settings: Record<string, unknown>;
+	sources: Record<string, string>;
+	rev: string;
+}
+
+/** A partial settings document, keyed by dotted path (`taskfold.timing`, `models.chat`). */
+export type SettingsWirePatch = Record<string, unknown>;
+
+/**
+ * One task of a list, structurally: the app renders the projection the host sends and never reads
+ * the file. Only the fields a view shows are promised here.
+ */
+export interface WireTask {
+	id: string;
+	title: string;
+	status: string;
+	goals?: { id: string; text: string }[];
+	acceptanceCriteria?: { id: string; text: string }[];
+	report?: { outcome: string; decisions?: string[]; open?: string[] };
+	startedAt?: string;
+	endedAt?: string;
+	updatedAt?: string;
+}
+
+/** A task list as the app sees it: the header facts and the tree, flattened by dotted id. */
+export interface WireTaskList {
+	slug: string;
+	title: string;
+	claim: { session?: string; surface?: string } | null;
+	tasks: WireTask[];
+}
+
+/** The session host's settings, pushed on hello and on every change. */
+export interface SettingsMessage {
+	type: "settings";
+	snapshot: SettingsWireSnapshot;
+}
+
+/** The session's task projection, broadcast on the widget's reload triggers. */
+export interface TasksMessage {
+	type: "tasks";
+	list: WireTaskList | null;
+	folded: string[];
+	tokens: { full: number; live: number } | null;
+}
+
+/** How a compaction was started (SPEC-0001 §7.1). */
+export type CompactTrigger = "manual" | "threshold" | "overflow" | "panel" | "command";
+/** What a compaction does to the context (SPEC-0001 §7.2). */
+export type CompactStrategy = "pass" | "aggressive" | "bake" | "native";
+
+/** The record of one compaction: what it was, and what it moved. */
+export interface CompactRecord {
+	id: string;
+	at: number;
+	trigger: CompactTrigger;
+	strategy: CompactStrategy;
+	/** True when the record came from a dry run: projections only, nothing applied. */
+	dryRun?: boolean;
+	conductor: string | null;
+	before: number;
+	after: number;
+	durationMs: number;
+	folded: { blocks: number; groups: number; byKind: Partial<Record<BlockKind, number>> };
+	undo: Op[] | null;
+	message: string;
+}
+
+/** A completed compaction, for the toast with its undo action. */
+export interface CompactionMessage {
+	type: "compaction";
+	record: CompactRecord;
+}
+
 export type ServerMessage =
 	| HelloMessage
 	| SnapshotMessage
@@ -614,7 +700,10 @@ export type ServerMessage =
 	| ProposeResultMessage
 	| CompleteResultMessage
 	| ControllerMessage
-	| NoticeMessage;
+	| NoticeMessage
+	| SettingsMessage
+	| TasksMessage
+	| CompactionMessage;
 
 // ── Client → server ──────────────────────────────────────────────────────────
 
@@ -631,7 +720,11 @@ export type WireCommand =
 	| { kind: "setBudget"; value: number }
 	| { kind: "setProtect"; value: number }
 	| { kind: "setFolding"; value: boolean }
-	| { kind: "selectConductor"; id: string | null };
+	| { kind: "selectConductor"; id: string | null }
+	/** Controller-only: stage-free settings write. A stale `baseRev` is a `conflict`. */
+	| { kind: "updateSettings"; patch: SettingsWirePatch; baseRev: string }
+	| { kind: "compact"; strategy: CompactStrategy; instructions?: string; dryRun?: boolean }
+	| { kind: "undoCompact" };
 
 export interface CommandMessage {
 	type: "command";

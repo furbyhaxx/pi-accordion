@@ -7,14 +7,12 @@
  * and returning Pi's compaction payload.
  */
 import type { Op } from "../core/ops";
+import type { CompactRecord, CompactStrategy, CompactTrigger } from "../core/protocol";
 import type { Block, BlockKind, Group } from "../core/types";
 import type { Truth } from "../core/truth";
 import { wireFoldable } from "../core/digest";
 
-/** What asked for the pass. */
-export type CompactTrigger = "manual" | "threshold" | "overflow" | "panel" | "command";
-/** How the pass reduces the context. */
-export type CompactStrategy = "pass" | "aggressive" | "bake" | "native";
+export type { CompactRecord, CompactStrategy, CompactTrigger } from "../core/protocol";
 
 /** One compaction request. */
 export interface CompactRequest {
@@ -22,21 +20,6 @@ export interface CompactRequest {
 	strategy: CompactStrategy;
 	instructions?: string;
 	dryRun?: boolean;
-}
-
-/** What a pass did; `undo: null` means the pass cannot be reversed (bake, native). */
-export interface CompactRecord {
-	id: string;
-	at: number;
-	trigger: CompactTrigger;
-	strategy: CompactStrategy;
-	conductor: string | null;
-	before: number;
-	after: number;
-	durationMs: number;
-	folded: { blocks: number; groups: number; byKind: Partial<Record<BlockKind, number>> };
-	undo: Op[] | null;
-	message: string;
 }
 
 /** The pass's view of the session; every field is owned by the extension. */

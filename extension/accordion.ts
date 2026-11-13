@@ -509,6 +509,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			tryBindDoor();
 		}
 		notifyNative();
+		broadcastSettings();
+	}
+	/** Push the session host's settings to every client; the app renders and stages them. */
+	function broadcastSettings(): void {
+		const snap = settingsStore.current();
+		broadcast({ type: "settings", snapshot: { settings: snap.settings as unknown as Record<string, unknown>, sources: snap.sources, rev: snap.rev } });
 	}
 
 	function pollSettingsFile(): void {
@@ -596,6 +602,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function recordCompact(record: CompactRecord): void {
 		try { pi.appendEntry(COMPACT_ENTRY, record); } catch { /* transcript only */ }
 		broadcast({ type: "notice", text: `${compactCardTitle(record)} — ${record.message}` });
+		broadcast({ type: "compaction", record });
 	}
 
 	/** One compaction pass, whichever entry point asked for it (SPEC-0001 §7). */
@@ -621,21 +628,28 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		};
 	}
 
+	/** Reverse the last pass when its blocks are still folded; shared by the command, the panel and the web. */
+	async function undoLastCompact(): Promise<{ ok: boolean; text: string; record: CompactRecord | null }> {
+		const record = lastCompact;
+		if (!record?.undo) return { ok: false, text: "Nothing to undo — the last pass folded nothing reversible.", record: null };
+		if (!truth) return { ok: false, text: "No session model yet", record: null };
+		const { restored, skipped } = applyUndo(truth, record.undo);
+		lastCompact = null;
+		const text = `Undid the last compaction: ${restored} block(s) unfolded${skipped ? `, ${skipped} no longer folded` : ""}.`;
+		notifyNative();
+		return { ok: !skipped, text, record: { ...record, after: truth.stats().liveTokens, message: text, undo: null } };
+	}
+
 	/**
 	 * `/accordion compact [strategy] [instructions…] | undo`. Without a strategy the human's
 	 * configured manual policy decides; `undo` reverses the last pass when its blocks are still folded.
 	 */
 	async function handleCompactCommand(rest: string, ctx: ExtensionContext): Promise<CompactRecord | null> {
 		if (rest === "undo") {
-			const record = lastCompact;
-			if (!record?.undo) { ctx.ui.notify("Nothing to undo — the last pass folded nothing reversible.", "warning"); return null; }
-			if (!truth) { ctx.ui.notify("No session model yet", "warning"); return null; }
-			const { restored, skipped } = applyUndo(truth, record.undo);
-			lastCompact = null;
-			const text = `Undid the last compaction: ${restored} block(s) unfolded${skipped ? `, ${skipped} no longer folded` : ""}.`;
-			ctx.ui.notify(text, skipped ? "warning" : "info");
-			notifyNative();
-			return { ...record, after: truth.stats().liveTokens, message: text, undo: null };
+			const undone = await undoLastCompact();
+			if (!undone.record) { ctx.ui.notify(undone.text, undone.ok ? "info" : "warning"); return null; }
+			ctx.ui.notify(undone.text, undone.ok ? "info" : "warning");
+			return undone.record;
 		}
 		const [head, ...tail] = rest ? rest.split(/\s+/) : [];
 		const named: CompactStrategy | null = head === "pass" || head === "aggressive" || head === "bake" || head === "native" ? head : null;
@@ -831,6 +845,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function forwardTruthEvent(e: TruthEvent): void {
 		const ev = wireEventFromTruthEvent(e);
 		if (ev) broadcast({ type: "event", event: ev });
+		// Folding changes the task view's token columns; the debounce keeps bursts to one message.
+		if (truth && clients.size) broadcastTasks();
 	}
 
 	/**
@@ -1306,6 +1322,26 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			estWireTokens: lastEstWireTokens,
 		};
 	}
+	/** The session's task projection for the web views, built from the same scan the widget reads. */
+	function taskProjection(): { list: import("../core/protocol").WireTaskList | null; folded: string[]; tokens: { full: number; live: number } | null } {
+		const project = typeof latestCtx?.cwd === "string" ? path.resolve(latestCtx.cwd) : null;
+		const lists = project && taskListSnapshot?.project === project ? taskListSnapshot?.lists ?? [] : [];
+		const list = lists.find((l) => l.claim?.session === sessionId) ?? lists[0] ?? null;
+		const t = truth;
+		const folded = t ? t.groups.filter((g) => g.folded).map((g) => g.id) : [];
+		const tokens = t ? { full: t.stats().fullTokens, live: t.stats().liveTokens } : null;
+		return { list: list ? { slug: list.slug, title: list.title, claim: list.claim ? { session: list.claim.session, ...(list.claim.name ? { surface: list.claim.name } : {}) } : null, tasks: list.tasks.map((task) => ({ id: task.id, title: task.title, status: task.status, ...(task.goals ? { goals: task.goals } : {}), ...(task.acceptanceCriteria ? { acceptanceCriteria: task.acceptanceCriteria } : {}), ...(task.report ? { report: task.report } : {}), ...(task.startedAt ? { startedAt: task.startedAt } : {}), ...(task.endedAt ? { endedAt: task.endedAt } : {}), ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}) })) } : null, folded, tokens };
+	}
+	let tasksBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Debounced: the widget's triggers fire in bursts (a task call, its notices, a Truth event). */
+	function broadcastTasks(): void {
+		if (tasksBroadcastTimer) return;
+		tasksBroadcastTimer = setTimeout(() => {
+			tasksBroadcastTimer = null;
+			broadcast({ type: "tasks", ...taskProjection() });
+		}, 250);
+	}
+
 	function broadcastTelemetry(): void {
 		broadcast(telemetryMsg());
 	}
@@ -2572,6 +2608,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// current controller lease (v16). Optional degradation remains a runtime status concern.
 		send(ws, { type: "hello", protocolVersion: PROTOCOL_VERSION, sessionId, role, meta, conductors: catalogMeta(readinessOf), controller: controllerInfo(), conditionalOps: true });
 		sendSnapshot(ws);
+		const settingsNow = settingsStore.current();
+		send(ws, { type: "settings", snapshot: { settings: settingsNow.settings as unknown as Record<string, unknown>, sources: settingsNow.sources, rev: settingsNow.rev } });
+		send(ws, { type: "tasks", ...taskProjection() });
 		// P1-6: a freshly attached REMOTE conductor gets an initial turn-committed right AFTER its
 		// snapshot — by now the spawned SDK has hydrated its replica and run `conductor.attach`, so its
 		// listener is live and this drives an immediate pass over existing state instead of idling
@@ -2649,8 +2688,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					if (!cmd) {
 						send(ws, { type: "commandResult", seq: msg.seq, results: [], rev: truth ? truth.rev : 0 });
 					} else {
-						const { results, rev } = applyCommand(cmd);
-						send(ws, { type: "commandResult", seq: msg.seq, results, rev });
+						const { results, rev, conflict, error } = applyCommand(cmd);
+						send(ws, { type: "commandResult", seq: msg.seq, results, rev, ...(conflict ? { conflict: true } : {}), ...(error ? { error } : {}) });
 					}
 				} else if (msg?.type === "resnapshot") {
 					// The replica diverged (rev mismatch) or saw a `reset` — hand it a fresh snapshot.
@@ -3061,7 +3100,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	/** Apply a client command to the authoritative Truth; returns the per-op results + resulting rev. */
-	function applyCommand(cmd: WireCommand): { results: OpResult[]; rev: number } {
+	function applyCommand(cmd: WireCommand): { results: OpResult[]; rev: number; conflict?: boolean; error?: string } {
 		if (!truth) return { results: [], rev: 0 };
 		switch (cmd.kind) {
 			case "ops": {
@@ -3086,6 +3125,25 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			case "setFolding":
 				setFolding(!!cmd.value);
 				return { results: [], rev: truth.rev };
+			case "updateSettings": {
+				// Controller-only, like every other write: the caller already checked the lease. The save is
+				// async, so the command reports the outcome through commandResult and the settings broadcast.
+				const rev = settingsStore.current().rev;
+				if (cmd.baseRev !== rev) return { results: [], rev: truth.rev, conflict: true, error: "settings changed; reload and stage again" };
+				void saveSettingsPatch(cmd.patch as SettingsPatch, cmd.baseRev).then(result => {
+					if (!result.ok) broadcast({ type: "notice", text: `Settings not saved: ${result.error}` });
+				});
+				return { results: [], rev: truth.rev };
+			}
+			case "compact": {
+				void compact({ trigger: "command", strategy: cmd.strategy, ...(cmd.instructions ? { instructions: cmd.instructions } : {}), ...(cmd.dryRun ? { dryRun: true } : {}) }, { card: !cmd.dryRun })
+					.catch(error => broadcast({ type: "notice", text: `Compaction failed: ${error instanceof Error ? error.message : String(error)}` }));
+				return { results: [], rev: truth.rev };
+			}
+			case "undoCompact": {
+				void undoLastCompact().then(result => broadcast({ type: "notice", text: result.text }));
+				return { results: [], rev: truth.rev };
+			}
 			case "selectConductor":
 				// GUI-only (a conductor socket never reaches applyCommand — its messages route to
 				// handleConductorMessage). Drives the host's attach/detach; state arrives via events +
@@ -3168,6 +3226,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskListSnapshot = null;
 		const scan = taskStoreFor(latestCtx).scan();
 		taskListSnapshot = { project: path.resolve(latestCtx.cwd), session: latestCtx.sessionManager.getSessionId(), ...scan };
+		broadcastTasks();
 		return scan;
 	}
 	const taskWidget = new TaskWidgetController({
@@ -3324,7 +3383,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				session: () => ctx.sessionManager.getSessionId(),
 				enabled: tasksToolActive,
 				appendEntry: (type, data) => pi.appendEntry(type, data),
-				changed: () => { taskWidget.reload(); notifyNative(); },
+				changed: () => { taskWidget.reload(); broadcastTasks(); notifyNative(); },
 			});
 			taskSession.start(ctx.sessionManager.getBranch(), (event as { reason?: StartReason }).reason ?? "startup", ctx.mode === "tui" && ctx.hasUI ? ctx.ui : null);
 			// New user messages are extracted into the attached list while the Taskfold conductor runs (SPEC-0002 §4.6).
@@ -3340,6 +3399,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				applied: (slug, outcome) => {
 					taskSession?.noteRouted(slug, outcome.applied);
 					taskWidget.reload();
+					broadcastTasks();
 					notifyNative();
 					void flushTaskNotices(latestCtx ?? ctx);
 				},
