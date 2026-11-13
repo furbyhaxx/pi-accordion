@@ -3,14 +3,17 @@ document:
   type: "specification"
   id: "SPEC-0003"
   title: "Recall: bounded retrieval of folded content"
-  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, and the query language of archive search."
+  description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results and the guard that clips oversized tool results."
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T12:52:40+01:00"
+  updated_at: "2026-11-13T12:55:37+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
+    - revision: 3
+      reason: "one tool result larger than the budget could not be folded and ended a session as saturated"
+      changes: ["§5: oversized tool-result guard", "§6: guard.resultTokens"]
     - revision: 2
       reason: "a refusal was final until recall results left the context by other means"
       changes: ["§3: a call that cannot be served releases used results first", "§4: expiry of recall results", "§5: recall.keepSteps"]
@@ -135,21 +138,41 @@ while folding is armed.
 - Fold state is not persisted, so a resumed session holds its old recall results whole again until
   the first of the two triggers fires.
 
-## 5. Settings (`~/.accordion/config.json`)
+## 5. Oversized tool results
+
+`core/resultGuard.ts` plans; the host applies it in the `context` hook after ingestion, only while
+folding is armed, whichever conductor is attached.
+
+- A `tool_result` of any tool above `guard.resultTokens` that has not been sent yet is replaced
+  (`replace`, recoverable) by its first and last 1,500 tokens around one line:
+  `[… ~N of ~M tokens clipped. Search the rest: recall({codes:["<code>"], query:"text"}) · read it in pages: recall({codes:["<code>.1"], page:1})]`.
+  The model never saw it whole, so the provider cache is not touched, and Truth allows the
+  replacement inside a protected tail (birth-fold).
+- The first pass after a session's Truth is built also covers results that count as sent: a loaded
+  session holds its whole history as sent, and this is what repairs one that already contains an
+  oversized result. Truth still refuses a sent block inside a conductor's protected tail.
+- An oversized `recall` result (written before recall was bounded) becomes its expiry stub (§4)
+  instead of a clipped block.
+- Left alone: a result with a human override, a result already folded or inside a folded group.
+- The clipped block's code works with `recall` like any fold code: search, or `code.1` in pages.
+
+## 6. Settings (`~/.accordion/config.json`)
 
 ```json
-{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3 } }
+{ "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3 },
+  "guard": { "resultTokens": 16000 } }
 ```
 
 `callTokens` 2,000–50,000; `liveTokens` 2,000–200,000 and never below `callTokens`; `keepSteps`
-0–100. Read on every call.
+0–100; `resultTokens` 4,000–1,000,000, or 0 to turn the guard off. Read on every call and request.
 
-## 6. Tests
+## 7. Tests
 
 | What | Where |
 |---|---|
 | parallel calls with many codes stay within the account; refusal text; landed results count across turns; projection stays within budget | `core/recallAccount.test.ts` |
 | whole/index/entry/paging/missing | `core/recallView.test.ts` |
 | used results become stubs in one transaction; recent, held, small and foreign results stay; a refused call is served after a release | `core/recallExpiry.test.ts` |
+| a giant result at the tail of an open task saturates Taskfold without the guard and not with it; both ends kept, rest reachable by search and pages; sent, held and small results untouched; loaded-session repair; recall result → stub | `conductors/in-process/taskfold/resultGuard.test.ts` |
 | eleven task codes → eleven reports without transcript; subtasks as codes; `.entries`; archive search, terms, phrase, regex, partial, paging | `conductors/in-process/taskfold/taskReports.test.ts` |
 | the registered tool end to end, including codeless search | `extension/smoke.mjs` |

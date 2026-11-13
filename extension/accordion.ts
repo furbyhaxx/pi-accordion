@@ -83,6 +83,7 @@ import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfold } from "../core/agentView";
 import { RECALL_POLICY, RecallAccount, serveRecall } from "../core/recallAccount";
 import { expireRecall } from "../core/recallExpiry";
+import { guardResults } from "../core/resultGuard";
 import { taskReports } from "../conductors/in-process/taskfold/taskReports";
 import { applyGuardingHostOnly, sanitizeOps, type OpResult } from "../core/ops";
 import type { TruthEvent } from "../core/events";
@@ -449,6 +450,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	let settings: AccordionSettings = loadSettings(HOME);
+	// A session's first Truth holds its history as already sent; the guard repairs that once.
+	let guardLoadedSession = false;
 	const recallAccount = new RecallAccount(() => ({ ...RECALL_POLICY, callTokens: settings.recall.callTokens, liveTokens: settings.recall.liveTokens }));
 
 	function activeBindHost(): string {
@@ -2634,7 +2637,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			liveHost.dispatchTruthEvent(e);
 		});
 		truth = t;
-		if (!prev) recallAccount.reset();
+		if (!prev) {
+			recallAccount.reset();
+			guardLoadedSession = true;
+		}
 		setLastMessages(messages); // fingerprints the full array once (rare rebuild path) — see lastFps
 		if (!prev) applyDials();
 	}
@@ -3286,6 +3292,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			// (a) Reconcile pi's messages against the Truth: append a new suffix, or rebuild on
 			//     structural divergence (both broadcast to clients via the Truth subscription).
 			ingestMessages(messages);
+			// No tool result departs larger than the guard allows; clipped before first send, so no cache cost.
+			if (truth && foldingEnabled) {
+				const clipped = guardResults(truth, settings.guard.resultTokens, guardLoadedSession);
+				guardLoadedSession = false;
+				if (clipped.length) truth.apply(clipped, "auto");
+			}
 			// Near the budget, recall results that were already used go first: they are copies.
 			if (truth && truth.budget > 0 && truth.stats().liveTokens >= settings.taskfold.high * truth.budget) releaseRecall(false);
 			if (truth) {

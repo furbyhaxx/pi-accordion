@@ -29,8 +29,8 @@ the code. Until a slice lands, SPEC-0002 describes the shipped behaviour.
 done  S1  Recall account and report-first task codes
 done  S2  Archive-wide search
 done  S3  Expiry of recall results
-next  S4  Oversized tool-result guard
-later S5  Bounded unfold
+done  S4  Oversized tool-result guard
+next  S5  Bounded unfold
 later S6  recall({ask}) through a side model
 later S7  Fact ledger (only if its spike passes)
 later S8  Replay, randomized admission test, gates, live run

@@ -69,6 +69,11 @@ export interface RecallSettings {
 	keepSteps: number;
 }
 
+export interface GuardSettings {
+	/** A tool result above this many tokens is clipped before it is first sent; 0 turns the guard off. */
+	resultTokens: number;
+}
+
 export interface AccordionSettings {
 	/** Automatically arm folding when a session starts. */
 	autoArm: boolean;
@@ -90,6 +95,7 @@ export interface AccordionSettings {
 	tasks: TaskSettings;
 	taskfold: TaskfoldSettings;
 	recall: RecallSettings;
+	guard: GuardSettings;
 	/** Budget and protected tail per `provider/model`, `provider/*` or `*`, as `"200k"`, `"1M"` or `"85%"`. */
 	modelDefaults: ModelDefaults;
 }
@@ -107,6 +113,7 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 	tasks: { attachments: { render: "inline", maxLines: 60, roots: [] }, pins: { listTokens: 2000, taskTokens: 1500 }, adopt: "auto" },
 	taskfold: { high: TASKFOLD_DEFAULTS.high, low: TASKFOLD_DEFAULTS.low, keepRecentTasks: TASKFOLD_DEFAULTS.keepRecentTasks, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
 	recall: { callTokens: RECALL_POLICY.callTokens, liveTokens: RECALL_POLICY.liveTokens, keepSteps: 3 },
+	guard: { resultTokens: 16000 },
 	modelDefaults: {},
 };
 
@@ -258,6 +265,12 @@ export function sanitizeRecallSettings(value: unknown): RecallSettings {
 	return { callTokens, liveTokens: Math.max(callTokens, range(raw.liveTokens, defaults.liveTokens, 2000, 200000)), keepSteps: range(raw.keepSteps, defaults.keepSteps, 0, 100) };
 }
 
+export function sanitizeGuardSettings(value: unknown): GuardSettings {
+	const raw = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+	const v = raw.resultTokens;
+	return { resultTokens: v === 0 || (typeof v === "number" && Number.isInteger(v) && v >= 4000 && v <= 1000000) ? v : DEFAULT_SETTINGS.guard.resultTokens };
+}
+
 export function sanitizePrivacyConsent(value: unknown): Record<string, string> {
 	const out: Record<string, string> = {};
 	if (!value || typeof value !== "object" || Array.isArray(value)) return out;
@@ -360,6 +373,7 @@ export function loadSettings(homeDir: string, env: Record<string, string | undef
 		tasks: sanitizeTaskSettings(fileData.tasks),
 		taskfold: sanitizeTaskfoldSettings(fileData.taskfold),
 		recall: sanitizeRecallSettings(fileData.recall),
+		guard: sanitizeGuardSettings(fileData.guard),
 		modelDefaults: sanitizeModelDefaults(fileData.modelDefaults),
 	};
 }
@@ -378,6 +392,7 @@ export function saveSettings(homeDir: string, settings: AccordionSettings): Acco
 		tasks: sanitizeTaskSettings(settings.tasks),
 		taskfold: sanitizeTaskfoldSettings(settings.taskfold),
 		recall: sanitizeRecallSettings(settings.recall),
+		guard: sanitizeGuardSettings(settings.guard),
 		modelDefaults: sanitizeModelDefaults(settings.modelDefaults),
 	};
 	try {

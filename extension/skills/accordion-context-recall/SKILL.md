@@ -25,6 +25,10 @@ The `3f9a2c` is a **fold code**; the text after `FOLDED}` is a digest. The origi
 
 A fold that is not a task (a single block, a run of steps) comes back whole when it is small and as its entry list otherwise.
 
+## Clipped tool results
+
+A very large tool result arrives clipped: its beginning, a line `[… ~N of ~M tokens clipped. …]` with a fold code, and its end. Nothing is lost. Search the hidden part with `recall({codes: ["<code>"], query: "…"})` or read it in pages with `recall({codes: ["<code>.1"], page: 1})`. Prefer narrowing the original command (a filter, a line range) when you can.
+
 ## Queries
 
 - Several words must **all** occur in one entry: `timeout retry`.

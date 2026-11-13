@@ -44,6 +44,7 @@ describe("accordion settings & memorable tokens", () => {
 			saveSettings(tmp, {
 				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5 },
+				guard: { resultTokens: 32000 },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
@@ -61,6 +62,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(loaded).toEqual({
 				taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
 				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5 },
+				guard: { resultTokens: 32000 },
 				tasks: { attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] }, pins: { listTokens: 1000, taskTokens: 500 }, adopt: "ask" },
 				autoArm: false,
 				defaultConductor: "keel-note",
