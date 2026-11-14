@@ -597,22 +597,21 @@ describe("keel-note · boundary placement", () => {
 		if (placedIdsNow.length > 0) expect(placedIdsNow.every((id) => host.get(id)!.signed !== true)).toBe(true);
 	});
 
-	it("with only signed thinking and no small text, keel-lite saturates without touching a single signed block", async () => {
+	it("with only signed thinking and no small text, no signed block is rewritten and no note is placed", async () => {
 		const shape: Shape = { ...DEEP, signed: true };
 		const { s } = session(40, shape);
 		const host = setup(s, { budgetFactor: 0.9 });
 		const c = new KeelNoteConductor(EAGER);
 		c.attach(host);
 		await host.commitTurn();
-		const before = host.epochs().length;
 		let seed = 9500;
 		for (let n = 0; n < 20; n++) {
 			for (const p of host.calls) if (!p.settled) p.resolve({ text: noteBody(`N${n}`) });
 			await settle();
 			seed = await grow(host, s, seed, shape.think, shape);
 		}
-		expect(host.epochs().length).toBe(before); // signed-heavy context: nothing safely foldable
-		for (const b of host.blocks()) if (b.kind === "thinking" && b.signed) expect(b.folded).toBe(false);
+		// Signed-heavy context: whole steps may leave in groups, nothing is rewritten in place.
+		for (const b of host.blocks()) if (b.kind === "thinking" && b.signed) expect(host.truth.get(b.id)).toMatchObject({ autoFolded: false, override: null });
 		expect(host.txns.filter(isPlacement)).toHaveLength(0);
 	});
 

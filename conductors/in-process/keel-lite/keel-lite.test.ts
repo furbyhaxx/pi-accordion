@@ -233,12 +233,25 @@ describe("keel-lite · hysteresis", () => {
 });
 
 describe("keel-lite · signed thinking", () => {
-	it("leaves signed thoughts unmodified and ungrouped when saturated", async () => {
+	it("never rewrites a signed thought and removes it only with its whole step", async () => {
 		const s = new Session();
 		s.user("Solve.");
 		const id = s.step({ think: thought(4000), signed: true }).think!;
 		const host = setup(s, { protect: 0, budget: 100 });
 		new KeelLiteConductor().attach(host);
+		await host.commitTurn();
+		expect(host.truth.get(id)).toMatchObject({ autoFolded: false, override: null });
+		expect(substOf(host, id) ?? null).toBeNull();
+		expect(isGrouped(host, id)).toBe(true);
+		expect(host.statusLog.at(-1)?.metrics?.saturated).toBeUndefined();
+	});
+
+	it("leaves a signed thought alone when step grouping is off", async () => {
+		const s = new Session();
+		s.user("Solve.");
+		const id = s.step({ think: thought(4000), signed: true }).think!;
+		const host = setup(s, { protect: 0, budget: 100 });
+		new KeelLiteConductor({ groupSteps: false }).attach(host);
 		await host.commitTurn();
 		expect(isFolded(host, id)).toBe(false);
 		expect(isGrouped(host, id)).toBe(false);

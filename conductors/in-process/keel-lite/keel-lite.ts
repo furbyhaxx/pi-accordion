@@ -442,9 +442,11 @@ export class KeelLiteConductor implements Conductor {
 		inAnyGroup: Set<string>,
 		cur: (b: ViewBlock) => number,
 	): PlannedGroup[] {
+		// A signed thought may leave only with its whole message, which is what a group does; the
+		// per-block rungs never rewrite it (`eligible`).
 		const groupable = (i: number): boolean => {
 			const b = blocks[i];
-			if (i >= pfi || b.held || b.grouped || inAnyGroup.has(b.id) || (b.kind === "thinking" && b.signed)) return false;
+			if (i >= pfi || b.held || b.grouped || inAnyGroup.has(b.id)) return false;
 			if (a.roots.has(b.id) || a.demoted.has(b.id)) return false;
 			return b.kind !== "system" && b.kind !== "user";
 		};
