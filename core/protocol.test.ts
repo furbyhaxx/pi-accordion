@@ -35,8 +35,8 @@ import type {
 } from "./protocol";
 
 describe("PROTOCOL_VERSION", () => {
-	it("is bumped for the latest breaking wire change (v24: the token-calibration prior)", () => {
-		expect(PROTOCOL_VERSION).toBe(24);
+	it("is bumped for custom message blocks", () => {
+		expect(PROTOCOL_VERSION).toBe(25);
 	});
 });
 
@@ -275,6 +275,10 @@ describe("v22 — the `system` wire block kind", () => {
 	it("isWireBlock accepts kind:\"system\" (a pre-v22 peer would drop the prompt silently)", () => {
 		expect(isWireBlock(systemBlock)).toBe(true);
 	});
+	it("accepts custom extension blocks", () => {
+		expect(isWireBlock({ ...systemBlock, id: "c:1:abc", kind: "custom" })).toBe(true);
+	});
+
 
 	it("isWireBlock still rejects an unmodelled kind — the set is enumerated, not open", () => {
 		expect(isWireBlock({ ...systemBlock, kind: "sys" })).toBe(false);

@@ -52,7 +52,7 @@ export interface ViewBlock {
 	 * because it is a real, irreducible floor on the context a strategy has to plan around. A session
 	 * whose prompt could not be sourced has no such block at all — never a zero-token placeholder.
 	 */
-	kind: "system" | "user" | "text" | "thinking" | "tool_call" | "tool_result";
+	kind: "system" | "user" | "custom" | "text" | "thinking" | "tool_call" | "tool_result";
 	turn: number;
 	order: number;
 	/**

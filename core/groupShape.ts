@@ -31,6 +31,7 @@ import { isDurableId } from "./wire";
  * because the collapse fixpoint below is defined per MESSAGE, not per block.
  */
 export function messageKey(id: string): string {
+	if (id.startsWith("c:")) return id;
 	const live = id.match(/^(.*):p(?:\d+|\?)$/);
 	if (live) return live[1];
 	const parsed = id.match(/^(.+):\d+$/);

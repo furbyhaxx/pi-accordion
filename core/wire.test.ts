@@ -26,6 +26,44 @@ function session(): PiMessage[] {
 	];
 }
 
+describe("custom messages", () => {
+	const custom: PiMessage = { role: "custom", customType: "notice", timestamp: 42, content: "extension notice", details: { source: "test" } };
+
+	it("linearizes and folds text without changing its metadata", () => {
+		const messages: PiMessage[] = [{ role: "user", timestamp: 1, content: "hello" }, custom, { role: "assistant", timestamp: 2, content: [{ type: "text", text: "done" }] }];
+		const blocks = linearize(messages);
+		expect(blocks.map((b) => b.kind)).toEqual(["user", "custom", "text"]);
+		expect(blocks.map((b) => b.turn)).toEqual([1, 1, 1]);
+		const id = blocks[1].id;
+		expect(isDurableId(id)).toBe(true);
+		expect(blockId(custom, 8)).toBe(id);
+		expect(blockId({ ...custom, content: "different" }, 1)).not.toBe(id);
+		expect(contentSignature({ ...custom, customType: "other" })).not.toBe(contentSignature(custom));
+		expect(contentFingerprint({ ...custom, content: "different" })).not.toBe(contentFingerprint(custom));
+		expect(applyPlan(messages, [{ id, digestText: "short" }])[1]).toEqual({ ...custom, content: "short" });
+	});
+
+	it("counts exact twins once and folds both copies", () => {
+		const messages = [custom, { ...custom }];
+		const blocks = linearize(messages);
+		expect(blocks).toHaveLength(1);
+		expect(applyPlan(messages, [{ id: blocks[0].id, digestText: "short" }]).map((m) => m.content)).toEqual(["short", "short"]);
+	});
+
+	it("counts non-text and timestamp-free messages without allowing wire changes", () => {
+		for (const message of [
+			{ ...custom, content: [{ type: "text", text: "visible" }, { type: "image", data: "abc" }] },
+			{ ...custom, timestamp: undefined },
+		] as PiMessage[]) {
+			const [block] = linearize([message]);
+			expect(block.id).toBe("m0:c");
+			expect(block.tokens).toBeGreaterThan(0);
+			expect(messageInfo(message, 0).hasNonDurable).toBe(true);
+			expect(applyPlan([message], [{ id: block.id, digestText: "short" }], [{ id: "g", memberIds: [block.id], summaryText: null }])).toEqual([message]);
+		}
+	});
+});
+
 describe("core/wire — durable ids", () => {
 	it("blockId derives durable, content-anchored ids", () => {
 		const ms = session();

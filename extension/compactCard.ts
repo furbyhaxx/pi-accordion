@@ -24,6 +24,7 @@ export function usageBar(tokens: number, full: number, width = 26): string {
 const KIND_LABEL: Record<BlockKind, string> = {
 	system: "system prompts",
 	user: "user messages",
+	custom: "extension messages",
 	text: "assistant texts",
 	thinking: "thinking blocks",
 	tool_call: "tool calls",

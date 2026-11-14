@@ -6,6 +6,7 @@ import type { BlockKind } from "../../core/types";
 const roles: Record<BlockKind, string> = {
 	system: "S",
 	user: "U",
+	custom: "X",
 	text: "A",
 	thinking: "H",
 	tool_call: "C",
@@ -15,6 +16,7 @@ const roles: Record<BlockKind, string> = {
 const KIND_RGB: Record<BlockKind, readonly [number, number, number]> = {
 	system: [255, 246, 164], // #FFF6A4
 	user: [4, 78, 255], // #044EFF
+	custom: [155, 214, 122],
 	text: [26, 166, 232], // #1AA6E8
 	thinking: [180, 128, 223], // #B480DF
 	tool_call: [33, 212, 193], // #21D4C1

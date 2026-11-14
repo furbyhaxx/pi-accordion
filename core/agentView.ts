@@ -37,7 +37,8 @@ export interface RecallContent {
 /** Short, human-readable label for a confirmation (e.g. "tool_result read_file · turn 12"). */
 export function blockLabel(b: Block): string {
 	const where = b.turn > 0 ? `turn ${b.turn}` : "preamble";
-	return b.toolName ? `${b.kind} ${b.toolName} · ${where}` : `${b.kind} · ${where}`;
+	const kind = b.kind === "custom" ? "extension message" : b.kind;
+	return b.toolName ? `${kind} ${b.toolName} · ${where}` : `${kind} · ${where}`;
 }
 
 /**

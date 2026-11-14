@@ -86,36 +86,16 @@ const PROTECT_OVERFLOW_CAP = 1.25;
 export { messageKey };
 
 /**
- * Recover a block id's WIRE role class — the inverse of `blockId()`'s own `u:`/`a:`/`r:`/`s:`
- * prefix scheme (plus the `m<i>:…` positional fallback). Used ONLY to reconstruct
- * `WireMsgShape.role` for `Truth.degradedRunKeys` (see its doc comment): a live session's block
- * ids already encode which wire-role class produced them, so no real `PiMessage` is needed to
- * tell a user message from an assistant one.
- *
- * Exact for `user` / `assistant` / `toolResult` (each has its own unambiguous prefix). The rare
- * pi "default" message kinds (bash / custom / branchSummary / compactionSummary) all surface as
- * a bare `text` block under an `s:`/`m<i>:s` id (see `linearize`'s `default` branch) — a `Block`
- * alone cannot tell those sub-kinds apart, so they collapse to one `"other"` placeholder. This
- * only under-distinguishes two DIFFERENT non-conversational kinds landing adjacent to each other
- * around a degraded run's boundary — a vanishingly rare shape with no conversational content —
- * never a user/assistant misclassification, which is the case that actually matters for the
- * role-validity floor. A loaded (non-live) session's ids never match ANY of these prefixes (parse.ts
- * uses `<eid>:u` / `<eid>:<i>` / `<eid>:r`), which is fine: `Truth.degradedRunKeys` only builds
- * `WireMsgShape`s when `computeGroupOps()` yields at least one group, and a loaded session's ids
- * are never durable (`isDurableId`), so `computeGroupOps()` already strips them to nothing first.
+ * Recover the provider role class from a block id for the degraded-drop role floor.
+ * Assistant and tool-result prefixes are distinct; custom, summary and other messages
+ * are sent to the provider as user messages.
  */
 function wireRoleOfId(id: string): string {
-	// The `system` block is not a wire MESSAGE at all — it rides the provider request's own `system`
-	// field, never pi's `messages` array — so `buildWireShapes` filters it out before this is ever
-	// called and the role-validity floor never sees a phantom leading message. The branch is kept as a
-	// defensive total: if a future caller ever did hand it a `sys:` id, "system" is a role that can
-	// never be same-role-adjacent to a real message, which is strictly safer than falling through to
-	// the "other" bucket shared with pi's bash/custom/summary kinds.
+	// The system prompt is not a wire message; buildWireShapes filters it out.
 	if (id.startsWith("sys:")) return "system";
-	if (id.startsWith("u:") || /^m\d+:u$/.test(id)) return "user";
 	if (id.startsWith("a:") || /^m\d+:p/.test(id)) return "assistant";
 	if (id.startsWith("r:") || /^m\d+:r$/.test(id)) return "toolResult";
-	return "other"; // "s:" / `m<i>:s`
+	return "user";
 }
 
 /**

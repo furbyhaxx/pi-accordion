@@ -444,6 +444,19 @@ describe("Truth — rev, sent, baseRev", () => {
 });
 
 describe("Truth — serializeWire", () => {
+	it("matches the provider role floor when dropping a custom and assistant message", () => {
+		const messages: PiMessage[] = [
+			{ role: "user", timestamp: 1, content: "hello" },
+			{ role: "custom", customType: "notice", timestamp: 2, content: "notice" },
+			{ role: "assistant", responseId: "reply", content: [{ type: "text", text: "done" }] },
+		];
+		const t = bulk(linearize(messages).map(wireToBlock));
+		t.wireAttached = true;
+		t.setProtect(0);
+		expect(t.apply([{ kind: "group", ids: t.blocks.slice(1).map((b) => b.id), summary: null }], "you").results[0].applied).toBe(true);
+		expect(linearize(t.serializeWire(messages)).map((b) => b.text)).toEqual(t.projectContext().filter((p) => p.text !== null).map((p) => p.text));
+	});
+
 	it("does not duplicate recaps around empty protocol messages or swallow their prompt metadata", () => {
 		const patch = { role: "system", content: "", timestamp: 3, sections: { tools: "Updated declarations" } };
 		const empty = { role: "custom", content: [], timestamp: 4, customType: "notice" };

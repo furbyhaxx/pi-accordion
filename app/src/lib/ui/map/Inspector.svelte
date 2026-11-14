@@ -28,6 +28,7 @@
 	const KIND_LABEL: Record<Block["kind"], string> = {
 		system: "System",
 		user: "User",
+		custom: "Extension message",
 		text: "Reply",
 		thinking: "Thinking",
 		tool_call: "Tool call",

@@ -53,6 +53,7 @@ const DRAW_PALETTE: Palette = {
   kindColors: {
     system: "#FFF6A4",
     user: "#044EFF",
+    custom: "#9BD67A",
     text: "#1AA6E8",
     thinking: "#B480DF",
     tool_call: "#21D4C1",

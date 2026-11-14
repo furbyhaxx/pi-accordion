@@ -36,7 +36,7 @@ function firstLine(s, n = 100) {
 }
 
 // core/digest.ts
-var FOLDABLE_KINDS = /* @__PURE__ */ new Set(["text", "thinking", "tool_result"]);
+var FOLDABLE_KINDS = /* @__PURE__ */ new Set(["text", "thinking", "tool_result", "custom"]);
 function wireFoldable(b) {
   return FOLDABLE_KINDS.has(b.kind);
 }
@@ -84,6 +84,8 @@ function digestBody(b) {
       return "system prompt";
     case "user":
       return "\u201C" + clip(b.text, 100) + "\u201D";
+    case "custom":
+      return `extension message \xB7 ${firstLine(b.text, 120)}`;
     case "text":
       return clip(b.text, 120);
     case "thinking": {
@@ -121,12 +123,13 @@ var GROUP_KIND_NOUN = {
   // entry has to exist. Kept honest rather than a placeholder in case the invariant is ever probed.
   system: ["system prompt", "system prompts"],
   user: ["ask", "asks"],
+  custom: ["extension message", "extension messages"],
   text: ["reply", "replies"],
   thinking: ["thought", "thoughts"],
   tool_call: ["call", "calls"],
   tool_result: ["result", "results"]
 };
-var GROUP_KIND_ORDER = ["tool_result", "thinking", "text", "tool_call", "user", "system"];
+var GROUP_KIND_ORDER = ["tool_result", "thinking", "text", "tool_call", "user", "custom", "system"];
 function turnSpan(members) {
   let lo = Infinity;
   let hi = -Infinity;
@@ -176,6 +179,8 @@ function blockId(m, i, partIndex) {
   switch (m.role) {
     case "user":
       return m.timestamp != null ? `u:${m.timestamp}` : `m${i}:u`;
+    case "custom":
+      return m.timestamp != null && (typeof m.content === "string" || Array.isArray(m.content) && m.content.every((part) => part?.type === "text")) ? `c:${m.timestamp}:${customSignature(m)}` : `m${i}:c`;
     case "assistant": {
       if (partIndex == null) return `m${i}:p?`;
       const anchor = m.responseId != null ? m.responseId : m.timestamp != null ? `t${m.timestamp}` : null;
@@ -188,7 +193,26 @@ function blockId(m, i, partIndex) {
   }
 }
 function isDurableId(id) {
-  return id.startsWith("u:") || id.startsWith("a:") || id.startsWith("r:") || id.startsWith("s:");
+  return id.startsWith("u:") || id.startsWith("a:") || id.startsWith("r:") || id.startsWith("s:") || id.startsWith("c:");
+}
+function textOf(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content))
+    return content.filter((b) => !!b && b.type === "text" && typeof b.text === "string").map((b) => b.text).join("\n");
+  return "";
+}
+var customSignatures = /* @__PURE__ */ new WeakMap();
+function customSignature(m) {
+  const cached = customSignatures.get(m);
+  if (cached !== void 0) return cached;
+  const text = textOf(m.content);
+  let h = fnvStr(2166136261, m.customType ?? "");
+  h = fnvInt(h, text.length);
+  h = fnvStr(h, text.slice(0, 256));
+  h = fnvStr(h, text.slice(-256));
+  const signature = (h >>> 0).toString(36);
+  customSignatures.set(m, signature);
+  return signature;
 }
 function wireToBlock(w) {
   return {
@@ -222,6 +246,9 @@ function messageInfo(m, i) {
     case "user":
       push(blockId(m, i));
       break;
+    case "custom":
+      if (textOf(m.content)) push(blockId(m, i));
+      break;
     case "assistant": {
       const parts = Array.isArray(m.content) ? m.content : [];
       parts.forEach((b, j) => {
@@ -245,6 +272,24 @@ function messageInfo(m, i) {
       if (typeof m.summary === "string" && m.summary) push(blockId(m, i));
   }
   return { ids, calls, results, hasNonDurable };
+}
+var FNV_PRIME = 16777619;
+function fnvStr(h, s) {
+  for (let k = 0; k < s.length; k++) {
+    const c = s.charCodeAt(k);
+    h = Math.imul(h ^ c & 255, FNV_PRIME);
+    h = Math.imul(h ^ c >>> 8, FNV_PRIME);
+  }
+  return h;
+}
+function fnvByte(h, b) {
+  return Math.imul(h ^ b & 255, FNV_PRIME);
+}
+function fnvInt(h, n) {
+  return fnvByte(fnvByte(fnvByte(fnvByte(h, n), n >>> 8), n >>> 16), n >>> 24);
+}
+function providerRole(role) {
+  return role === "assistant" || role === "toolResult" ? role : "user";
 }
 function computeDegradedDropRuns(msgs, groups) {
   const owner = new Array(msgs.length).fill(null);
@@ -334,6 +379,14 @@ function computeDegradedDropRuns(msgs, groups) {
   return { owner, degradeStart };
 }
 function foldOne(m, i, byId, mark) {
+  if (m.role === "custom") {
+    const op = byId.get(blockId(m, i));
+    if (op?.digestText) {
+      mark();
+      return { ...m, content: typeof m.content === "string" ? op.digestText : [{ type: "text", text: op.digestText }] };
+    }
+    return m;
+  }
   if (m.role === "assistant" && Array.isArray(m.content)) {
     let parts = null;
     m.content.forEach((b, j) => {
@@ -383,7 +436,7 @@ function applyPlan(messages, ops, groups = []) {
       const empty = !m.content || Array.isArray(m.content) && m.content.every((p) => p?.type === "text" && p.text === "" || p?.type === "thinking" && p.thinking === "" && !thinkingIsSigned(p));
       if (!info.ids.length && empty) transparent.add(i);
       else {
-        shapes.push({ ...info, role: m.role });
+        shapes.push({ ...info, role: providerRole(m.role) });
         indices.push(i);
       }
     });
@@ -429,6 +482,7 @@ function roleFloorRecap(groupId, runLength) {
 
 // core/groupShape.ts
 function messageKey(id) {
+  if (id.startsWith("c:")) return id;
   const live = id.match(/^(.*):p(?:\d+|\?)$/);
   if (live) return live[1];
   const parsed = id.match(/^(.+):\d+$/);
@@ -486,10 +540,9 @@ function collapsibleMessageKeys(members, requireDurable) {
 var PROTECT_OVERFLOW_CAP = 1.25;
 function wireRoleOfId(id) {
   if (id.startsWith("sys:")) return "system";
-  if (id.startsWith("u:") || /^m\d+:u$/.test(id)) return "user";
   if (id.startsWith("a:") || /^m\d+:p/.test(id)) return "assistant";
   if (id.startsWith("r:") || /^m\d+:r$/.test(id)) return "toolResult";
-  return "other";
+  return "user";
 }
 function messageCountOfRun(run) {
   let n = 0;
@@ -2319,7 +2372,7 @@ function recallHostEvent(ids, by, rev) {
 }
 
 // core/protocol.ts
-var PROTOCOL_VERSION = 24;
+var PROTOCOL_VERSION = 25;
 var SERVER_TYPES = /* @__PURE__ */ new Set([
   "hello",
   "snapshot",
@@ -3021,6 +3074,8 @@ function blockLabel(b) {
       return "system prompt";
     case "user":
       return "user";
+    case "custom":
+      return "extension message";
     case "text":
       return "assistant";
     case "thinking":

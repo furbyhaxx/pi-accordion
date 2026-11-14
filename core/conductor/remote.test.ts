@@ -322,13 +322,13 @@ describe("runRemoteConductor — attach lifecycle", () => {
 		await run;
 	});
 
-	it("rejects loudly on a protocol/role mismatch — never attaches, never detaches", async () => {
+	it("rejects a v24 peer — never attaches, never detaches", async () => {
 		const server = newServer();
 		const port = await server.portReady;
 		const stub = makeStub();
 		const run = runRemoteConductor(stub.conductor, { port, token: "tok" });
 		await server.connected;
-		server.send(helloMsg({ protocolVersion: PROTOCOL_VERSION + 1 }));
+		server.send(helloMsg({ protocolVersion: 24 }));
 
 		await expect(run).rejects.toThrow(/protocol\/role mismatch/i);
 		expect(stub.attachCount).toBe(0);
