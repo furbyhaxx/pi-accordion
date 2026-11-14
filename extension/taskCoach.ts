@@ -5,13 +5,16 @@
  */
 import { charsToTokens } from "../core/tokens";
 import { currentBlock, IDLE_REASONS, type Task, type TaskBlock, type TaskList } from "./tasks";
-import { floorFoldNote, largeLeafReminder } from "./taskBinding";
+import { floorFoldNote, largeLeafReminder, saturationNote } from "./taskBinding";
 
 /**
  * Calls allowed before coaching starts. Orientation — reading the request, the specs, the code —
  * is real work that may need no task yet, so the count is a configuration value, not a guess.
  */
 export const DEFAULT_ORIENTATION_CALLS = 10;
+
+/** Tool results that must pass before the agent is told about saturation again. */
+const SATURATION_NOTE_GAP = 50;
 
 /** When a leaf is large enough to be worth ending: a share of the budget or a count of tool results. */
 export interface LargeLeafTap {
@@ -132,6 +135,10 @@ export class TaskCoach {
 	private readonly tapped = new Map<string, { results: number; tokens: number }>();
 	/** A pressure fold that touched the current leaf, waiting for the next tool result to carry it. */
 	private floorNote: { task: string; slug: string; id: string; title: string } | null = null;
+	private saturated = false;
+	private saturationHolder: { slug: string; id: string; tokens: number } | null | undefined = undefined;
+	/** Tool results since the last saturation note: a session that keeps tipping in and out of saturation is not told each time. */
+	private sinceSaturationNote = Infinity;
 
 	/** The list this session works on; null when none is attached. */
 	setList(list: TaskList | null): void {
@@ -238,6 +245,34 @@ export class TaskCoach {
 		this.floorNote = { task: key, slug: this.list.slug, id: current.id, title: current.title };
 	}
 
+	/**
+	 * Taskfold reports nothing foldable is left, or that the episode ended. The agent is told once
+	 * per episode, and at most once per `SATURATION_NOTE_GAP` tool results.
+	 */
+	saturationTap(holder: { task: string; tokens: number } | null | undefined): void {
+		if (holder === undefined) {
+			this.saturated = false;
+			this.saturationHolder = undefined;
+			return;
+		}
+		if (this.saturated) return;
+		this.saturated = true;
+		if (this.sinceSaturationNote < SATURATION_NOTE_GAP) return;
+		if (holder === null) {
+			this.saturationHolder = null;
+		} else {
+			const slash = holder.task.indexOf("/");
+			this.saturationHolder = { slug: holder.task.slice(0, slash), id: holder.task.slice(slash + 1), tokens: holder.tokens };
+		}
+	}
+
+	private takeSaturation(): { slug: string; id: string; tokens: number } | null | undefined {
+		const holder = this.saturationHolder;
+		this.saturationHolder = undefined;
+		if (holder !== undefined) this.sinceSaturationNote = 0;
+		return holder;
+	}
+
 	/** Work counted inside a task's span, or undefined when this process did not see it start. */
 	spanWork(slug: string, id: string): number | undefined {
 		return this.work.get(`${slug}/${id}`);
@@ -255,19 +290,23 @@ export class TaskCoach {
 	toolResult(nested: boolean, chars = 0): string | null {
 		const list = this.list;
 		const current = list && innermostDoing(list);
+		this.sinceSaturationNote++;
 		if (list && current) {
 			this.resetUntracked();
 			this.countWork(list, current, charsToTokens(chars));
 			if (nested || this.policy.enforce === "off") return null;
 			const floor = this.floorNote;
 			this.floorNote = null;
-			return [floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
+			const saturation = this.takeSaturation();
+			return [saturation !== undefined && saturationNote(saturation), floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
 		}
 		this.untracked++;
 		if (nested || this.policy.enforce === "off") return null;
 		const floor = this.floorNote;
 		this.floorNote = null;
-		if (floor) return floorFoldNote(floor);
+		const saturation = this.takeSaturation();
+		const notes = [saturation !== undefined && saturationNote(saturation), floor && floorFoldNote(floor)].filter(Boolean).join("\n\n");
+		if (notes) return notes;
 		if (this.policy.enforce !== "coach" || this.calls <= this.policy.orientationCalls) return null;
 		const pick = list ? nextTask(list, this.policy.stopOnBlock) : null;
 		if (list && !pick) return null;

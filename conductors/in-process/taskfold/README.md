@@ -73,6 +73,7 @@ folding to older work in open tasks and untracked spans. The floor is off by def
 best-effort guard, not a hard budget guarantee: protected or otherwise ineligible content can keep
 the request above budget. `conductorOptions.taskfold.keepRecentTasks` (default 0) keeps that many
 finished tasks raw; raising it delays folds and multiplies rebilled tokens.
+When Taskfold saturates, the agent is told once on its next tool result, including the open task to finish when one is holding the context.
 
 Enable `/accordion debug on` to explain finished tasks that remain raw. Epoch records name
 the declining path (timing mode, protected tail, prefill guard, held boundary, pending

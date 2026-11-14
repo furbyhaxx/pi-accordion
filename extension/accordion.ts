@@ -1069,6 +1069,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// A pressure fold inside the agent's own leaf is invisible from its side: queue the note.
 		const floorSpans = status?.metrics?.floor_spans;
 		if (typeof floorSpans === "string" && floorSpans) taskCoach.floorTap(floorSpans.split(","));
+		const m = status?.metrics;
+		taskCoach.saturationTap(m?.saturated ? (typeof m.holder_task === "string" ? { task: m.holder_task, tokens: Number(m.holder_tokens) || 0 } : null) : undefined);
 		const stats = truth?.stats();
 		const text = footerText({ folding: foldingEnabled, conductor: active, conductorId: liveHost.activeMeta()?.id ?? null, timing, statusText: status?.text ?? null, level, usage: stats && stats.budget > 0 ? { live: stats.liveTokens, budget: stats.budget } : null });
 		try {
