@@ -167,13 +167,75 @@ function synthetic(file) {
 	return assistants;
 }
 
+async function resumeCheck(args, home) {
+	const file = args.find(a => !a.startsWith("--") && fs.existsSync(a));
+	const flag = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? Number(args[i + 1]) : fallback; };
+	if (!file) { console.error("usage: node replay-session.mjs <session.jsonl> [--budget N] [--upto LINE]"); return 2; }
+	const budget = flag("--budget", 272000), upto = flag("--upto", Infinity);
+	process.env.ACCORDION_AUTO_ARM = "1";
+	fs.mkdirSync(path.join(home, ".accordion"), { recursive: true });
+	fs.writeFileSync(path.join(home, ".accordion", "config.json"), JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" } }));
+	const byId = new Map();
+	let leaf = null;
+	fs.readFileSync(file, "utf8").split("\n").slice(0, upto).forEach(line => {
+		let entry;
+		try { entry = JSON.parse(line); } catch { return; }
+		if (entry?.id) { byId.set(entry.id, entry); leaf = entry; }
+	});
+	const branch = [];
+	for (let entry = leaf; entry; entry = entry.parentId ? byId.get(entry.parentId) : null) branch.unshift(entry);
+	const messages = branch.filter(entry => entry.type === "message" && entry.message).map(entry => entry.message);
+	const { default: accordion } = await createJiti(import.meta.url).import("./accordion.ts");
+	const handlers = {}, notices = [];
+	let host, command;
+	const pi = {
+		on: (name, fn) => { handlers[name] = fn; }, registerFlag() {}, getFlag() {}, registerTool() {},
+		appendEntry() {}, registerShortcut() {}, registerMessageRenderer() {}, getSessionName: () => undefined, getThinkingLevel: () => "off",
+		registerCommand: (name, def) => { if (name === "accordion") command = def.handler; },
+	};
+	accordion(pi, { openPanel: (_ctx, h) => { host = h; }, complete: async () => { throw new Error("no model in a replay"); } });
+	const ctx = {
+		mode: "tui", hasUI: true, cwd: home, isIdle: () => true,
+		model: { id: "replay/model", name: "Replay", provider: "replay", api: "openai-completions", baseUrl: "http://localhost.invalid/v1", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 64000 },
+		ui: { notify: text => notices.push(String(text)), setStatus() {}, confirm: async () => false, select: async () => undefined, theme: { fg: (_c, s) => s } },
+		sessionManager: { getSessionId: () => "replay", getBranch: () => branch },
+		getContextUsage: () => ({ tokens: 0, contextWindow: 1048576 }), getSystemPrompt: () => "",
+	};
+	try {
+		await handlers.session_start({ reason: "resume" }, ctx);
+		await command("", ctx);
+		await host.command({ kind: "setBudget", value: budget });
+		const full = host.truth().stats().fullTokens;
+		let live = 0, status = null;
+		for (let i = 0; i < 6; i++) {
+			await handlers.context({ messages }, ctx);
+			await new Promise(resolve => setTimeout(resolve, 150));
+			live = host.truth().stats().liveTokens;
+			status = host.conductorStatus();
+		}
+		const saturated = /saturated/i.test(status?.text ?? "") || notices.some(n => /saturated/i.test(n));
+		console.log(JSON.stringify({ messages: messages.length, fullTokens: full, liveTokens: live, budget, fits: live < budget, saturated, status: status?.text ?? null }, null, 1));
+		assert.ok(live < budget && !saturated);
+		return 0;
+	} catch (err) {
+		if (!(err instanceof assert.AssertionError)) console.error(err);
+		return 1;
+	} finally {
+		try { await handlers.session_shutdown?.({}, ctx); } catch {}
+	}
+}
+
 let code = 0, home;
 try {
-	const opts = options(process.argv.slice(2));
+	const args = process.argv.slice(2);
+	const resume = args.includes("--resume-check");
+	const opts = resume ? null : options(args);
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-replay-"));
 	process.env.ACCORDION_HOME = home;
 	process.env.ACCORDION_DOOR_PORT = "0";
-	if (opts.selfTest) {
+	if (resume) {
+		code = await resumeCheck(args.filter(arg => arg !== "--resume-check"), home);
+	} else if (opts.selfTest) {
 		const file = path.join(home, "synthetic.jsonl"), expected = synthetic(file);
 		const result = await replay({ file, conductor: "taskfold", budget: 20000, tail: 2000, sampleEvery: 50 }, home);
 		assert.equal(result.requests, expected);

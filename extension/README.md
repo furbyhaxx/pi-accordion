@@ -187,6 +187,7 @@ tools and context hook.
 From a source checkout, run `node extension/replay-session.mjs <session.jsonl> [--conductor <id>|none] [--budget <tokens>] [--tail <tokens>] [--limit-requests <n>] [--sample-every <n>] [--out <file.json>]`.
 It reports hook and commit time, live and full token estimates, wire size, invalidated cache-prefix characters and folds.
 Taskfold runs without privacy consent, so classifier and chat calls are not benchmarked. The output contains metrics, not session text.
+For the original resume budget check, use `node extension/replay-session.mjs --resume-check <session.jsonl> [--budget N] [--upto LINE]`.
 
 ## How it works
 
