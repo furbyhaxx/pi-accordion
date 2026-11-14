@@ -84,7 +84,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 
 const UNTRACKED_PRESSURE_MIN_TOKENS = 400;
 
-/** The classifier the questions and `maxLoss` are calibrated for (.project/analyses/taskfold-classifier/). */
+/** The classifier the questions and `maxLoss` are calibrated for. */
 export const TASKFOLD_CLASSIFIER = "openrouter/perplexity/pplx-decider-v1.2";
 
 const CTX =
