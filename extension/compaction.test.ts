@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Truth } from "../core/truth";
 import type { Block, ParsedSession } from "../core/types";
-import { buildBakeSummary, aggressiveProjection, applyUndo, runCompaction, stripFoldTags, type CompactDeps } from "./compaction";
+import { buildBakeSummary, aggressiveProjection, applyUndo, needsSaturationFallback, runCompaction, stripFoldTags, type CompactDeps } from "./compaction";
 
 const META = { format: "pi" as const, title: "t", cwd: "", model: "" };
 
@@ -33,6 +33,12 @@ function deps(truth: Truth | null, over: Partial<CompactDeps> = {}): CompactDeps
 }
 
 describe("compaction strategies", () => {
+	test("threshold remains saturated when a pass saves tokens but misses the reserve", () => {
+		expect(needsSaturationFallback("threshold", 1000, 900, 1000, 200)).toBe(true);
+		expect(needsSaturationFallback("threshold", 1000, 800, 1000, 200)).toBe(false);
+		expect(needsSaturationFallback("overflow", 1000, 1000, 1000, 200)).toBe(true);
+	});
+
 	test("dry run projects without mutating context or starting a pass", async () => {
 		const t = truthOf([blk("a:b0:p0", "text", 0, 1)], { protect: 0 });
 		const rev = t.rev;

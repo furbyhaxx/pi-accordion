@@ -64,6 +64,12 @@ export function aggressiveProjection(truth: Truth): number {
 	}, 0);
 }
 
+/** Whether a pass still needs the configured saturation fallback. */
+export function needsSaturationFallback(trigger: CompactTrigger, before: number, after: number, window: number, reserve: number): boolean {
+	if (trigger === "overflow") return after >= before;
+	return trigger === "threshold" && window > 0 && after > window - reserve;
+}
+
 /** The `{#code FOLDED}` prefixes a bake must strip, since baked text can no longer be recalled. */
 const FOLD_TAG = /\{#[0-9a-z]{6} FOLDED\}\s*/g;
 

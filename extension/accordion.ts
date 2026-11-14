@@ -56,7 +56,7 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
-import { aggressiveProjection, applyUndo, buildBakeSummary, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
+import { aggressiveProjection, applyUndo, buildBakeSummary, needsSaturationFallback, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
 import { compactCardLines, compactCardTitle } from "./compactCard";
 import { Text } from "@earendil-works/pi-tui";
 import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
@@ -3874,38 +3874,36 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const instructions = typeof ev.customInstructions === "string" && ev.customInstructions.trim() ? ev.customInstructions.trim() : undefined;
 		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
 		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}) }, { card: false });
-		// Saturated overflow: the configured fallback decides what happens after a pass frees nothing.
-		const saturatedFallback = trigger === "overflow" && first.record.after >= first.record.before;
+		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
+		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
+		const saturatedFallback = strategy === "pass" && needsSaturationFallback(trigger, first.record.before, first.record.after, window, reserve);
 		const { record } = saturatedFallback && settings.compact.onSaturated === "bake"
 			? await compact({ trigger, strategy: "bake", ...(instructions ? { instructions } : {}) }, { card: false })
 			: first;
-		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
-		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
 		// Without a known window we cannot prove saturation, so the pass's result stands.
 		const underBudget = window > 0 ? record.after <= window - reserve : true;
-		const degraded = record.after >= record.before;
 		const note = `${record.message} — native compaction suppressed.`;
-		if (trigger === "threshold" && underBudget) return { cancel: true };
-		if (trigger === "threshold" && degraded && settings.compact.onSaturated !== "bake" && settings.compact.onSaturated !== "warn") {
+		if (trigger === "threshold" && !saturatedFallback && underBudget && record.strategy !== "bake") return { cancel: true };
+		if (trigger === "threshold" && saturatedFallback && settings.compact.onSaturated === "native") {
 			// Nothing freed and the context is still over the line: leave Pi's own summarizer to it.
 			const fallbackNote = "Accordion could not free enough — falling back to native compaction.";
 			try { ctx.ui.notify(fallbackNote, "info"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
-		if (trigger === "threshold" && degraded && settings.compact.onSaturated === "warn") {
+		if (trigger === "threshold" && saturatedFallback && settings.compact.onSaturated === "warn") {
 			const saturated = "context threshold reached: Accordion cannot free more; switch /compact to native or bake";
 			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: saturated });
 			return { cancel: true };
 		}
-		if (trigger === "overflow" && degraded && settings.compact.onSaturated !== "warn") {
+		if (trigger === "overflow" && saturatedFallback && record.strategy !== "bake" && settings.compact.onSaturated !== "warn") {
 			const fallbackNote = "Accordion saturated on context overflow — falling back to native compaction.";
 			try { ctx.ui.notify(fallbackNote, "warning"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
-		if (trigger === "overflow" && degraded) {
+		if (trigger === "overflow" && saturatedFallback && record.strategy !== "bake") {
 			const saturated = "context overflow: Accordion cannot free more; switch /compact to native or bake";
 			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: saturated });
