@@ -976,9 +976,32 @@ export class TaskfoldConductor implements Conductor {
 		return [...touched];
 	}
 
+	private deliveryOwners(blocks: readonly ViewBlock[], spans: readonly TaskSpan[]): Set<string> {
+		const open = spans.filter((s) => s.status === null);
+		const calls = new Map<string, Record<string, unknown>>();
+		for (const b of blocks) {
+			if (b.kind === "tool_call" && b.toolName === "tasks" && b.callId) {
+				const args = parseCall(this.textOf(b));
+				if (args) calls.set(b.callId, args);
+			}
+		}
+		const protectedIds = new Set<string>();
+		for (const b of blocks) {
+			if (b.kind !== "tool_result" || b.toolName !== "tasks" || !b.callId) continue;
+			const args = calls.get(b.callId);
+			if (!args || typeof args.list !== "string" || typeof args.action !== "string") continue;
+			const owner = args.action === "claim" || ((args.action === "pin" || args.action === "attach") && args.id === undefined)
+				? open.some((s) => s.list === args.list)
+				: ["start", "resume", "pin", "attach"].includes(args.action) && typeof args.id === "string" && open.some((s) => s.key === `${args.list}/${args.id}`);
+			if (owner) protectedIds.add(b.id);
+		}
+		return protectedIds;
+	}
+
 	private floor(host: ConductorHost, blocks: readonly ViewBlock[], live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
 		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
 		const coverage = taskCoverage(blocks.length, spans);
+		const deliveries = this.deliveryOwners(blocks, spans);
 		const positions = new Map(blocks.map((b, i) => [b.id, i]));
 		const userTail = userTailFrom(blocks, host.stats().protectTokens);
 		const documents = new Set<string>();
@@ -990,7 +1013,7 @@ export class TaskfoldConductor implements Conductor {
 		const mask = (b: ViewBlock): ViewBlock => {
 			const i = positions.get(b.id) ?? -1;
 			const allowed = i >= 0 && (scope === "open" ? !!coverage.open[i] && !coverage.finished[i] : !coverage.open[i] && !coverage.finished[i]);
-			return !allowed || i >= userTail || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
+			return !allowed || deliveries.has(b.id) || i >= userTail || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
 		};
 		const proxy: ConductorHost = {
 			on: () => () => {}, get: (id) => { const b = host.get(id); return b ? mask(b) : undefined; },
@@ -1009,8 +1032,10 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private untracked(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
-		const coverage = taskCoverage(blocks.length, scanTaskSpans(blocks, (b) => this.textOf(b)));
-		return this.foldRuns(host, blocks, need, planned, this.k.untracked.minSteps, (i) => (!coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
+		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const coverage = taskCoverage(blocks.length, spans);
+		const deliveries = this.deliveryOwners(blocks, spans);
+		return this.foldRuns(host, blocks, need, planned, this.k.untracked.minSteps, (i) => (!deliveries.has(blocks[i].id) && !coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
 	}
 
 	/**
@@ -1023,13 +1048,14 @@ export class TaskfoldConductor implements Conductor {
 		const open = spans.filter((s) => s.status === null).sort((a, b) => a.key.split(".").length - b.key.split(".").length || a.start - b.start);
 		if (!open.length) return [];
 		const coverage = taskCoverage(blocks.length, spans);
+		const deliveries = this.deliveryOwners(blocks, spans);
 		const owner = new Array<string | undefined>(blocks.length);
 		const anchors = new Set<string>();
 		for (const s of open) {
 			for (const r of s.intervals) for (let i = Math.max(0, r.start); i <= Math.min(blocks.length - 1, r.end); i++) owner[i] = s.key;
 			for (const i of [s.start, s.lastEvent]) if (blocks[i]) anchors.add(messageKey(blocks[i].id));
 		}
-		return this.foldRuns(host, blocks, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
+		return this.foldRuns(host, blocks, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !deliveries.has(blocks[i].id) && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
 	}
 
 	/** Group maximal runs of whole messages sharing one non-null `ownerOf` key into recallable carriers, oldest first, until `need` is met. */

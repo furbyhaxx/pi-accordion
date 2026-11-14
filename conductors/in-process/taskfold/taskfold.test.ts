@@ -768,6 +768,35 @@ describe("taskfold", () => {
 		expect(resolveRecall(host.truth, [foldCode(steps[0].id)]).missing).toEqual([]);
 	});
 
+	it("keeps open task delivery results live through steps and floor pressure", async () => {
+		for (const floor of [false, true]) {
+			const s = new Session();
+			s.user("Go.");
+			const claim = s.call("tasks", { action: "claim", list: "work" }, "claim ".repeat(350));
+			const start = s.call("tasks", { action: "start", list: "work", id: "1" }, `Started work/1 "Task".\n${"criteria ".repeat(250)}`);
+			const pin = s.call("tasks", { action: "pin", list: "work" }, "pin ".repeat(500));
+			const attachment = s.call("tasks", { action: "attach", list: "work", id: "1" }, "attachment ".repeat(200));
+			s.work(12, "open");
+			const host = setup(s, 0.3);
+			const c = new TaskfoldConductor({ keepRecentTasks: 0, floor });
+			host.truth.setLocks(c.locks, c.label, c.tailTokens);
+			c.attach(host);
+			await host.commitTurn();
+			expect(host.groups().length + host.truth.blocks.filter((b) => host.truth.isFolded(b)).length).toBeGreaterThan(0);
+			for (const { result } of [claim, start, pin, attachment]) {
+				expect(groupOf(host, result)).toBeUndefined();
+				expect(host.truth.isFolded(host.truth.get(result)!)).toBe(false);
+			}
+			const more = new Session();
+			Object.assign(more, { order: s.blocks.length, resp: 100, turn: 3 });
+			more.finish("1", { outcome: "done" });
+			more.work(3, "tail");
+			host.appendBlocks(more.blocks);
+			await host.commitTurn();
+			expect(groupOf(host, start.result)).toBeDefined();
+		}
+	});
+
 	it("absorbs an open task's step carriers into its record when it finishes", async () => {
 		const s = new Session();
 		s.user("Go.");
