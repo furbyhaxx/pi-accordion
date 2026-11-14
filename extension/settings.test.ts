@@ -63,7 +63,7 @@ describe("accordion settings & memorable tokens", () => {
 			fs.mkdirSync(path.dirname(file), { recursive: true });
 			fs.writeFileSync(file, JSON.stringify({
 				debug: true,
-				taskfold: { timing: "lazy", leafForm: "bracket", high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
+				taskfold: { timing: "lazy", leafForm: "bracket", high: 0.9, low: 0.7, keepRecentTasks: 2, recordTokens: 2200, floor: true, untracked: { enabled: false, minTokens: 1500 }, steps: { enabled: false, minSteps: 3 } },
 				tasks: {
 					attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] },
 					pins: { listTokens: 1000, taskTokens: 500 },
@@ -94,7 +94,7 @@ describe("accordion settings & memorable tokens", () => {
 			const loaded = loadSettings(tmp, {});
 			expect(loaded).toEqual({
 				debug: true,
-				taskfold: { timing: "lazy", leafForm: "bracket", recordTokens: 2200, floor: true, untracked: { enabled: false, minSteps: 10 }, steps: { enabled: false, minSteps: 3 } },
+				taskfold: { timing: "lazy", leafForm: "bracket", recordTokens: 2200, floor: true, untracked: { enabled: false, minTokens: 1500 }, steps: { enabled: false, minSteps: 3 } },
 				conductorOptions: { taskfold: { high: 0.9, low: 0.7, keepRecentTasks: 2 } },
 				tasks: {
 					attachments: { render: "reference", maxLines: 40, roots: ["/srv/kb"] },
@@ -180,8 +180,9 @@ describe("accordion settings & memorable tokens", () => {
 	});
 
 	test("validates taskfold budget, age and untracked settings", () => {
-		expect(sanitizeTaskfoldSettings({ timing: "pressure", leafForm: "bracket", recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ timing: "pressure", leafForm: "bracket", recordTokens: 200, floor: true, untracked: { enabled: false, minSteps: 5 }, steps: { enabled: false, minSteps: 2 } });
-		expect(sanitizeTaskfoldSettings({ untracked: { minSteps: 0 } })).toMatchObject({ untracked: { enabled: true, minSteps: 8 } });
+		expect(sanitizeTaskfoldSettings({ timing: "pressure", leafForm: "bracket", recordTokens: 200, floor: true, untracked: { enabled: false, minTokens: 500 }, steps: { enabled: false, minSteps: 2 } })).toEqual({ timing: "pressure", leafForm: "bracket", recordTokens: 200, floor: true, untracked: { enabled: false, minTokens: 500 }, steps: { enabled: false, minSteps: 2 } });
+		expect(sanitizeTaskfoldSettings({ untracked: { minSteps: 5, minTokens: 99 } })).toMatchObject({ untracked: { enabled: true, minTokens: 2000 } });
+		expect(sanitizeTaskfoldSettings({ untracked: { minTokens: 1000001 } })).toMatchObject({ untracked: { enabled: true, minTokens: 2000 } });
 		expect(sanitizeTaskfoldSettings({ timing: "fast" }).timing).toBe("eager");
 		expect(sanitizeTaskfoldSettings({}).timing).toBe("eager");
 		expect(sanitizeTaskfoldSettings({ leafForm: "invalid" }).leafForm).toBe("record");
@@ -281,7 +282,7 @@ describe("strict settings save validation", () => {
 			["privacyConsent.taskfold", "yesterday", "ISO timestamp"],
 			["conductorOptions.taskfold.high", 0, "between"], ["conductorOptions.taskfold.low", 1, "between"],
 			["conductorOptions.taskfold.keepRecentTasks", 1.5, "integer"], ["conductorOptions.taskfold.maxLoss", 3.1, "between"],
-			["taskfold.untracked.minSteps", 0, "between"], ["taskfold.steps.enabled", 1, "boolean"],
+			["taskfold.untracked.minTokens", 99, "between"], ["taskfold.untracked.minTokens", 1000001, "between"], ["taskfold.steps.enabled", 1, "boolean"],
 			["taskfold.timing", "aggressive", "pressure"],
 		] as const) {
 			const result = validateSetting(name, value);

@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 40
+  revision: 41
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T16:02:26+01:00"
+  updated_at: "2026-11-14T16:19:56+01:00"
   created_by: "orchestrator"
   updated_by: "coder"
   changelog:
-    - revision: 40
-      reason: "long-session task tooling"
-      changes: ["document the compact option for all dump formats", "describe compact task-list orientation", "describe coaching and gate recurrence"]
+    - revision: 41
+      reason: "seal untracked turns"
+      changes: ["specify timing and token thresholds for untracked folds", "retain newest document reads under pressure"]
 ---
 
 # Taskfold
@@ -871,15 +871,15 @@ is written once in its final form and never rewritten.
 
 ## 9. Epoch
 
-Every request re-evaluates eligibility under §8's timing policy, including cache expiry. Steps
-2–7 run only when the projection is ≥ `high·budget`.
+Every request re-evaluates eligibility under §8's timing policy, including cache expiry. Sealed
+untracked runs follow that policy; steps 2–7 otherwise run only at ≥ `high·budget`.
 
 ```
   1 records     fold eligible finished tasks in their §8 form; try safe descendants if a node cannot compile
   2 history     §8 pressure row
   3 keep-recent waive the kept root if still above
   4 floor       §9.2, if enabled
-  5 untracked   untracked records (§6.4), if enabled
+  5 untracked   sealed runs per timing policy; remaining runs under pressure (§9.3), if enabled
   6 steps       §9.4, if enabled
   7 saturated   status level error, naming the largest unfoldable holder
 → ONE propose
@@ -908,14 +908,19 @@ folds and multiplies rebilled tokens; it exists for experiments only.
 
 ### 9.3 Untracked records
 
-When over budget after step 4, runs of at least `taskfold.untracked.minSteps` (default 8)
-assistant steps outside every span and outside the tail become untracked records (§6.4).
+A user message seals the preceding untracked turn. Sealed runs outside task spans and the tail fold
+under the same timing policy as finished tasks when they reclaim at least
+`taskfold.untracked.minTokens` (default 2,000, range 100–1,000,000); a cold cache or pressure lowers
+the threshold to 400 tokens. Without pressure, a sealed turn's final reply without a tool call
+stays live. Under pressure, eligible current-turn runs can fold too. User messages stay live.
+Document reads stay live without pressure; under pressure only the newest read per path stays live.
+This document-read rule also applies to open-task step carriers.
 
 ### 9.4 Steps of open tasks
 
 When still over budget, runs of at least `taskfold.steps.minSteps` (default 4) old finished steps
 inside a still-open task become step carriers `{"steps":"<key>","label":…,"count":…}`, oldest first,
-grouped per innermost open task. The task's start message, user messages, document reads and the
+grouped per innermost open task. The task's start message, user messages, newest document reads and the
 tail stay live. When the task finishes, its record absorbs the carriers. Without this, one long
 open task saturated the session.
 
@@ -1051,7 +1056,7 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
     "recordTokens": 1500,
     "leafForm": "record",
     "floor": false,
-    "untracked": { "enabled": true, "minSteps": 8 },
+    "untracked": { "enabled": true, "minTokens": 2000 },
     "steps": { "enabled": true, "minSteps": 4 }
   }
 }

@@ -56,8 +56,8 @@ export interface TaskfoldOptions {
 	recordTokens?: number;
 	/** Apply recoverable per-block pressure relief before folding untracked work. */
 	floor?: boolean;
-	/** Fold long runs outside task spans when pressure remains. */
-	untracked?: { enabled: boolean; minSteps: number };
+	/** Fold eligible runs outside task spans. */
+	untracked?: { enabled: boolean; minTokens: number };
 	/** Fold old finished steps inside still-open tasks when pressure remains, so one long task cannot fill the context. */
 	steps?: { enabled: boolean; minSteps: number };
 }
@@ -71,10 +71,12 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	leafForm: "record",
 	recordTokens: 1500,
 	floor: false,
-	untracked: { enabled: true, minSteps: 8 },
+	untracked: { enabled: true, minTokens: 2000 },
 	steps: { enabled: true, minSteps: 4 },
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
+
+const UNTRACKED_PRESSURE_MIN_TOKENS = 400;
 
 /** The classifier the questions and `maxLoss` are calibrated for (.project/analyses/taskfold-classifier/). */
 export const TASKFOLD_CLASSIFIER = "openrouter/perplexity/pplx-decider-v1.2";
@@ -532,7 +534,7 @@ export class TaskfoldConductor implements Conductor {
 		const k = this.k;
 		if (!Number.isFinite(k.high) || !Number.isFinite(k.low) || !(k.low > 0 && k.low < k.high && k.high <= 1)) throw new RangeError("taskfold: require 0 < low < high <= 1");
 		if (!Number.isSafeInteger(k.keepRecentTasks) || k.keepRecentTasks < 0 || !Number.isSafeInteger(k.recordTokens) || k.recordTokens < 1) throw new RangeError("taskfold: invalid recent-task or record-token limit");
-		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
+		if (!Number.isSafeInteger(k.untracked.minTokens) || k.untracked.minTokens < 100 || k.untracked.minTokens > 1000000 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
 		if (!Number.isSafeInteger(k.steps.minSteps) || k.steps.minSteps < 1 || typeof k.steps.enabled !== "boolean") throw new RangeError("taskfold: invalid open-task step settings");
 		if (!isFoldTiming(k.timing)) throw new RangeError("taskfold: invalid timing mode");
 		this.verdicts = verdicts;
@@ -971,6 +973,11 @@ export class TaskfoldConductor implements Conductor {
 			if (!recompose && !timingAllows) reasons.set(span.key, `timing-${policy.timing}`);
 			else fold(span, !recompose);
 		}
+		if (!recompose && timingAllows && this.k.untracked.enabled) {
+			const outside = this.untracked(host, ctx, Infinity, planned, "sealed", cold);
+			units.push(...outside);
+			for (const u of outside) { projected -= u.saved; for (const op of u.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id); }
+		}
 		if (!recompose && pressure) {
 			for (const span of roots.filter((s) => recent.has(s.key))) fold(span);
 			const condensed = projected > target ? this.condense(host, ctx, projected - target, planned) : null;
@@ -993,7 +1000,7 @@ export class TaskfoldConductor implements Conductor {
 				}
 			}
 			if (projected > target && this.k.untracked.enabled) {
-				const outside = this.untracked(host, ctx, projected - target, planned);
+				const outside = this.untracked(host, ctx, projected - target, planned, "pressure", cold);
 				units.push(...outside);
 				for (const u of outside) { projected -= u.saved; for (const op of u.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id); }
 			}
@@ -1103,9 +1110,23 @@ export class TaskfoldConductor implements Conductor {
 		} finally { keel.detach(); }
 	}
 
-	private untracked(host: ConductorHost, ctx: PlanContext, need: number, planned: ReadonlySet<string>): Unit[] {
+	private untracked(host: ConductorHost, ctx: PlanContext, need: number, planned: ReadonlySet<string>, mode: "sealed" | "pressure", cold: boolean): Unit[] {
 		const { blocks, coverage, deliveries } = ctx;
-		return this.foldRuns(host, ctx, need, planned, this.k.untracked.minSteps, (i) => (!deliveries.has(blocks[i].id) && !coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
+		let lastUser = -1;
+		const finalReplies = new Set<string>();
+		for (let i = 0; i < blocks.length; i++) {
+			if (blocks[i].kind !== "user") continue;
+			lastUser = i;
+			if (i === 0) continue;
+			let start = i - 1;
+			const key = messageKey(blocks[start].id);
+			while (start > 0 && messageKey(blocks[start - 1].id) === key) start--;
+			if (blocks[start].kind !== "user" && !blocks.slice(start, i).some((b) => b.kind === "tool_call")) finalReplies.add(key);
+		}
+		const limits = mode === "sealed"
+			? { minSteps: 1, minReclaimed: cold ? UNTRACKED_PRESSURE_MIN_TOKENS : this.k.untracked.minTokens, pressure: false }
+			: { minSteps: 1, minReclaimed: UNTRACKED_PRESSURE_MIN_TOKENS, pressure: true };
+		return this.foldRuns(host, ctx, need, planned, limits, (i) => (!deliveries.has(blocks[i].id) && !coverage.open[i] && !coverage.finished[i] && (mode !== "sealed" || (i < lastUser && !finalReplies.has(messageKey(blocks[i].id)))) ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
 	}
 
 	/**
@@ -1123,7 +1144,7 @@ export class TaskfoldConductor implements Conductor {
 			for (const r of s.intervals) for (let i = Math.max(0, r.start); i <= Math.min(blocks.length - 1, r.end); i++) owner[i] = s.key;
 			for (const i of [s.start, s.lastEvent]) if (blocks[i]) anchors.add(messageKey(blocks[i].id));
 		}
-		return this.foldRuns(host, ctx, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !deliveries.has(blocks[i].id) && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
+		return this.foldRuns(host, ctx, need, planned, { minSteps: this.k.steps.minSteps, minReclaimed: 1, pressure: true }, (i) => (owner[i] !== undefined && !deliveries.has(blocks[i].id) && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
 	}
 
 	/** Group maximal runs of whole messages sharing one non-null `ownerOf` key into recallable carriers, oldest first, until `need` is met. */
@@ -1132,18 +1153,23 @@ export class TaskfoldConductor implements Conductor {
 		ctx: PlanContext,
 		need: number,
 		planned: ReadonlySet<string>,
-		minSteps: number,
+		limits: { minSteps: number; minReclaimed: number; pressure: boolean },
 		ownerOf: (i: number) => string | null,
 		carrierOf: (tag: string, key: string, members: ViewBlock[], label: string, facts: { changed: string[]; verified: string[] }) => string,
 	): Unit[] {
 		const { blocks } = ctx;
 		const occupied = ctx.groupOf;
-		const documentCalls = new Set<string>();
+		const documentPaths = new Map<string, string[]>();
 		for (const b of blocks) {
 			if (b.kind !== "tool_call" || !b.callId || b.toolName !== "read") continue;
 			const path = parseCall(this.textOf(b))?.path;
-			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documentCalls.add(b.callId);
+			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) {
+				const ids = documentPaths.get(path) ?? [];
+				ids.push(b.callId);
+				documentPaths.set(path, ids);
+			}
 		}
+		const documentCalls = new Set([...documentPaths.values()].flatMap((ids) => limits.pressure ? ids.slice(-1) : ids));
 		const userTail = Math.min(ctx.userTail, finalMessageFrom(blocks));
 		const eligible = (b: ViewBlock, i: number) => i < userTail && !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId));
 		const runs: { key: string; members: ViewBlock[] }[] = [];
@@ -1165,7 +1191,7 @@ export class TaskfoldConductor implements Conductor {
 		for (const { key, members } of runs) {
 			if (saved >= need) break;
 			const steps = new Set(members.filter((b) => b.kind === "text" || b.kind === "thinking" || b.kind === "tool_call").map((b) => messageKey(b.id)));
-			if (steps.size < minSteps) continue;
+			if (steps.size < limits.minSteps) continue;
 			const collapsible = collapsibleMessageKeys(members, true);
 			if (!collapsible.size) continue;
 			const firstText = members.find((b) => b.kind === "text");
@@ -1173,7 +1199,7 @@ export class TaskfoldConductor implements Conductor {
 			const summary = carrierOf(foldTag(`g:${members[0].id}`), key, members, label, recordFacts(members, (b) => this.textOf(b)));
 			const current = members.reduce((n, b) => n + (collapsible.has(messageKey(b.id)) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0);
 			const reclaimed = current - host.countTokens(summary);
-			if (reclaimed <= 0) continue;
+			if (reclaimed < limits.minReclaimed) continue;
 			units.push({ ops: [{ kind: "group", ids: members.map((b) => b.id), summary, role: "assistant" }], restore: [], saved: reclaimed });
 			saved += reclaimed;
 		}

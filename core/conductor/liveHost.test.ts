@@ -120,7 +120,7 @@ describe("configured in-process conductors", () => {
 		const truth = bulk(textSeq(12));
 		truth.setProtect(0);
 		truth.setBudget(1000);
-		const create = vi.fn(() => new TaskfoldConductor({ untracked: { enabled: false, minSteps: 8 } }));
+		const create = vi.fn(() => new TaskfoldConductor({ untracked: { enabled: false, minTokens: 2000 } }));
 		const host = new LiveConductorHost(makeDeps(truth, { createInProcess: create }).deps);
 		host.select("taskfold");
 		await flush();

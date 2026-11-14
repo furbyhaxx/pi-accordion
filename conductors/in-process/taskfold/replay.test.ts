@@ -201,7 +201,7 @@ describe("taskfold budget replays", () => {
 		s.task("start", "1", { title: "Everything" });
 		s.read("everything", 60_000);
 		const host = session(s, 1.2);
-		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 1 }, floor: false, steps: { enabled: false, minSteps: 1 } });
+		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minTokens: 2000 }, floor: false, steps: { enabled: false, minSteps: 1 } });
 		host.truth.setLocks(conductor.locks, conductor.label, conductor.tailTokens);
 		conductor.attach(host);
 		await host.commitTurn();
@@ -219,7 +219,7 @@ describe("taskfold budget replays", () => {
 		s.user("Read a lot without a list.");
 		for (let i = 0; i < 12; i++) s.read(`doc-${i}`);
 		const host = session(s, 1.3);
-		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 1 } });
+		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minTokens: 2000 } });
 		host.truth.setLocks(conductor.locks, conductor.label, conductor.tailTokens);
 		conductor.attach(host);
 		await host.commitTurn();
@@ -227,7 +227,7 @@ describe("taskfold budget replays", () => {
 		expect(host.truth.blocks.every((b) => b.subst === undefined || b.subst === null)).toBe(true);
 		conductor.detach();
 
-		const folded = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: true, minSteps: 4 } });
+		const folded = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: true, minTokens: 100 } });
 		const host2 = session(s, 1.3);
 		host2.truth.setLocks(folded.locks, folded.label, folded.tailTokens);
 		folded.attach(host2);

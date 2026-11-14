@@ -65,7 +65,7 @@ const RULES = {
 	"taskfold.recordTokens": number(100, 100000),
 	"taskfold.floor": boolean,
 	"taskfold.untracked.enabled": boolean,
-	"taskfold.untracked.minSteps": number(1, 10000),
+	"taskfold.untracked.minTokens": number(100, 1000000),
 	"taskfold.steps.enabled": boolean,
 	"taskfold.steps.minSteps": number(1, 10000),
 	"recall.callTokens": number(2000, 50000),

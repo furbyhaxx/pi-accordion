@@ -779,21 +779,36 @@ describe("taskfold", () => {
 		expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
 	});
 
-	it("folds long untracked runs without swallowing user messages or work in an open task", async () => {
+	it("folds sealed untracked work eagerly while preserving the reply and current turn", async () => {
 		const s = new Session();
 		const opening = s.user("Go.");
-		s.work(9, "outside");
-		const steering = s.user("Keep this instruction.");
-		const open = s.start("1", "Still working").call;
-		s.work(10, "inside");
-		const host = setup(s, 0.35);
+		const start = s.blocks.length;
+		s.work(6, "outside");
+		const work = s.blocks.slice(start).map((b) => b.id);
+		const reply = s.text("Finished.");
+		const steering = s.user("Continue.");
+		const tail = s.blocks.length;
+		s.work(2, "tail");
+		const host = setup(s, 10);
 		await attach(host);
 		const untracked = host.groups().find((g) => carrier(g)?.untracked !== undefined);
 		expect(untracked).toBeDefined();
-		expect(untracked!.memberIds).not.toContain(opening);
-		expect(untracked!.memberIds).not.toContain(steering);
-		expect(groupOf(host, open)).toBeUndefined();
+		expect(work.every((id) => untracked!.memberIds.includes(id))).toBe(true);
+		for (const id of [opening, reply, steering, ...s.blocks.slice(tail).map((b) => b.id)]) expect(groupOf(host, id)).toBeUndefined();
 		expect(resolveRecall(host.truth, [foldCode(untracked!.id)]).missing).toEqual([]);
+	});
+
+	it("leaves sealed untracked work live in pressure timing without pressure", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.work(6, "outside");
+		s.user("Continue.");
+		s.work(2, "tail");
+		const host = setup(s, 10);
+		const c = new TaskfoldConductor({ timing: "pressure" });
+		c.attach(host);
+		await host.commitTurn();
+		expect(host.groups()).toHaveLength(0);
 	});
 
 	it("keeps untracked pressure folds outside the user's tail dial while holding tail-size", async () => {
@@ -829,35 +844,47 @@ describe("taskfold", () => {
 		expect(host.blocks().at(-1)?.kind).toBe("user");
 	});
 
-	it("does not fold short untracked runs or run the fallback when disabled", async () => {
+	it("uses reclaimed tokens and cache temperature for sealed runs and respects opt-out", async () => {
 		const s = new Session();
 		s.user("Go.");
-		s.work(7, "short");
+		s.work(2, "short");
 		s.user("Continue.");
 		s.work(1, "tail");
-		const host = setup(s, 0.3);
-		await attach(host);
-		expect(host.groups()).toHaveLength(0);
-		const long = new Session();
-		long.user("Go.");
-		long.work(12, "long");
-		const disabled = setup(long, 0.3);
-		new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 8 } }).attach(disabled);
+		const warm = setup(s, 10);
+		Object.assign(warm, { foldPolicy: () => ({ timing: "eager", cache: cacheProfileFor("*"), now: 1000, lastRequestAt: 999 }) });
+		await attach(warm);
+		expect(warm.groups()).toHaveLength(0);
+		const cold = setup(s, 10);
+		Object.assign(cold, { foldPolicy: () => ({ timing: "eager", cache: cacheProfileFor("*"), now: 1000, lastRequestAt: null }) });
+		await attach(cold);
+		expect(cold.groups().some((g) => carrier(g)?.untracked !== undefined)).toBe(true);
+		const disabled = setup(s, 0.3);
+		new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minTokens: 2000 } }).attach(disabled);
 		await disabled.commitTurn();
 		expect(disabled.groups()).toHaveLength(0);
 	});
 
-	it("preserves document reads inside an untracked run", async () => {
+	it("preserves all document reads without pressure and only the newest under pressure", async () => {
 		const s = new Session();
 		s.user("Go.");
-		s.work(9, "outside");
-		const doc = s.call("read", { path: "docs/spec.md" }, "important rules");
-		s.work(9, "later");
-		const host = setup(s, 0.3);
-		await attach(host);
-		expect(host.groups().some((g) => carrier(g)?.untracked !== undefined)).toBe(true);
-		expect(groupOf(host, doc.call)).toBeUndefined();
-		expect(groupOf(host, doc.result)).toBeUndefined();
+		s.work(3, "first");
+		const old = s.call("read", { path: "docs/spec.md" }, "old rules ".repeat(500));
+		s.work(3, "middle");
+		s.user("Continue.");
+		s.work(3, "second");
+		const latest = s.call("read", { path: "docs/spec.md" }, "new rules ".repeat(500));
+		s.work(3, "tail");
+		s.user("Next.");
+		s.work(1, "current");
+		const warm = setup(s, 10);
+		await attach(warm);
+		for (const id of [old.call, old.result, latest.call, latest.result]) expect(groupOf(warm, id)).toBeUndefined();
+		const pressured = setup(s, 0.1);
+		await attach(pressured);
+		expect(groupOf(pressured, old.call)).toBeDefined();
+		expect(groupOf(pressured, old.result)).toBeDefined();
+		expect(groupOf(pressured, latest.call)).toBeUndefined();
+		expect(groupOf(pressured, latest.result)).toBeUndefined();
 	});
 
 	it("combines finished-task groups and open-task floor folds in one proposal", async () => {
@@ -878,7 +905,7 @@ describe("taskfold", () => {
 		const proposals: string[][] = [];
 		const propose = host.propose.bind(host);
 		host.propose = (txn) => { proposals.push(txn.ops.map((op) => op.kind)); return propose(txn); };
-		const c = new TaskfoldConductor({ keepRecentTasks: 0, floor: true, untracked: { enabled: false, minSteps: 8 } });
+		const c = new TaskfoldConductor({ keepRecentTasks: 0, floor: true, untracked: { enabled: false, minTokens: 2000 } });
 		host.truth.setLocks(c.locks, c.label, c.tailTokens);
 		c.attach(host);
 		await host.commitTurn();
@@ -1437,7 +1464,7 @@ describe("taskfold", () => {
 		const entries: unknown[] = [];
 		const ledger = new VerdictLedger();
 		ledger.reset(new Map(), null, new Map(), (key, state) => entries.push({ type: "custom", customType: UNFOLD_ENTRY, data: { key, ...state } }));
-		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 8 } }, ledger);
+		const conductor = new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minTokens: 2000 } }, ledger);
 		conductor.attach(host);
 		await host.commitTurn();
 		host.setBudget(host.stats().liveTokens * 10);
@@ -1461,7 +1488,7 @@ describe("taskfold", () => {
 		conductor.detach();
 		const resumed = new VerdictLedger();
 		resumed.reset(new Map(), null, unfoldStatesOf(entries));
-		new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minSteps: 8 } }, resumed).attach(host);
+		new TaskfoldConductor({ keepRecentTasks: 0, untracked: { enabled: false, minTokens: 2000 } }, resumed).attach(host);
 		await host.commitTurn();
 		expect(groupOf(host, child)).toBeUndefined();
 	});
@@ -1815,7 +1842,7 @@ describe("taskfold", () => {
 		}
 		s.work(1, "tail");
 		const host = setup(s, 5);
-		const c = new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 5000, untracked: { enabled: false, minSteps: 8 } });
+		const c = new TaskfoldConductor({ keepRecentTasks: 0, recordTokens: 5000, untracked: { enabled: false, minTokens: 2000 } });
 		c.attach(host);
 		await host.commitTurn();
 		expect(starts.map((id) => carrier(groupOf(host, id))?.task)).toEqual(["work/1.1", "work/1.2", "work/1.3"]);
