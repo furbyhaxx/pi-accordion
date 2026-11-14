@@ -2,10 +2,9 @@ import { matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-t
 import type { Op } from "../../../core/ops";
 import type { Block } from "../../../core/types";
 import { bindingHint, clean, cutToWidth, fitSegments, type Hint, rawHint } from "../chrome";
-import { buildContextMap, colorKind, kindGlyph, renderCategoryBar } from "../map";
+import { buildContextMap, colorKind, formatCompactTokens, kindGlyph, renderCategoryBar } from "../map";
 import { buildTimeline, clampCell, timelineColumns, type TimelineRow } from "../timeline";
 import type { PanelTab, Shell, TabView } from "./types";
-import { formatTokens } from "../../dials";
 import { openCompactPreview } from "./compact";
 
 const PREVIEW_CHARS = 240;
@@ -69,7 +68,7 @@ export function createContextTab(shell: Shell): PanelTab {
 			[
 				`${selected ? theme.fg("accent", "→") : " "} ${selected ? theme.bold(kind) : kind}`,
 				` ${pad(stateOf(b), 14)}`,
-				` ${theme.fg("muted", formatTokens(b.tokens).padStart(8))}`,
+				` ${theme.fg("muted", formatCompactTokens(b.tokens).padStart(8))}`,
 				` ${theme.fg("dim", label)}`,
 			],
 			width,
@@ -195,8 +194,8 @@ export function createContextTab(shell: Shell): PanelTab {
 				theme.fg(selected ? "accent" : "dim", `${mark}${turn.padStart(cols.turn - 1)}`),
 				...(cols.prompt ? [fitSegments([clean(row.label)], cols.prompt)] : []),
 				strip,
-				theme.fg("muted", formatTokens(row.live).padStart(cols.live)),
-				...(cols.full ? [theme.fg("dim", formatTokens(row.full).padStart(cols.full))] : []),
+				theme.fg("muted", formatCompactTokens(row.live).padStart(cols.live)),
+				...(cols.full ? [theme.fg("dim", formatCompactTokens(row.full).padStart(cols.full))] : []),
 			];
 			body.push(fitSegments([segments.filter(Boolean).join(" ")], width));
 		}

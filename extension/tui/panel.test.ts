@@ -498,10 +498,10 @@ describe("accordion panel", () => {
 		s.truth.blocks[0].tokens = 1234;
 		s.panel.handleInput(K.alt("v")); s.panel.handleInput(K.alt("v"));
 		const row = (width: number) => s.cursor(width).replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
-		expect(row(36)).toBe("→ ■ text     live protected     1234");
-		expect(row(57)).toBe("→ ■ text     live protected     1234 a content a");
-		expect(row(80)).toBe("→ ■ text     live protected     1234 a content a");
-		expect(row(140)).toBe("→ ■ text     live protected     1234 a content a");
+		expect(row(36)).toBe("→ ■ text     live protected     1.2k");
+		expect(row(57)).toBe("→ ■ text     live protected     1.2k a content a");
+		expect(row(80)).toBe("→ ■ text     live protected     1.2k a content a");
+		expect(row(140)).toBe("→ ■ text     live protected     1.2k a content a");
 		s.close(); await s.opening;
 	});
 
