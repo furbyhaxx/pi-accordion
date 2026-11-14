@@ -34,7 +34,7 @@ import { estTokens, clip, firstLine, BLOCK_OVERHEAD } from "./tokens";
  * `{#code FOLDED}` tag — so the agent is never shown a handle for a block it can't
  * actually unfold. Defined here (the engine) so the live layer imports one definition.
  */
-export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text", "thinking", "tool_result"]);
+export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text", "thinking", "tool_result", "custom"]);
 
 /**
  * The ONE foldability predicate, shared by the view and the wire. A block may be folded —
@@ -241,6 +241,8 @@ function digestBody(b: Block): string {
 			return "system prompt";
 		case "user":
 			return "“" + clip(b.text, 100) + "”";
+		case "custom":
+			return `extension message · ${firstLine(b.text, 120)}`;
 		case "text":
 			return clip(b.text, 120);
 		case "thinking": {
@@ -297,12 +299,13 @@ const GROUP_KIND_NOUN: Record<BlockKind, [string, string]> = {
 	// entry has to exist. Kept honest rather than a placeholder in case the invariant is ever probed.
 	system: ["system prompt", "system prompts"],
 	user: ["ask", "asks"],
+	custom: ["extension message", "extension messages"],
 	text: ["reply", "replies"],
 	thinking: ["thought", "thoughts"],
 	tool_call: ["call", "calls"],
 	tool_result: ["result", "results"],
 };
-const GROUP_KIND_ORDER: BlockKind[] = ["tool_result", "thinking", "text", "tool_call", "user", "system"];
+const GROUP_KIND_ORDER: BlockKind[] = ["tool_result", "thinking", "text", "tool_call", "user", "custom", "system"];
 
 /** Compact "turn 3" / "turns 3–5" / "preamble" label for a group's span. */
 function turnSpan(members: Block[]): string {

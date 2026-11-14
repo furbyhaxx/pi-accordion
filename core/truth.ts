@@ -112,10 +112,9 @@ function wireRoleOfId(id: string): string {
 	// never be same-role-adjacent to a real message, which is strictly safer than falling through to
 	// the "other" bucket shared with pi's bash/custom/summary kinds.
 	if (id.startsWith("sys:")) return "system";
-	if (id.startsWith("u:") || /^m\d+:u$/.test(id)) return "user";
 	if (id.startsWith("a:") || /^m\d+:p/.test(id)) return "assistant";
 	if (id.startsWith("r:") || /^m\d+:r$/.test(id)) return "toolResult";
-	return "other"; // "s:" / `m<i>:s`
+	return "user";
 }
 
 /**

@@ -72,6 +72,7 @@ export type PiPart = PiTextPart | PiThinkingPart | PiToolCallPart | { type: stri
 
 export interface PiMessage {
 	role: string;
+	customType?: string;
 	content?: string | PiPart[] | Array<{ type: string; text?: string }>;
 	model?: string;
 	toolCallId?: string;
@@ -98,6 +99,9 @@ export function blockId(m: PiMessage, i: number, partIndex?: number): string {
 	switch (m.role) {
 		case "user":
 			return m.timestamp != null ? `u:${m.timestamp}` : `m${i}:u`;
+		case "custom":
+			return m.timestamp != null && (typeof m.content === "string" || (Array.isArray(m.content) && m.content.every((part) => part?.type === "text")))
+				? `c:${m.timestamp}:${customSignature(m)}` : `m${i}:c`;
 		case "assistant": {
 			if (partIndex == null) return `m${i}:p?`; // shouldn't happen; defensive only
 			const anchor = m.responseId != null ? m.responseId : m.timestamp != null ? `t${m.timestamp}` : null;
@@ -127,7 +131,7 @@ export function blockId(m: PiMessage, i: number, partIndex?: number): string {
  * Kept in lockstep with the formats `blockId()` produces above.
  */
 export function isDurableId(id: string): boolean {
-	return id.startsWith("u:") || id.startsWith("a:") || id.startsWith("r:") || id.startsWith("s:");
+	return id.startsWith("u:") || id.startsWith("a:") || id.startsWith("r:") || id.startsWith("s:") || id.startsWith("c:");
 }
 
 function textOf(content: unknown): string {
@@ -138,6 +142,20 @@ function textOf(content: unknown): string {
 			.map((b) => b.text)
 			.join("\n");
 	return "";
+}
+
+const customSignatures = new WeakMap<object, string>();
+function customSignature(m: PiMessage): string {
+	const cached = customSignatures.get(m);
+	if (cached !== undefined) return cached;
+	const text = textOf(m.content);
+	let h = fnvStr(0x811c9dc5, m.customType ?? "");
+	h = fnvInt(h, text.length);
+	h = fnvStr(h, text.slice(0, 256));
+	h = fnvStr(h, text.slice(-256));
+	const signature = (h >>> 0).toString(36);
+	customSignatures.set(m, signature);
+	return signature;
 }
 
 const tokensFor = (text: string): number => estTokens(text) + BLOCK_OVERHEAD;
@@ -167,6 +185,7 @@ function spanDetails(m: { toolName?: string; details?: unknown }): { details?: u
  */
 export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0): WireBlock[] {
 	const out: WireBlock[] = [];
+	const customIds = new Set<string>();
 	let order = orderStart;
 	let turn = turnStart;
 
@@ -185,6 +204,14 @@ export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0):
 			case "user": {
 				turn += 1;
 				push(blockId(m, i), "user", textOf(m.content));
+				break;
+			}
+			case "custom": {
+				const id = blockId(m, i);
+				if (!customIds.has(id) && textOf(m.content)) {
+					customIds.add(id);
+					push(id, "custom", textOf(m.content));
+				}
 				break;
 			}
 			case "assistant": {
@@ -215,7 +242,7 @@ export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0):
 				break;
 			}
 			default: {
-				// bash / custom / branchSummary / compactionSummary — surface any summary text
+				// bash / branchSummary / compactionSummary — surface any summary text
 				if (typeof m.summary === "string" && m.summary) push(blockId(m, i), "text", m.summary);
 			}
 		}
@@ -270,6 +297,9 @@ export function messageInfo(m: PiMessage, i: number): MsgInfo {
 	switch (m.role) {
 		case "user":
 			push(blockId(m, i));
+			break;
+		case "custom":
+			if (textOf(m.content)) push(blockId(m, i));
 			break;
 		case "assistant": {
 			const parts = Array.isArray(m.content) ? (m.content as PiPart[]) : [];
@@ -383,6 +413,10 @@ export function contentSignature(m: PiMessage): number {
 		case "user":
 			h = sampleContent(h, m.content);
 			break;
+		case "custom":
+			h = sampleText(h, m.customType ?? "");
+			h = sampleContent(h, m.content);
+			break;
 		case "assistant":
 			h = sampleText(h, m.model ?? "");
 			if (Array.isArray(m.content)) {
@@ -427,6 +461,7 @@ export function contentFingerprintLength(m: PiMessage): number {
 	};
 	switch (m.role) {
 		case "user": return contentLength(m.content);
+		case "custom": return (m.customType?.length ?? 0) + contentLength(m.content);
 		case "assistant": {
 			let n = m.model?.length ?? 0;
 			if (Array.isArray(m.content)) for (const part of m.content) {
@@ -483,6 +518,10 @@ export function contentFingerprint(m: PiMessage): number {
 			h = fnvByte(h, 1);
 			h = fnvContent(h, m.content);
 			break;
+		case "custom":
+			h = fnvStr(fnvByte(h, 5), m.customType ?? "");
+			h = fnvContent(h, m.content);
+			break;
 		case "assistant": {
 			h = fnvByte(h, 2);
 			if (typeof m.model === "string") h = fnvStr(h, m.model);
@@ -536,6 +575,11 @@ export function contentFingerprint(m: PiMessage): number {
  */
 export interface WireMsgShape extends MsgInfo {
 	role: string;
+}
+
+/** The role the provider sees for a Pi message role: Pi sends custom, summary and bash messages as `user`. */
+export function providerRole(role: string): string {
+	return role === "assistant" || role === "toolResult" ? role : "user";
 }
 
 /**
@@ -679,6 +723,14 @@ export function computeDegradedDropRuns(
  *  separate wire-side position protection is needed here. The durable-id + structural guards
  *  (kind checks, non-empty digest) remain the safety floor. */
 function foldOne(m: PiMessage, i: number, byId: Map<string, FoldOp>, mark: () => void): PiMessage {
+	if (m.role === "custom") {
+		const op = byId.get(blockId(m, i));
+		if (op?.digestText) {
+			mark();
+			return { ...m, content: typeof m.content === "string" ? op.digestText : [{ type: "text", text: op.digestText }] };
+		}
+		return m;
+	}
 	if (m.role === "assistant" && Array.isArray(m.content)) {
 		let parts: PiPart[] | null = null; // lazily cloned only if we actually fold
 		(m.content as PiPart[]).forEach((b, j) => {
@@ -818,7 +870,7 @@ export function applyPlan(messages: PiMessage[], ops: FoldOp[], groups: GroupOp[
 			const empty = !m.content || (Array.isArray(m.content) && m.content.every((p) =>
 				(p?.type === "text" && p.text === "") || (p?.type === "thinking" && (p as PiThinkingPart).thinking === "" && !thinkingIsSigned(p as PiThinkingPart))));
 			if (!info.ids.length && empty) transparent.add(i);
-			else { shapes.push({ ...info, role: m.role }); indices.push(i); }
+			else { shapes.push({ ...info, role: providerRole(m.role) }); indices.push(i); }
 		});
 		const decision = computeDegradedDropRuns(shapes, safeGroups);
 		indices.forEach((original, i) => {

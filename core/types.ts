@@ -16,6 +16,7 @@
 export type BlockKind =
 	| "system" // the harness's own system prompt — BOLTED (see `SYSTEM_BLOCK_ID` / `isBolted`)
 	| "user" // the human's instruction/intent — highest durable value
+	| "custom" // extension-authored provider-user content
 	| "text" // an assistant reply / conclusion
 	| "thinking" // ephemeral assistant reasoning
 	| "tool_call" // WHAT the agent did (tiny, durable record of an action)

@@ -24,6 +24,7 @@ describe("messageKey", () => {
 		expect(messageKey("u:1000")).toBe("u:1000");
 		expect(messageKey("r:call_1")).toBe("r:call_1");
 		expect(messageKey("s:1000")).toBe("s:1000");
+		expect(messageKey("c:1000:123")).toBe("c:1000:123");
 	});
 });
 
