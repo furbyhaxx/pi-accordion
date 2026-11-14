@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 26
+  revision: 27
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-14T17:03:30+01:00"
+  updated_at: "2026-11-14T17:22:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 26
+    - revision: 27
       reason: "align specification details with current implementation; the widget sketch is fully carried by §4"
-      changes: ["align panel, settings, compaction, footer, protocol and web behavior", "drop the citation of the user's widget sketch"]
+      changes: ["align panel, settings, compaction, footer, protocol and web behavior", "drop the citation of the user's widget sketch", "context bar width, Tasks row, Web UI URL and locked rows as built; the timeline's selected cell is inverse"]
 ---
 
 # Accordion UI polish
@@ -70,7 +70,8 @@ These apply to every TUI surface in this spec. Each MUST hold.
 4. **Glyphs.** `✓ ✗ ▲ ● ○ ◐ ▶ ☐ ▣ ☒ ⧗ ⊘ › · …` plus the box-drawing set. No emoji (`⏸` renders as
    one in common terminals; blocked uses `⧗`).
 5. **Selection** is a `→` cursor plus a bold label; no row background. The selected row keeps its
-   kind colors.
+   kind colors. Inside the timeline strip a cell has no room for a cursor: the selected cell is
+   drawn inverse.
 6. **Keys.** Enter confirms or drills in. Esc clears a filter, then goes back one level, then closes.
    `ctrl+c` closes from any depth. Both ask before discarding staged settings. Tab/Shift+Tab cycle
    tabs; Left/Right too, unless the screen moves or changes a value with them. `F1` opens help.
@@ -558,12 +559,12 @@ Taking control from another surface asks with `Open read-only` first and `Take c
 
 | Row | Source | Rule |
 |---|---|---|
-| Context bar | `buildContextBreakdown` (`map.ts`) | bar width = `min(44, width − 30)`; label column 10 wide; numbers `formatCompactTokens` |
+| Context bar | `buildContextBreakdown` (`map.ts`) | bar width = `max(8, min(44, width − stats suffix − 4))`; category labels follow on one line, joined by ` · ` and cut to the width; numbers `formatCompactTokens` |
 | Saved | breakdown + `truth.groups` | omitted when nothing folded |
 | Pressure | the attached conductor's resolved `high` option (§6.1) when it declares one, else omitted; `settings.compact.threshold` | `folds start at <high·100>% (<high·budget>)`; `pi auto-compact: <label of compact.threshold>`; `folding off: pi compacts natively` when disarmed |
 | Conductor | `host.activeConductor()`, `host.conductorStatus()` | line 1 label and level (`✓ healthy` / `▲ warning` / `✗ error`); line 2 the status text, wrapped to 2 lines max |
-| Tasks | task widget controller summary | only when a list is shown; clicking/Enter opens §5.8 |
-| Web UI | `host.webInfo()` | URL host: the bind host, except `0.0.0.0`/`::` which show the first non-internal IPv4 of `os.networkInterfaces()` and fall back to `127.0.0.1`; OSC 8 hyperlink when the terminal supports it |
+| Tasks | task widget controller summary | only when a list is shown; `<title> <done>/<total>`, `≡<folded>` and the current task, parts without content left out; Enter opens §5.8 (the host delivers no clicks, §4.6) |
+| Web UI | `host.webInfo()` | URL host: the bind host, except `0.0.0.0`/`::` which show the first non-internal IPv4 of `os.networkInterfaces()` and fall back to `127.0.0.1`; printed as plain text, which terminals link themselves |
 
 Keys (priority): `enter` context (1), `alt+c` compact… (2), `alt+o` folding on/off (3),
 `alt+t` tasks (4).
@@ -732,7 +733,7 @@ Models, Models · `<label>`, Privacy, Taskfold, Conductor: `<label>`, Task widge
 Calibration.
 
 - Row: label column 20 (16 below 57 columns), value, right-aligned source (`session`, `default`,
-  `user`, `▲ staged`). Toggles `[x]`/`[ ]`; cycled values `‹ value ›`. Locked rows show `<ENV or --flag>  env · locked` / `flag · locked` in dim and refuse
+  `user`, `▲ staged`). Toggles `[x]`/`[ ]`; cycled values `‹ value ›`. Locked rows show `<ENV or --flag> · locked` in dim (`env · locked` / `flag · locked` when the override has no known name) and refuse
   edits with a status message naming the override.
 - Description row (dim, 1–2 lines) under the list: the selected row's description from a table in
   `screens/settings.ts`.
