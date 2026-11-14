@@ -35,13 +35,15 @@ done  W1  P1 truth index · P2 taskfold bugs · P3 keel-lite · P4 thermocline (
 done  W2  P13 taskfold planner cost (T1–T6) · host block view per revision (C1)
           P12a ingest signature (H6) · P15A–F task tooling (U7–U13) · H8, H9 · dropped routing
           operations logged · no change after measurement: H5, H7, H11, H13, U16
-now   W2  P12b deferred entries and footer (H4) · P12c socket bound (H10)
+          P12b deferred entries and footer (H4) · P12c socket bound (H10)
           P18 sealed turns (U5, U14) · P24a stale tasks and zombieSteps
-next  W2  P24b stable task code · P24c stale marker in widget and panel
-          P21–P23 thermocline pricing (C5, C6, C2)
-later W3  P16 notices in Truth (U1) · P17 history budget (U2) · B-0001 evaluation
+now   W2  P24b stable task code · P24c stale marker in widget and panel
+          P12d one span scan per log state (H12; frontier and stale check done, widget
+          after P24c) · B-0001 evaluation · spec text SPEC-0001 · docs drift (S4)
+next  W2  P21–P23 thermocline pricing (C5, C6, C2) · signed thinking under a fold
+later W3  P16 notices in Truth (U1) · P17 history budget (U2)
           P19 U15, U17, U18, C8, C14
-later W4  P20 docs and spec text (S1–S4 stale text, D2), artifact cleanup, final gates
+later W4  P20 spec text SPEC-0002 (S2 stale text, D2), artifact cleanup, final gates
 ```
 
 ## Environment (every unit)
