@@ -8,6 +8,7 @@
  */
 import type { Block, BlockKind, ParsedSession, SessionMeta } from "./types";
 import { estTokens, BLOCK_OVERHEAD } from "$core/tokens";
+import { thinkingIsSigned } from "$core/wire";
 
 function parseLines(raw: string): any[] {
 	const out: any[] = [];
@@ -54,7 +55,7 @@ class Sink {
 		id: string,
 		kind: BlockKind,
 		text: string,
-		extra: Partial<Pick<Block, "toolName" | "callId" | "model" | "isError">> = {},
+		extra: Partial<Pick<Block, "toolName" | "callId" | "model" | "isError" | "signed">> = {},
 	): void {
 		if (!text && kind !== "tool_result") return; // drop empty non-results
 		this.blocks.push({
@@ -99,7 +100,7 @@ function parsePi(entries: any[]): ParsedSession {
 					const content = Array.isArray(m.content) ? m.content : [];
 					let i = 0;
 					for (const b of content) {
-						if (b?.type === "thinking") sink.push(`${eid}:${i}`, "thinking", b.thinking || "", { model: m.model });
+						if (b?.type === "thinking") sink.push(`${eid}:${i}`, "thinking", b.thinking || "", thinkingIsSigned(b) ? { model: m.model, signed: true } : { model: m.model });
 						else if (b?.type === "text") sink.push(`${eid}:${i}`, "text", b.text || "", { model: m.model });
 						else if (b?.type === "toolCall")
 							sink.push(`${eid}:${i}`, "tool_call", `${b.name} ${JSON.stringify(b.arguments ?? {})}`, {
@@ -153,7 +154,7 @@ function parseClaude(entries: any[]): ParsedSession {
 			if (m.model) meta.model = m.model;
 			let i = 0;
 			for (const b of m.content || []) {
-				if (b?.type === "thinking") sink.push(`${eid}:${i}`, "thinking", b.thinking || "", { model: m.model });
+				if (b?.type === "thinking") sink.push(`${eid}:${i}`, "thinking", b.thinking || "", typeof b.signature === "string" && b.signature.trim() ? { model: m.model, signed: true } : { model: m.model });
 				else if (b?.type === "text") sink.push(`${eid}:${i}`, "text", b.text || "", { model: m.model });
 				else if (b?.type === "tool_use") {
 					if (b.id) toolNames[b.id] = b.name;

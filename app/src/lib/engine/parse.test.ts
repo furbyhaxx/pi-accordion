@@ -87,7 +87,7 @@ describe("pi parsing", () => {
 				piSession(),
 				piUser("m1", "go"),
 				piAssistant("a1", [
-					{ type: "thinking", thinking: "hmm" },
+					{ type: "thinking", thinking: "hmm", thinkingSignature: "EqQBsig" },
 					{ type: "text", text: "answer" },
 					{ type: "toolCall", id: "call_1", name: "grep", arguments: { q: "x" } },
 				]),
@@ -96,6 +96,8 @@ describe("pi parsing", () => {
 		const [user, think, text, call] = s.blocks;
 		expect(s.blocks).toHaveLength(4);
 		expect([think.kind, text.kind, call.kind]).toEqual(["thinking", "text", "tool_call"]);
+		// a provider seal marks the thought, so a read-only session refuses the same fold steering does
+		expect([think.signed, text.signed]).toEqual([true, undefined]);
 		// shared source-message prefix before ":", positional suffix after
 		expect([think.id, text.id, call.id]).toEqual(["a1:0", "a1:1", "a1:2"]);
 		// global order increments across the whole session
@@ -279,7 +281,7 @@ describe("Claude Code parsing", () => {
 			jsonl(
 				ccUser("u1", "go"),
 				ccAssistant("a1", [
-					{ type: "thinking", thinking: "let me see" },
+					{ type: "thinking", thinking: "let me see", signature: "EqQBsig" },
 					{ type: "text", text: "done" },
 				]),
 			),
@@ -290,6 +292,7 @@ describe("Claude Code parsing", () => {
 			["text", "a1:1"],
 		]);
 		expect(s.meta.model).toBe("claude-test");
+		expect(s.blocks.map((b) => b.signed)).toEqual([undefined, true, undefined]);
 	});
 
 	it("picks up title from ai-title entries, cwd from the first entry carrying one, and defaults the title", () => {
