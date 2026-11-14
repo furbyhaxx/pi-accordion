@@ -1,4 +1,4 @@
-import { scanTaskSpans } from "../conductors/in-process/taskfold/taskfold";
+import { scanTaskSpans, type TaskSpan } from "../conductors/in-process/taskfold/taskfold";
 import { messageKey } from "../core/groupShape";
 import type { Block } from "../core/types";
 import { blockId, isDurableId, type PiMessage } from "../core/wire";
@@ -50,9 +50,13 @@ function sameControl(a: ObjectValue, b: ObjectValue): boolean {
 		.filter((key) => key !== "ttl").every((key) => a[key] === b[key]);
 }
 
-/** Add an Anthropic breakpoint before the innermost open task; post-hook Claude OAuth identity is opt-in. */
-export function taskCacheFrontier(payload: unknown, blocks: readonly Block[], messages: readonly PiMessage[], oauthIdentityAfterHook = false): TaskCacheEdit {
-	const span = scanTaskSpans(blocks, (block) => block.text)
+/**
+ * Add an Anthropic breakpoint before the innermost open task; post-hook Claude OAuth identity is opt-in.
+ * `spans` are the task spans of `blocks`.
+ */
+export function taskCacheFrontier(payload: unknown, blocks: readonly Block[], messages: readonly PiMessage[], oauthIdentityAfterHook = false,
+	spans: readonly TaskSpan[] = scanTaskSpans(blocks, (block) => block.text)): TaskCacheEdit {
+	const span = spans
 		.filter((item) => item.status === null && item.intervals.at(-1)?.end === blocks.length - 1)
 		.sort((a, b) => b.start - a.start || b.id.split(".").length - a.id.split(".").length)[0];
 	if (!span) return { reason: "no-open-task" };

@@ -64,6 +64,7 @@ import { cacheProfileFor } from "../core/cacheProfiles";
 import { FOLD_TIMINGS, isFoldTiming } from "../core/conductor/contract";
 import { observedCacheTtl } from "./cacheRetention";
 import { taskCacheFrontier } from "./taskCache";
+import { taskSpansOf } from "./taskSpans";
 import { NOTICE_MESSAGE, TaskSession, attachedList, type StartReason } from "./taskSession";
 import { emptySpanRefusal, IDLE_ENTRY, idleVerdict, TaskCoach, type CoachPolicy } from "./taskCoach";
 import { deliverContext, deliveryKey, liveDeliveryKeys, PIN_LIMITS, PinError } from "./taskPins";
@@ -72,7 +73,7 @@ import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
-import { TASKFOLD_DEFAULTS, TaskfoldConductor, scanTaskSpans, staleSpans } from "../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_DEFAULTS, TaskfoldConductor, staleSpans } from "../conductors/in-process/taskfold/taskfold";
 import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { createRouting } from "./taskRouting";
 import { nativeCompletion, type CompletionFunction } from "./nativeCompletion";
@@ -4135,7 +4136,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (foldingEnabled && truth && liveHost.activeMeta()?.id === "taskfold" && family === "anthropic"
 			&& ctx.model?.api === "anthropic-messages" && requestModel === ctx.model.id) {
 			const { payload: edited, ...frontier } = taskCacheFrontier(payload, truth.blocks, lastMessages,
-				ctx.model.provider === "claude" && ctx.modelRegistry.isUsingOAuth(ctx.model));
+				ctx.model.provider === "claude" && ctx.modelRegistry.isUsingOAuth(ctx.model), taskSpansOf(truth));
 			debug({ type: "cache-frontier", ...frontier });
 			if (edited) payload = edited;
 		}
@@ -4664,7 +4665,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	function staleTaskIds(slug: string): string[] {
 		if (!truth) return [];
-		return staleSpans(scanTaskSpans(truth.blocks, (b) => b.text), truth.blocks, settings.tasks.zombieSteps).filter((s) => s.list === slug).map((s) => s.id);
+		return staleSpans(taskSpansOf(truth), truth.blocks, settings.tasks.zombieSteps).filter((s) => s.list === slug).map((s) => s.id);
 	}
 
 	pi.registerTool({
