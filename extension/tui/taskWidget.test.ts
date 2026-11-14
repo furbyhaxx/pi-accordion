@@ -91,7 +91,7 @@ describe("task tree", () => {
 describe("task widget", () => {
 	test("collapsed shows the summary and the running task", () => {
 		const { lines } = renderTaskWidget({ list: list(secrets()), folded, tokens: { full: 26_700, live: 10_100 } }, view(), 80, plain, NOW, true);
-		expect(lines).toEqual(["▲ Tasks Secrets 6/20 (≡4) · 6m 21s · 26.7k → 10.1k tok", "  ⎿ 3.4.1 the new registry · 1m 11s"]);
+		expect(lines).toEqual(["▲ Tasks Secrets 6/20 · ≡4 · 6m 21s · 26.7k → 10.1k tok", "  ⎿ 3.4.1 the new registry · 1m 11s"]);
 	});
 
 	test("fits long list titles while preserving task counts", () => {
@@ -108,7 +108,7 @@ describe("task widget", () => {
 		const done = secrets().map((t) => ({ ...t, status: "done" as const, endedAt: t.endedAt ?? at(400), startedAt: t.startedAt ?? at(0) }));
 		const { lines } = renderTaskWidget({ list: list(done), folded, tokens: null }, view(), 80, plain, NOW, true);
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toStartWith("► Tasks Secrets 20/20 (≡4)");
+		expect(lines[0]).toStartWith("► Tasks Secrets 20/20 · ≡4");
 	});
 
 	test("expanded draws glyphs and fits every width; clicks toggle and reveal", () => {
@@ -129,6 +129,33 @@ describe("task widget", () => {
 		expect(v.expanded).toBe(false);
 	});
 
+	test("a click reveals at most 10 hidden siblings, never more than 30, then points to the Tasks panel", () => {
+		const tasks = [task("0", "doing", "now", 0), ...Array.from({ length: 300 }, (_, i) => task(String(i + 1), "todo"))];
+		const model = { list: list(tasks), folded: new Set<string>(), tokens: null };
+		const v = view({ expanded: true, maxRows: 5, toggleKey: "alt+t" });
+		const hiddenHit = () => {
+			const { lines, hits } = renderTaskWidget(model, v, 80, plain, NOW, true);
+			const i = lines.findIndex((l) => l.includes("…"));
+			return { line: lines[i], hit: hits[i], count: lines.length };
+		};
+		const before = hiddenHit().count;
+		expect(applyTaskWidgetHit(v, hiddenHit().hit)).toBe(true);
+		expect(v.revealed.size).toBe(10);
+		expect(hiddenHit().count).toBeGreaterThan(before);
+		expect(hiddenHit().count).toBeLessThanOrEqual(before + 10);
+		for (let i = 0; i < 5; i++) applyTaskWidgetHit(v, hiddenHit().hit);
+		expect(v.revealed.size).toBe(30);
+		expect(hiddenHit().count).toBeLessThanOrEqual(before + 30);
+		for (const width of [36, 57, 80, 140]) {
+			for (const line of renderTaskWidget(model, v, width, plain, NOW, true).lines) expect(visibleWidth(line)).toBeLessThanOrEqual(width);
+		}
+		const { line, hit } = hiddenHit();
+		expect(line).toMatch(/… \d+ more · alt\+t Tasks$/);
+		expect(hit).toBeNull();
+		expect(applyTaskWidgetHit(v, hit)).toBe(false);
+		expect(v.revealed.size).toBe(30);
+	});
+
 	test("formats durations and picks this session's active list", () => {
 		expect([formatDuration(45_000), formatDuration(312_000), formatDuration(7_500_000)]).toEqual(["45s", "5m 12s", "2h 05m"]);
 		const a = { ...list([task("1", "done")]), slug: "a", updatedAt: at(9) };
@@ -146,13 +173,13 @@ describe("task widget", () => {
 		]);
 		const model = { list: list(secrets()), folded: new Set(["0", "3.1", "3.2"]), foldTokens: folds, tokens: null };
 		const full = renderTaskWidget(model, view({ expanded: true, maxRows: 50, toggles: new Map([["3", false]]) }), 120, plain, NOW, true).lines;
-		expect(full[1]).toBe("  ├─▣≡ 0 Orientation · 1m 12s (35.2k → 400)");
-		expect(full.find((l) => l.includes(" 3 Secrets"))).toBe("  ├─◐  3 Secrets Redesign · 2m 45s (3✓ 2☒ 1⊘ 3☐ · 2≡ · 20.0k → 500)");
+		expect(full[1]).toBe("  ├─▣≡ 0 Orientation · 1m 12s (35.2k→400)");
+		expect(full.find((l) => l.includes(" 3 Secrets"))).toBe("  ├─◐  3 Secrets Redesign · 2m 45s (3✓ 2☒ 1⊘ 3☐ · 2≡ · 20.0k→500)");
 		const hidden = renderTaskWidget(model, view({ expanded: true, maxRows: 9 }), 120, plain, NOW, true).lines;
-		expect(hidden[1]).toBe("  ├─ … 3 finished · 3m 36s (1≡ · 35.2k → 400)");
+		expect(hidden[1]).toBe("  ├─ … 3 finished · 3m 36s (1≡ · 35.2k→400)");
 		const finished = list([task("1", "done", "Unit", 0, 60), task("1.1", "done", "a", 0, 30), task("1.2", "done", "b", 30, 60), task("2", "doing", "next", 60)]);
 		const doneModel = { list: finished, folded: new Set(["1.1", "1.2"]), foldTokens: new Map([["1.1", { full: 9_000, live: 100 }], ["1.2", { full: 1_000, live: 100 }]]), tokens: null };
-		expect(renderTaskWidget(doneModel, view({ expanded: true }), 120, plain, NOW, true).lines[1]).toBe("  ├─▣· 1 Unit · 1m 0s (2✓ · 2≡ · 10.0k → 200)");
+		expect(renderTaskWidget(doneModel, view({ expanded: true }), 120, plain, NOW, true).lines[1]).toBe("  ├─▣· 1 Unit · 1m 0s (2✓ · 2≡ · 10.0k→200)");
 	});
 
 	test("shows a width-fitted legend without assigning it a click action", () => {
