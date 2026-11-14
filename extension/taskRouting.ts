@@ -230,6 +230,8 @@ export interface RoutingDeps {
 	limits(): PinLimits;
 	/** Called after every extraction that changed the list. */
 	applied(slug: string, outcome: RoutingOutcome): void;
+	/** Called with the operations an extraction lost: malformed ones and those the store refused. */
+	dropped(slug: string, dropped: readonly DroppedOp[]): void;
 }
 
 /** The port the Taskfold conductor calls for each new user message. */
@@ -250,6 +252,7 @@ export function createRouting(deps: RoutingDeps): TaskfoldRouting {
 					const outcome = await applyRoutedOps(a.store, a.list.slug, extraction.ops, said, deps.limits(), assertCurrent);
 					assertCurrent();
 					outcome.dropped.push(...extraction.rejected);
+					if (outcome.dropped.length) deps.dropped(a.list.slug, outcome.dropped);
 					if (outcome.applied.length) deps.applied(a.list.slug, outcome);
 					const ids = [...new Set([...outcome.applied, ...outcome.retained].map((o) => o.ref).filter((r): r is string => !!r))];
 					return { ids, applied: outcome.applied.length, dropped: outcome.dropped.length };

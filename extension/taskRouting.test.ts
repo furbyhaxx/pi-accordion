@@ -95,7 +95,7 @@ describe("applyRoutedOps", () => {
 		expect(out.dropped).toEqual([]);
 
 		let notices = 0;
-		const port = createRouting({ attached: () => ({ store, list: store.read("w") }), limits: () => PIN_LIMITS, applied: () => { notices++; } });
+		const port = createRouting({ attached: () => ({ store, list: store.read("w") }), limits: () => PIN_LIMITS, applied: () => { notices++; }, dropped: () => {} });
 		const request = port.prepare("Also support passkeys", "")!;
 		runTasks(store, { action: "update", list: "w", goals: { add: ["Support passkeys"] } });
 		const result = await request.apply('{"ops":[{"op":"+","kind":"goal","target":"list","value":"Support passkeys"}]}', "Also support passkeys");
@@ -162,10 +162,12 @@ describe("createRouting", () => {
 		const { store } = fixture();
 		let attached = true;
 		const seen: string[] = [];
+		const lost: string[] = [];
 		const port = createRouting({
 			attached: () => (attached ? { store, list: store.read("w") } : null),
 			limits: () => PIN_LIMITS,
 			applied: (slug, out) => seen.push(`${slug}:${out.applied.length}`),
+			dropped: (slug, dropped) => lost.push(...dropped.map((d) => `${slug}:${d.op.kind}:${d.reason}`)),
 		});
 		const req = port.prepare("Please keep it small.", "last turn");
 		expect(req?.system).toContain("persistent task list");
@@ -173,6 +175,12 @@ describe("createRouting", () => {
 		const result = await req!.apply('{"ops":[{"op":"+","kind":"pin","target":"list","value":"keep it small","pinKind":"rule"},{"op":"+","kind":"pin","target":"list","value":"made up","pinKind":"rule"}]}', "Please keep it small.");
 		expect(result).toEqual({ ids: ["p1"], applied: 1, dropped: 1 });
 		expect(seen).toEqual(["w:1"]);
+		expect(lost).toHaveLength(1);
+		expect(lost[0]).toMatch(/^w:pin:.*does not appear/);
+		// A reply whose every operation is refused changes nothing, and is still reported.
+		await req!.apply('{"ops":[{"op":"+","kind":"criterion","target":"9","value":"x"}]}', "Please keep it small.");
+		expect(seen).toEqual(["w:1"]);
+		expect(lost).toHaveLength(2);
 		await expect(req!.apply("not json", "x")).rejects.toThrow(/JSON/);
 		attached = false;
 		expect(port.prepare("hello", "")).toBeNull();
@@ -182,7 +190,7 @@ describe("createRouting", () => {
 		for (const replacement of ["list", "store", "detached"] as const) {
 			const { store } = fixture();
 			let attached: { store: TaskStore; list: ReturnType<TaskStore["read"]> } | null = { store, list: store.read("w") };
-			const port = createRouting({ attached: () => attached, limits: () => PIN_LIMITS, applied: () => {} });
+			const port = createRouting({ attached: () => attached, limits: () => PIN_LIMITS, applied: () => {}, dropped: () => {} });
 			const request = port.prepare("Keep the API stable", "")!;
 			if (replacement === "list") {
 				runTasks(store, { action: "create", list: "next", title: "Next", goals: ["Next goal"], tasks: [] });
@@ -200,7 +208,7 @@ describe("createRouting", () => {
 	test("checks the binding after asynchronous grammar warming and before any writes", async () => {
 		const { store } = fixture();
 		let attached = true;
-		const port = createRouting({ attached: () => attached ? { store, list: store.read("w") } : null, limits: () => PIN_LIMITS, applied: () => {} });
+		const port = createRouting({ attached: () => attached ? { store, list: store.read("w") } : null, limits: () => PIN_LIMITS, applied: () => {}, dropped: () => {} });
 		const request = port.prepare("Keep the API stable", "")!;
 		const pending = request.apply('{"ops":[{"op":"+","kind":"goal","target":"list","value":"Keep the API stable"}]}', "Keep the API stable");
 		attached = false;

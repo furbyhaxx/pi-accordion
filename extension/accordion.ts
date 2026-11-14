@@ -3480,6 +3480,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					notifyNative();
 					void flushTaskNotices(latestCtx ?? ctx);
 				},
+				dropped: (slug, dropped) => debug({ type: "route-dropped", list: slug, ops: dropped.map((d) => ({ op: d.op.op, kind: d.op.kind, target: d.op.target, reason: d.reason })) }),
 			});
 		}
 	});
