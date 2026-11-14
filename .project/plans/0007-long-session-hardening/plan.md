@@ -33,12 +33,14 @@ done  W1  P1 truth index · P2 taskfold bugs · P3 keel-lite · P4 thermocline (
           P5 remote+triptych · P6 privacy · P7 compaction · P8 panel · P9 web · P10 recall
           P11 type check
 done  W2  P13 taskfold planner cost (T1–T6) · host block view per revision (C1)
-          H11 measured, no change · U16 no change
-now   W2  P12a ingest fingerprint (H6) · P15A–F task tooling (U7–U13)
-next  W2  P12 rest (H4, H5, H7–H10, H12, H13) · P21–P23 thermocline pricing (C5, C6, C2)
-          P24 SPEC-0002 code gaps
-later W3  P16 notices in Truth (U1) · P17 history budget (U2) · P18 host-closed spans (U5, U14,
-          B-0001 evaluation) · P19 U15, U17, U18, C8, C14
+          P12a ingest signature (H6) · P15A–F task tooling (U7–U13) · H8, H9 · dropped routing
+          operations logged · no change after measurement: H5, H7, H11, H13, U16
+now   W2  P12b deferred entries and footer (H4) · P12c socket bound (H10)
+          P18 sealed turns (U5, U14) · P24a stale tasks and zombieSteps
+next  W2  P24b stable task code · P24c stale marker in widget and panel
+          P21–P23 thermocline pricing (C5, C6, C2)
+later W3  P16 notices in Truth (U1) · P17 history budget (U2) · B-0001 evaluation
+          P19 U15, U17, U18, C8, C14
 later W4  P20 docs and spec text (S1–S4 stale text, D2), artifact cleanup, final gates
 ```
 
@@ -644,11 +646,222 @@ Verification per unit: its test file (`bun test <file>` under `extension/`, Vite
 `core/`), `node extension/smoke-context.mjs` where it touches `accordion.ts`, then the gate. UI
 units (C, D, F output) also run live in a Pi-Bolt terminal per "Environment".
 
+## P12b: no session write on the request path, footer once per tick (H4) — branch `fix/hook-deferred-entries`
+
+Files: `extension/accordion.ts` (only: the two callbacks passed to `taskfoldVerdicts.reset(...)` in
+`session_start`, the `context` hook's `try`/`finally`, `session_shutdown`, the line
+`nativeListeners.add(refreshConductorPresentation)`), `extension/smoke-context.mjs`.
+
+Current: Pi's `appendEntry` is `appendFileSync`. Two paths reach it inside the `context` hook:
+`VerdictLedger.set` for harness and opening verdicts (Taskfold `classifyBlocks`, run from
+`blocks-appended` during `ingestMessages`), and `VerdictLedger.setUnfold` from `plan()` under
+pressure (run from `wire-departing`). The footer listener `refreshConductorPresentation` runs on
+every broadcast, three to four times per request, each time forcing a fresh `stats()` walk; the
+last one runs after `recordHook`, so its time is not in the hook telemetry.
+
+Change:
+
+1. Deferred entries. Next to `debug()`:
+
+   ```ts
+   // Session entries produced while the context hook runs are written after it returns.
+   let hookDepth = 0;
+   const deferredEntries: { session: string; type: string; data: unknown }[] = [];
+   function persistEntry(type: string, data: unknown): void {
+       if (hookDepth === 0 && deferredEntries.length === 0) { pi.appendEntry(type, data); return; }
+       deferredEntries.push({ session: sessionId, type, data });
+   }
+   function flushDeferredEntries(): void {
+       for (const e of deferredEntries.splice(0)) {
+           if (e.session !== sessionId) continue;
+           try { pi.appendEntry(e.type, e.data); }
+           catch (err) { console.error("[accordion] deferred session entry failed:", err); }
+       }
+   }
+   ```
+
+   A non-empty queue also takes entries produced outside the hook, so their order in the session
+   file is the order they were produced in. The two `taskfoldVerdicts.reset` callbacks call
+   `persistEntry(VERDICT_ENTRY, …)` and `persistEntry(UNFOLD_ENTRY, …)`; they keep their
+   `sessionId === sessionAtStart` check. Other `appendEntry` calls stay direct (none of them runs
+   inside the hook).
+2. `context` hook: `hookDepth++` as the first statement of the `try`; in the `finally`, before
+   `markSent`: `hookDepth--; if (deferredEntries.length) setImmediate(flushDeferredEntries);`.
+3. `session_shutdown`: call `flushDeferredEntries()` first, before any state is cleared.
+4. Footer: replace `nativeListeners.add(refreshConductorPresentation)` by a listener that sets a
+   flag and schedules one `setImmediate`; the callback clears the flag and calls
+   `refreshConductorPresentation()` only if `sessionId` is still the one captured when it was
+   scheduled. Direct calls of `refreshConductorPresentation()` elsewhere stay synchronous.
+
+Test (smoke-context, next to "debug records receipts and rejected tasks without synchronous
+writes on the context hook"): attach the Taskfold conductor, arm folding, wrap the fake Pi's
+`appendEntry` to record whether it was called while the `context` handler's promise was pending;
+run a request whose new messages contain a harness message (`<system-reminder>` text as a user
+message, matched by `TASKFOLD_DEFAULTS.harnessPatterns`) so a verdict is produced during
+ingest. Assert: no `appendEntry` call before the handler resolved; after
+`await new Promise(setImmediate)` the verdict entry is there; a verdict produced after the hook
+but before the flush lands after the queued one. Existing smoke checks that read the footer
+right after an action await one `setImmediate` first; list every check changed that way in the
+report.
+
+Out of scope: the other listeners in `nativeListeners` (tool activation must stay synchronous),
+`broadcast` itself.
+
+Verification: `node extension/smoke-context.mjs`, `npm --prefix extension run smoke`,
+`bun test extension/tui/status.test.ts`, the gate.
+
+## P12c: one serialisation per broadcast, bounded socket buffer (H10) — branch `fix/ws-outbound-bound`
+
+Files: `extension/accordion.ts` (only `send`, `broadcast`, `sendSnapshot`, the constants beside
+`MAX_WS_PAYLOAD_BYTES`, `RuntimeDependencies`), `extension/smoke.mjs`, SPEC-0001 or README text
+only if one of them states the socket behaviour (search for `bufferedAmount`, "slow client").
+
+Current: `send(ws, m)` runs `JSON.stringify(m)` per client; nothing reads `ws.bufferedAmount`
+(`ws` package, the property exists), so a client that stops reading queues every snapshot.
+
+Change: `send(ws, m)` becomes `sendText(ws, text)` plus a thin `send` that stringifies for the
+single-client call sites; `broadcast` stringifies once and calls `sendText` per open client.
+`sendText` first checks `ws.bufferedAmount > wsBufferLimit` and then calls `ws.terminate()` and
+returns (the existing close handler removes the client; the app shows "disconnected" and gets a
+fresh snapshot when it dials again). `wsBufferLimit = dependencies.wsBufferLimit ??
+MAX_WS_BUFFERED_BYTES`, `MAX_WS_BUFFERED_BYTES = 64 * 1024 * 1024`; add
+`wsBufferLimit?: number` to `RuntimeDependencies` with a doc line naming it a test seam.
+
+Test (smoke.mjs, in the WebSocket hardening part): start the extension with
+`wsBufferLimit: 256 * 1024`; connect two clients; pause the first one's underlying socket
+(`client._socket.pause()`) after its snapshot; drive broadcasts by appending messages through
+the fake Pi's `message_end` until the server closes the first client. Assert: the first client
+is closed within the loop's bound (fail after 2,000 broadcasts), the second client keeps
+receiving events with matching `rev`, and a new connection gets `hello` and a `snapshot`.
+
+Verification: `npm --prefix extension run smoke`, the gate.
+
+## P18: sealed turns fold like finished tasks (U5, U14) — branch `feat/taskfold-sealed-turns`
+
+Files: `conductors/in-process/taskfold/taskfold.ts` (`TaskfoldOptions.untracked`,
+`TASKFOLD_DEFAULTS`, the constructor check, `plan`, `untracked`, `foldRuns`), `taskfold.test.ts`,
+`replay.test.ts` and `core/conductor/liveHost.test.ts` (option literals only),
+`extension/settings.ts`, `settingsValidation.ts`, `tui/screens/settingsRows.ts`,
+`settings.test.ts`, SPEC-0002 §8 table row 5, §9.3 and §12, `extension/README.md` and
+`conductors/in-process/taskfold/README.md` rows that name `untracked.minSteps`.
+
+Current: work outside every task span ("untracked") folds only under pressure, only in runs of
+at least `untracked.minSteps` (8) assistant messages, and never across a document read. An agent
+that declares no tasks (measured: 44% of work, one model 100%) therefore keeps every turn whole
+until the budget is nearly full, and short exchanges and old document reads never fold.
+
+Decisions:
+
+- A run of untracked work is **sealed** when a user message follows it. That is the one signal
+  the host has that the work ended. Ruled out: sealing inside a running turn by a token cap; the
+  host cannot know the work ended, and pressure folding already covers a long turn.
+- Sealed runs fold under the same timing rule as finished tasks (`timingAllows`), without
+  pressure. Runs of the current turn fold under pressure only, as today.
+- The threshold is reclaimed tokens, replacing the message count: option
+  `untracked: { enabled: boolean; minTokens: number }`, default `minTokens: 2000`, range 100 to
+  1,000,000. `minSteps` is removed from the option, the settings (`taskfold.untracked.minSteps`:
+  type, defaults, sanitize, validation, settings row, tests), spec and READMEs. A stored
+  `minSteps` is ignored by sanitize like any unknown key. Under pressure or with a cold cache
+  (`cold` in `plan`) the threshold is the constant `UNTRACKED_PRESSURE_MIN_TOKENS = 400`: an
+  eager fold rewrites the cached prefix behind it, a cold or forced one does not pay for that.
+  `steps.minSteps` stays as it is.
+- Without pressure the turn's final reply stays live: the last message of a sealed run when it
+  holds no `tool_call` block and the next block is a `user` block. Under pressure it folds as
+  today.
+- Document reads (`documentCalls` in `foldRuns`): without pressure all stay live, as today. Under
+  pressure only the newest read of each path stays live; older reads of the same path fold with
+  their run. This also applies to `steps()`, which shares `foldRuns`.
+
+Change:
+
+1. `foldRuns`: replace the parameter `minSteps: number` by
+   `limits: { minSteps: number; minReclaimed: number; pressure: boolean }`. Keep the step check
+   (`steps.size < limits.minSteps`), replace `if (reclaimed <= 0) continue` by
+   `if (reclaimed < limits.minReclaimed) continue`. Build `documentCalls` as a map path → call
+   ids in order; excluded are all of them when `!limits.pressure`, else only the last id per path.
+   `steps()` passes `{ minSteps: this.k.steps.minSteps, minReclaimed: 1, pressure: true }`.
+2. `untracked(host, ctx, need, planned, mode: "sealed" | "pressure", cold: boolean)`:
+   `lastUser` = index of the last `user` block (`-1` if none). `ownerOf(i)` returns `null` as
+   today, and in mode `"sealed"` also for `i > lastUser` and for blocks of a final reply (see
+   decisions; precompute the set of their message keys once per call). Limits: sealed →
+   `{ minSteps: 1, minReclaimed: cold ? UNTRACKED_PRESSURE_MIN_TOKENS : this.k.untracked.minTokens, pressure: false }`;
+   pressure → `{ minSteps: 1, minReclaimed: UNTRACKED_PRESSURE_MIN_TOKENS, pressure: true }`.
+3. `plan`: after the `for (const span of candidates)` loop:
+   `if (!recompose && timingAllows && this.k.untracked.enabled)` → `this.untracked(host, ctx, Infinity, planned, "sealed", cold)`,
+   push the units, add their member ids to `planned`, subtract `saved` from `projected` (same
+   three lines the pressure call uses). The existing pressure call passes `"pressure"`.
+4. Settings, spec and READMEs as listed. SPEC-0002 §9.3 states the rule in the words of the
+   decisions above; §8's table row "5 untracked" names both cases.
+
+Tests (taskfold.test.ts; the Session helper has `user`, `work(n, label)`, `call`, `start`,
+`finish`): (a) no pressure, eager timing: `user`, `work(6)`, a text-only reply, `user`,
+`work(2)` → one untracked carrier holding the six steps, the reply and both user messages live,
+nothing of the second turn folded; (b) same with `timing: "pressure"` and no pressure → no
+group; (c) a sealed run that reclaims less than `minTokens` stays live with a warm cache and
+folds when `cold`; (d) under pressure two reads of `docs/spec.md` in sealed runs: the older one
+is in a group, the newer one is live; without pressure both are live; (e) the carrier's code
+resolves with `resolveRecall`. Rewrite the three existing tests that pin `minSteps` ("folds long
+untracked runs…", "does not fold short untracked runs…", "preserves document reads…") for the
+new contract and say so in the report.
+
+Replay (report only numbers, read nothing from the file): `node extension/replay-session.mjs
+"<session B>" --out /tmp/p18-<before|after>.json` on the untouched worktree and at the end:
+`folds`, `liveTokens`, `wireChars.sum`, `invalidatedChars`, `overBudgetRequests`, `hookMs`.
+
+Verification: `npx --prefix app vitest run --root app ../conductors/in-process/taskfold/`,
+`bun test extension/settings.test.ts extension/tui/*.test.ts`, `node extension/build-remote-sdk.mjs`
+(commit the bundles if they changed), the gate.
+
+## P24a: stale tasks and `tasks.zombieSteps` (S2) — branch `feat/task-stale-report`
+
+Files: `extension/settings.ts`, `settingsValidation.ts`, `tui/screens/settingsRows.ts`,
+`settings.test.ts`, `conductors/in-process/taskfold/taskfold.ts` (only `TaskfoldOptions`,
+`TASKFOLD_DEFAULTS`, the two `ZOMBIE_STEPS` uses), `extension/accordion.ts` (only where the
+Taskfold conductor's options are built, and where a successful `tasks` tool result is
+assembled), `extension/tasks.ts` (only the `TaskResult` type), `extension/taskCoach.ts`,
+SPEC-0002 §3.4, §5.3 and §12, `extension/README.md` settings block.
+
+Current: SPEC-0002 §5.3 says an open span with no task event for `tasks.zombieSteps` (default
+40) steps, while other tasks start and finish, is reported as stale and offered to the agent in
+the next `tasks` result as `{"stale": ["<id>"]}`. The code has the constant `ZOMBIE_STEPS = 40`,
+no setting, and uses `staleSpans` only for the saturation status text. Separately,
+`tasks.largeLeaf.repeatEvery` is read by nothing since the large-leaf reminder repeats on
+doubling.
+
+Change:
+
+1. Setting `tasks.zombieSteps`: integer 1 to 10,000, default 40 (type, `DEFAULT_SETTINGS`,
+   `sanitizeTaskSettings`, `validateSetting`, a Settings row "Stale after steps" in the Tasks
+   section, spec §12).
+2. Taskfold option `zombieSteps?: number` (default `ZOMBIE_STEPS`, validated as a positive safe
+   integer in the constructor), used at both places that read the constant today. Where
+   `accordion.ts` builds the Taskfold options from settings, pass
+   `zombieSteps: settings.tasks.zombieSteps`.
+3. `accordion.ts`: `function staleTaskIds(slug: string): string[]`, which returns `[]` without a
+   Truth and otherwise
+   `staleSpans(scanTaskSpans(truth.blocks, (b) => b.text), truth.blocks, settings.tasks.zombieSteps).filter((s) => s.list === slug).map((s) => s.id)`.
+   Every successful `tasks` tool result for a list gains `stale: [...]` when the array is not
+   empty (also `status`, which the spec names). `TaskResult` gains `stale?: string[]` with a doc
+   line.
+4. Remove `tasks.largeLeaf.repeatEvery`: settings type, defaults, sanitize, validation, row,
+   `CoachPolicy.largeLeaf`, tests, spec §12 and the sentence in §12 that says it is retained,
+   README.
+
+Tests: settings test for the new key and the removed one; smoke-context: a list with task 1
+left open, 41 tool results after its last event while task 2 starts and finishes → the next
+`tasks status` result carries `"stale":["1"]`; with `tasks.zombieSteps: 100` it does not.
+
+Out of scope: the widget and panel marker (P24c, after this merges), `statusOf` in `tasks.ts`.
+
+Verification: `bun test extension/settings.test.ts extension/taskCoach.test.ts`,
+`node extension/smoke-context.mjs`,
+`npx --prefix app vitest run --root app ../conductors/in-process/taskfold/taskfold.test.ts`, the gate.
+
 ## Later units (sparse; detailed when they start)
 
-- **P12 rest**: H4 (queue persistence after the hook), H5 (cache usage by leaf/model), H7, H8,
-  H9, H10, H12, H13; proposals in `evidence/ReviewTruthHook.md` of the analysis. The replay
-  harness stubs Pi, so H4 and H5 do not show in its profile.
+- **P24b stable task code** (after P18): one `t:<list>/<id>` code per task also when the carrier
+  cannot hold the whole span (SPEC-0002 §6.1, §7.3). **P24c**: `stale` marker in the widget and
+  the panel list (after P24a).
 - **P21 fold pricing** (C5), **P22 DROP pricing** (C6), **P23 incremental projection** (C2), in
   this order, same files (`conductors/ws/thermocline/policy.ts`, `thermocline.ts`). C5 needs an
   exact price for "this text as the body of block X" from the host: `max(countTokens(padded
@@ -656,10 +869,9 @@ units (C, D, F output) also run live in a Pi-Bolt terminal per "Environment".
   calibration prior is above the current factor (`core/truth.ts:531-532`). C6: one
   `host.groups()` snapshot per epoch, foreign groups and planned ops into
   `computeDegradedDropRuns`. C2: running cost, equal to a full recount after top-up.
-- **P24 SPEC-0002 code gaps** (after P13): `stale` in status/widget/results, `tasks.zombieSteps`,
-  one stable `t:` code, dropped routing operations logged.
-- **P16 notices in Truth** (U1), **P17 history budget** (U2), **P18 host-closed spans** (U5, U14)
-  with the B-0001 evaluation and the Kimi baseline, **P19** U15, U17, U18, C8, C14.
+- **P16 notices in Truth** (U1), **P17 history budget** (U2), **P19** U15, U17, U18, C8, C14.
+- **B-0001 evaluation** after P18: rerun the tracking scenarios and the Kimi baseline, record
+  the changed metric in PLAN-0006.
 - **P20**: docs and spec text (S1–S4 rows marked "spec text", docs drift), delete consumed
   analyses and uploaded assets, final gates, `npm pack --dry-run`.
 
