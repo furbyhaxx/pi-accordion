@@ -137,4 +137,42 @@ agent declaring its work. Six frames, 36 ideas. Position taken:
 
 ## Replay of sessions above 1M tokens
 
-Pending: numbers before and after are added here when the runs exist.
+Harness: `node extension/replay-session.mjs <session.jsonl> [--conductor taskfold|none] [--limit-requests n] [--out file.json]`.
+It feeds a recorded Pi session through the real extension hooks (ingest, context hook, turn commit)
+with Taskfold attached, budget 272,000, tail 20,000, no model calls. Session content stays on the
+machine; only the metrics below are recorded.
+
+Session A (nukular-ai, 45 MB file), first 1,230 requests: 2,459 messages, 4,423 blocks,
+1,114,495 transcript tokens.
+
+| Measure | Before (955b930) | After wave 1 (bd616b4) |
+|---|---|---|
+| Context hook, mean ms | 25.0 | 15.7 |
+| Context hook, p95 ms | 63.8 | 32.5 |
+| Context hook, max ms | 95.8 | 68.6 |
+| Turn commit, mean ms | 72.8 | 7.0 |
+| Turn commit, p95 ms | 203.6 | 14.4 |
+| Message ingest, mean ms | 20.2 | 7.6 |
+| Replay wall time, s | 156.7 | 48.8 (with the CPU profiler on) |
+| Live tokens on the wire, mean / p95 / max | 74,804 / 185,317 / 216,140 | same |
+| Wire characters sent, sum | 1,758,560,930 | same |
+| Prefix characters invalidated by folds, sum (events) | 19,518,960 (85) | same |
+| Folded groups / folded blocks at the end | 25 / 3,617 | same |
+| Requests over budget | 0 | 0 |
+
+Without a conductor the same 1,230 requests had 864 requests over budget (before).
+Session B (pig), first 1,247 requests, 1,249,662 tokens, before: hook quarter means 2.92 to
+41.87 ms, 5 folded groups.
+
+Where the time goes after wave 1 (CPU profile of session A, 37 s inside the replay; 8 s of it is
+the harness copying messages the way Pi does):
+
+| Share | Where | Finding |
+|---|---|---|
+| 14.1 s | Taskfold `plan()` on every event (`scanTaskSpans` 2.5 s, diagnostics, ancestry tests) | T1–T6 |
+| 10.9 s | `ingestMessages` on every request: `contentFingerprint` hashes every message's content again (`fnvStr` 6.6 s, `thinkingIsSigned` 2.0 s) | H6 |
+| 4.1 s | `noteFacts` on every request rebuilds the folded-task list (`foldedTasks`, `recallIndex`, `canRecallHandle`) | U12 |
+| 3.7 s | `LiveConductorHost.blocks()` builds every `ViewBlock` per call | C1 |
+| 2.5 s | `serializeWire`, of which 1.3 s is `computeDegradedDropRuns` with no DROP group present | H11 |
+
+The final numbers (after all waves, full sessions) are added below when the runs exist.
