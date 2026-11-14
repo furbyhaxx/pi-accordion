@@ -12,6 +12,7 @@ import {
 	isLoopbackUrl,
 	resolveModelSpec,
 	sanitizeModelSettings,
+	sanitizeRecallSettings,
 	sanitizeTaskfoldSettings,
 } from "./settings";
 import { settingParts, validateSetting, validateSettingsPatch } from "./settingsValidation";
@@ -19,6 +20,17 @@ import { CALIBRATION_DEFAULTS } from "./calibration";
 import { SettingsStore } from "./settingsStore";
 
 describe("accordion settings & memorable tokens", () => {
+	test("fact extraction call budget accepts only integers in range", () => {
+		for (const value of [1, 120, 10000]) {
+			expect(sanitizeRecallSettings({ ledger: { maxCalls: value } }).ledger.maxCalls).toBe(value);
+			expect(validateSetting("recall.ledger.maxCalls", value).ok).toBe(true);
+		}
+		for (const value of [0, 10001, 1.5, "2"]) {
+			expect(sanitizeRecallSettings({ ledger: { maxCalls: value } }).ledger.maxCalls).toBe(120);
+			expect(validateSetting("recall.ledger.maxCalls", value).ok).toBe(false);
+		}
+	});
+
 	test("generates 8-character pronounceable memorable tokens", () => {
 		for (let i = 0; i < 20; i++) {
 			const token = generateMemorableToken();
@@ -45,6 +57,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.compact).toEqual({ manual: "pass", threshold: "pass", onSaturated: "native" });
 			expect(defaults.bindHost).toBe("127.0.0.1");
 			expect(defaults.recall.ledger.enabled).toBe(true);
+			expect(defaults.recall.ledger.maxCalls).toBe(120);
 
 			const file = configPathForHome(tmp);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -96,7 +109,7 @@ describe("accordion settings & memorable tokens", () => {
 					largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
 					acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
 				},
-				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5, unfoldTokens: 12000, ask: { enabled: false, inputTokens: 12000 }, ledger: { enabled: false } },
+				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5, unfoldTokens: 12000, ask: { enabled: false, inputTokens: 12000 }, ledger: { enabled: false, maxCalls: 120 } },
 				guard: { resultTokens: 32000 },
 				autoArm: false,
 				defaultConductor: "keel-note",

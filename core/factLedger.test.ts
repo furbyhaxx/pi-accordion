@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { Truth } from "./truth";
 import { foldCode, foldTag } from "./digest";
-import { FactLedger, LEDGER_ENTRY, ledgerChunks, ledgerData, ledgerOf, verifiedRows } from "./factLedger";
+import { FactLedger, LEDGER_ENTRY, ledgerChunks, ledgerData, ledgerOf, ownLedgerEntries, verifiedRows } from "./factLedger";
 import { foldedTasks, recallView } from "./recallView";
 import type { Block } from "./types";
 
@@ -30,6 +30,24 @@ function session(): Truth {
 }
 
 describe("fact ledger", () => {
+	it("omits entries of ledgered descendants, but not siblings or unledgered children", () => {
+		const own = blk("own", "text", 1, "parent");
+		const child = blk("child", "text", 2, "child value");
+		const sibling = blk("sibling", "text", 3, "sibling value");
+		const other = blk("other", "text", 4, "unledgered");
+		const folded = [
+			{ task: "work/1.2", entries: [child] },
+			{ task: "work/10.2", entries: [sibling] },
+			{ task: "work/1.3", entries: [other] },
+		];
+		const ledger = new FactLedger();
+		ledger.set("work/1.2", []);
+		ledger.set("work/10.2", []);
+		const entries = ownLedgerEntries("work/1", [own, child, sibling, other], folded, ledger);
+		expect(entries.map((b) => b.id)).toEqual(["own", "sibling", "other"]);
+		expect(ledgerChunks(entries).chunks[0].prompt).not.toContain("child value");
+	});
+
 	it("keeps a row only when its value is verbatim in the entry it cites", () => {
 		const truth = session();
 		const [task] = foldedTasks(truth);

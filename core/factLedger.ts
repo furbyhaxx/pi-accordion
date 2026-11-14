@@ -53,6 +53,17 @@ export interface LedgerChunk {
 	ids: string[];
 }
 
+/** Entries not already covered by a ledger for a descendant task. */
+export function ownLedgerEntries(task: string, entries: readonly Block[], folded: readonly { task: string; entries: readonly Block[] }[], ledger: FactLedger): Block[] {
+	const excluded = new Set<string>();
+	for (const child of folded) {
+		if (child.task.startsWith(`${task}.`) && ledger.has(child.task)) {
+			for (const block of child.entries) excluded.add(block.id);
+		}
+	}
+	return entries.filter((block) => !excluded.has(block.id));
+}
+
 /**
  * The task's entries as prompts of bounded size. Every entry is shown whole, since values sit in
  * the middle of long output; one longer than a prompt continues in the next. Task-tool entries are

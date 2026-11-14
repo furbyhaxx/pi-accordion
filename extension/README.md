@@ -255,7 +255,7 @@ one line:
 
 ```json
 { "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true } },
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true, "maxCalls": 120 } },
   "guard": { "resultTokens": 16000 } }
 ```
 
@@ -279,7 +279,9 @@ cited entry. Recall searches show matching notes first, so the agent can find "s
 when the transcript says `subvolid=324`. Extraction uses up to four additional model calls per task,
 which can incur cost; it uses `models.conductors.recall.chat`, the default chat model, or the session
 model. A different remote model requires prior recall privacy consent and is not prompted for in
-the background. Set `recall.ledger.enabled` to `false` to disable extraction.
+the background. Set `recall.ledger.enabled` to `false` to disable extraction. `recall.ledger.maxCalls`
+limits extraction to 120 model calls per session process by default (range 1–10,000); raising it
+allows deferred tasks to be extracted.
 
 A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
 context) never appear on the `context` hook path. If you need their cost/usage for external

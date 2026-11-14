@@ -5,15 +5,15 @@ document:
   title: "Recall: bounded retrieval of folded content"
   description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results, the guard that clips oversized tool results, the bound on the agent's unfold, questions answered by a side model and the fact ledger written when a task is folded."
   status: "published"
-  revision: 10
+  revision: 11
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-14T15:38:10+01:00"
+  updated_at: "2026-11-14T16:04:20+01:00"
   created_by: "orchestrator"
-  updated_by: "orchestrator"
+  updated_by: "coder"
   changelog:
-    - revision: 10
-      reason: "clarify bounded recall navigation and account handling"
-      changes: ["report paging and descendant ranges", "query and ask limits", "asynchronous answer reservations"]
+    - revision: 11
+      reason: "bound fact extraction across a session process"
+      changes: ["session call budget", "exclude ledgered descendants"]
 ---
 
 # Recall
@@ -205,11 +205,16 @@ Enabled by default (`recall.ledger.enabled`); set it to `false` to opt out. `cor
 
 - Subject: every folded, recallable, finished task without a ledger, newest first. A task under
   2,000 tokens gets an empty ledger without a model call.
-- Input: the task's entries except those of the `tasks` tool, numbered and whole, in prompts of at
-  most 24,000 tokens; an entry over 12,000 tokens continues as further parts under the same block.
-  More than four prompts: the first and the last three are read.
+- Input: the task's entries except those of the `tasks` tool and blocks belonging to descendants
+  that already have a ledger, numbered and whole, in prompts of at most 24,000 tokens; an entry
+  over 12,000 tokens continues as further parts under the same block. More than four prompts:
+  the first and the last three are read.
 - One completion per prompt, routing id `recall` as in §7, same privacy rule but never a dialog: a
   model that needs consent and has none is not called.
+- `recall.ledger.maxCalls` bounds model calls per session process (default 120, range 1–10,000).
+  A task is deferred without a prompt unless all its chunks fit the remaining budget. Raising the
+  limit lets deferred tasks run. The user is notified once when extraction stops at the budget;
+  recall still searches the full text.
 - Output rows `{key, value, unit, entry}`. A row is kept only when the cited entry exists and its
   full text contains the value character for character, the key is at most 120 and the value at
   most 300 characters. At most 60 rows per prompt, 120 per task.
@@ -228,7 +233,7 @@ Enabled by default (`recall.ledger.enabled`); set it to `false` to opt out. `cor
 
 ```json
 { "recall": { "callTokens": 8000, "liveTokens": 24000, "keepSteps": 3, "unfoldTokens": 20000,
-              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true } },
+              "ask": { "enabled": true, "inputTokens": 24000 }, "ledger": { "enabled": true, "maxCalls": 120 } },
   "guard": { "resultTokens": 16000 } }
 ```
 

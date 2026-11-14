@@ -91,7 +91,7 @@ import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfoldBounded } from "../core/agentView";
 import { RECALL_POLICY, RecallAccount, serveRecall, serveRecallAnswer } from "../core/recallAccount";
-import { FactLedger, LEDGER_ENTRY, LEDGER_MIN_TOKENS, LEDGER_OUTPUT_TOKENS, LEDGER_SYSTEM, ledgerChunks, ledgerData, ledgerOf, verifiedRows, type FactRow } from "../core/factLedger";
+import { FactLedger, LEDGER_ENTRY, LEDGER_MIN_TOKENS, LEDGER_OUTPUT_TOKENS, LEDGER_SYSTEM, ledgerChunks, ledgerData, ledgerOf, ownLedgerEntries, verifiedRows, type FactRow } from "../core/factLedger";
 import { foldedTasks } from "../core/recallView";
 import { ASK_ANSWER_TOKENS, ASK_SYSTEM, askAnswer, askFallback, askMaterial, askPrompt } from "../core/recallAsk";
 import { expireRecall } from "../core/recallExpiry";
@@ -460,8 +460,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// Tasks whose extraction failed in this process; not retried until the next start.
 	const ledgerTried = new Set<string>();
 	let ledgerBusy = false;
-	// The Truth revision at which every folded task had its ledger; nothing to scan until it changes.
-	let ledgerIdleRev = -1;
+	let ledgerIdleKey: string | null = null;
+	let ledgerCalls = 0;
+	let ledgerBudgetWarned = false;
 	let ledgerWarned = false;
 	// A session's first Truth holds its history as already sent; the guard repairs that once.
 	let guardLoadedSession = false;
@@ -3423,7 +3424,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			factLedger.reset(ledgerOf(entries));
 			ledgerTried.clear();
 			ledgerWarned = false;
-			ledgerIdleRev = -1;
+			ledgerIdleKey = null;
+			ledgerCalls = 0;
+			ledgerBudgetWarned = false;
 			taskfoldVerdicts.reset(verdictsOf(entries), (id, v) => {
 				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
 			}, unfoldStatesOf(entries), (key, state) => {
@@ -4836,7 +4839,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 * it without rows until the next start.
 	 */
 	async function noteFacts(): Promise<void> {
-		if (ledgerBusy || !settings.recall.ledger.enabled || !truth || !foldingEnabled || truth.rev === ledgerIdleRev) return;
+		if (ledgerBusy || !settings.recall.ledger.enabled || !truth || !foldingEnabled) return;
+		const key = JSON.stringify(truth.groups.filter((g) => g.folded).flatMap((g) => (g.handles ?? []).filter((h) => h.id.startsWith("t:")).map((h) => h.id)));
+		if (key === ledgerIdleKey) return;
 		ledgerBusy = true;
 		const session = sessionId;
 		try {
@@ -4844,21 +4849,35 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const t = truth;
 				if (!t || session !== sessionId || !settings.recall.ledger.enabled) return;
 				const reportOf = taskReports(t);
-				const next = foldedTasks(t).find((f) => !factLedger.has(f.task) && !ledgerTried.has(f.task) && reportOf(f.task)?.status);
+				const folded = foldedTasks(t);
+				const next = folded.find((f) => !factLedger.has(f.task) && !ledgerTried.has(f.task) && reportOf(f.task)?.status);
 				const title = next ? (reportOf(next.task)?.title ?? "").slice(0, 120) : "";
 				if (!next) {
-					ledgerIdleRev = t.rev;
+					ledgerIdleKey = key;
 					return;
 				}
-				ledgerTried.add(next.task);
-				if (next.entries.reduce((n, b) => n + b.tokens, 0) < LEDGER_MIN_TOKENS) {
+				const entries = ownLedgerEntries(next.task, next.entries, folded, factLedger);
+				if (entries.reduce((n, b) => n + b.tokens, 0) < LEDGER_MIN_TOKENS) {
+					ledgerTried.add(next.task);
 					factLedger.set(next.task, []);
 					continue;
 				}
+				const chunks = ledgerChunks(entries).chunks;
+				if (ledgerCalls + chunks.length > settings.recall.ledger.maxCalls) {
+					if (!ledgerBudgetWarned) {
+						ledgerBudgetWarned = true;
+						latestCtx?.ui.notify(`Accordion fact extraction stopped after ${ledgerCalls} calls; recall still searches the full text`, "warning");
+						debug({ type: "tasks", event: "fact-ledger-budget", calls: ledgerCalls, maxCalls: settings.recall.ledger.maxCalls });
+					}
+					return;
+				}
+				ledgerTried.add(next.task);
 				const blocked = await askModelAllowed(false);
 				if (blocked) throw new Error(blocked);
 				const rows: FactRow[] = [];
-				for (const chunk of ledgerChunks(next.entries).chunks) {
+				for (const chunk of chunks) {
+					if (session !== sessionId) return;
+					ledgerCalls++;
 					const res = await runCompletion({ system: LEDGER_SYSTEM, prompt: chunk.prompt, maxOutputTokens: LEDGER_OUTPUT_TOKENS }, new AbortController().signal, "recall");
 					const found = verifiedRows(res.text, chunk, (id) => t.get(id)?.text ?? "");
 					if (!found) throw new Error("the model returned no row list");

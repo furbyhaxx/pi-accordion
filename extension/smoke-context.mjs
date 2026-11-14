@@ -1062,6 +1062,73 @@ check("a folded task gets a fact ledger once, recall finds a value by the ledger
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
+check("fact extraction respects its session call budget and skips idle scans", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-ledger-budget-"));
+	const config = path.join(home, ".accordion", "config.json");
+	fs.mkdirSync(path.dirname(config), { recursive: true });
+	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
+	fs.writeFileSync(config, JSON.stringify({ autoArm: true, defaultConductor: "taskfold", privacyConsent: { taskfold: "2026-01-01T00:00:00Z" }, recall: { ledger: { maxCalls: 2 } } }));
+	const messages = [{ role: "user", content: "Work on the tasks.", timestamp: 1 }];
+	const prompts = [];
+	const notices = [];
+	const complete = async (_model, context) => {
+		prompts.push(context.messages[0].content);
+		return { content: [{ type: "text", text: '{"rows":[]}' }], usage: { input: 1, output: 1 } };
+	};
+	const r = runtime(messages, { cwd: dir, sessionId: "ledger-budget", complete, notify: text => notices.push(text) });
+	r.ctx.modelRegistry = { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "k", headers: {} }) };
+	r.ctx.isIdle = () => true;
+	let call = 0;
+	const push = async (name, args, content, details) => {
+		const id = `budget-${++call}`;
+		if (name !== "tasks") await r.handlers.tool_result({ toolName: name, toolCallId: id, input: args, content, details, isError: false }, r.ctx);
+		messages.push({ role: "assistant", responseId: id, timestamp: 2 * call, content: [{ type: "toolCall", id, name, arguments: args }] },
+			{ role: "toolResult", toolCallId: id, toolName: name, content, details, isError: false, timestamp: 2 * call + 1 });
+	};
+	const task = async args => { const res = await r.tools.tasks.execute(`budget-${call + 1}`, args, undefined, undefined, r.ctx); await push("tasks", args, res.content, res.details); };
+	const ledgers = () => r.entries.filter(e => e.customType === "accordion.recall.ledger");
+	try {
+		const host = await r.open();
+		await task({ action: "create", list: "w", title: "Work", goals: ["Finish"], tasks: [1, 2, 3, 4].map(n => ({ title: `Task ${n}`, acceptanceCriteria: [`Finish task ${n}`] })) });
+		for (let n = 1; n <= 3; n++) {
+			await task({ action: "start", list: "w", id: String(n) });
+			await push("bash", { command: `task ${n}` }, [{ type: "text", text: `unique-task-${n} `.repeat(900) }]);
+			await task({ action: "complete", list: "w", id: String(n), report: { outcome: `Finished ${n}` } });
+		}
+		await task({ action: "start", list: "w", id: "4" });
+		await push("bash", { command: "true" }, [{ type: "text", text: "ok" }]);
+		host.command({ kind: "setBudget", value: 4000 });
+		await r.request(messages);
+		await r.request(messages);
+		for (let i = 0; i < 100 && notices.every(text => !text.includes("fact extraction stopped")); i++) await new Promise(resolve => setTimeout(resolve, 20));
+		assert.equal(prompts.length, 2);
+		assert.equal(ledgers().length, 2);
+		assert.equal(notices.filter(text => text.includes("fact extraction stopped")).length, 1);
+		const missing = [1, 2, 3].find(n => !ledgers().some(e => e.data.task === `w/${n}`));
+		assert.ok(missing);
+		assert.ok(prompts.every(prompt => !prompt.includes(`unique-task-${missing} `)));
+		assert.equal((await host.updateSettings({ "recall.ledger.maxCalls": 3 }, host.settings().rev)).ok, true);
+		await r.request(messages);
+		for (let i = 0; i < 100 && ledgers().length < 3; i++) await new Promise(resolve => setTimeout(resolve, 20));
+		assert.equal(ledgers().length, 3);
+		assert.equal(prompts.length, 3);
+		assert.ok(prompts[2].includes(`unique-task-${missing} `));
+		const truth = host.truth();
+		const original = truth.canRecallHandle;
+		let scans = 0;
+		truth.canRecallHandle = function(...args) { scans++; return original.apply(this, args); };
+		await r.handlers.context({ messages }, r.ctx);
+		await new Promise(resolve => setTimeout(resolve, 100));
+		scans = 0;
+		await r.handlers.context({ messages }, r.ctx);
+		await new Promise(resolve => setTimeout(resolve, 100));
+		assert.equal(scans, 0, "unchanged folded groups do not scan task handles again");
+	} finally {
+		r.close();
+		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 check("start re-delivers task context only when the model can no longer see it", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-liveness-"));
 	const messages = [{ role: "user", content: "Plan it.", timestamp: 1 }];
