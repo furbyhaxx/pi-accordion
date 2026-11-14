@@ -93,6 +93,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Tasks", path: "tasks.acceptanceCriteria.min", label: "Criteria minimum", kind: "number", description: "Fewest criteria a leaf may carry." },
 	{ section: "Tasks", path: "tasks.acceptanceCriteria.max", label: "Criteria maximum", kind: "number", description: "Most criteria a leaf may carry." },
 	{ section: "Tasks", path: "tasks.acceptanceCriteria.maxChars", label: "Criteria max chars", kind: "number", description: "Longest single criterion." },
+	{ section: "Recall", path: "recall.ledger.maxCalls", label: "Fact extraction calls", kind: "number", description: "Maximum fact extraction model calls per session process." },
 	{ section: "Web UI", path: "bindHost", label: "Web UI address", kind: "text", description: "Address the web UI listens on; non-loopback addresses may be reachable from the network." },
 	{ section: "Web UI", path: "doorPort", label: "Web UI door port", kind: "number", description: "Fixed port shared by sessions; 0 disables it." },
 	{ section: "Web UI", path: "customToken", label: "Web access token", kind: "text", description: "3–64 URL-safe characters; empty uses a generated token." },

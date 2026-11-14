@@ -75,6 +75,7 @@ const RULES = {
 	"recall.ask.enabled": boolean,
 	"recall.ask.inputTokens": number(2000, 200000),
 	"recall.ledger.enabled": boolean,
+	"recall.ledger.maxCalls": number(1, 10000),
 	"guard.resultTokens": value => value === 0 ? undefined : number(4000, 1000000)(value),
 	"calibration.minRatio": ratio(false),
 	"calibration.maxRatio": ratio(true),
