@@ -252,3 +252,32 @@ describe("floor tap", () => {
 		expect(c.toolResult(false, 0)).toBeNull();
 	});
 });
+
+describe("saturation tap", () => {
+	test("delivers once per episode on an outer result, ahead of the floor note", () => {
+		const c = new TaskCoach();
+		c.setList(list([t("1", "doing", "Big")]));
+		c.floorTap(["w/1"]);
+		c.saturationTap({ task: "work/2", tokens: 81234 });
+		expect(c.toolResult(true)).toBeNull();
+		const note = c.toolResult(false);
+		expect(note).toContain('Open task 2 of "work" holds about 81200 tokens');
+		expect(note?.indexOf("above its fold threshold")).toBeLessThan(note?.indexOf("folded part of the span") ?? -1);
+		c.saturationTap({ task: "work/2", tokens: 81234 });
+		expect(c.toolResult(false)).toBeNull();
+		c.saturationTap(undefined);
+		c.saturationTap({ task: "work/2", tokens: 81234 });
+		expect(c.toolResult(false)).toContain("81200");
+	});
+
+	test("reports saturation without a holder outside a task, and preserves it when enforcement is off", () => {
+		const c = new TaskCoach();
+		const policy = { orientationCalls: 0, enforce: "off" as const, gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 1, toolResults: 99 }, budget: null };
+		c.setPolicy(policy);
+		c.saturationTap(null);
+		expect(c.toolResult(false)).toBeNull();
+		c.setPolicy({ ...policy, enforce: "coach" });
+		expect(c.toolResult(false)).toContain("/accordion compact");
+		expect(c.toolResult(false)).toBeNull();
+	});
+});

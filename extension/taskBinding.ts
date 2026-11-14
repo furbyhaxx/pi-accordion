@@ -219,3 +219,16 @@ export function floorFoldNote(task: { slug: string; id: string; title: string })
 		`The content is still recoverable (its {#… FOLDED} tags), but this leaf has now outgrown its span: finish the verifiable part and tasks complete {list: "${task.slug}", id: "${task.id}", report: {…}}, then start or add the next task.`,
 	].join("\n");
 }
+
+/** The note for a context that is over its fold threshold with nothing left to fold. */
+export function saturationNote(holder: { slug: string; id: string; tokens: number } | null): string {
+	return [
+		"[accordion tasks] The context is above its fold threshold and nothing more can be folded.",
+		...(holder ? [
+			`Open task ${holder.id} of "${holder.slug}" holds about ${Math.round(holder.tokens / 100) * 100} tokens and cannot fold while it is open.`,
+			`Finish its verifiable part with tasks complete {list: "${holder.slug}", id: "${holder.id}", report: {…}} and continue in a new task (tasks add if it was not planned). The record keeps the outcome; the content stays reachable with recall.`,
+		] : [
+			"What remains is recent work, user messages and content the user holds open. Keep new tool output small, and tell the user that /accordion compact frees room.",
+		]),
+	].join("\n");
+}

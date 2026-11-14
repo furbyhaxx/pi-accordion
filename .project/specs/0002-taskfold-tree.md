@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 43
+  revision: 44
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T16:29:26+01:00"
+  updated_at: "2026-11-14T16:39:05+01:00"
   created_by: "orchestrator"
   updated_by: "coder"
   changelog:
-    - revision: 43
-      reason: "keep task recall codes stable for partially held spans"
-      changes: ["describe the reachable members of task handles"]
+    - revision: 44
+      reason: "notify the agent when Taskfold saturates"
+      changes: ["deliver one saturation note per episode on the next tool result"]
 ---
 
 # Taskfold
@@ -883,7 +883,7 @@ untracked runs follow that policy; steps 2–7 otherwise run only at ≥ `high·
   4 floor       §9.2, if enabled
   5 untracked   sealed runs per timing policy; remaining runs under pressure (§9.3), if enabled
   6 steps       §9.4, if enabled
-  7 saturated   status level error, naming the largest unfoldable holder
+  7 saturated   status level error, naming the largest unfoldable holder. Tell the agent once per episode on its next tool result, naming the task to finish when there is one.
 → ONE propose
 ```
 
@@ -924,7 +924,7 @@ When still over budget, runs of at least `taskfold.steps.minSteps` (default 4) o
 inside a still-open task become step carriers `{"steps":"<key>","label":…,"count":…}`, oldest first,
 grouped per innermost open task. The task's start message, user messages, newest document reads and the
 tail stay live. When the task finishes, its record absorbs the carriers. Without this, one long
-open task saturated the session.
+open task saturated the session. The agent is told once per saturation episode on its next tool result, with the task to finish when there is one.
 
 ## 10. Task widget (amends SPEC-0001 §4.3–4.4)
 

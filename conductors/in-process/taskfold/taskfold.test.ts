@@ -1022,6 +1022,9 @@ describe("taskfold", () => {
 		const last = host.statusLog.at(-1);
 		expect(last?.text).toContain("open task work/1");
 		expect(last?.metrics?.level).toBe("error");
+		expect(last?.metrics?.saturated).toBe(1);
+		expect(last?.metrics?.holder_task).toBe("work/1");
+		expect(last?.metrics?.holder_tokens).toBeGreaterThan(0);
 	});
 
 	it("classifies twelve messages with bounded concurrency and retries capacity errors", async () => {

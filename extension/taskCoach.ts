@@ -5,7 +5,7 @@
  */
 import { charsToTokens } from "../core/tokens";
 import { currentBlock, IDLE_REASONS, type Task, type TaskBlock, type TaskList } from "./tasks";
-import { floorFoldNote, largeLeafReminder } from "./taskBinding";
+import { floorFoldNote, largeLeafReminder, saturationNote } from "./taskBinding";
 
 /**
  * Calls allowed before coaching starts. Orientation — reading the request, the specs, the code —
@@ -132,6 +132,8 @@ export class TaskCoach {
 	private readonly tapped = new Map<string, { results: number; tokens: number }>();
 	/** A pressure fold that touched the current leaf, waiting for the next tool result to carry it. */
 	private floorNote: { task: string; slug: string; id: string; title: string } | null = null;
+	private saturated = false;
+	private saturationHolder: { slug: string; id: string; tokens: number } | null | undefined = undefined;
 
 	/** The list this session works on; null when none is attached. */
 	setList(list: TaskList | null): void {
@@ -238,6 +240,23 @@ export class TaskCoach {
 		this.floorNote = { task: key, slug: this.list.slug, id: current.id, title: current.title };
 	}
 
+	/** Taskfold reports nothing foldable is left, or that the episode ended. The agent is told once per episode. */
+	saturationTap(holder: { task: string; tokens: number } | null | undefined): void {
+		if (holder === undefined) {
+			this.saturated = false;
+			this.saturationHolder = undefined;
+			return;
+		}
+		if (this.saturated) return;
+		this.saturated = true;
+		if (holder === null) {
+			this.saturationHolder = null;
+		} else {
+			const slash = holder.task.indexOf("/");
+			this.saturationHolder = { slug: holder.task.slice(0, slash), id: holder.task.slice(slash + 1), tokens: holder.tokens };
+		}
+	}
+
 	/** Work counted inside a task's span, or undefined when this process did not see it start. */
 	spanWork(slug: string, id: string): number | undefined {
 		return this.work.get(`${slug}/${id}`);
@@ -261,13 +280,18 @@ export class TaskCoach {
 			if (nested || this.policy.enforce === "off") return null;
 			const floor = this.floorNote;
 			this.floorNote = null;
-			return [floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
+			const saturation = this.saturationHolder;
+			this.saturationHolder = undefined;
+			return [saturation !== undefined && saturationNote(saturation), floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
 		}
 		this.untracked++;
 		if (nested || this.policy.enforce === "off") return null;
 		const floor = this.floorNote;
 		this.floorNote = null;
-		if (floor) return floorFoldNote(floor);
+		const saturation = this.saturationHolder;
+		this.saturationHolder = undefined;
+		const notes = [saturation !== undefined && saturationNote(saturation), floor && floorFoldNote(floor)].filter(Boolean).join("\n\n");
+		if (notes) return notes;
 		if (this.policy.enforce !== "coach" || this.calls <= this.policy.orientationCalls) return null;
 		const pick = list ? nextTask(list, this.policy.stopOnBlock) : null;
 		if (list && !pick) return null;
