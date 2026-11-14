@@ -156,6 +156,7 @@ export class LiveConductorHost implements ConductorHost {
 
 	// ── conductor display status (broadcast + cached for late-joining clients) ────
 	private cachedStatusMsg: ConductorStatusMessage | null = null;
+	private blocksCache: { truth: Truth; rev: number; blocks: readonly ViewBlock[] } | null = null;
 
 	// ── wire-departing hold (remote) ─────────────────────────────────────────────
 	// `holdId` is minted per hold (monotonic `holdSeq`) and rides the `wireDeparting` message; the
@@ -220,7 +221,11 @@ export class LiveConductorHost implements ConductorHost {
 	}
 	blocks(): readonly ViewBlock[] {
 		const t = this.deps.truth();
-		return t ? t.blocks.map((b) => viewBlockOf(t, b)) : [];
+		if (!t) return [];
+		if (this.blocksCache?.truth !== t || this.blocksCache.rev !== t.rev) {
+			this.blocksCache = { truth: t, rev: t.rev, blocks: t.blocks.map((b) => viewBlockOf(t, b)) };
+		}
+		return this.blocksCache.blocks;
 	}
 	groups(): readonly GroupInfo[] {
 		const t = this.deps.truth();
