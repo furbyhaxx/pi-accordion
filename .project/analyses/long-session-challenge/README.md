@@ -179,20 +179,20 @@ machine; only the metrics below are recorded.
 Session A (nukular-ai, 45 MB file), first 1,230 requests: 2,459 messages, 4,423 blocks,
 1,114,495 transcript tokens.
 
-| Measure | Before (955b930) | After wave 1 (bd616b4) |
-|---|---|---|
-| Context hook, mean ms | 25.0 | 15.7 |
-| Context hook, p95 ms | 63.8 | 32.5 |
-| Context hook, max ms | 95.8 | 68.6 |
-| Turn commit, mean ms | 72.8 | 7.0 |
-| Turn commit, p95 ms | 203.6 | 14.4 |
-| Message ingest, mean ms | 20.2 | 7.6 |
-| Replay wall time, s | 156.7 | 48.8 (with the CPU profiler on) |
-| Live tokens on the wire, mean / p95 / max | 74,804 / 185,317 / 216,140 | same |
-| Wire characters sent, sum | 1,758,560,930 | same |
-| Prefix characters invalidated by folds, sum (events) | 19,518,960 (85) | same |
-| Folded groups / folded blocks at the end | 25 / 3,617 | same |
-| Requests over budget | 0 | 0 |
+| Measure | Before (955b930) | After wave 1 (bd616b4) | Final (472c738) |
+|---|---|---|---|
+| Context hook, mean ms | 25.0 | 15.7 | 7.3 |
+| Context hook, p95 ms | 63.8 | 32.5 | 12.6 |
+| Context hook, max ms | 95.8 | 68.6 | 25.8 |
+| Turn commit, mean ms | 72.8 | 7.0 | 1.5 |
+| Turn commit, p95 ms | 203.6 | 14.4 | 6.8 |
+| Message ingest, mean ms | 20.2 | 7.6 | 9.0 |
+| Replay wall time, s | 156.7 | 48.8 (with the CPU profiler on) | 35.1 |
+| Live tokens on the wire, mean / p95 / max | 74,804 / 185,317 / 216,140 | same | 74,809 / 185,325 / 216,148 |
+| Wire characters sent, sum | 1,758,560,930 | same | 1,758,667,647 |
+| Prefix characters invalidated by folds, sum (events) | 19,518,960 (85) | same | 19,519,428 (85) |
+| Folded groups / folded blocks at the end | 25 / 3,617 | same | 25 / 3,617 |
+| Requests over budget | 0 | 0 | 0 |
 
 Without a conductor the same 1,230 requests had 864 requests over budget (before).
 Session B (pig), first 1,247 requests, 1,249,662 tokens, before: hook quarter means 2.92 to
@@ -209,4 +209,55 @@ the harness copying messages the way Pi does):
 | 3.7 s | `LiveConductorHost.blocks()` builds every `ViewBlock` per call | C1 |
 | 2.5 s | `serializeWire`, of which 1.3 s is `computeDegradedDropRuns` with no DROP group present | H11 |
 
-The final numbers (after all waves, full sessions) are added below when the runs exist.
+### Full sessions, before and after
+
+Before is `6c9705c` (the first commit that could replay a whole session), final is `472c738`.
+The final runs shared the machine with other jobs (load average about 10 on 16 threads), so the
+times are upper bounds. Taskfold, budget 272,000, tail 20,000.
+
+| Measure | A before | A final | B before | B final |
+|---|---|---|---|---|
+| Transcript tokens / blocks / requests | 2,901,613 / 12,138 / 3,691 | 2,901,670 / 12,139 / 3,691 | 3,174,565 / 11,293 / 3,741 | 3,174,865 / 11,294 / 3,741 |
+| Context hook, mean ms | 139.6 | 31.6 | 116.2 | 18.8 |
+| Context hook, p95 ms | 340.2 | 74.1 | 280.8 | 37.2 |
+| Context hook, max ms | 789.3 | 275.6 | 694.0 | 271.2 |
+| Turn commit, mean ms | 326.2 | 3.3 | 515.2 | 2.9 |
+| Turn commit, p95 ms | 768.6 | 10.9 | 1,611.0 | 19.5 |
+| Message ingest, mean ms | 143.0 | 48.3 | 114.9 | 29.0 |
+| Replay wall time, s | 2,420 | 536 | 2,931 | 319 |
+| Live tokens, mean | 68,687 | 68,702 | 66,391 | 56,077 |
+| Live tokens, p95 / max | 184,434 / 217,554 | 184,189 / 217,337 | 99,069 / 133,002 | 87,815 / 126,635 |
+| Live tokens at the end | 60,811 | 61,036 | 64,086 | 47,118 |
+| Wire characters sent, sum | 4,515,829,130 | 4,516,269,362 | 2,610,080,694 | 1,871,993,476 |
+| Prefix characters invalidated by folds, sum (events) | 55,323,897 (173) | 55,166,104 (173) | 37,699,556 (302) | 38,469,229 (303) |
+| Folded groups / folded blocks at the end | 43 / 11,861 | 43 / 11,861 | 19 / 11,179 | 24 / 11,229 |
+| Requests over budget | 0 | 0 | 0 | 0 |
+
+- The time per request fell by a factor of 4 to 6 in the hook and of 100 to 180 in the turn commit.
+  The hook's cost still grows with the session: 7.3 ms mean over the first 1,230 requests of A,
+  31.6 ms over all 3,691.
+- Session B sends 28% fewer characters, because undeclared work now folds at the turn (U5, U14).
+  Session A's wire is unchanged.
+- The one extra block per session is a `custom` message (U1). A holds two custom messages, one of
+  them yields a block; B holds one.
+- A ends with a warning in the status line: one open task holds 2,339 steps raw
+  (`still raw after 2339 steps (held-boundary)`). The session stays within budget.
+
+### keel-lite on session A
+
+| Measure | Before C16 and C18 | Final (472c738) |
+|---|---|---|
+| Requests over budget | 3,222 of 3,691 | 0 |
+| Live tokens, max | 2,763,704 at the end | 231,187 |
+| Live tokens, mean / at the end | not recorded | 196,802 / 178,759 |
+| Folded groups / folded blocks at the end | 55 blocks | 414 / 11,085 |
+| Wire characters sent, sum | not recorded | 18,878,305,700 |
+| Prefix characters invalidated by folds, sum (events) | not recorded | 284,945,388 (52) |
+| Context hook, mean / p95 ms | not recorded | 19.8 / 43.4 |
+
+keel-lite keeps the context between its two water marks, so it sends 4.2 times the characters
+Taskfold sends on the same session (18.88 G against 4.52 G).
+
+Other conductors on the first 1,230 requests of A: doorman folds 137 blocks without a failure;
+keel-note runs healthy, its note update fails only because the replay has no model. keel-lite on
+the first 1,247 requests of B: 0 requests over budget.
