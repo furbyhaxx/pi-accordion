@@ -2780,7 +2780,7 @@ function makeUnit(members) {
     held = held || m.held;
     protectedFlag = protectedFlag || m.protected;
     grouped = grouped || m.grouped;
-    if (!FOLDABLE_KINDS2.has(m.kind)) foldable = false;
+    if (!FOLDABLE_KINDS2.has(m.kind) || m.signed) foldable = false;
   }
   return {
     id: first.id,
@@ -2803,7 +2803,7 @@ function project(view, applied) {
   let t = view.liveTokens;
   for (const id of applied.foldedIds ?? /* @__PURE__ */ new Set()) {
     const b = byId.get(id);
-    if (b) t -= Math.max(0, b.tokens - b.foldedTokens);
+    if (b && !b.signed) t -= Math.max(0, b.tokens - b.foldedTokens);
   }
   for (const s of applied.strata ?? []) {
     let members = 0;
@@ -2839,7 +2839,8 @@ function updateGraduation(state, view, scores, cfg = DEFAULT_CFG) {
   return { dwell, graduated };
 }
 function isUnitFolded(u) {
-  return u.blocks.every((b) => b.folded);
+  const members = u.blocks.filter((b) => FOLDABLE_KINDS2.has(b.kind));
+  return members.length > 0 && members.every((b) => b.folded);
 }
 function runCtx(view) {
   const pos = /* @__PURE__ */ new Map();
@@ -2967,7 +2968,7 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
   ];
   if (keptStrata.length) strata.sort((a, b) => (orderOf.get(a.ids[0]) ?? Infinity) - (orderOf.get(b.ids[0]) ?? Infinity));
   const claimedByStratum = new Set(strata.flatMap((s) => s.unitIds));
-  const keptFolds = (opts.keep?.folds ?? []).filter((f) => byUnit.has(f.unitId) && !claimedByStratum.has(f.unitId) && f.ids.length > 0);
+  const keptFolds = (opts.keep?.folds ?? []).filter((f) => byUnit.has(f.unitId) && !claimedByStratum.has(f.unitId) && f.ids.length > 0).map((f) => ({ ...f, ids: foldableMemberIds(byUnit.get(f.unitId), f.ids) })).filter((f) => f.ids.length > 0);
   const keptFoldUnits = new Set(keptFolds.map((f) => f.unitId));
   const cands = units.filter((u) => isEligibleToDeepen(u, scores, cfg) && !claimedByStratum.has(u.id) && !keptFoldUnits.has(u.id)).filter((u) => savingOf(u) >= cfg.minFoldTokens).sort(
     (a, b) => savingOf(b) - savingOf(a) || // biggest saving first
@@ -3000,7 +3001,7 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
       const unitOf = /* @__PURE__ */ new Map();
       for (const u of units) for (const id of u.ids) unitOf.set(id, u);
       const saving = (b) => b.tokens - b.foldedTokens;
-      const fresh = view.blocks.filter((b) => b.kind === "tool_result" && b.protected && !b.sent && !b.folded && !b.grouped && !b.held && !foldedIds.has(b.id)).filter((b) => saving(b) >= cfg.minFoldTokens && unitOf.has(b.id)).sort((x, y) => saving(y) - saving(x) || x.order - y.order);
+      const fresh = view.blocks.filter((b) => b.kind === "tool_result" && !b.signed && b.protected && !b.sent && !b.folded && !b.grouped && !b.held && !foldedIds.has(b.id)).filter((b) => saving(b) >= cfg.minFoldTokens && unitOf.has(b.id)).sort((x, y) => saving(y) - saving(x) || x.order - y.order);
       if (floor - fresh.reduce((t, b) => t + saving(b), 0) <= cap) {
         for (const b of fresh) {
           if (floor <= cap) break;
@@ -3150,8 +3151,8 @@ function biggestForceFoldable(units, foldedIds, inStratum) {
 }
 function memberFoldSaving(u) {
   let save = 0;
-  u.blocks.forEach((b, i) => {
-    if (FOLDABLE_KINDS2.has(u.kinds[i])) save += Math.max(0, b.tokens - b.foldedTokens);
+  u.blocks.forEach((b) => {
+    if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - b.foldedTokens);
   });
   return save;
 }
@@ -3176,7 +3177,7 @@ function savingOf(u) {
 }
 function isMemberFoldable(unit, id) {
   const idx = unit.ids.indexOf(id);
-  return idx >= 0 && FOLDABLE_KINDS2.has(unit.kinds[idx]);
+  return idx >= 0 && FOLDABLE_KINDS2.has(unit.kinds[idx]) && !unit.blocks[idx].signed;
 }
 function estimateStratumTokens(run, byUnit) {
   let members = 0;

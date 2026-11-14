@@ -223,6 +223,11 @@ test("signed thinking is never individually compressed", () => {
 	const plan = planEpoch(v, new Map([["signed", 0.01]]), stateOf());
 	expect(plan.folds.flatMap((f) => f.ids)).not.toContain(signed.id);
 	expect(emitOps(plan, new Map(), v).filter((op) => op.kind === "replace" || op.kind === "fold")).toEqual([]);
+	expect(project(v, { foldedIds: new Set([signed.id]) })).toBe(v.liveTokens);
+	const kept = planEpoch(v, new Map(), stateOf(), DEFAULT_CFG, {
+		keep: { folds: [{ unitId: signed.id, ids: [signed.id], tier: "digest" }], strata: [] },
+	});
+	expect(kept.folds.flatMap((f) => f.ids)).not.toContain(signed.id);
 });
 
 // ── TOOL-PAIR atomicity + BUOY split ──────────────────────────────────────────────────────────
