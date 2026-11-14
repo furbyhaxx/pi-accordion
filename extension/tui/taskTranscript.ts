@@ -173,21 +173,68 @@ interface Index {
 	src: TranscriptSource;
 	groupOf: Map<string, TGroup>;
 	resultOf: Map<string, number>;
+	charges: ReadonlyMap<TaskSpan, Tokens>;
 }
 
-function index(src: TranscriptSource): Index {
+function index(src: TranscriptSource, spans: readonly TaskSpan[], charges: ReadonlyMap<TaskSpan, Tokens> = spanTokenIndex(src, spans)): Index {
 	const groupOf = new Map<string, TGroup>();
 	for (const g of src.groups) for (const id of g.memberIds) groupOf.set(id, g);
 	const resultOf = new Map<string, number>();
 	src.blocks.forEach((b, i) => {
 		if (b.kind === "tool_result" && b.callId) resultOf.set(b.callId, i);
 	});
-	return { src, groupOf, resultOf };
+	return { src, groupOf, resultOf, charges };
 }
 
 function blockTokens(blocks: readonly TBlock[]): Tokens {
 	return blocks.reduce((out, b) => ({ full: out.full + b.full, live: out.live + b.live }), { full: 0, live: 0 });
 }
+/** Precompute interval charges and group members outside each task's intervals. */
+export function spanTokenIndex(src: TranscriptSource, spans: readonly TaskSpan[]): Map<TaskSpan, Tokens> {
+	const full = [0], live = [0];
+	const positions = new Map<string, number>();
+	src.blocks.forEach((b, i) => {
+		full.push(full[i] + b.full);
+		live.push(live[i] + b.live);
+		positions.set(b.id, i);
+	});
+	const groups = new Map(src.groups.map((g) => [g.id, taskKeyOfSummary(g.summary)]));
+	const extra = new Map<string, Set<number>>();
+	for (const p of src.projection) {
+		const key = p.groupId ? groups.get(p.groupId) : null;
+		if (!key) continue;
+		let ids = extra.get(key);
+		if (!ids) extra.set(key, ids = new Set());
+		for (const b of p.members) {
+			const at = positions.get(b.id);
+			if (at !== undefined) ids.add(at);
+		}
+	}
+	const result = new Map<TaskSpan, Tokens>();
+	for (const span of spans) {
+		const intervals = [...span.intervals].sort((a, b) => a.start - b.start);
+		const merged: { start: number; end: number }[] = [];
+		for (const r of intervals) {
+			const last = merged[merged.length - 1];
+			if (last && r.start <= last.end + 1) last.end = Math.max(last.end, r.end);
+			else merged.push({ start: r.start, end: r.end });
+		}
+		const tokens = { full: 0, live: 0 };
+		for (const r of merged) {
+			tokens.full += full[r.end + 1] - full[r.start];
+			tokens.live += live[r.end + 1] - live[r.start];
+		}
+		for (const at of extra.get(span.key) ?? []) {
+			if (!merged.some((r) => r.start <= at && at <= r.end)) {
+				tokens.full += src.blocks[at].full;
+				tokens.live += src.blocks[at].live;
+			}
+		}
+		result.set(span, tokens);
+	}
+	return result;
+}
+
 
 /** Whether a position belongs to the task's actual working intervals. */
 export function spanContains(span: TaskSpan, at: number): boolean {
@@ -246,7 +293,7 @@ function taskNode(ix: Index, f: TaskBranch): TNode {
 	return {
 		type: "task", span,
 		children: children.sort((a, b) => a.at - b.at).map((c) => c.node),
-		tokens: spanTokens(ix.src, span), folds,
+		tokens: ix.charges.get(span) ?? spanTokens(ix.src, span), folds,
 		subtasks: { done: kids.filter((c) => c.span.status === "done").length, total: kids.length },
 	};
 }
@@ -255,9 +302,8 @@ function taskNode(ix: Index, f: TaskBranch): TNode {
  * The session as a task-centred tree: top-level tasks with their subtasks and user messages, user
  * messages between tasks, and runs of work that happened while no task was in progress.
  */
-export function sessionTranscript(src: TranscriptSource): TNode[] {
-	const ix = index(src);
-	const spans = transcriptSpans(src);
+export function sessionTranscript(src: TranscriptSource, spans = transcriptSpans(src), charges: ReadonlyMap<TaskSpan, Tokens> = spanTokenIndex(src, spans)): TNode[] {
+	const ix = index(src, spans, charges);
 	const roots = taskForest(spans);
 	const covered = new Set(spans.flatMap((s) => s.intervals.flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i))));
 	const out: TNode[] = [];
@@ -336,9 +382,8 @@ function callIndex(src: TranscriptSource, resultAt: number, lo: number): number 
  * (holding their members), kept user messages and unfolded steps in order, then the finish edge for a
  * finished span. A fold belonging to this span or an ancestor wins over a subtask it covers.
  */
-export function spanTranscript(src: TranscriptSource, span: TaskSpan): TNode[] {
-	const ix = index(src);
-	const all = transcriptSpans(src);
+export function spanTranscript(src: TranscriptSource, span: TaskSpan, all = transcriptSpans(src), charges: ReadonlyMap<TaskSpan, Tokens> = spanTokenIndex(src, all)): TNode[] {
+	const ix = index(src, all, charges);
 	const descendants = all.filter((s) => s.key.startsWith(`${span.key}.`));
 	const children = taskForest(descendants);
 	const allowed = new Set(span.intervals.flatMap((r) => Array.from({ length: r.end - r.start + 1 }, (_, i) => r.start + i)));

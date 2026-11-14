@@ -18,7 +18,7 @@ import { bindingHint, type ChromeKeys, type ChromeTheme, type Hint, rawHint } fr
 import type { ConfirmSpec, TabView } from "./screens/types";
 import { claimText, editText, formatAge, listRowLine, progressText, type TaskListsHost } from "./taskLists";
 import { recordForm } from "../../conductors/in-process/taskfold/records";
-import { classifierInput, sessionTranscript, spanBlocks, spanTokens, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
+import { classifierInput, sessionTranscript, spanBlocks, spanTokens, spanTokenIndex, taskFoldRefs, spanTranscript, transcriptSource, transcriptSpans, type TBlock, type TNode, type Tokens, type TranscriptSource } from "./taskTranscript";
 import { buildTaskTree, glyphState, taskDuration, type TaskNode } from "./taskTree";
 import { GLYPH, foldedTaskTokens, formatDuration, glyphColor, taskNote, taskParts, type FoldTokens, type WidgetTheme } from "./taskWidget";
 import { TreeState, type TreeNode } from "./treeView";
@@ -88,6 +88,7 @@ export interface ViewData {
 	spans: TaskSpan[];
 	theme: WidgetTheme;
 	now: number;
+	charges?: ReadonlyMap<TaskSpan, Tokens>;
 }
 
 function spanOf(data: ViewData, key: string): TaskSpan | undefined {
@@ -106,7 +107,7 @@ function taskLabel(t: Task, state: ReturnType<typeof glyphState>, theme: WidgetT
 }
 
 /** A list's tasks as a tree: progress, time, folds and span tokens when the span ran in this session. */
-export function listNodes(list: TaskList, truth: Truth | null, data: ViewData, folds: ReadonlyMap<string, FoldTokens> = truth ? foldedTaskTokens(list, truth) : new Map()): TreeNode<ViewRef>[] {
+export function listNodes(list: TaskList, truth: Truth | null, data: ViewData, folds: ReadonlyMap<string, FoldTokens> = truth ? foldedTaskTokens(list, truth) : new Map(), durations?: ((now: number) => void)[]): TreeNode<ViewRef>[] {
 	const t = data.theme;
 	const build = (n: TaskNode): TreeNode<ViewRef> => {
 		const task = n.task;
@@ -124,11 +125,15 @@ export function listNodes(list: TaskList, truth: Truth | null, data: ViewData, f
 			own && own.complete !== false ? t.fg("muted", "≡") : inner.length ? t.fg("muted", `≡${inner.length}`) : "",
 			task.autoClosed ? t.fg("dim", "closed automatically") : "",
 		].filter(Boolean);
+		if (ms !== null && durations) {
+			const at = (note ? 1 : 0) + (n.children.length ? 1 : 0);
+			durations.push((now) => { const elapsed = taskDuration(task, now); if (elapsed !== null) meta[at] = formatDuration(elapsed); });
+		}
 		return {
 			key,
 			label: taskLabel(task, glyphState(n), t),
 			meta,
-			right: span && data.src ? t.fg("muted", tok(spanTokens(data.src, span))) : own ? t.fg("muted", tok(own)) : undefined,
+			right: span && data.src ? t.fg("muted", tok(data.charges?.get(span) ?? spanTokens(data.src, span))) : own ? t.fg("muted", tok(own)) : undefined,
 			open: task.status === "doing" || task.status === "todo" || task.status === "blocked",
 			children: n.children.map(build),
 			data: { type: "task", slug: list.slug, id: task.id, key },
@@ -401,12 +406,13 @@ export class TaskViews {
 	private stack: Screen[];
 	private stale = true;
 	private rows = 10;
-	private cache: { truth: Truth; rev: number; folding: boolean; data: { src: TranscriptSource; spans: TaskSpan[] } } | null = null;
+	private cache: { truth: Truth; rev: number; folding: boolean; data: { src: TranscriptSource; spans: TaskSpan[]; charges: Map<TaskSpan, Tokens> } } | null = null;
 	private listsSnapshot: TaskList[] = [];
 	private invalidLists: readonly string[] = [];
 	private byBlock = new Map<string, TBlock>();
 	private foldCache = new Map<string, ReadonlyMap<string, FoldTokens>>();
 	private recordCache = new Map<string, ReturnType<TaskViews["computeGroups"]>>();
+	private nodeCache = new Map<string, { theme: WidgetTheme; nodes: TreeNode<ViewRef>[]; durations: ((now: number) => void)[] }>();
 	private readonly unsubscribe: () => void;
 
 	constructor(
@@ -430,6 +436,7 @@ export class TaskViews {
 	private ensure(): void {
 		if (this.stale) {
 			this.stale = false;
+			this.nodeCache.clear();
 			const lists = this.host.lists(), previousLists = this.listsSnapshot;
 			this.listsSnapshot = lists;
 			this.invalidLists = this.host.invalid?.() ?? [];
@@ -441,12 +448,14 @@ export class TaskViews {
 				this.byBlock.clear();
 			} else if (changed) {
 				const src = transcriptSource(truth, (id) => this.host.verdict(id), this.host.threshold(), { folding, lists, listIssues: this.invalidLists });
-				this.cache = { truth, rev: truth.rev, folding, data: { src, spans: transcriptSpans(src) } };
+				const spans = transcriptSpans(src);
+				this.cache = { truth, rev: truth.rev, folding, data: { src, spans, charges: spanTokenIndex(src, spans) } };
 				this.byBlock = new Map(src.blocks.map((b) => [b.id, b]));
 			}
 			if (changed || lists !== previousLists) {
 				this.foldCache.clear();
 				this.recordCache.clear();
+				this.nodeCache.clear();
 			}
 		}
 		const truth = this.cache?.truth;
@@ -465,7 +474,7 @@ export class TaskViews {
 	private data(): ViewData {
 		const src = this.cache ? { ...this.cache.data.src, lists: this.listsSnapshot, listIssues: this.invalidLists,
 			verdict: (id: string) => this.host.verdict(id), threshold: this.host.threshold() } : null;
-		return { src, spans: this.cache?.data.spans ?? [], theme: this.ui.theme(), now: Date.now() };
+		return { src, spans: this.cache?.data.spans ?? [], charges: this.cache?.data.charges, theme: this.ui.theme(), now: Date.now() };
 	}
 
 	private list(slug: string): TaskList | undefined {
@@ -473,17 +482,27 @@ export class TaskViews {
 	}
 
 	private nodes(s: TreeScreen, data: ViewData): TreeNode<ViewRef>[] {
-		if (s.kind === "list") {
-			const list = this.list(s.slug);
-			return list ? listNodes(list, this.cache?.truth ?? null, data, this.foldCache.get(list.slug) ?? new Map()) : [];
+		const key = s.kind === "list" ? `list:${s.slug}` : s.kind === "span" ? `span:${s.key}` : "session";
+		let cached = this.nodeCache.get(key);
+		if (!cached || cached.theme !== data.theme) {
+			const durations: ((now: number) => void)[] = [];
+			let nodes: TreeNode<ViewRef>[] = [];
+			if (s.kind === "list") {
+				const list = this.list(s.slug);
+				if (list) nodes = listNodes(list, this.cache?.truth ?? null, data, this.foldCache.get(list.slug) ?? new Map(), durations);
+			} else if (data.src) {
+				if (s.kind === "span") {
+					const span = spanOf(data, s.key);
+					if (span) nodes = transcriptNodes(spanTranscript(data.src, span, data.spans, data.charges), data);
+				} else nodes = transcriptNodes(sessionTranscript(data.src, data.spans, data.charges), data);
+			}
+			cached = { theme: data.theme, nodes, durations };
+			this.nodeCache.set(key, cached);
 		}
-		if (!data.src) return [];
-		if (s.kind === "span") {
-			const span = spanOf(data, s.key);
-			return span ? transcriptNodes(spanTranscript(data.src, span), data) : [];
-		}
-		const all = transcriptNodes(sessionTranscript(data.src), data);
-		return all.filter((n) => n.data && (s.show === "all" || (s.show === "tasks" ? n.data.type === "task" : n.data.type === "untracked" && !n.data.answer)));
+		for (const update of cached.durations) update(data.now);
+		return s.kind === "session" && s.show !== "all"
+			? cached.nodes.filter((n) => n.data && (s.show === "tasks" ? n.data.type === "task" : n.data.type === "untracked" && !n.data.answer))
+			: cached.nodes;
 	}
 
 	private computeGroups(key: string): { id: string; summary: string | null | undefined; full: number; live: number; members: number; handleId?: string }[] {
