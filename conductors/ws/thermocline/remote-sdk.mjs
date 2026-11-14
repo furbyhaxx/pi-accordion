@@ -2227,6 +2227,11 @@ function applyWireEvent(truth, ev) {
 }
 
 // core/conductor/hostAdapter.ts
+function countBlockTokens(truth, id, text) {
+  const block = truth.get(id);
+  if (!block) throw new RangeError(`unknown block ${id}`);
+  return truth.calBlockTokens(block, estTokens(text) + BLOCK_OVERHEAD);
+}
 function viewBlockOf(truth, b) {
   return {
     id: b.id,
@@ -2464,6 +2469,9 @@ function runRemoteConductor(conductor, opts) {
         },
         countTokens(text) {
           return replica.calTokens(estTokens(text));
+        },
+        countBlockTokens(id, text) {
+          return countBlockTokens(replica, id, text);
         },
         digestOf(id) {
           const b = replica.get(id);
@@ -2888,7 +2896,7 @@ function project(view, applied) {
   let t = view.liveTokens;
   for (const id of applied.foldedIds ?? /* @__PURE__ */ new Set()) {
     const b = byId.get(id);
-    if (b && !b.signed) t -= Math.max(0, b.tokens - b.foldedTokens);
+    if (b && !b.signed) t -= Math.max(0, b.tokens - (applied.foldTokens?.get(id) ?? b.foldedTokens));
   }
   for (const s of applied.strata ?? []) {
     let members = 0;
@@ -3055,16 +3063,24 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
   const claimedByStratum = new Set(strata.flatMap((s) => s.unitIds));
   const keptFolds = (opts.keep?.folds ?? []).filter((f) => byUnit.has(f.unitId) && !claimedByStratum.has(f.unitId) && f.ids.length > 0).map((f) => ({ ...f, ids: foldableMemberIds(byUnit.get(f.unitId), f.ids) })).filter((f) => f.ids.length > 0);
   const keptFoldUnits = new Set(keptFolds.map((f) => f.unitId));
-  const cands = units.filter((u) => isEligibleToDeepen(u, scores, cfg) && !claimedByStratum.has(u.id) && !keptFoldUnits.has(u.id)).filter((u) => savingOf(u) >= cfg.minFoldTokens).sort(
-    (a, b) => savingOf(b) - savingOf(a) || // biggest saving first
-    (scores.get(a.temperatureKey) ?? 1) - (scores.get(b.temperatureKey) ?? 1) || // colder first
+  const cands = units.filter((u) => isEligibleToDeepen(u, scores, cfg, opts.foldTokenCosts) && !claimedByStratum.has(u.id) && !keptFoldUnits.has(u.id)).filter((u) => savingOf(u, opts.foldTokenCosts) >= cfg.minFoldTokens).sort(
+    (a, b) => savingOf(b, opts.foldTokenCosts) - savingOf(a, opts.foldTokenCosts) || (scores.get(a.temperatureKey) ?? 1) - (scores.get(b.temperatureKey) ?? 1) || // colder first
     a.order - b.order
     // older first
   );
   const folds = keptFolds.map((f) => ({ unitId: f.unitId, ids: f.ids.slice(), tier: f.tier }));
   const foldedIds = new Set(folds.flatMap((f) => f.ids));
+  const tokenCostsFor = (ids) => {
+    if (!opts.foldTokenCosts) return void 0;
+    return new Map(ids.flatMap((id) => {
+      const cost = opts.foldTokenCosts.get(id);
+      return cost === void 0 ? [] : [[id, cost]];
+    }));
+  };
+  const foldTokens = () => new Map(folds.flatMap((f) => [...f.tokenCosts ?? []]));
   const applied = () => ({
     foldedIds,
+    foldTokens: foldTokens(),
     strata: strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens }))
   });
   const foldOnlyUnits = () => new Set(folds.map((f) => f.unitId));
@@ -3085,15 +3101,20 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     if (floor > cap) {
       const unitOf = /* @__PURE__ */ new Map();
       for (const u of units) for (const id of u.ids) unitOf.set(id, u);
-      const saving = (b) => b.tokens - b.foldedTokens;
+      const saving = (b) => b.tokens - (opts.foldTokenCosts?.get(b.id) ?? b.foldedTokens);
       const fresh = view.blocks.filter((b) => b.kind === "tool_result" && !b.signed && b.protected && !b.sent && !b.folded && !b.grouped && !b.held && !foldedIds.has(b.id)).filter((b) => saving(b) >= cfg.minFoldTokens && unitOf.has(b.id)).sort((x, y) => saving(y) - saving(x) || x.order - y.order);
       if (floor - fresh.reduce((t, b) => t + saving(b), 0) <= cap) {
         for (const b of fresh) {
           if (floor <= cap) break;
           const u = unitOf.get(b.id);
           const existing = folds.find((f) => f.unitId === u.id);
-          if (existing) existing.ids.push(b.id);
-          else folds.push({ unitId: u.id, ids: [b.id], tier: deterministic ? "trim" : "digest" });
+          if (existing) {
+            existing.ids.push(b.id);
+            const costs = new Map(existing.tokenCosts);
+            const cost = opts.foldTokenCosts?.get(b.id);
+            if (cost !== void 0) costs.set(b.id, cost);
+            existing.tokenCosts = costs;
+          } else folds.push({ unitId: u.id, ids: [b.id], tier: deterministic ? "trim" : "digest", tokenCosts: tokenCostsFor([b.id]) });
           foldedIds.add(b.id);
           floor -= saving(b);
         }
@@ -3104,7 +3125,8 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
   while (project(view, applied()) > targetTokens && ci < cands.length) {
     const u = cands[ci++];
     const tier = deterministic ? "trim" : "digest";
-    folds.push({ unitId: u.id, ids: u.ids.filter((id) => isMemberFoldable(byUnit.get(u.id), id)), tier });
+    const ids = u.ids.filter((id) => isMemberFoldable(byUnit.get(u.id), id));
+    folds.push({ unitId: u.id, ids, tier, tokenCosts: tokenCostsFor(ids) });
     for (const id of u.ids) {
       if (isMemberFoldable(byUnit.get(u.id), id)) foldedIds.add(id);
     }
@@ -3138,12 +3160,12 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     const claimedNow = /* @__PURE__ */ new Set([...strata.flatMap((s) => s.unitIds), ...folds.map((f) => f.unitId)]);
     const stranded = units.filter((u) => !u.foldable && !claimedNow.has(u.id) && !u.held && !u.protected && !u.grouped).filter((u) => {
       const temp = scores.get(u.temperatureKey);
-      return !(temp !== void 0 && temp >= cfg.coldThreshold) && memberFoldSaving(u) >= cfg.minFoldTokens;
-    }).sort((a, b) => memberFoldSaving(b) - memberFoldSaving(a) || a.order - b.order);
+      return !(temp !== void 0 && temp >= cfg.coldThreshold) && memberFoldSaving(u, opts.foldTokenCosts) >= cfg.minFoldTokens;
+    }).sort((a, b) => memberFoldSaving(b, opts.foldTokenCosts) - memberFoldSaving(a, opts.foldTokenCosts) || a.order - b.order);
     for (const u of stranded) {
       if (project(view, applied()) <= targetTokens) break;
       const ids = u.ids.filter((id) => isMemberFoldable(u, id));
-      folds.push({ unitId: u.id, ids, tier: deterministic ? "trim" : "digest" });
+      folds.push({ unitId: u.id, ids, tier: deterministic ? "trim" : "digest", tokenCosts: tokenCostsFor(ids) });
       for (const id of ids) foldedIds.add(id);
     }
   }
@@ -3156,13 +3178,14 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
       const before = project(view, applied());
       if (before >= prev) break;
       prev = before;
-      const foldU = biggestForceFoldable(units, foldedIds, claimed);
+      const foldU = biggestForceFoldable(units, foldedIds, claimed, opts.foldTokenCosts);
       if (foldU) {
         const tier = deterministic ? "trim" : "digest";
         folds.push({
           unitId: foldU.id,
           ids: foldU.ids.filter((id) => isMemberFoldable(byUnit.get(foldU.id), id)),
-          tier
+          tier,
+          tokenCosts: tokenCostsFor(foldU.ids.filter((id) => isMemberFoldable(foldU, id)))
         });
         for (const id of foldU.ids) {
           if (isMemberFoldable(byUnit.get(foldU.id), id)) foldedIds.add(id);
@@ -3218,7 +3241,7 @@ function dropStrataOldestFirst(strata, view, applied, bound) {
   }
   return droppedAny;
 }
-function biggestForceFoldable(units, foldedIds, inStratum) {
+function biggestForceFoldable(units, foldedIds, inStratum, costs) {
   let best = null;
   let bestSave = 0;
   for (const u of units) {
@@ -3226,7 +3249,7 @@ function biggestForceFoldable(units, foldedIds, inStratum) {
     if (u.held || u.protected || u.grouped) continue;
     if (inStratum.has(u.id)) continue;
     if (u.ids.some((id) => foldedIds.has(id))) continue;
-    const save = memberFoldSaving(u);
+    const save = memberFoldSaving(u, costs);
     if (save > bestSave) {
       best = u;
       bestSave = save;
@@ -3234,10 +3257,10 @@ function biggestForceFoldable(units, foldedIds, inStratum) {
   }
   return best;
 }
-function memberFoldSaving(u) {
+function memberFoldSaving(u, costs) {
   let save = 0;
   u.blocks.forEach((b) => {
-    if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - b.foldedTokens);
+    if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - (costs?.get(b.id) ?? b.foldedTokens));
   });
   return save;
 }
@@ -3249,16 +3272,16 @@ function runMemberTokens(run, byUnit) {
   }
   return t;
 }
-function isEligibleToDeepen(u, scores, cfg) {
+function isEligibleToDeepen(u, scores, cfg, costs) {
   if (!u.foldable) return false;
   if (u.held || u.protected || u.grouped) return false;
-  if (u.foldedTokens >= u.tokens) return false;
+  if (savingOf(u, costs) <= 0) return false;
   const temp = scores.get(u.temperatureKey);
   if (temp !== void 0 && temp >= cfg.coldThreshold) return false;
   return true;
 }
-function savingOf(u) {
-  return Math.max(0, u.tokens - u.foldedTokens);
+function savingOf(u, costs) {
+  return costs ? memberFoldSaving(u, costs) : Math.max(0, u.tokens - u.foldedTokens);
 }
 function isMemberFoldable(unit, id) {
   const idx = unit.ids.indexOf(id);
@@ -4023,7 +4046,8 @@ var ThermoclineConductor = class {
     const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, {
       deterministic: true,
       graduated: this.grad.graduated,
-      keep: this.keptState()
+      keep: this.keptState(),
+      foldTokenCosts: foldPrices(view, "trim", void 0, this.host)
     });
     await this.commit(view, plan, void 0);
     this.lastAction = "emergency";
@@ -4033,7 +4057,7 @@ var ThermoclineConductor = class {
   }
   // ── PREPARE: score + LLM summaries + commit (async, off every hook path) ─────────
   async prepareEpoch(view, token) {
-    const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState() });
+    const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "digest", this.digestCache, this.host) });
     const units = buildUnits(view.blocks);
     const byUnit = new Map(units.map((u) => [u.id, u]));
     const jobs = [];
@@ -4069,7 +4093,7 @@ var ThermoclineConductor = class {
       }
     }
     const lv = this.lastView ?? view;
-    const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState() });
+    const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(lv, "digest", this.digestCache, this.host) });
     if (this.attached) await this.commit(lv, freshPlan, this.digestCache);
     this.preparing = false;
     this.sendStatus();
@@ -4079,7 +4103,8 @@ var ThermoclineConductor = class {
     const touched = unionSet(this.agentTouched, this.recalledThisEpoch);
     let working = reconcilePlan(plan, touched);
     working = planWithRealStratumTokens(working, digests, (t) => this.host.countTokens(t));
-    working = this.topUpToCap(working, view, working.cap || capOf(view));
+    working = planWithRealFoldTokens(working, view, digests, this.host, this.appliedFolds);
+    working = this.topUpToCap(working, view, working.cap || capOf(view), digests);
     const finalProjected = project(view, appliedShapeOf(working));
     const finalCap = working.cap || capOf(view);
     working = { ...working, projected: finalProjected };
@@ -4117,7 +4142,7 @@ var ThermoclineConductor = class {
    * Always terminates: the deterministic floor (folds + protected tail) is ≤ cap by planEpoch's
    * hard-cap guarantee. Mutates + returns `plan`.
    */
-  topUpToCap(plan, view, cap) {
+  topUpToCap(plan, view, cap, digests) {
     const settle = () => {
       plan.irreducible = project(view, appliedShapeOf(plan)) > cap;
       return plan;
@@ -4130,12 +4155,12 @@ var ThermoclineConductor = class {
     const MAX_PASSES = 3;
     for (let pass = 0; pass < MAX_PASSES; pass++) {
       if (project(view, appliedShapeOf(plan)) <= cap) return settle();
-      const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState() });
+      const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "trim", digests, this.host) });
       let added = false;
       for (const f of det.folds) {
         if (claimedUnits.has(f.unitId)) continue;
         if (f.ids.some((id) => foldedMembers.has(id))) continue;
-        plan.folds.push({ unitId: f.unitId, ids: f.ids, tier: f.tier });
+        plan.folds.push({ ...f });
         for (const id of f.ids) foldedMembers.add(id);
         claimedUnits.add(f.unitId);
         added = true;
@@ -4505,6 +4530,7 @@ function sameIdSet(a, b) {
 function appliedShapeOf(plan) {
   return {
     foldedIds: new Set(plan.folds.flatMap((f) => f.ids)),
+    foldTokens: new Map(plan.folds.flatMap((f) => [...f.tokenCosts ?? []])),
     strata: plan.strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens }))
   };
 }
@@ -4514,6 +4540,30 @@ function reconcilePlan(plan, touched) {
   const strata = plan.strata.filter((s) => !s.memberIds.some((id) => touched.has(id)));
   if (folds.length === plan.folds.length && strata.length === plan.strata.length) return plan;
   return { ...plan, folds, strata };
+}
+function foldPrices(view, tier, digests, host) {
+  const prices = /* @__PURE__ */ new Map();
+  for (const unit of buildUnits(view.blocks)) {
+    const body = foldBody(unit, tier, digests).replace(LEADING_FOLD_TAG, "");
+    for (const id of foldableMemberIds(unit, unit.ids)) {
+      prices.set(id, host.countBlockTokens(id, `${foldTag(id)} ${body}`));
+    }
+  }
+  return prices;
+}
+function planWithRealFoldTokens(plan, view, digests, host, applied) {
+  const units = new Map(buildUnits(view.blocks).map((unit) => [unit.id, unit]));
+  const folds = plan.folds.map((fold) => {
+    const unit = units.get(fold.unitId);
+    if (!unit) return fold;
+    const body = foldBody(unit, fold.tier, digests).replace(LEADING_FOLD_TAG, "");
+    const tokenCosts = /* @__PURE__ */ new Map();
+    for (const id of foldableMemberIds(unit, fold.ids)) {
+      if (!applied.has(id)) tokenCosts.set(id, host.countBlockTokens(id, `${foldTag(id)} ${body}`));
+    }
+    return { ...fold, tokenCosts };
+  });
+  return { ...plan, folds };
 }
 function planWithRealStratumTokens(plan, digests, countTokens) {
   const d = digests ?? /* @__PURE__ */ new Map();

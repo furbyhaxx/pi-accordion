@@ -12,7 +12,7 @@ import { estTokens } from "../tokens";
 import { digest } from "../digest";
 import type { ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult, Op, TxnResult, TruthStats } from "./contract";
 import type { TruthEvent } from "../events";
-import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent } from "./hostAdapter";
+import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent, countBlockTokens } from "./hostAdapter";
 
 function emptyLiveSession(): ParsedSession {
 	return { meta: { format: "pi", title: "test", cwd: "", model: "test-model" }, blocks: [], lineCount: 0, skipped: 0 };
@@ -66,6 +66,9 @@ export class TestHost implements ConductorHost {
 	countTokens(text: string): number {
 		// Calibrated (issue #11 stage 2, ADR 0025) — see `ConductorHost.countTokens`'s doc.
 		return this.truth.calTokens(estTokens(text));
+	}
+	countBlockTokens(id: string, text: string): number {
+		return countBlockTokens(this.truth, id, text);
 	}
 	digestOf(id: string): string | null {
 		const b = this.truth.get(id);

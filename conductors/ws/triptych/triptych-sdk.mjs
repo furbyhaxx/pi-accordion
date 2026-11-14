@@ -2228,6 +2228,11 @@ function applyWireEvent(truth, ev) {
 }
 
 // core/conductor/hostAdapter.ts
+function countBlockTokens(truth, id, text) {
+  const block = truth.get(id);
+  if (!block) throw new RangeError(`unknown block ${id}`);
+  return truth.calBlockTokens(block, estTokens(text) + BLOCK_OVERHEAD);
+}
 function viewBlockOf(truth, b) {
   return {
     id: b.id,
@@ -2465,6 +2470,9 @@ function runRemoteConductor(conductor, opts) {
         },
         countTokens(text) {
           return replica.calTokens(estTokens(text));
+        },
+        countBlockTokens(id, text) {
+          return countBlockTokens(replica, id, text);
         },
         digestOf(id) {
           const b = replica.get(id);

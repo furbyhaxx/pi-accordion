@@ -140,6 +140,7 @@ export interface PlanFold {
 	unitId: string;
 	ids: string[];
 	tier: "trim" | "digest";
+	tokenCosts?: ReadonlyMap<string, number>;
 }
 
 export interface Plan {
@@ -177,6 +178,7 @@ export interface ThermoState {
 /** The project()-shape applied state: disjoint folded ids + strata. */
 export interface Applied {
 	foldedIds: Set<string>;
+	foldTokens?: ReadonlyMap<string, number>;
 	strata: { memberIds: string[]; summaryTokens: number }[];
 }
 
@@ -286,7 +288,7 @@ export function project(view: ConductorView, applied: Partial<Applied>): number 
 
 	for (const id of applied.foldedIds ?? new Set<string>()) {
 		const b = byId.get(id);
-		if (b && !b.signed) t -= Math.max(0, b.tokens - b.foldedTokens);
+		if (b && !b.signed) t -= Math.max(0, b.tokens - (applied.foldTokens?.get(id) ?? b.foldedTokens));
 	}
 
 	for (const s of applied.strata ?? []) {
@@ -564,6 +566,7 @@ function ageBasedRuns(
 export interface PlanOpts {
 	deterministic?: boolean;
 	graduated?: Set<string>;
+	foldTokenCosts?: ReadonlyMap<string, number>;
 	/**
 	 * APPEND-ONLY seed: the folds + strata the caller has ALREADY applied to the engine. They enter
 	 * the plan up front, claimed, so the ladder plans only the content they don't cover and a new
@@ -637,20 +640,29 @@ export function planEpoch(
 		.filter((f) => f.ids.length > 0);
 	const keptFoldUnits = new Set(keptFolds.map((f) => f.unitId));
 	const cands = units
-		.filter((u) => isEligibleToDeepen(u, scores, cfg) && !claimedByStratum.has(u.id) && !keptFoldUnits.has(u.id))
-		.filter((u) => savingOf(u) >= cfg.minFoldTokens)
+		.filter((u) => isEligibleToDeepen(u, scores, cfg, opts.foldTokenCosts) && !claimedByStratum.has(u.id) && !keptFoldUnits.has(u.id))
+		.filter((u) => savingOf(u, opts.foldTokenCosts) >= cfg.minFoldTokens)
 		.sort(
 			(a, b) =>
-				savingOf(b) - savingOf(a) || // biggest saving first
+				savingOf(b, opts.foldTokenCosts) - savingOf(a, opts.foldTokenCosts) ||
 				(scores.get(a.temperatureKey) ?? 1) - (scores.get(b.temperatureKey) ?? 1) || // colder first
 				a.order - b.order, // older first
 		);
 
 	const folds: PlanFold[] = keptFolds.map((f) => ({ unitId: f.unitId, ids: f.ids.slice(), tier: f.tier }));
 	const foldedIds = new Set<string>(folds.flatMap((f) => f.ids));
+	const tokenCostsFor = (ids: string[]): ReadonlyMap<string, number> | undefined => {
+		if (!opts.foldTokenCosts) return undefined;
+		return new Map(ids.flatMap((id) => {
+			const cost = opts.foldTokenCosts!.get(id);
+			return cost === undefined ? [] : [[id, cost] as const];
+		}));
+	};
+	const foldTokens = (): Map<string, number> => new Map(folds.flatMap((f) => [...(f.tokenCosts ?? [])]));
 
 	const applied = (): Applied => ({
 		foldedIds,
+		foldTokens: foldTokens(),
 		strata: strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens })),
 	});
 	// Units claimed ONLY by a per-block fold (the bridge candidates `ageBasedRuns` may absorb).
@@ -688,7 +700,7 @@ export function planEpoch(
 		if (floor > cap) {
 			const unitOf = new Map<string, Unit>();
 			for (const u of units) for (const id of u.ids) unitOf.set(id, u);
-			const saving = (b: ViewBlock) => b.tokens - b.foldedTokens;
+			const saving = (b: ViewBlock) => b.tokens - (opts.foldTokenCosts?.get(b.id) ?? b.foldedTokens);
 			const fresh = view.blocks
 				.filter((b) => b.kind === "tool_result" && !b.signed && b.protected && !b.sent && !b.folded && !b.grouped && !b.held && !foldedIds.has(b.id))
 				.filter((b) => saving(b) >= cfg.minFoldTokens && unitOf.has(b.id))
@@ -698,8 +710,13 @@ export function planEpoch(
 					if (floor <= cap) break;
 					const u = unitOf.get(b.id)!;
 					const existing = folds.find((f) => f.unitId === u.id);
-					if (existing) existing.ids.push(b.id);
-					else folds.push({ unitId: u.id, ids: [b.id], tier: deterministic ? "trim" : "digest" });
+					if (existing) {
+						existing.ids.push(b.id);
+						const costs = new Map(existing.tokenCosts);
+						const cost = opts.foldTokenCosts?.get(b.id);
+						if (cost !== undefined) costs.set(b.id, cost);
+						existing.tokenCosts = costs;
+					} else folds.push({ unitId: u.id, ids: [b.id], tier: deterministic ? "trim" : "digest", tokenCosts: tokenCostsFor([b.id]) });
 					foldedIds.add(b.id);
 					floor -= saving(b);
 				}
@@ -713,7 +730,8 @@ export function planEpoch(
 	while (project(view, applied()) > targetTokens && ci < cands.length) {
 		const u = cands[ci++];
 		const tier: "trim" | "digest" = deterministic ? "trim" : "digest";
-		folds.push({ unitId: u.id, ids: u.ids.filter((id) => isMemberFoldable(byUnit.get(u.id)!, id)), tier });
+		const ids = u.ids.filter((id) => isMemberFoldable(byUnit.get(u.id)!, id));
+		folds.push({ unitId: u.id, ids, tier, tokenCosts: tokenCostsFor(ids) });
 		for (const id of u.ids) {
 			if (isMemberFoldable(byUnit.get(u.id)!, id)) foldedIds.add(id);
 		}
@@ -765,13 +783,13 @@ export function planEpoch(
 			.filter((u) => !u.foldable && !claimedNow.has(u.id) && !u.held && !u.protected && !u.grouped)
 			.filter((u) => {
 				const temp = scores.get(u.temperatureKey);
-				return !(temp !== undefined && temp >= cfg.coldThreshold) && memberFoldSaving(u) >= cfg.minFoldTokens;
+				return !(temp !== undefined && temp >= cfg.coldThreshold) && memberFoldSaving(u, opts.foldTokenCosts) >= cfg.minFoldTokens;
 			})
-			.sort((a, b) => memberFoldSaving(b) - memberFoldSaving(a) || a.order - b.order);
+			.sort((a, b) => memberFoldSaving(b, opts.foldTokenCosts) - memberFoldSaving(a, opts.foldTokenCosts) || a.order - b.order);
 		for (const u of stranded) {
 			if (project(view, applied()) <= targetTokens) break;
 			const ids = u.ids.filter((id) => isMemberFoldable(u, id));
-			folds.push({ unitId: u.id, ids, tier: deterministic ? "trim" : "digest" });
+			folds.push({ unitId: u.id, ids, tier: deterministic ? "trim" : "digest", tokenCosts: tokenCostsFor(ids) });
 			for (const id of ids) foldedIds.add(id);
 		}
 	}
@@ -795,13 +813,14 @@ export function planEpoch(
 			prev = before;
 
 			// (a) Force-fold the biggest eligible-by-KIND foldable unit not already folded.
-			const foldU = biggestForceFoldable(units, foldedIds, claimed);
+			const foldU = biggestForceFoldable(units, foldedIds, claimed, opts.foldTokenCosts);
 			if (foldU) {
 				const tier: "trim" | "digest" = deterministic ? "trim" : "digest";
 				folds.push({
 					unitId: foldU.id,
 					ids: foldU.ids.filter((id) => isMemberFoldable(byUnit.get(foldU.id)!, id)),
 					tier,
+					tokenCosts: tokenCostsFor(foldU.ids.filter((id) => isMemberFoldable(foldU, id))),
 				});
 				for (const id of foldU.ids) {
 					if (isMemberFoldable(byUnit.get(foldU.id)!, id)) foldedIds.add(id);
@@ -884,7 +903,7 @@ function dropStrataOldestFirst(strata: PlanStratum[], view: ConductorView, appli
  * The biggest (most member tokens) force-FOLDABLE unit for the hard-cap floor. IGNORES temperature
  * (folds even hot units) and the minFoldTokens floor — once over the hard cap, budget wins.
  */
-function biggestForceFoldable(units: Unit[], foldedIds: Set<string>, inStratum: Set<string>): Unit | null {
+function biggestForceFoldable(units: Unit[], foldedIds: Set<string>, inStratum: Set<string>, costs?: ReadonlyMap<string, number>): Unit | null {
 	let best: Unit | null = null;
 	let bestSave = 0;
 	for (const u of units) {
@@ -894,7 +913,7 @@ function biggestForceFoldable(units: Unit[], foldedIds: Set<string>, inStratum: 
 		if (u.held || u.protected || u.grouped) continue;
 		if (inStratum.has(u.id)) continue;
 		if (u.ids.some((id) => foldedIds.has(id))) continue; // already folded this epoch
-		const save = memberFoldSaving(u);
+		const save = memberFoldSaving(u, costs);
 		if (save > bestSave) {
 			best = u;
 			bestSave = save;
@@ -905,10 +924,10 @@ function biggestForceFoldable(units: Unit[], foldedIds: Set<string>, inStratum: 
 
 /** Tokens reclaimed by folding a unit's FOLDABLE members only — for a tool pair, its result. For a
  *  single foldable block this equals `savingOf`. */
-function memberFoldSaving(u: Unit): number {
+function memberFoldSaving(u: Unit, costs?: ReadonlyMap<string, number>): number {
 	let save = 0;
 	u.blocks.forEach((b) => {
-		if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - b.foldedTokens);
+		if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - (costs?.get(b.id) ?? b.foldedTokens));
 	});
 	return save;
 }
@@ -924,18 +943,18 @@ function runMemberTokens(run: Run, byUnit: Map<string, Unit>): number {
 }
 
 /** True iff a unit may be DEEPENED to a per-block fold this epoch. */
-function isEligibleToDeepen(u: Unit, scores: Map<string, number>, cfg: Config): boolean {
+function isEligibleToDeepen(u: Unit, scores: Map<string, number>, cfg: Config, costs?: ReadonlyMap<string, number>): boolean {
 	if (!u.foldable) return false; // pure tool-pairs can only join a stratum, never per-block fold
 	if (u.held || u.protected || u.grouped) return false;
-	if (u.foldedTokens >= u.tokens) return false; // wouldn't actually shrink
+	if (savingOf(u, costs) <= 0) return false;
 	const temp = scores.get(u.temperatureKey);
 	if (temp !== undefined && temp >= cfg.coldThreshold) return false; // scored HOT → spare it
 	return true;
 }
 
 /** Saving (tokens reclaimed) from folding a unit to its per-block digest. */
-function savingOf(u: Unit): number {
-	return Math.max(0, u.tokens - u.foldedTokens);
+function savingOf(u: Unit, costs?: ReadonlyMap<string, number>): number {
+	return costs ? memberFoldSaving(u, costs) : Math.max(0, u.tokens - u.foldedTokens);
 }
 
 /** Is this member block foldable on its own (so it may carry a per-block fold inside a unit)? */

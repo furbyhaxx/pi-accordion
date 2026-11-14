@@ -267,6 +267,7 @@ export class KeelNoteConductor implements Conductor {
 			},
 			systemPrompt: () => host.systemPrompt(),
 			countTokens: (t) => host.countTokens(t),
+			countBlockTokens: (id, text) => host.countBlockTokens(id, text),
 			digestOf: (id) => host.digestOf(id),
 			complete: (req) => host.complete(req),
 			setStatus: (text, metrics) => {

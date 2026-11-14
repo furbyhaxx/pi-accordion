@@ -1103,6 +1103,7 @@ export class TaskfoldConductor implements Conductor {
 			on: () => () => {}, get: (id) => { const i = positions.get(id); return i === undefined ? undefined : masked[i]; },
 			blocks: () => masked, groups: () => ctx.groups, textOf: (id) => host.textOf(id),
 			stats: () => host.stats(), systemPrompt: () => host.systemPrompt(), countTokens: (text) => host.countTokens(text),
+			countBlockTokens: (id, text) => host.countBlockTokens(id, text),
 			digestOf: (id) => host.digestOf(id), complete: (req) => host.complete(req), setStatus: () => {}, propose: (txn) => host.propose(txn),
 		};
 		const keel = new KeelLiteConductor({ high: this.k.high, low: this.k.low, maxRung: 5, groupSteps: false });

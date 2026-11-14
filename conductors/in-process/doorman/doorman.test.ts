@@ -410,6 +410,9 @@ function makeFakeHost(blocksList: ViewBlock[]): { host: ConductorHost; fire: (e:
 		countTokens(text) {
 			return Math.ceil(text.length / 4);
 		},
+		countBlockTokens(_id, text) {
+			return Math.ceil(text.length / 4) + 4;
+		},
 		digestOf() {
 			return null;
 		},

@@ -40,7 +40,7 @@
  */
 import type { Truth } from "../truth";
 import { hydrateSnapshot, applyWireEvent } from "../replica";
-import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent } from "./hostAdapter";
+import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, countBlockTokens } from "./hostAdapter";
 import { estTokens } from "../tokens";
 import { digest } from "../digest";
 import type { SessionMeta } from "../types";
@@ -242,6 +242,9 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 					// replica carries the same `calibration` the host does (replicated via `config` events),
 					// so this agrees with the in-process hosts' own `countTokens` byte-for-byte.
 					return replica!.calTokens(estTokens(text));
+				},
+				countBlockTokens(id, text) {
+					return countBlockTokens(replica!, id, text);
 				},
 				digestOf(id): string | null {
 					const b = replica!.get(id);

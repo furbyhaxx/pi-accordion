@@ -43,7 +43,7 @@ import type {
 	Op,
 } from "../../../core/conductor/contract";
 import type { ConductorView } from "../../../core/conductor/view";
-import { isBolted } from "../../../core/digest";
+import { isBolted, foldTag, LEADING_FOLD_TAG } from "../../../core/digest";
 import type { Config, Plan, PlanFold, PlanStratum, ThermoState, Applied, Unit } from "./policy";
 import {
 	DEFAULT_CFG,
@@ -613,6 +613,7 @@ export class ThermoclineConductor implements Conductor {
 			deterministic: true,
 			graduated: this.grad.graduated,
 			keep: this.keptState(),
+			foldTokenCosts: foldPrices(view, "trim", undefined, this.host),
 		});
 		await this.commit(view, plan, undefined); // undefined digests → deterministic fallbacks everywhere
 		// Report the emergency with the fill it LEFT (commit's own status went out before this label
@@ -627,7 +628,7 @@ export class ThermoclineConductor implements Conductor {
 	// ── PREPARE: score + LLM summaries + commit (async, off every hook path) ─────────
 	private async prepareEpoch(view: ConductorView, token: number): Promise<void> {
 		// 1. Plan (deterministic paths, no LLM yet). Graduation was advanced ONCE this tick.
-		const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState() });
+		const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "digest", this.digestCache, this.host) });
 
 		// 2. Fire host.complete for every digest/stratum not cached.
 		const units = buildUnits(view.blocks);
@@ -682,7 +683,7 @@ export class ThermoclineConductor implements Conductor {
 
 		// Re-plan on the LAST view (not the stale one) so the ops are fresh, then COMMIT atomically.
 		const lv = this.lastView ?? view;
-		const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState() });
+		const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(lv, "digest", this.digestCache, this.host) });
 		if (this.attached) await this.commit(lv, freshPlan, this.digestCache);
 		this.preparing = false;
 		this.sendStatus();
@@ -696,7 +697,8 @@ export class ThermoclineConductor implements Conductor {
 		// (2) substitute REAL summary tokens so the projection reflects the actual wire, then
 		// (3) top up deterministically until projected ≤ cap with those real tokens.
 		working = planWithRealStratumTokens(working, digests, (t) => this.host.countTokens(t));
-		working = this.topUpToCap(working, view, working.cap || capOf(view));
+		working = planWithRealFoldTokens(working, view, digests, this.host, this.appliedFolds);
+		working = this.topUpToCap(working, view, working.cap || capOf(view), digests);
 
 		const finalProjected = project(view, appliedShapeOf(working));
 		const finalCap = working.cap || capOf(view);
@@ -753,7 +755,7 @@ export class ThermoclineConductor implements Conductor {
 	 * Always terminates: the deterministic floor (folds + protected tail) is ≤ cap by planEpoch's
 	 * hard-cap guarantee. Mutates + returns `plan`.
 	 */
-	private topUpToCap(plan: Plan, view: ConductorView, cap: number): Plan {
+	private topUpToCap(plan: Plan, view: ConductorView, cap: number, digests: Map<string, string> | undefined): Plan {
 		// settle() is the ONE exit path: it (re-)stamps `plan.irreducible` from the ACTUAL final
 		// projection every time topUpToCap returns, superseding whatever planEpoch guessed before real
 		// summary tokens/merges were known. This is the authoritative post-commit-math irreducibility
@@ -774,14 +776,14 @@ export class ThermoclineConductor implements Conductor {
 		const MAX_PASSES = 3;
 		for (let pass = 0; pass < MAX_PASSES; pass++) {
 			if (project(view, appliedShapeOf(plan)) <= cap) return settle();
-			const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState() });
+			const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "trim", digests, this.host) });
 			let added = false;
 
 			// Merge NEW deterministic folds (unit not already claimed, no member already folded).
 			for (const f of det.folds) {
 				if (claimedUnits.has(f.unitId)) continue;
 				if (f.ids.some((id) => foldedMembers.has(id))) continue;
-				plan.folds.push({ unitId: f.unitId, ids: f.ids, tier: f.tier });
+				plan.folds.push({ ...f });
 				for (const id of f.ids) foldedMembers.add(id);
 				claimedUnits.add(f.unitId);
 				added = true;
@@ -1298,6 +1300,7 @@ function sameIdSet(a: readonly string[], b: readonly string[]): boolean {
 function appliedShapeOf(plan: Plan): Applied {
 	return {
 		foldedIds: new Set(plan.folds.flatMap((f) => f.ids)),
+		foldTokens: new Map(plan.folds.flatMap((f) => [...(f.tokenCosts ?? [])])),
 		strata: plan.strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens })),
 	};
 }
@@ -1312,6 +1315,33 @@ export function reconcilePlan(plan: Plan, touched: Set<string>): Plan {
 	const strata = plan.strata.filter((s) => !s.memberIds.some((id) => touched.has(id)));
 	if (folds.length === plan.folds.length && strata.length === plan.strata.length) return plan;
 	return { ...plan, folds, strata };
+}
+
+function foldPrices(view: ConductorView, tier: "trim" | "digest", digests: Map<string, string> | undefined, host: ConductorHost): Map<string, number> {
+	const prices = new Map<string, number>();
+	for (const unit of buildUnits(view.blocks)) {
+		const body = foldBody(unit, tier, digests).replace(LEADING_FOLD_TAG, "");
+		for (const id of foldableMemberIds(unit, unit.ids)) {
+			prices.set(id, host.countBlockTokens(id, `${foldTag(id)} ${body}`));
+		}
+	}
+	return prices;
+}
+
+/** Reprice new folds from their actual replacement text while retaining applied folds' live prices. */
+export function planWithRealFoldTokens(plan: Plan, view: ConductorView, digests: Map<string, string> | undefined, host: ConductorHost, applied: ReadonlyMap<string, string>): Plan {
+	const units = new Map(buildUnits(view.blocks).map((unit) => [unit.id, unit]));
+	const folds = plan.folds.map((fold) => {
+		const unit = units.get(fold.unitId);
+		if (!unit) return fold;
+		const body = foldBody(unit, fold.tier, digests).replace(LEADING_FOLD_TAG, "");
+		const tokenCosts = new Map<string, number>();
+		for (const id of foldableMemberIds(unit, fold.ids)) {
+			if (!applied.has(id)) tokenCosts.set(id, host.countBlockTokens(id, `${foldTag(id)} ${body}`));
+		}
+		return { ...fold, tokenCosts };
+	});
+	return { ...plan, folds };
 }
 
 /** Substitute REAL LLM-summary token counts into a plan's strata (the digest text length), so the

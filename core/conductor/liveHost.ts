@@ -35,7 +35,7 @@ import type {
 	CancelCompleteMessage,
 } from "../protocol";
 import type { Conductor, ConductorHost, HostEvent, ViewBlock, GroupInfo, CompletionRequest, CompletionResult, ClassificationRequest, ClassificationResult } from "./contract";
-import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent } from "./hostAdapter";
+import { viewBlockOf, hostEventsFromTruthEvent, recallHostEvent, wireDepartingEvent, countBlockTokens } from "./hostAdapter";
 import { entryById, resolveConductorOptions, type ConductorOptions, type RegistryEntry } from "./registry";
 import { estTokens } from "../tokens";
 import { digest } from "../digest";
@@ -248,6 +248,11 @@ export class LiveConductorHost implements ConductorHost {
 		const raw = estTokens(text);
 		return t ? t.calTokens(raw) : raw;
 	}
+	countBlockTokens(id: string, text: string): number {
+		const truth = this.deps.truth();
+		if (!truth) throw new RangeError(`unknown block ${id}`);
+		return countBlockTokens(truth, id, text);
+	}
 	digestOf(id: string): string | null {
 		const b = this.deps.truth()?.get(id);
 		return b ? digest(b) : null;
@@ -319,6 +324,7 @@ export class LiveConductorHost implements ConductorHost {
 			stats: () => this.stats(),
 			systemPrompt: () => this.systemPrompt(),
 			countTokens: (text) => this.countTokens(text),
+			countBlockTokens: (id, text) => this.countBlockTokens(id, text),
 			digestOf: (id) => this.digestOf(id),
 			complete: (req) => this.complete(req),
 			classify: (req) => this.classify(req),

@@ -18,7 +18,7 @@ import type { ConductorHost } from "../../../core/conductor/contract";
 import type { Block } from "../../../core/types";
 import type { Op, TxnResult } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
-import { ThermoclineConductor, reconcilePlan, planWithRealStratumTokens, dropOwnStrataOldestFirst, overflowStatusText } from "./thermocline";
+import { ThermoclineConductor, reconcilePlan, planWithRealFoldTokens, planWithRealStratumTokens, dropOwnStrataOldestFirst, overflowStatusText } from "./thermocline";
 import { planEpoch, emitOps, DEFAULT_CFG, stratumDigestKey } from "./policy";
 import type { Plan, ConductorView, ViewBlock } from "./policy";
 
@@ -69,6 +69,38 @@ function viewOf(host: TestHost): ConductorView {
 		protectTokens: s.protectTokens,
 	};
 }
+
+test("replacement pricing respects receipt coverage through commit and top-up", async () => {
+	const host = new TestHost();
+	host.setProtect(0);
+	host.appendBlocks([block({ id: "covered", order: 0, tokens: 1000 })]);
+	host.truth.setCalibrationPrior(3);
+	host.truth.setCalibration(2, 0);
+	host.appendBlocks([block({ id: "appended", order: 1, tokens: 1000 })]);
+	const body = "x".repeat(400 - foldTag("appended").length - 1);
+	const text = `${foldTag("appended")} ${body}`;
+	expect(text.length).toBe(400);
+	expect(host.countBlockTokens("covered", text)).toBe(208);
+	expect(host.countBlockTokens("appended", text)).toBe(312);
+	expect(() => host.countBlockTokens("missing", text)).toThrow(RangeError);
+
+	const v = viewOf(host);
+	v.blocks = v.blocks.filter((b) => b.id === "appended");
+	v.liveTokens = v.blocks[0].tokens;
+	v.budget = 250;
+	v.contextWindow = 250;
+	const plan: Plan = { folds: [{ unitId: "appended", ids: ["appended"], tier: "digest" }], strata: [], targetTokens: 175, cap: 250, projected: 72 };
+	const digests = new Map([["appended", body]]);
+	const priced = planWithRealFoldTokens(plan, v, digests, host, new Map());
+	expect(priced.folds[0].tokenCosts?.get("appended")).toBe(312);
+	const conductor = new ThermoclineConductor({ scorer: emptyScorer, sessionKey: null });
+	conductor.attach(host);
+	const internals = conductor as unknown as { commit(view: ConductorView, plan: Plan, digests: Map<string, string>): Promise<void>; appliedPlan: Plan | null };
+	await internals.commit(v, plan, digests);
+	expect(internals.appliedPlan?.projected).toBe(312);
+	expect(internals.appliedPlan?.irreducible).toBe(true);
+	conductor.detach();
+});
 
 // ── APPLIED GROUPS MATCH THE PLAN — message-atom fixed point through the REAL Truth ────────────
 //
@@ -385,6 +417,7 @@ test("wire-departing recounts an already-applied stratum after calibration chang
 			blockCount: 2,
 		}),
 		countTokens: () => 200,
+		countBlockTokens: () => 200,
 		digestOf: () => null,
 		complete: async () => {
 			throw new Error("unused");
