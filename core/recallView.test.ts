@@ -29,6 +29,18 @@ function foldedTask(n: number, size: number, child = 0): Truth {
 }
 
 describe("recallView", () => {
+	it("pages long task reports with usable continuation calls", () => {
+		const truth = foldedTask(4, 100);
+		const code = foldCode(PARENT);
+		const reportOf = () => ({ title: "Long report", status: "done", decisions: Array.from({ length: 40 }, (_, i) => `decision-${i} ${"detail ".repeat(40)}`) });
+		const first = recallView(truth, { codes: [code], reportOf, budgetChars: 2600 });
+		const second = recallView(truth, { codes: [code], reportOf, budgetChars: 2600, page: 2 });
+		expect(first.text).toContain(`recall({codes:["${code}"], page:2})`);
+		expect(first.text).toContain("decision-0");
+		expect(second.text).not.toContain("decision-0");
+		expect(second.text).toContain("decision-");
+	});
+
 	it("returns a small fold whole, like the original recall", () => {
 		const t = foldedTask(3, 100);
 		const v = recallView(t, { codes: [foldCode(PARENT)] });

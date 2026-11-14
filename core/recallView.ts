@@ -188,7 +188,7 @@ function render(
 	if (target === "entries") return indexSection(truth, src, address, page, budget);
 	// A task code returns its report, never its transcript.
 	const report = src.taskKey ? reportOf?.(src.taskKey) : null;
-	if (report) return reportSection(truth, src, report, budget, compact);
+	if (report) return reportSection(truth, src, report, page, budget, compact);
 	const full = src.entries.map((b) => b.text).join("\n\n");
 	const head = `[recalled ${src.label} (#${address})]\n`;
 	if (head.length + full.length <= budget) {
@@ -197,7 +197,7 @@ function render(
 	return indexSection(truth, src, address, page, budget);
 }
 
-function reportSection(truth: Truth, src: Source, report: TaskReport, budget: number, compact: boolean) {
+function reportSection(truth: Truth, src: Source, report: TaskReport, page: number, budget: number, compact: boolean) {
 	const cut = (s: string) => (compact ? clip(s, COMPACT_ITEM_CHARS) : s.replace(/\s+/g, " ").trim());
 	const list = (name: string, xs: string[] | undefined) => (xs?.length ? [`${name}:`, ...xs.map((x) => `- ${cut(x)}`)] : []);
 	const codes = new Map(childHandles(truth, src.code, new Set(src.entries.map((b) => b.id))).map((c) => [c.id, c]));
@@ -222,10 +222,12 @@ function reportSection(truth: Truth, src: Source, report: TaskReport, budget: nu
 		}
 	}
 	lines.push(`Exact values: recall({codes:["${src.code}"], query:"text"}) · entry list: recall({codes:["${src.code}.entries"]}) · one entry: recall({codes:["${src.code}.N"]})`);
-	let text = lines.join("\n");
-	const over = text.length > budget;
-	if (over) text = `${text.slice(0, budget - 40)}\n[report cut at the call limit]`;
-	return { text, item: { code: src.code, label: src.label, mode: "report" as const, ids: [] }, truncated: over };
+	const head = lines.shift()!;
+	const size = budget - head.length - 200;
+	const pages = splitText(lines.join("\n"), size);
+	const p = Math.min(page, pages.length);
+	const nav = pages.length > 1 ? `\n[report page ${p}/${pages.length}${p < pages.length ? `; next: recall({codes:["${src.code}"], page:${p + 1}})` : ""}]` : "";
+	return { text: `${head}\n${pages[p - 1]}${nav}`, item: { code: src.code, label: src.label, mode: "report" as const, ids: [] }, truncated: pages.length > 1 };
 }
 
 function entrySection(entry: Block, address: string, label: string, page: number, budget: number) {
