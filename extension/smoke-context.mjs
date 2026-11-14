@@ -137,10 +137,12 @@ check("chat extraction requires new consent even after classifier-only consent",
 	}
 });
 check("a requested bake goes to pi with our summary instead of folding and claiming to bake", async () => {
-	const r = runtime([
+	const messages = [
 		{ role: "user", timestamp: 0, content: [{ type: "text", text: "survey the repository" }] },
 		{ role: "assistant", timestamp: 1, content: [{ type: "text", text: "done: the layout is flat" }] },
-	]);
+		{ role: "user", timestamp: 2, content: [{ type: "text", text: "kept secret" }] },
+	];
+	const r = runtime(messages);
 	const compactCalls = [];
 	try {
 		const host = await r.open();
@@ -148,12 +150,42 @@ check("a requested bake goes to pi with our summary instead of folding and claim
 		host.command({ kind: "compact", strategy: "bake" });
 		await new Promise(resolve => setImmediate(resolve));
 		assert.equal(compactCalls.length, 1, "bake must ask pi to compact");
-		const bak = await r.handlers.session_before_compact({ reason: "manual", preparation: { firstKeptEntryId: "e1", tokensBefore: 900 } }, r.ctx);
+		const preparation = { firstKeptEntryId: "e1", tokensBefore: 900, messagesToSummarize: messages.slice(0, 1), turnPrefixMessages: messages.slice(1, 2), previousSummary: "first summary survives" };
+		const bak = await r.handlers.session_before_compact({ reason: "manual", preparation }, r.ctx);
 		assert.match(bak?.compaction?.summary ?? "", /\[accordion-bake v1\]/);
+		assert.match(bak.compaction.summary, /first summary survives/);
+		assert.match(bak.compaction.summary, /layout is flat/);
+		assert.doesNotMatch(bak.compaction.summary, /kept secret/);
 		assert.equal(bak?.compaction?.details?.accordionBake, 1);
-		const again = await r.handlers.session_before_compact({ reason: "manual", preparation: { firstKeptEntryId: "e1", tokensBefore: 900 } }, r.ctx);
+		const again = await r.handlers.session_before_compact({ reason: "manual", preparation }, r.ctx);
 		assert.notEqual(again?.compaction?.details?.accordionBake, 1, "one request bakes exactly one compaction");
+		host.command({ kind: "compact", strategy: "bake" });
+		await new Promise(resolve => setImmediate(resolve));
+		const second = await r.handlers.session_before_compact({ reason: "manual", preparation: { ...preparation, previousSummary: bak.compaction.summary } }, r.ctx);
+		assert.ok(second?.compaction?.summary.includes(bak.compaction.summary), "the second bake preserves the first summary verbatim");
 	} finally { r.close(); }
+});
+check("a saturated threshold pass bakes the discarded range", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	const previous = fs.existsSync(config) ? fs.readFileSync(config) : null;
+	fs.mkdirSync(path.dirname(config), { recursive: true });
+	fs.writeFileSync(config, JSON.stringify({ compact: { manual: "pass", threshold: "pass", onSaturated: "bake" } }));
+	const messages = [
+		{ role: "user", timestamp: 11, content: [{ type: "text", text: "old work" }] },
+		{ role: "user", timestamp: 12, content: [{ type: "text", text: "kept work" }] },
+	];
+	const r = runtime(messages);
+	try {
+		await r.open();
+		const preparation = { firstKeptEntryId: "e2", tokensBefore: 900, messagesToSummarize: messages.slice(0, 1), settings: { reserveTokens: 1_048_576 } };
+		const result = await r.handlers.session_before_compact({ reason: "threshold", preparation }, r.ctx);
+		assert.equal(result?.compaction?.details?.accordionBake, 1);
+		assert.match(result.compaction.summary, /old work/);
+		assert.doesNotMatch(result.compaction.summary, /kept work/);
+	} finally {
+		r.close();
+		if (previous === null) fs.rmSync(config, { force: true }); else fs.writeFileSync(config, previous);
+	}
 });
 check("settings saves cannot outlive their session or controller while waiting for the file lock", async () => {
 	for (const replacement of ["session", "controller"]) {

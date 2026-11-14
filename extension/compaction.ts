@@ -25,6 +25,7 @@ export interface CompactRequest {
 	dryRun?: boolean;
 	/** Exact source range supplied by Pi for bake. */
 	bakeBlocks?: readonly Block[];
+	previousSummary?: string;
 }
 
 /** The pass's view of the session; every field is owned by the extension. */
@@ -113,7 +114,7 @@ export function stripFoldTags(text: string): string {
 /** Bake's summary: one section per turn, capped by dropping the oldest sections first (§7.5). */
 export function buildBakeSummary(
 	blocks: readonly Block[],
-	opts: { instructions?: string; capTokens: number; countTokens?: (text: string) => number; contextWindow?: number | null; truth?: Truth } = { capTokens: 20_000 },
+	opts: { instructions?: string; previousSummary?: string; capTokens: number; countTokens?: (text: string) => number; contextWindow?: number | null; truth?: Truth } = { capTokens: 20_000 },
 ): string {
 	const count = opts.countTokens ?? ((t: string) => Math.ceil(t.length / 4));
 	const turns = new Map<number, string[]>();
@@ -148,7 +149,7 @@ export function buildBakeSummary(
 		let after = 0;
 		let text = "";
 		for (;;) {
-			text = [`[accordion-bake v1] ${messages} messages · ${before} → ${after} tok`, ...(opts.instructions ? [`instructions: ${stripFoldTags(opts.instructions)}`] : []), ...(omitted ? [`… ${omitted} earlier turns omitted`] : []), ...sections.map((s) => s.join("\n"))].join("\n");
+			text = [`[accordion-bake v1] ${messages} messages · ${before} → ${after} tok`, ...(opts.instructions ? [`instructions: ${stripFoldTags(opts.instructions)}`] : []), ...(opts.previousSummary ? ["── previous summary", opts.previousSummary] : []), ...(omitted ? [`… ${omitted} earlier turns omitted`] : []), ...sections.map((s) => s.join("\n"))].join("\n");
 			const next = count(text);
 			if (next === after) return text;
 			after = next;
@@ -227,6 +228,7 @@ export async function runCompaction(req: CompactRequest, deps: CompactDeps): Pro
 		const summary = buildBakeSummary(range, {
 			capTokens: cap,
 			instructions: req.instructions,
+			previousSummary: req.previousSummary,
 			truth,
 			countTokens: (t) => Math.ceil(t.length / 4),
 		});

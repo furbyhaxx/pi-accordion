@@ -3875,15 +3875,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
 		const bakeRange = () => {
 			const prep = ev.preparation;
-			if (!truth || !prep?.messagesToSummarize || prep.turnPrefixMessages?.length || prep.previousSummary) return null;
-			return bakeMessageBlocks(truth, prep.messagesToSummarize, lastMessages);
+			if (!truth || !prep?.firstKeptEntryId || !prep.messagesToSummarize) return null;
+			return bakeMessageBlocks(truth, [...prep.messagesToSummarize, ...(prep.turnPrefixMessages ?? [])], lastMessages);
 		};
 		const initialBakeBlocks = strategy === "bake" ? bakeRange() : undefined;
 		if (initialBakeBlocks === null) {
 			ctx.ui.notify("Accordion bake could not map the exact compaction range; falling back to native compaction.", "warning");
 			return;
 		}
-		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}), ...(initialBakeBlocks ? { bakeBlocks: initialBakeBlocks } : {}) }, { card: false });
+		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}), ...(initialBakeBlocks ? { bakeBlocks: initialBakeBlocks, previousSummary: ev.preparation?.previousSummary } : {}) }, { card: false });
 		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
 		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
 		const saturatedFallback = strategy === "pass" && needsSaturationFallback(trigger, first.record.before, first.record.after, window, reserve);
@@ -3893,7 +3893,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			return;
 		}
 		const { record } = fallbackBakeBlocks
-			? await compact({ trigger, strategy: "bake", bakeBlocks: fallbackBakeBlocks, ...(instructions ? { instructions } : {}) }, { card: false })
+			? await compact({ trigger, strategy: "bake", bakeBlocks: fallbackBakeBlocks, previousSummary: ev.preparation?.previousSummary, ...(instructions ? { instructions } : {}) }, { card: false })
 			: first;
 		// Without a known window we cannot prove saturation, so the pass's result stands.
 		const underBudget = window > 0 ? record.after <= window - reserve : true;
