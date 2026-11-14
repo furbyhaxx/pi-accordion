@@ -186,14 +186,27 @@ describe("task views", () => {
 		const o = open(host, { kind: "list", slug: "l" });
 		o.screen();
 		const initialProjections = projections;
+		const firstTree = o.v["nodeCache"].get("list:l")!.nodes;
+		for (let i = 0; i < 10; i++) {
+			o.screen();
+			o.press(DOWN);
+			expect(o.v["nodeCache"].get("list:l")!.nodes).toBe(firstTree);
+		}
+		truth.setProtect(42); changed(); o.screen();
+		const secondTree = o.v["nodeCache"].get("list:l")!.nodes;
+		expect(secondTree).not.toBe(firstTree);
+		for (let i = 0; i < 10; i++) { o.screen(); o.press(DOWN); }
+		expect(o.v["nodeCache"].get("list:l")!.nodes).toBe(secondTree);
+		const refreshedProjections = projections;
+		expect(refreshedProjections).toBeGreaterThan(initialProjections);
 		for (let i = 0; i < 3; i++) for (const width of [36, 57, 80, 140]) o.screen(width);
-		expect(reads).toBe(1);
-		expect(projections).toBe(initialProjections);
+		expect(reads).toBe(2);
+		expect(projections).toBe(refreshedProjections);
 		lists = [{ ...list, goals: [{ id: "g1", text: "Updated goal" }] }]; changed(); o.press(alt("g"));
 		const afterRefresh = { reads, projections };
 		for (const width of [36, 57, 80, 140]) expect(o.screen(width)).toContain("Updated goal");
 		expect({ reads, projections }).toEqual(afterRefresh);
-		expect(reads).toBe(2);
+		expect(reads).toBe(3);
 		o.v.dispose();
 	});
 

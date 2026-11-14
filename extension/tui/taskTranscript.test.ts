@@ -3,7 +3,7 @@ import { Truth } from "../../core/truth";
 import { foldTag } from "../../core/digest";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import { recordForm } from "../../conductors/in-process/taskfold/records";
-import { sessionTranscript, spanTranscript, spanTokens, transcriptSource, transcriptSpans, userReason, type TBlock, type TGroup, type TNode, type TranscriptSource } from "./taskTranscript";
+import { sessionTranscript, spanTranscript, spanTokens, spanTokenIndex, spanContains, transcriptSource, transcriptSpans, userReason, type TBlock, type TGroup, type TNode, type TranscriptSource } from "./taskTranscript";
 
 class Log {
 	blocks: TBlock[] = [];
@@ -117,6 +117,34 @@ describe("task transcript", () => {
 		expect(shown).toContain("own-last");
 		expect(shown).not.toContain("sibling-only");
 		expect(shown).not.toContain("untracked-gap");
+	});
+
+	it("indexes the same charges as the per-task filter across nested and interleaved spans", () => {
+		const log = new Log();
+		log.start("1.1", "Child", '\nAlso started parent 1 "Parent" so its span covers this subtask.');
+		log.work("child");
+		log.finish("1.1", "done");
+		log.call("tasks", { action: "block", list: "l", id: "1" }, "Paused.");
+		log.start("2", "Sibling");
+		const sibling = log.work("sibling");
+		log.finish("2", "done");
+		log.start("1", "Parent");
+		log.work("resumed");
+		log.finish("1", "done");
+		const group: TGroup = { id: "g", memberIds: [sibling.call, sibling.result], folded: true,
+			summary: `${foldTag("g")} {"task":"l/1","title":"Parent","status":"done","outcome":"done"}`, full: 200, live: 20 };
+		const src = source(log, [group]);
+		const spans = transcriptSpans(src);
+		const charges = spanTokenIndex(src, spans);
+		expect(spans.map((s) => s.key)).toContain("l/1.1");
+		expect(spans.find((s) => s.key === "l/1")!.intervals.length).toBeGreaterThan(1);
+		for (const span of spans) {
+			const ids = new Set(src.blocks.filter((_b, i) => spanContains(span, i)).map((b) => b.id));
+			for (const p of src.projection) if (p.groupId === group.id && span.key === "l/1") for (const b of p.members) ids.add(b.id);
+			const expected = src.blocks.filter((b) => ids.has(b.id)).reduce((sum, b) => ({ full: sum.full + b.full, live: sum.live + b.live }), { full: 0, live: 0 });
+			expect(charges.get(span)).toEqual(expected);
+			expect(spanTokens(src, span)).toEqual(expected);
+		}
 	});
 
 	it("shows a span as start, folds with their members, kept user messages and finish", () => {
