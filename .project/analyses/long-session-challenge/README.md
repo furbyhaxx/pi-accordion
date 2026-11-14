@@ -73,7 +73,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | C3 | keel-lite reread detection compares every read with every read and write | `conductors/in-process/keel-lite/keel-lite.ts:729-731` | fixed 34061d4 |
 | C4 | Bug: thermocline replaces signed thinking blocks; the wire keeps the old signature | `policy.ts:928-930` | fixed cd2401c, 4b3c378 |
 | C5 | Bug: thermocline prices a new fold with the block's existing `foldedTokens`, not the text it will write | `policy.ts:276-278` | fixed 7dc2fb4: the host counts the tagged replacement text per block (`ConductorHost.countBlockTokens`); planning, commit and top-up use that price |
-| C6 | Bug: thermocline prices DROP strata at zero although the role floor can keep a recap | `policy.ts:860-862` | open |
+| C6 | Bug: thermocline prices DROP strata at zero although the role floor can keep a recap | `policy.ts:860-862` | fixed 63c2f73: the planner asks the wire's own floor function (`computeDegradedDropRuns` over `wireShapesOf`) which planned drops keep a recap and charges that recap; with an incomplete view it always charges it |
 | C7 | Thermocline HOLD recomputes `foldBody` for bodies it then discards | `thermocline.ts:844-845` | fixed b0b36c2 |
 | C8 | keel-lite never consolidates its own recap groups; a long session saturates on them | `keel-lite.ts:444-446` | open |
 | C9 | Bug: a thermocline tool-pair unit never graduates because its tool call cannot be folded | `policy.ts:347-348` | fixed bab78f7 |
