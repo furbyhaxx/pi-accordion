@@ -129,7 +129,7 @@ export function agentNotice(situation: ResumeSituation, outcome: AttachOutcome):
 	const changed = situation.kind !== "missing" && situation.changed;
 	if (outcome.kind === "reclaimed") {
 		if (outcome.list.slug !== slug) return attachedNotice(outcome);
-		if (!changed || situation.kind === "missing") return null;
+		if (!changed) return null;
 		const ids = situation.changedIds;
 		const changedLine = ids.length ? `${ids.slice(0, 20).join(", ")}${ids.length > 20 ? `, +${ids.length - 20} more` : ""}` : "a task was removed, or edited without a new timestamp";
 		return `Task list "${slug}" is attached to this session again, but its tasks changed since you last used it. Current state:\n${renderOrientation(outcome.list)}\nChanged: ${changedLine}\nWhole list: tasks status`;
