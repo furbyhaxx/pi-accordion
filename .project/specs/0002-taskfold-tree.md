@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 39
+  revision: 40
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T15:28:31+01:00"
+  updated_at: "2026-11-14T16:02:26+01:00"
   created_by: "orchestrator"
-  updated_by: "orchestrator"
+  updated_by: "coder"
   changelog:
-    - revision: 39
-      reason: "the fold-timing plan is merged and deleted"
-      changes: ["the fold-lifecycle evidence line no longer names the plan"]
+    - revision: 40
+      reason: "bound resume and attachment orientation"
+      changes: ["describe compact task-list orientation"]
 ---
 
 # Taskfold
@@ -570,6 +570,11 @@ persisted in the session and never an edit of an earlier message:
 "Last saw" is the list after the agent's own `tasks` call, after the last note, or after an attach
 note, so the agent never hears about its own edits. File changes on disk are never notices; they are
 reported at the next delivery (§4.2).
+
+A changed resume or user attachment sends a compact orientation: status counts, the active branch,
+up to ten blocked tasks and reasons, the next task, and `Whole list: tasks status`. A changed resume
+also names up to 20 task ids updated since the last binding, or reports that a task was removed or
+edited without a new timestamp when none can be identified.
 
 Notices are not Truth blocks (`linearize` skips custom messages), so they do not enter the delivery
 ledger (§4.3). A `restored` notice, which would re-deliver context a human fold or a compaction hid

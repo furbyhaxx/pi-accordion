@@ -5,7 +5,7 @@
  * The session file is the memory: `accordion.tasks.binding` custom entries record every attachment
  * change. Sessions recorded before those entries existed fall back to their `tasks` tool calls.
  */
-import { claimState, renderList, taskFingerprint, type TaskClaim, type TaskList } from "./tasks";
+import { claimState, currentBlock, nextTaskOf, taskFingerprint, type TaskClaim, type TaskList } from "./tasks";
 
 /** Custom entry type recording the list this session has attached (`slug: null` = none). */
 export const BINDING_ENTRY = "accordion.tasks.binding";
@@ -77,13 +77,15 @@ export function changedSince(prev: PreviousBinding, list: TaskList): boolean {
 
 /** Where the previously attached list stands now. */
 export type ResumeSituation =
-	| { kind: "mine" | "free" | "stale" | "held"; slug: string; list: TaskList; changed: boolean; holder: TaskClaim | null }
+	| { kind: "mine" | "free" | "stale" | "held"; slug: string; list: TaskList; changed: boolean; changedIds: string[]; holder: TaskClaim | null }
 	| { kind: "missing"; slug: string };
 
 export function resumeSituation(prev: PreviousBinding, lists: readonly TaskList[], session: string, at = Date.now()): ResumeSituation {
 	const list = lists.find((l) => l.slug === prev.slug);
 	if (!list) return { kind: "missing", slug: prev.slug };
-	return { kind: claimState(list, session, at), slug: prev.slug, list, changed: changedSince(prev, list), holder: list.claim };
+	const threshold = Date.parse(prev.seenAt) + (prev.fingerprint === null ? OWN_WRITE_SLACK_MS : 0);
+	const changedIds = list.tasks.filter((task) => Date.parse(task.updatedAt) > threshold).map((task) => task.id);
+	return { kind: claimState(list, session, at), slug: prev.slug, list, changed: changedSince(prev, list), changedIds, holder: list.claim };
 }
 
 /** What became of the session's attachment. */
@@ -98,6 +100,26 @@ export function holderLabel(claim: TaskClaim): string {
 	return `session ${claim.session.slice(0, 8)}${claim.name ? ` "${claim.name}"` : ""}`;
 }
 
+function renderOrientation(list: TaskList): string {
+	const counts = { todo: 0, doing: 0, blocked: 0, done: 0, failed: 0, abandoned: 0 };
+	for (const task of list.tasks) counts[task.status]++;
+	const next = nextTaskOf(list);
+	const doing = list.tasks.filter((task) => task.status === "doing");
+	const active = doing.find((task) => !doing.some((child) => child.id.startsWith(`${task.id}.`))) ?? next;
+	const branch = active ? list.tasks.filter((task) => task.id === active.id || active.id.startsWith(`${task.id}.`)) : [];
+	const blocked = list.tasks.filter((task) => task.status === "blocked");
+	const lines = [
+		`Status: ${Object.entries(counts).map(([status, count]) => `${status} ${count}`).join(", ")}`,
+		`Active branch: ${branch.length ? branch.map((task) => `${task.status === "doing" ? "[~] " : ""}${task.id} ${task.title}`).join(" > ") : "none"}`,
+		`Blocked: ${blocked.length ? blocked.slice(0, 10).map((task) => {
+			const block = currentBlock(task);
+			return `${task.id} ${block ? `${block.reason} — ${block.detail}` : "blocked"}`;
+		}).join("; ") + (blocked.length > 10 ? `; +${blocked.length - 10} more` : "") : "none"}`,
+		`Next: ${next ? `${next.id} ${next.title}` : "none"}`,
+	];
+	return lines.join("\n");
+}
+
 /**
  * The note the agent gets on its next prompt, or null when nothing it relies on changed: a reclaimed,
  * unchanged list needs no note.
@@ -107,7 +129,10 @@ export function agentNotice(situation: ResumeSituation, outcome: AttachOutcome):
 	const changed = situation.kind !== "missing" && situation.changed;
 	if (outcome.kind === "reclaimed") {
 		if (outcome.list.slug !== slug) return attachedNotice(outcome);
-		return changed ? `Task list "${slug}" is attached to this session again, but its tasks changed since you last used it. Current state:\n${renderList(outcome.list)}` : null;
+		if (!changed || situation.kind === "missing") return null;
+		const ids = situation.changedIds;
+		const changedLine = ids.length ? `${ids.slice(0, 20).join(", ")}${ids.length > 20 ? `, +${ids.length - 20} more` : ""}` : "a task was removed, or edited without a new timestamp";
+		return `Task list "${slug}" is attached to this session again, but its tasks changed since you last used it. Current state:\n${renderOrientation(outcome.list)}\nChanged: ${changedLine}\nWhole list: tasks status`;
 	}
 	const why =
 		situation.kind === "missing"
@@ -123,7 +148,7 @@ export function attachedNotice(outcome: AttachOutcome): string {
 	switch (outcome.kind) {
 		case "reclaimed":
 		case "replaced":
-			return `The user attached task list "${outcome.list.slug}" to this session. Current state:\n${renderList(outcome.list)}`;
+			return `The user attached task list "${outcome.list.slug}" to this session. Current state:\n${renderOrientation(outcome.list)}\nWhole list: tasks status`;
 		case "created":
 			return `The user started a new empty task list "${outcome.list.slug}" ("${outcome.list.title}") for this session. Add its tasks with action "add" before starting work.`;
 		case "without":

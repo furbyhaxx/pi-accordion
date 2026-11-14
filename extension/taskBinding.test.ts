@@ -2,8 +2,8 @@ import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { BINDING_ENTRY, agentNotice, previousBinding, resumeSituation } from "./taskBinding";
-import { TaskStore, runTasks, taskFingerprint } from "./tasks";
+import { BINDING_ENTRY, agentNotice, attachedNotice, previousBinding, resumeSituation } from "./taskBinding";
+import { TaskStore, runTasks, taskFingerprint, type TaskList } from "./tasks";
 
 const call = (id: string, args: Record<string, unknown>, at: string) => ({
 	type: "message",
@@ -62,7 +62,60 @@ describe("task list binding", () => {
 		);
 		const reclaimed = agentNotice(s, { kind: "reclaimed", list: other.read("a") });
 		expect(reclaimed).toContain("changed since you last used it");
-		expect(reclaimed).toContain("[~] 1 One");
+		expect(reclaimed).toContain("1 One");
+	});
+
+	test("a changed resume and an attachment orient without the whole tree", () => {
+		const old = "2026-11-05T08:00:00.000Z";
+		const recent = "2026-11-05T09:00:00.000Z";
+		const list: TaskList = {
+			slug: "large", title: "Large", seq: {}, createdAt: old, updatedAt: recent, claim: null,
+			tasks: [
+				{ id: "1", title: "Active root", status: "doing", updatedAt: old },
+				{ id: "1.1", title: "Active leaf", status: "doing", updatedAt: recent },
+				{ id: "2", title: "Waiting", status: "blocked", updatedAt: recent, blocks: [{ reason: "user-input", detail: "Need answer", at: recent }] },
+				...Array.from({ length: 297 }, (_, i) => ({ id: String(i + 3), title: `Task ${i + 3}`, status: "todo" as const, updatedAt: i < 23 ? recent : old })),
+			],
+		};
+		const prev = { slug: "large", fingerprint: "old-fingerprint", seenAt: old };
+		const situation = resumeSituation(prev, [list], "s1");
+		const note = agentNotice(situation, { kind: "reclaimed", list })!;
+		expect(note.length).toBeLessThan(1500);
+		expect(note).toContain("Active branch: [~] 1 Active root > [~] 1.1 Active leaf");
+		expect(note).toContain("2 user-input — Need answer");
+		expect(note).toContain("Next: 3 Task 3");
+		expect(note).toContain(`Changed: 1.1, 2, ${Array.from({ length: 18 }, (_, i) => i + 3).join(", ")}, +5 more`);
+		expect(note).not.toContain("Changed: 1,");
+		expect(note).toEndWith("Whole list: tasks status");
+		const attached = attachedNotice({ kind: "replaced", list });
+		expect(attached.length).toBeLessThan(1500);
+		expect(attached).toContain("Active branch: [~] 1 Active root > [~] 1.1 Active leaf");
+		expect(attached).toEndWith("Whole list: tasks status");
+	});
+
+	test("a changed fingerprint without newer tasks reports an unknown removal or edit", () => {
+		const { mine } = project();
+		runTasks(mine, { action: "create", list: "a", title: "A", goals: ["G"], tasks: [{ title: "One" }, { title: "Two" }] });
+		const list = mine.read("a");
+		const prev = { slug: "a", fingerprint: taskFingerprint(list), seenAt: new Date().toISOString() };
+		list.tasks.pop();
+		const note = agentNotice(resumeSituation(prev, [list], "s1"), { kind: "reclaimed", list });
+		expect(note).toContain("Changed: a task was removed, or edited without a new timestamp");
+	});
+
+	test("an attachment reports at most ten blocked tasks", () => {
+		const at = "2026-11-05T08:00:00.000Z";
+		const list: TaskList = {
+			slug: "blocked", title: "Blocked", seq: {}, createdAt: at, updatedAt: at, claim: null,
+			tasks: Array.from({ length: 12 }, (_, i) => ({
+				id: String(i + 1), title: `Task ${i + 1}`, status: "blocked" as const, updatedAt: at,
+				blocks: [{ reason: "user-input" as const, detail: "Need input", at }],
+			})),
+		};
+		const note = attachedNotice({ kind: "replaced", list });
+		expect(note).toContain("10 user-input — Need input; +2 more");
+		expect(note).not.toContain("11 user-input");
+		expect(note).toContain("blocked 12");
 	});
 
 	test("without a fingerprint, only task writes after the session's last call count as changes", () => {
