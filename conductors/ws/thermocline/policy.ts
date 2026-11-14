@@ -239,7 +239,7 @@ function makeUnit(members: ViewBlock[]): Unit {
 		held = held || m.held;
 		protectedFlag = protectedFlag || m.protected;
 		grouped = grouped || m.grouped;
-		if (!FOLDABLE_KINDS.has(m.kind)) foldable = false;
+		if (!FOLDABLE_KINDS.has(m.kind) || m.signed) foldable = false;
 	}
 	return {
 		id: first.id,
@@ -275,7 +275,7 @@ export function project(view: ConductorView, applied: Partial<Applied>): number 
 
 	for (const id of applied.foldedIds ?? new Set<string>()) {
 		const b = byId.get(id);
-		if (b) t -= Math.max(0, b.tokens - b.foldedTokens);
+		if (b && !b.signed) t -= Math.max(0, b.tokens - b.foldedTokens);
 	}
 
 	for (const s of applied.strata ?? []) {
@@ -343,9 +343,10 @@ export function updateGraduation(
 	return { dwell, graduated };
 }
 
-/** A unit is "folded" for graduation purposes iff EVERY member renders folded in the view. */
+/** A unit graduates only when its foldable members are folded. */
 function isUnitFolded(u: Unit): boolean {
-	return u.blocks.every((b) => b.folded);
+	const members = u.blocks.filter((b) => FOLDABLE_KINDS.has(b.kind));
+	return members.length > 0 && members.every((b) => b.folded);
 }
 
 // ── runs & sedimentation: graduated-cold → strata ───────────────────────────────────────────
@@ -620,7 +621,9 @@ export function planEpoch(
 	const claimedByStratum = new Set(strata.flatMap((s) => s.unitIds));
 
 	// 2. Eligible deepen candidates, BIGGEST-COLD-FIRST. A kept fold is already in the plan (below).
-	const keptFolds = (opts.keep?.folds ?? []).filter((f) => byUnit.has(f.unitId) && !claimedByStratum.has(f.unitId) && f.ids.length > 0);
+	const keptFolds = (opts.keep?.folds ?? []).filter((f) => byUnit.has(f.unitId) && !claimedByStratum.has(f.unitId) && f.ids.length > 0)
+		.map((f) => ({ ...f, ids: foldableMemberIds(byUnit.get(f.unitId)!, f.ids) }))
+		.filter((f) => f.ids.length > 0);
 	const keptFoldUnits = new Set(keptFolds.map((f) => f.unitId));
 	const cands = units
 		.filter((u) => isEligibleToDeepen(u, scores, cfg) && !claimedByStratum.has(u.id) && !keptFoldUnits.has(u.id))
@@ -676,7 +679,7 @@ export function planEpoch(
 			for (const u of units) for (const id of u.ids) unitOf.set(id, u);
 			const saving = (b: ViewBlock) => b.tokens - b.foldedTokens;
 			const fresh = view.blocks
-				.filter((b) => b.kind === "tool_result" && b.protected && !b.sent && !b.folded && !b.grouped && !b.held && !foldedIds.has(b.id))
+				.filter((b) => b.kind === "tool_result" && !b.signed && b.protected && !b.sent && !b.folded && !b.grouped && !b.held && !foldedIds.has(b.id))
 				.filter((b) => saving(b) >= cfg.minFoldTokens && unitOf.has(b.id))
 				.sort((x, y) => saving(y) - saving(x) || x.order - y.order);
 			if (floor - fresh.reduce((t, b) => t + saving(b), 0) <= cap) {
@@ -893,8 +896,8 @@ function biggestForceFoldable(units: Unit[], foldedIds: Set<string>, inStratum: 
  *  single foldable block this equals `savingOf`. */
 function memberFoldSaving(u: Unit): number {
 	let save = 0;
-	u.blocks.forEach((b, i) => {
-		if (FOLDABLE_KINDS.has(u.kinds[i])) save += Math.max(0, b.tokens - b.foldedTokens);
+	u.blocks.forEach((b) => {
+		if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - b.foldedTokens);
 	});
 	return save;
 }
@@ -927,7 +930,7 @@ function savingOf(u: Unit): number {
 /** Is this member block foldable on its own (so it may carry a per-block fold inside a unit)? */
 function isMemberFoldable(unit: Unit, id: string): boolean {
 	const idx = unit.ids.indexOf(id);
-	return idx >= 0 && FOLDABLE_KINDS.has(unit.kinds[idx]);
+	return idx >= 0 && FOLDABLE_KINDS.has(unit.kinds[idx]) && !unit.blocks[idx].signed;
 }
 
 /**

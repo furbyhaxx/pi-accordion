@@ -47,6 +47,7 @@ function blk(o: Partial<ViewBlock> & { id: string }): ViewBlock {
 		protected: !!o.protected,
 		grouped: !!o.grouped,
 		sent: o.sent ?? true,
+		signed: o.signed,
 		text: o.text ?? o.id,
 	};
 }
@@ -216,6 +217,19 @@ test("foldable-kind gate: planEpoch never folds a user or a lone tool_call", () 
 	expect(emitOps(plan, new Map(), v).filter((o) => o.kind === "replace").length).toBe(0);
 });
 
+test("signed thinking is never individually compressed", () => {
+	const signed = blk({ id: "signed", kind: "thinking", signed: true, tokens: 10_000 });
+	const v = view([signed], { budget: 5_000 });
+	const plan = planEpoch(v, new Map([["signed", 0.01]]), stateOf());
+	expect(plan.folds.flatMap((f) => f.ids)).not.toContain(signed.id);
+	expect(emitOps(plan, new Map(), v).filter((op) => op.kind === "replace" || op.kind === "fold")).toEqual([]);
+	expect(project(v, { foldedIds: new Set([signed.id]) })).toBe(v.liveTokens);
+	const kept = planEpoch(v, new Map(), stateOf(), DEFAULT_CFG, {
+		keep: { folds: [{ unitId: signed.id, ids: [signed.id], tier: "digest" }], strata: [] },
+	});
+	expect(kept.folds.flatMap((f) => f.ids)).not.toContain(signed.id);
+});
+
 // ── TOOL-PAIR atomicity + BUOY split ──────────────────────────────────────────────────────────
 test("tool-pair atomicity: a stratum run includes the whole call+result pair or neither", () => {
 	_order = 0;
@@ -294,6 +308,15 @@ describe("double-gate graduation", () => {
 			else expect(g.graduated.has("x")).toBe(true);
 			st = stateOf({ dwell: g.dwell });
 		}
+	});
+
+	test("a cold tool pair graduates when its result stays folded", () => {
+		const v = view([
+			blk({ id: "call", kind: "tool_call", callId: "c" }),
+			blk({ id: "result", kind: "tool_result", callId: "c", folded: true }),
+		]);
+		const g = updateGraduation(stateOf({ dwell: new Map([["call", DEFAULT_CFG.K - 1]]) }), v, new Map([["result", 0.01]]));
+		expect(g.graduated.has("call")).toBe(true);
 	});
 
 	test("gate ②: an agent recall this epoch resets dwell and blocks graduation", () => {
