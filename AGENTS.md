@@ -282,6 +282,7 @@ For live-link testing under `tauri dev`, launch the **pi process** with
 not trusted by default; production Tauri custom-protocol origins do not need this opt-in.
 
 ```bash
+cd extension && npm run check               # strict type check of the extension and its imports
 cd extension && node smoke.mjs              # extension smoke test
 cd extension && node smoke-conductor.mjs    # real out-of-process conductor spawn e2e (thermocline)
 cd extension && node smoke-autoarm.mjs      # autoArm + spawned default conductor attaches at session start

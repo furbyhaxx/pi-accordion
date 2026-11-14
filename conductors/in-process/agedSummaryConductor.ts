@@ -259,9 +259,9 @@ export function blockLabel(b: ViewBlock): string {
 export abstract class AgedSummaryConductor extends ViewConductor {
 	abstract readonly id: string;
 	abstract readonly label: string;
-	readonly description?: string;
-	readonly locks?: readonly LockName[];
-	readonly tailTokens?: number;
+	declare readonly description?: string;
+	declare readonly locks?: readonly LockName[];
+	declare readonly tailTokens?: number;
 
 	// ── subclass hooks (the genuinely different ~10%) ───────────────────────────
 
