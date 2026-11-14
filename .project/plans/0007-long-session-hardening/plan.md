@@ -721,11 +721,14 @@ Current: `send(ws, m)` runs `JSON.stringify(m)` per client; nothing reads `ws.bu
 
 Change: `send(ws, m)` becomes `sendText(ws, text)` plus a thin `send` that stringifies for the
 single-client call sites; `broadcast` stringifies once and calls `sendText` per open client.
-`sendText` first checks `ws.bufferedAmount > wsBufferLimit` and then calls `ws.terminate()` and
-returns (the existing close handler removes the client; the app shows "disconnected" and gets a
-fresh snapshot when it dials again). `wsBufferLimit = dependencies.wsBufferLimit ??
-MAX_WS_BUFFERED_BYTES`, `MAX_WS_BUFFERED_BYTES = 64 * 1024 * 1024`; add
-`wsBufferLimit?: number` to `RuntimeDependencies` with a doc line naming it a test seam.
+`sendText` first checks `ws.bufferedAmount > Math.max(wsBufferLimit, 2 * lastSnapshotBytes)` and
+then calls `ws.terminate()` and returns (the existing close handler removes the client; the app
+shows "disconnected" and gets a fresh snapshot when it dials again). `lastSnapshotBytes` is the
+text length of the latest snapshot `sendSnapshot` serialised: a client can always take one whole
+snapshot plus what follows it in the same tick, and is cut off only when it lags by more than
+that. `wsBufferLimit = dependencies.wsBufferLimit ?? MAX_WS_BUFFERED_BYTES`,
+`MAX_WS_BUFFERED_BYTES = 64 * 1024 * 1024`; add `wsBufferLimit?: number` to
+`RuntimeDependencies` with a doc line naming it a test seam.
 
 Test (smoke.mjs, in the WebSocket hardening part): start the extension with
 `wsBufferLimit: 256 * 1024`; connect two clients; pause the first one's underlying socket
@@ -857,11 +860,75 @@ Verification: `bun test extension/settings.test.ts extension/taskCoach.test.ts`,
 `node extension/smoke-context.mjs`,
 `npx --prefix app vitest run --root app ../conductors/in-process/taskfold/taskfold.test.ts`, the gate.
 
+## P24b: one stable task code (S2) — branch `fix/taskfold-stable-task-code`
+
+Files: `conductors/in-process/taskfold/taskfold.ts` (only `unit()` and `record()`, plus the
+import of `hasOwnFoldTag` from `core/digest`), `taskfold.test.ts`, SPEC-0002 §6.1 and §7.3, the
+conductor README where it describes codes.
+
+Current: SPEC-0002 §6.1 says every task has one fold code, `foldCode("t:<list>/<id>")`. In
+`unit()` the carrier gets the `t:` tag and handle only when `covered(rootHandle)` holds: every
+block of the span is in the carrier's own runs, or is a live user message. Otherwise the tag is
+the group's own `g:` code and there is no `t:` handle. The common miss: `complete A` and
+`start B` in one assistant message. A folds first and takes that message, so B never gets its
+`t:` code and the recall task index does not list it. Children the carrier holds only in part
+get a record without a recall code.
+
+Truth's rule for a handle (`Truth.canRecallHandle`, `core/truth.ts`): members in transcript
+order; each one is in the carrier group, or in another folded automatic group whose summary
+shows that group's own `g:` tag (`hasOwnFoldTag(summary, group.id)`: a root carrier tagged `t:`
+does not qualify), or is a visible, unfolded user message; none is held or the system block; at
+least one is in a group; the carrier summary contains the handle's tag.
+
+Change:
+
+1. In `unit()`, after `included` is built:
+
+   ```ts
+   // Blocks a handle may name besides the carrier's own: members of automatic groups that show their own code.
+   const tagged = new Set<string>();
+   for (const g of groups) {
+       if (g.by !== "auto" || !g.folded || typeof g.summary !== "string" || !hasOwnFoldTag(g.summary, g.id) || ours.includes(g)) continue;
+       for (const id of g.memberIds) if (!planned.has(id)) tagged.add(id);
+   }
+   const reachable = (id: string) => {
+       const b = blocks[positions.get(id)!];
+       if (b.held || b.kind === "system") return false;
+       return included.has(id) || tagged.has(id) || (b.kind === "user" && !this.folds(b) && members.includes(b));
+   };
+   ```
+
+2. `spanHandle(task)` returns `{ id, memberIds: memberIds.filter(reachable) }`. `covered` is
+   removed. A span handle is used when at least one of its members is in `included`. Handles
+   inherited from `ours` (group ids and their handles) are kept when every member is reachable.
+3. The root: `const rootHandle = spanHandle(span); const rootHeld = rootHandle.memberIds.some((id) => included.has(id));`
+   The tag is `foldTag("t:" + span.key)` when `rootHeld`, else the `g:` tag as today; the handle
+   list takes `rootHandle` when `rootHeld`.
+4. `reach` (`"full" | "partial" | "none"`) becomes `present: Set<string>`: the keys of children
+   with at least one member in `included`. `record()` takes `present?: ReadonlySet<string>`
+   instead of `reach`, omits children not in it (as "none" today) and gives every listed child
+   with intervals its `recall` tag; the `recallable` branches go.
+5. Spec §6.1 and §7.3: one sentence each for "the handle names what the carrier and other
+   coded groups hold of the task; a block that stays live or held is not part of it".
+
+Tests (taskfold.test.ts): (a) `finish("1")` and `start("2")` in one assistant message, task 1
+folds first, then task 2 finishes and folds: the group of 2 starts with
+`foldTag("t:work/2")`, its `t:work/2` handle has none of the shared message's blocks, and
+`resolveRecall(host.truth, [foldCode("t:work/2")]).missing` is empty; (b) a span with one
+human-held block in its middle: `t:` tag, handle without that block, recall resolves; (c) a
+parent composing a child it holds only in part: the child's record carries `recall` and that
+code resolves; (d) the existing tests that pin a record without a recall code are rewritten.
+In none of them may a group op come back clamped (`invalid-group`): assert the propose results
+or that every planned group exists.
+
+Verification: `npx --prefix app vitest run --root app ../conductors/in-process/taskfold/`,
+`node extension/smoke-context.mjs`, `node extension/build-remote-sdk.mjs`, the gate.
+
 ## Later units (sparse; detailed when they start)
 
-- **P24b stable task code** (after P18): one `t:<list>/<id>` code per task also when the carrier
-  cannot hold the whole span (SPEC-0002 §6.1, §7.3). **P24c**: `stale` marker in the widget and
-  the panel list (after P24a).
+- **P24c**: `stale` marker in the widget and the panel list (after P24a). **P12d** (H12): one
+  task-span scan per block-log revision, shared by the cache frontier, the tasks broadcast, the
+  widget and the stale check.
 - **P21 fold pricing** (C5), **P22 DROP pricing** (C6), **P23 incremental projection** (C2), in
   this order, same files (`conductors/ws/thermocline/policy.ts`, `thermocline.ts`). C5 needs an
   exact price for "this text as the body of block X" from the host: `max(countTokens(padded
