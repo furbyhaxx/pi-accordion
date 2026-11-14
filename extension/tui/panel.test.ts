@@ -23,7 +23,7 @@ const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.do
 const K = { home: "\x1b[H", end: "\x1b[F", up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
 const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
-function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsHost, terminalRows = 24) {
+function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsHost, terminalRows = 24, tagged = false) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
 	let currentTruth: Truth | null = truth;
@@ -76,6 +76,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 			bindHost: settingsState.bindHost,
 			port: 41234,
 			doorPort: settingsState.doorPort,
+			door: "held" as const,
 			token: tokenState,
 			clients: 1,
 		}),
@@ -100,7 +101,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 	let confirmations: string[] = [];
 	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
 		finish = () => { component?.dispose?.(); resolve(undefined); };
-		component = factory({ terminal: { rows: terminalRows }, requestRender() { renders++; } }, { fg: (_: string, value: string) => value, bold: (value: string) => value, inverse: (value: string) => value }, { matches: (data: string, action: string) => matchesKey(data, BINDINGS[action] as Parameters<typeof matchesKey>[1]), getKeys: (action: string) => [BINDINGS[action]] }, (value: unknown) => { component?.dispose?.(); resolve(value); });
+		component = factory({ terminal: { rows: terminalRows }, requestRender() { renders++; } }, tagged ? { fg: (color: string, value: string) => `<${color}>${value}</${color}>`, bold: (value: string) => `<b>${value}</b>`, inverse: (value: string) => `<inv>${value}</inv>` } : { fg: (_: string, value: string) => value, bold: (value: string) => value, inverse: (value: string) => value }, { matches: (data: string, action: string) => matchesKey(data, BINDINGS[action] as Parameters<typeof matchesKey>[1]), getKeys: (action: string) => [BINDINGS[action]] }, (value: unknown) => { component?.dispose?.(); resolve(value); });
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
@@ -1066,6 +1067,63 @@ describe("accordion panel", () => {
 		s.panel.handleInput(K.enter);
 		await tick(1);
 		expect(s.commands).toEqual([{ kind: "setBudget", value: 1234 }]);
+		s.close(); await s.opening;
+	});
+
+	test.each([["held", "door held"], ["other", "door held by another session"], ["unavailable", "door unavailable"]] as const)("the door port row shows %s as '%s'", async (door, word) => {
+		const s = setup(false, "settings");
+		const web = s.host.webInfo!();
+		s.host.webInfo = () => ({ ...web, door });
+		selectSetting(s, "Web UI door port");
+		expect(s.cursor()).toContain(`24317 ${word}`);
+		expect(s.cursor(36)).toContain("24317");
+		s.close(); await s.opening;
+	});
+
+	test("the address row warns about LAN reachability only for non-loopback hosts", async () => {
+		const s = setup(false, "settings", undefined, 24, true);
+		const cursor = (width = 100) => s.panel.render(width).find((line) => line.includes("→")) ?? "";
+		for (let i = 0; i < 100 && !cursor().includes("Web UI address"); i++) s.panel.handleInput(K.down);
+		expect(cursor()).toContain("Web UI address");
+		expect(cursor()).toContain("127.0.0.1");
+		expect(cursor()).not.toContain("reachable on LAN");
+		s.settings().bindHost = "0.0.0.0";
+		s.update();
+		expect(cursor()).toContain("0.0.0.0 <warning>▲ reachable on LAN</warning>");
+		s.settings().bindHost = "localhost";
+		s.update();
+		expect(cursor()).not.toContain("reachable on LAN");
+		s.settings().bindHost = "0.0.0.0";
+		s.update();
+		expect(cursor(57)).toContain("0.0.0.0 <");
+		s.close(); await s.opening;
+	});
+
+	test("the token row labels a generated token and a custom one", async () => {
+		const s = setup(false, "settings");
+		selectSetting(s, "Web access token");
+		expect(s.cursor()).toContain("kave4ton generated");
+		expect(s.cursor()).not.toContain("(generated)");
+		s.settings().customToken = "my-own-token";
+		s.update();
+		expect(s.cursor()).toContain("my-own-token custom");
+		s.close(); await s.opening;
+	});
+
+	test("the timeline selects a row with a → cursor and a bold label, and paints ▣ in the group color", async () => {
+		const s = setup(false, "context", undefined, 24, true);
+		s.truth.setProtect(0);
+		s.truth.apply([{ kind: "group", ids: ["a", "b"], summary: "group summary" }], "you");
+		s.truth.apply([{ kind: "foldGroup", groupId: s.truth.groups[0].id }], "you");
+		s.update();
+		const screen = s.screen(100);
+		const selected = screen.split("\n").find((line) => line.includes("→"))!;
+		expect(selected).toContain("<accent>→");
+		expect(selected).toContain("<b>");
+		expect(selected).not.toContain("›");
+		expect(screen).toContain("▣");
+		expect(screen).not.toContain("<accent>▣");
+		expect(screen).toContain("\x1b[38;2;");
 		s.close(); await s.opening;
 	});
 });

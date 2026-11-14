@@ -12,6 +12,8 @@ export interface AccordionWebInfo {
 	bindHost: string;
 	port: number;
 	doorPort: number | null;
+	/** Whether this session holds the fixed-port door, another Accordion session does (this one retries), or the door cannot be used. */
+	door: "held" | "other" | "unavailable";
 	token: string;
 	clients: number;
 }

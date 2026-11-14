@@ -155,7 +155,9 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	};
 	const stats = () => host.truth()?.stats();
 	const dialNow = (kind: NumericDialKind) => kind === "budget" ? stats()?.budget : stats()?.protectTokens;
-	const shown = (row: Row): { value: string; source: string } => {
+	const LOOPBACK_HOSTS: Record<string, true> = { "127.0.0.1": true, "::1": true, localhost: true };
+	const DOOR_NOTE = { held: "door held", other: "door held by another session", unavailable: "door unavailable" } as const;
+	const shown = (row: Row): { value: string; note?: string; source: string } => {
 		const theme = shell.theme();
 		if (!isGlobal(row)) {
 			if (row.id === "folding") return { value: host.folding() ? "[x] armed" : "[ ] off", source: theme.fg("dim", "session") };
@@ -171,7 +173,15 @@ export function createSettingsTab(shell: Shell): PanelTab {
 		if (row.kind === "privacy") return { value: `granted ${clean(String(current))}`, source };
 		if (row.kind === "choice" || row.kind === "conductor") return { value: `‹ ${clean(String(current ?? "inherited"))} ›`, source };
 		if (row.kind === "model") return { value: clean(String(current ?? "default")), source };
-		if (row.path === "customToken") return { value: current === null ? `${clean(host.webInfo?.().token ?? "")} ${theme.fg("dim", "(generated)")}`.trim() : clean(String(current)), source };
+		if (row.path === "customToken") return { value: current === null ? clean(host.webInfo?.().token ?? "") : clean(String(current)), note: theme.fg("dim", current === null ? "generated" : "custom"), source };
+		if (row.path === "bindHost") {
+			const bind = clean(String(current ?? ""));
+			return { value: bind, ...(bind && !Object.hasOwn(LOOPBACK_HOSTS, bind.toLowerCase()) ? { note: theme.fg("warning", "▲ reachable on LAN") } : {}), source };
+		}
+		if (row.path === "doorPort") {
+			const door = host.webInfo?.().door;
+			return { value: clean(String(current ?? "")), ...(door ? { note: theme.fg("dim", DOOR_NOTE[door]) } : {}), source };
+		}
 		return { value: clean(row.kind === "list" ? JSON.stringify(current) : String(current ?? "")), source };
 	};
 
@@ -288,9 +298,12 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				if (index === selected) at = display.length;
 				const cell = shown(row), label = truncateToWidth(clean(row.label), labelWidth, "…");
 				const head = `${index === selected ? theme.fg("accent", "→") : " "} ${index === selected ? theme.bold(label) : label}${" ".repeat(Math.max(0, labelWidth - visibleWidth(label)))}  `;
-				const val = truncateToWidth(cell.value, Math.max(0, width - visibleWidth(head)), "…");
-				const gap = width - visibleWidth(head) - visibleWidth(val) - visibleWidth(cell.source);
-				display.push(gap >= 2 ? `${head}${val}${" ".repeat(gap)}${cell.source}` : `${head}${val}`);
+				const room = Math.max(0, width - visibleWidth(head));
+				const val = truncateToWidth(cell.value, room, "…");
+				const note = cell.note ? truncateToWidth(` ${cell.note}`, Math.max(0, room - visibleWidth(val)), "") : "";
+				const shownValue = `${val}${visibleWidth(note) > 1 ? note : ""}`;
+				const gap = width - visibleWidth(head) - visibleWidth(shownValue) - visibleWidth(cell.source);
+				display.push(gap >= 2 ? `${head}${shownValue}${" ".repeat(gap)}${cell.source}` : `${head}${shownValue}`);
 			}
 			if (at - 1 < top) top = at - 1;
 			if (at >= top + bodyRows) top = at - bodyRows + 1;
