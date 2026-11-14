@@ -44,7 +44,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | H8 | Debug totals (`liveTokens`, `fullTokens`) are computed before the debug-off check | `extension/accordion.ts:3119-3120` | open |
 | H9 | Recall expiry scans all blocks on every request near the budget | `core/recallExpiry.ts:47-74`, `extension/accordion.ts:3702` | open |
 | H10 | WebSocket `send` stringifies per client and never checks `bufferedAmount`; a slow client queues whole snapshots | `extension/accordion.ts:861-877` | open |
-| H11 | DROP role validation peeks forward per drop run: O(messages x runs) | `core/wire.ts:505-545` | open |
+| H11 | DROP role validation peeks forward per drop run: O(messages x runs) | `core/wire.ts:505-545` | no change: measured at 20,000 messages with 5,000 drop runs, the current code takes 6.8 ms (alternating) and 47 ms (adjacent runs). A rewrite with a per-pass lookahead table gave 24 ms and 11 ms, slower in the common shape, and was dropped |
 | H12 | The Anthropic frontier hook rescans task spans and the provider payload per request | `extension/taskCache.ts:55-76` | open |
 | H13 | Resume reads the branch three times and scans the entries once per consumer | `extension/accordion.ts:3396-3448,2848` | open |
 
