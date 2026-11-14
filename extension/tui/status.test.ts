@@ -12,9 +12,27 @@ describe("conductor status presentation", () => {
 		expect(footerText({ folding: true, conductor: "Taskfold", statusText: null, level: "info", usage: { live: 28000, budget: 100000 } })).toBe("accordion 28% · Taskfold");
 		expect(footerText({ folding: true, conductor: "Taskfold", statusText: null, level: "info", usage: { live: 10, budget: 0 } })).toBe("accordion · Taskfold");
 		expect(footerText({ folding: false, conductor: "Taskfold", timing: "pressure", statusText: null, level: "info" })).toBe("accordion off");
-		const long = footerText({ folding: true, conductor: "Thermocline", statusText: "HOLD 82% · 12 folded · 3 strata\n· probe off (age fallback)", level: "warning" }, 40);
-		expect(long).toHaveLength(40);
-		expect(long.endsWith("…")).toBe(true);
+	});
+
+	test("fits the footer by dropping status, then timing, then compacting; level glyph stays", () => {
+		const state = { folding: true, conductor: "Thermocline", conductorId: "thermocline", timing: "lazy" as const, statusText: "HOLD 82% · 12 folded · 3 strata · probe off (age fallback)", level: "warning" as const, usage: { live: 82000, budget: 100000 } };
+		expect(footerText(state, 140)).toBe("▲ accordion 82% · Thermocline · lazy · HOLD 82% · 12 folded · 3 strata · probe off (age fallback)");
+		expect(footerText(state, 80)).toBe("▲ accordion 82% · Thermocline · lazy");
+		expect(footerText(state, 57)).toBe("▲ accordion 82% · Thermocline · lazy");
+		expect(footerText(state, 36)).toBe("▲ accordion 82% · Thermocline · lazy");
+		expect(footerText(state, 30)).toBe("▲ accordion 82% · Thermocline");
+		expect(footerText(state, 24)).toBe("acc 82% · thermocline ▲");
+		expect(footerText({ ...state, level: "info", statusText: null, timing: null, conductor: "Taskfold", conductorId: "taskfold", usage: { live: 28000, budget: 100000 } }, 23)).toBe("acc 28% · taskfold ✓");
+		expect(footerText({ ...state, level: "error" }, 12)).toBe("acc 82% · t…");
+		expect(footerText({ ...state, usage: null, level: "error" }, 20)).toBe("acc · thermocline ✗");
+	});
+
+	test("measures display width and never splits a character", () => {
+		const state = { folding: true, conductor: "Taskfold", statusText: "任务 😀😀😀😀😀", level: "info" as const };
+		expect(footerText(state, 40)).toBe("accordion · Taskfold · 任务 😀😀😀😀😀");
+		expect(footerText(state, 22)).toBe("accordion · Taskfold");
+		expect(footerText(state, 11)).toBe("acc · Task…");
+		expect(footerText({ ...state, conductor: "😀😀😀😀😀😀😀😀" }, 9)).toBe("acc · 😀…");
 	});
 
 	test("alerts once per degraded episode and on escalation, not on changing text", () => {

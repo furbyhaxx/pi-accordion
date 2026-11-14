@@ -33,6 +33,8 @@ export interface AccordionTuiHost {
 	sessionId?(): string;
 	folding(): boolean;
 	conductors(): ActiveConductorMeta[];
+	/** Whether a conductor with a `privacy` declaration currently routes session content to a non-local model. */
+	conductorOffMachine?(id: string): boolean;
 	activeConductor(): ActiveConductorMeta | null;
 	conductorStatus?(): AccordionConductorStatus | null;
 	canSteer?(): boolean;

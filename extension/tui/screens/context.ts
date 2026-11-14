@@ -1,11 +1,11 @@
-import { matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import type { Op } from "../../../core/ops";
 import type { Block } from "../../../core/types";
-import { bindingHint, clean, fitSegments, type Hint, rawHint } from "../chrome";
-import { buildContextMap, colorKind, kindGlyph, renderCategoryBar } from "../map";
+import { bindingHint, clean, cutToWidth, fitSegments, type Hint, rawHint } from "../chrome";
+import { buildContextMap, colorKind, formatCompactTokens, kindGlyph, renderCategoryBar } from "../map";
 import { buildTimeline, clampCell, timelineColumns, type TimelineRow } from "../timeline";
 import type { PanelTab, Shell, TabView } from "./types";
-import { formatTokens } from "../../dials";
+import { openCompactPreview } from "./compact";
 
 const PREVIEW_CHARS = 240;
 
@@ -57,14 +57,20 @@ export function createContextTab(shell: Shell): PanelTab {
 			rangeId === b.id ? "range start" : "",
 		].filter(Boolean).join(" ");
 	};
+	/** One block as aligned columns: `kind(10) state(14) tokens(8) label(rest)` (SPEC-0001 §5.4). */
 	const row = (b: Block, selected: boolean, width: number): string => {
 		const theme = shell.theme();
 		const truth = host.truth();
-		const name = clean(b.toolName ?? b.id);
-		const identity = `${kindGlyph(b.kind, !!truth?.isFolded(b), !!truth?.groupOf(b)?.folded)} ${b.kind} ${name}`;
-		const sep = theme.fg("dim", " · ");
+		const pad = (text: string, columns: number): string => cutToWidth(text, columns) + " ".repeat(Math.max(0, columns - visibleWidth(cutToWidth(text, columns))));
+		const kind = pad(`${kindGlyph(b.kind, !!truth?.isFolded(b), !!truth?.groupOf(b)?.folded)} ${b.kind}`, 10);
+		const label = `${clean(b.toolName ?? b.id)} ${clean(b.text.slice(0, PREVIEW_CHARS))}`;
 		return fitSegments(
-			[`${selected ? theme.fg("accent", "→") : " "} ${selected ? theme.bold(identity) : identity}`, `${sep}${stateOf(b)}`, `${sep}${theme.fg("muted", `${b.tokens} tok`)}`, `${sep}${theme.fg("dim", clean(b.text.slice(0, PREVIEW_CHARS)))}`],
+			[
+				`${selected ? theme.fg("accent", "→") : " "} ${selected ? theme.bold(kind) : kind}`,
+				` ${pad(stateOf(b), 14)}`,
+				` ${theme.fg("muted", formatCompactTokens(b.tokens).padStart(8))}`,
+				` ${theme.fg("dim", label)}`,
+			],
 			width,
 		);
 	};
@@ -108,14 +114,14 @@ export function createContextTab(shell: Shell): PanelTab {
 		const kindWord = block ? clean(block.kind.replace("_", " ")) : "block";
 		const who = block ? clean(block.toolName ?? block.id) : "";
 		const size = block && truth ? (inspectDigest && group?.folded ? truth.groupLiveTokens(group) : truth.effTokens(block)).toLocaleString("en-US") : "";
-		const headerLine = fitSegments([[kindWord, who, size ? `${size} tok` : "", describe(block)].filter(Boolean).join(" · ")], width);
+		const headerLine = fitSegments([[kindWord, who, size ? `${size} tok` : "", block ? stateOf(block) : ""].filter(Boolean).join(" · ")], width);
 		const room = Math.max(1, rows - 1);
 		inspectTop = Math.max(0, Math.min(inspectTop, lines.length - room));
 		return {
 			body: [theme.fg("muted", headerLine), ...lines.slice(inspectTop, inspectTop + room)],
 			crumbs: ["Inspector"],
 			description: `${describe(block)} · showing ${inspectDigest ? "digest" : "original"}`,
-			hints: [rawHint(theme, "↑↓", "scroll", 2), rawHint(theme, "alt+v", inspectDigest ? "original" : "digest", 3), rawHint(theme, "alt+e", "edit digest", 4), bindingHint(theme, keys, "tui.select.pageDown", "pageDown", "page", 6)],
+			hints: [rawHint(theme, "↑↓", "scroll", 2), rawHint(theme, "home end", "top/bottom", 7), rawHint(theme, "alt+v", inspectDigest ? "original" : "digest", 3), rawHint(theme, "alt+e", "edit digest", 4), bindingHint(theme, keys, "tui.select.pageDown", "pageDown", "page", 6)],
 			above: inspectTop,
 			below: Math.max(0, lines.length - inspectTop - room),
 		};
@@ -159,7 +165,7 @@ export function createContextTab(shell: Shell): PanelTab {
 	const timelineView = (truth: NonNullable<ReturnType<typeof host.truth>>, width: number, rows: number): TabView => {
 		const theme = shell.theme();
 		const cols = timelineColumns(width);
-		const all = buildTimeline(truth);
+		const all = buildTimeline(truth, { promptWidth: cols.prompt || undefined });
 		syncTimelineSelection(all);
 		const header = fitSegments(
 			[
@@ -188,8 +194,8 @@ export function createContextTab(shell: Shell): PanelTab {
 				theme.fg(selected ? "accent" : "dim", `${mark}${turn.padStart(cols.turn - 1)}`),
 				...(cols.prompt ? [fitSegments([clean(row.label)], cols.prompt)] : []),
 				strip,
-				theme.fg("muted", formatTokens(row.live).padStart(cols.live)),
-				...(cols.full ? [theme.fg("dim", formatTokens(row.full).padStart(cols.full))] : []),
+				theme.fg("muted", formatCompactTokens(row.live).padStart(cols.live)),
+				...(cols.full ? [theme.fg("dim", formatCompactTokens(row.full).padStart(cols.full))] : []),
 			];
 			body.push(fitSegments([segments.filter(Boolean).join(" ")], width));
 		}
@@ -213,7 +219,7 @@ export function createContextTab(shell: Shell): PanelTab {
 		const glyphs = row.cells.map((cell, i) => {
 			const group = cell.groupId ? host.truth()?.groups.find((g) => g.id === cell.groupId) : undefined;
 			const painted = cell.glyph === "▣" ? theme.fg("accent", "▣") : colorKind(cell.kind, cell.glyph, cell.folded, !!group?.folded);
-			return `${cell.boundary ? theme.fg("warning", "┃") : ""}${i === selectedCell ? (theme.inverse?.(painted) ?? painted) : painted}`;
+			return `${cell.boundary ? theme.fg("warning", "┃") : ""}${i === selectedCell ? (theme.inverse?.(painted) ?? painted) : painted}${cell.bolted ? theme.fg("dim", "!") : ""}`;
 		});
 		const joined = glyphs.join("");
 		const plain = row.cells.length;
@@ -263,6 +269,8 @@ export function createContextTab(shell: Shell): PanelTab {
 				else if (down) inspectTop++;
 				else if (pageUp) inspectTop = Math.max(0, inspectTop - pageRows);
 				else if (pageDown) inspectTop += pageRows;
+				else if (matchesKey(data, "home")) inspectTop = 0;
+				else if (matchesKey(data, "end")) inspectTop = Number.MAX_SAFE_INTEGER;
 				else if (matchesKey(data, "alt+v")) {
 					inspectDigest = !inspectDigest;
 					inspectTop = 0;
@@ -317,30 +325,8 @@ export function createContextTab(shell: Shell): PanelTab {
 				inspectDigest = false;
 			} else if (matchesKey(data, "alt+v")) mode = mode === "timeline" ? "grid" : mode === "grid" ? "list" : "timeline";
 			else if (matchesKey(data, "alt+o")) void shell.send({ kind: "setFolding", value: !host.folding() });
-			else if (matchesKey(data, "alt+c")) {
-				const compact = host.compact?.bind(host);
-				if (!compact) shell.say("Compaction is not available on this host");
-				else {
-					const preview = host.compactPreview?.() ?? null;
-					const saved = (n: number | null, unknown: string) => (n === null ? unknown : n > 0 ? `−${formatTokens(n)}` : "nothing");
-					shell.confirm({
-						crumb: "Compact",
-						title: [
-							"Compact the context now?",
-							`pass         Taskfold decides              ${saved(preview?.pass ?? null, "conductor decides")}`,
-							`aggressive   fold every eligible block     ${saved(preview?.aggressive ?? null, "unknown")}`,
-							`bake         permanent summary, no recall  ${saved(preview?.bake ?? null, "unknown")}`,
-							`native       pi summarizes (model call)    unknown`,
-						].join("\n"),
-						options: ["pass", "aggressive", "bake", "native"],
-						then: (choice) => {
-							const strategy = choice === null ? undefined : (["pass", "aggressive", "bake", "native"] as const)[choice];
-							if (!strategy) return;
-							void shell.run(`Compacting (${strategy})…`, async () => (await compact(strategy)).message);
-						},
-					});
-				}
-			} else if (matchesKey(data, "alt+e")) editDigest("edit");
+			else if (matchesKey(data, "alt+c")) openCompactPreview(shell);
+			else if (matchesKey(data, "alt+e")) editDigest("edit");
 			else if (matchesKey(data, "alt+r")) editDigest("default");
 			else if (!block || !truth) return false;
 			else if (matchesKey(data, "alt+f")) op({ kind: truth.isFolded(block) ? "unfold" : "fold", ids: [block.id] });

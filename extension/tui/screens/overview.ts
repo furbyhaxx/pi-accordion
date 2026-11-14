@@ -5,10 +5,13 @@
  * healthy, and where is the web UI" without leaving the frame. Numbers come from the same
  * breakdown the Context tab draws, so the two can never disagree.
  */
-import { matchesKey } from "@earendil-works/pi-tui";
-import { bindingHint, clean, rawHint } from "../chrome";
+import { matchesKey, visibleWidth } from "@earendil-works/pi-tui";
+import { bindingHint, clean, fitSegments, rawHint } from "../chrome";
 import { buildContextBreakdown, formatCompactTokens, renderCategoryBar } from "../map";
 import { statusLevel } from "../status";
+import { buildTaskTree, summarizeTasks } from "../taskTree";
+import { foldedTaskIds, foldedTaskTokens } from "../taskWidget";
+import { openCompactPreview } from "./compact";
 import type { PanelTab, Shell } from "./types";
 import type { TaskList } from "../../tasks";
 
@@ -29,22 +32,29 @@ export function pressureText(opts: { folding: boolean; high: number | null; budg
 	return parts.join(" · ");
 }
 
+/** The Tasks row: `<title> <done>/<total> · ≡<folded> · <current id and title>`, parts that do not apply left out. */
+export function tasksRowText(list: TaskList, folded: ReadonlySet<string>, now: number): string | null {
+	const summary = summarizeTasks(buildTaskTree(list.tasks ?? []), folded, now);
+	if (!summary.total) return null;
+	const current = summary.current?.task;
+	return [`${clean(list.title)} ${summary.done}/${summary.total}`, summary.folded > 0 ? `≡${summary.folded}` : "", current ? `${current.id} ${clean(current.title)}` : ""].filter(Boolean).join(" · ");
+}
+
 export function createOverviewTab(shell: Shell): PanelTab {
 	const host = shell.host;
-	const line = (label: string, value: string, width: number): string => {
+	/** Which row Enter opens; Tasks is selectable only while its row is shown. */
+	let focus: "context" | "tasks" = "context";
+	const line = (label: string, value: string, width: number, mark = " "): string => {
 		const theme = shell.theme();
-		const head = `  ${theme.fg("muted", label.padEnd(9))}`;
-		const room = Math.max(1, width - 11);
-		return `${head}${value.length > room ? `${value.slice(0, Math.max(0, room - 1))}…` : value}`;
+		return fitSegments([`${mark} ${theme.fg("muted", label.padEnd(10))}${value}`], width);
 	};
 	const wrapped = (text: string, width: number, max: number): string[] => {
 		const room = Math.max(1, width - 2);
-		const words = text.replace(/\s+/g, " ").trim().split(" ");
 		const lines: string[] = [];
 		let current = "";
-		for (const word of words) {
+		for (const word of clean(text).replace(/\s+/g, " ").trim().split(" ")) {
 			if (!current) current = word;
-			else if (current.length + 1 + word.length <= room) current += ` ${word}`;
+			else if (visibleWidth(`${current} ${word}`) <= room) current += ` ${word}`;
 			else {
 				lines.push(current);
 				current = word;
@@ -52,7 +62,14 @@ export function createOverviewTab(shell: Shell): PanelTab {
 			}
 		}
 		if (lines.length < max && current) lines.push(current);
-		return lines.slice(0, max).map((l) => `  ${l}`);
+		return lines.slice(0, max).map((l) => `  ${fitSegments([l], room)}`);
+	};
+	/** The list the Tasks row shows, with its row text. */
+	const tasksRow = (truth: NonNullable<ReturnType<typeof host.truth>>): string | null => {
+		const lists = host.tasks?.views.lists?.() ?? [];
+		const list = lists.find((l) => listProgress(l)) ?? lists[0];
+		if (!list) return null;
+		return tasksRowText(list, foldedTaskIds(list, foldedTaskTokens(list, truth)), Date.now());
 	};
 
 	return {
@@ -85,10 +102,9 @@ export function createOverviewTab(shell: Shell): PanelTab {
 			body.push(line("Conductor", conductor ? `${clean(conductor.label).padEnd(18)} ${glyph}` : theme.fg("dim", "none attached"), width));
 			const statusText = host.conductorStatus?.()?.text;
 			if (conductor && statusText) body.push(...wrapped(statusText, width, 2));
-			const lists = host.tasks?.views.lists?.() ?? [];
-			const attachedList = lists.find((l) => listProgress(l)) ?? lists[0];
-			const progress = attachedList ? listProgress(attachedList) : null;
-			if (attachedList && progress) body.push(line("Tasks", `${attachedList.title} ${progress}`, width));
+			const tasksText = tasksRow(truth);
+			if (!tasksText) focus = "context";
+			else body.push(line("Tasks", focus === "tasks" ? theme.bold(tasksText) : tasksText, width, focus === "tasks" ? theme.fg("accent", "→") : " "));
 			const web = host.webInfo?.();
 			if (web?.url) {
 				const clients = `${web.clients} client${web.clients === 1 ? "" : "s"}${web.doorPort ? ` · door ${web.doorPort}` : ""}`;
@@ -99,7 +115,8 @@ export function createOverviewTab(shell: Shell): PanelTab {
 				crumbs: [],
 				description: "The session's context, its savings and its conductor. Enter opens the timeline.",
 				hints: [
-					bindingHint(theme, shell.keys(), "tui.select.confirm", "enter", "context", 1),
+					bindingHint(theme, shell.keys(), "tui.select.confirm", "enter", focus === "tasks" ? "tasks" : "context", 1),
+					...(tasksText ? [rawHint(theme, "↑↓", "row", 5)] : []),
 					rawHint(theme, "alt+c", "compact", 2),
 					rawHint(theme, "alt+o", "folding on/off", 3),
 					...(host.tasks ? [rawHint(theme, "alt+t", "tasks", 4)] : []),
@@ -110,7 +127,13 @@ export function createOverviewTab(shell: Shell): PanelTab {
 		},
 		key(data) {
 			if (matchesKey(data, "return") || data === "\r") {
-				shell.openTab?.("context");
+				shell.openTab?.(focus);
+				return true;
+			}
+			if (matchesKey(data, "up") || matchesKey(data, "down")) {
+				const truth = host.truth();
+				if (!truth || !tasksRow(truth)) return false;
+				focus = focus === "context" ? "tasks" : "context";
 				return true;
 			}
 			if (matchesKey(data, "alt+o")) {
@@ -122,8 +145,7 @@ export function createOverviewTab(shell: Shell): PanelTab {
 				return true;
 			}
 			if (matchesKey(data, "alt+c")) {
-				shell.openTab?.("context");
-				shell.say("Compact from the Context tab (alt+c)", "info");
+				openCompactPreview(shell);
 				return true;
 			}
 			return false;

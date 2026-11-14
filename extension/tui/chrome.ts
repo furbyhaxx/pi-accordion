@@ -48,6 +48,19 @@ export function bodyRowsFor(terminalRows: number): number {
 	return Math.max(MIN_BODY_ROWS, Math.min(MAX_BODY_ROWS, terminalRows - CHROME_ROWS - HOST_ROWS));
 }
 
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Plain-text cut to `max` columns with a trailing `…`, on grapheme boundaries and without escape codes. */
+export function cutToWidth(text: string, max: number): string {
+	if (visibleWidth(text) <= max) return text;
+	let out = "";
+	for (const { segment } of graphemes.segment(text)) {
+		if (visibleWidth(out + segment) > max - 1) break;
+		out += segment;
+	}
+	return max > 0 ? `${out.trimEnd()}…` : "";
+}
+
 /** Keep leading segments that fit `width`; the first one is always kept, truncated if it must be. */
 export function fitSegments(segments: string[], width: number): string {
 	let out = segments[0] ?? "";
