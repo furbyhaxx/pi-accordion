@@ -30,8 +30,8 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` to manage the current session in Pi's terminal. The panel has five tabs,
-Context (map and block list, `alt+v` switches), Tasks, Lists, Conductors and Settings; `Tab` switches tabs,
+Run `/accordion` to manage the current session in Pi's terminal. The panel has six tabs: Overview, Context (map and block list, `alt+v` switches),
+Tasks, Lists, Conductors and Settings; `Tab` switches tabs,
 typing filters the block list, `F1` lists the keys of the current tab. Every action is a modifier
 chord (`alt+f` fold, `alt+p` pin, `alt+e` edit digest, `alt+c` compact, …); settings for all
 sessions are staged and saved with `ctrl+s`. `/accordion context|conductors|settings` opens a tab
@@ -218,9 +218,9 @@ Every block is **Full**, **Folded** (shown as a short tagged summary), or **Pinn
 fully reversible. The most recent ~20k tokens are a **protected working tail** the agent
 reasons over at full fidelity.
 
-**Conductors are opt-in, same as folding itself** — pick one from the header's Conductor
-menu, or leave it on "None" for fully manual steering. `compaction-naive`, `handoff`,
-`doorman`, `keel-lite`, `keel-note`, and `taskfold` run right inside this extension, no extra setup. Two more, `thermocline`
+By default, `autoArm` is `true`: session start arms folding and attaches `defaultConductor` (`keel-lite` by default).
+Set it to `false` to start unarmed. Choose a conductor in the menu, or select `None` for fully manual steering.
+`compaction-naive`, `handoff`, `doorman`, `keel-lite`, `keel-note` and `taskfold` run right inside this extension, no extra setup. Two more, `thermocline`
 (attention-gated compression under a hard budget invariant) and `triptych` (pressure-gated
 thirds with tree-sitter code skeletons), each run as their own out-of-process Node program.
 The root Git-installable package includes their runners; availability also depends on their runtime
@@ -245,12 +245,12 @@ surface currently holding control may send a command that actually changes anyth
 every other connected client is a live mirror, so multiple open tabs/windows can never
 silently race each other to steer the same session.
 
-Folding is **opt-in and off by default** — flip the **Folding** toggle in the header to
-start steering what the agent sees. When it's off, pi's `context` hook is a no-op and your
-messages reach the model untouched. When it's on, the hook applies your **current** fold
-state locally, in-process, immediately before the model call: there's no GUI round trip and
-no timeout to tune, because the state the extension already holds *is* the state applied,
-synchronously, every time.
+The **Folding** toggle controls this session's folding state. Session start arms folding by default
+(`autoArm: true`); set `autoArm: false` in `~/.accordion/config.json` or Settings to start with it off.
+When folding is off, pi's `context` hook is a no-op and your messages reach the model untouched.
+When folding is on, the hook applies your **current** fold state locally, in-process,
+immediately before the model call: there's no GUI round trip and no timeout to tune,
+because the state the extension already holds *is* the state applied, synchronously, every time.
 
 `recall` returns at most `callTokens` per call and keeps at most `liveTokens` of recalled text in
 the context. A recall result is replaced by a one-line note naming the call once `keepSteps`
@@ -287,10 +287,9 @@ the background. Set `recall.ledger.enabled` to `false` to disable extraction. `r
 limits extraction to 120 model calls per session process by default (range 1–10,000); raising it
 allows deferred tasks to be extracted.
 
-A conductor's out-of-band completion calls (the LLM calls it makes to summarize or hand off
-context) never appear on the `context` hook path. If you need their cost/usage for external
-accounting, set `ACCORDION_COMPLETION_LOG=<path>` and the extension appends one JSON line
-per completion (success or failure) to that file.
+A conductor's out-of-band completion calls never appear on the `context` hook path. When
+debug logging is enabled, their usage and replies are recorded as `complete` events in the
+private debug log. See [Debug diagnostics](#debug-diagnostics) or use `/accordion debug on|off`.
 
 ## Debug diagnostics
 
@@ -334,7 +333,7 @@ This package registers three Pi skills:
 
 - ✅ Browser-served UI — no desktop app required
 - ✅ Live link to a running pi session
-- ✅ Opt-in live steering — apply your fold plan to what the agent is shown
+- ✅ Automatic live folding — apply your fold plan to what the agent is shown.
 - ✅ Reversible, provider-safe folding with deterministic `{#code FOLDED}` digests
 - ✅ Agent-driven unfold + `recall`, involvement locks
 - ✅ The Conductor — automatic fold/unfold between turns
