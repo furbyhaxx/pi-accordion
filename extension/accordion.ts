@@ -72,7 +72,7 @@ import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
-import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_DEFAULTS, TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { createRouting } from "./taskRouting";
 import { nativeCompletion, type CompletionFunction } from "./nativeCompletion";
@@ -900,6 +900,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Broadcast a stream lifecycle frame to every attached client (presentation-only ghosts). */
 	function sendStream(frame: StreamMessage): void {
 		broadcast(frame);
+	}
+
+	function taskfoldHigh(): number {
+		const high = settings.conductorOptions.taskfold?.high;
+		return typeof high === "number" ? high : TASKFOLD_DEFAULTS.high;
 	}
 
 	// ── Phase C: the live conductor host (registry, locks, wire-departing hold, completion relay) ─
@@ -2045,7 +2050,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const origin = req.headers.origin;
 		// Tokenless native/Tauri clients are allowed ONLY from loopback peers.
 		if (peerLoopback && (typeof origin !== "string" || origin === "")) { cb(true); return; } // native client
-		if (peerLoopback && isTrustedTauriOrigin(origin)) { cb(true); return; }
+		if (peerLoopback && typeof origin === "string" && isTrustedTauriOrigin(origin)) { cb(true); return; }
 		if (isBearer(token)) { cb(true); return; } // explicit bearer (webToken, doorSecret, or customToken)
 		// A page served by us (webToken cookie) OR by the door (door-secret cookie) — both still gated
 		// by an exact-served-Origin check so an ambient host-scoped cookie can't authorize cross-port.
@@ -2058,7 +2063,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 		// A browser page served by another live Accordion session is the one intentional
 		// cross-origin path. verifyClient supports an asynchronous callback.
-		void isKnownAccordionLoopbackOrigin(origin).then(
+		void isKnownAccordionLoopbackOrigin(origin ?? "").then(
 			(ok) => cb(ok, ok ? undefined : 403, ok ? undefined : "cross-origin WebSocket blocked"),
 			() => cb(false, 403, "cross-origin WebSocket blocked"),
 		);
@@ -3703,7 +3708,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (clipped.length) truth.apply(clipped, "auto");
 			}
 			// Near the budget, recall results that were already used go first: they are copies.
-			if (truth && truth.budget > 0 && truth.stats().liveTokens >= settings.taskfold.high * truth.budget) releaseRecall(false);
+			if (truth && truth.budget > 0 && truth.stats().liveTokens >= taskfoldHigh() * truth.budget) releaseRecall(false);
 			if (truth) {
 				// (b) PHASE C: the wire-departing hold. ONLY paid when folding is armed AND the attached
 				//     conductor declares a hold window — the sync fast path (no conductor / no hold /
@@ -4752,15 +4757,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				? params.codes.map((s) => String(s).trim()).filter((s) => s.length > 0)
 				: [];
 			if (!codes.length) {
-				return { content: [{ type: "text", text: 'No fold codes given. Pass the code(s) from a {#<code> FOLDED} tag, e.g. unfold({codes:["3f9a2c"]}).' }] };
+				return { content: [{ type: "text", text: 'No fold codes given. Pass the code(s) from a {#<code> FOLDED} tag, e.g. unfold({codes:["3f9a2c"]}).' }], details: undefined };
 			}
 			// Nothing rides the wire folded unless folding is armed, so there is nothing to unfold.
 			if (!truth || !foldingEnabled) {
-				return { content: [{ type: "text", text: "Accordion isn't folding your context right now, so nothing is folded to restore — it is already full." }] };
+				return { content: [{ type: "text", text: "Accordion isn't folding your context right now, so nothing is folded to restore — it is already full." }], details: undefined };
 			}
 			// LOCAL: mutates the Truth (broadcasts to clients). Bounded: a fold too large to stand in the
 			// context stays folded and the agent is pointed at `recall` (SPEC-0003 §6).
-			const ceiling = truth.budget > 0 ? settings.taskfold.high * truth.budget : Number.POSITIVE_INFINITY;
+			const ceiling = truth.budget > 0 ? taskfoldHigh() * truth.budget : Number.POSITIVE_INFINITY;
 			const res = resolveUnfoldBounded(truth, codes.map((c) => c.replace(/^#/, "")), { maxTokens: settings.recall.unfoldTokens, ceiling });
 			const lines: string[] = [];
 			for (const r of res.refused) {
@@ -4914,10 +4919,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			const query = typeof params.query === "string" && params.query.trim() ? params.query : undefined;
 			const ask = typeof params.ask === "string" && params.ask.trim() ? params.ask.trim().slice(0, 1000) : undefined;
 			if (!codes.length && !query && !ask) {
-				return { content: [{ type: "text", text: 'Nothing to recall: pass codes from {#<code> FOLDED} tags, e.g. recall({codes:["3f9a2c"]}), or a query to search all folded content, e.g. recall({query:"ECONNREFUSED"}).' }] };
+				return { content: [{ type: "text", text: 'Nothing to recall: pass codes from {#<code> FOLDED} tags, e.g. recall({codes:["3f9a2c"]}), or a query to search all folded content, e.g. recall({query:"ECONNREFUSED"}).' }], details: undefined };
 			}
 			if (!truth) {
-				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }] };
+				return { content: [{ type: "text", text: "Accordion isn't attached, so nothing in your context is folded right now — it is already full." }], details: undefined };
 			}
 			if (ask) return answerRecall(truth, toolCallId, ask, codes, query, signal);
 			// LOCAL read — never mutates fold state. The account bounds what all calls together may add.

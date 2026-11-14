@@ -1124,7 +1124,7 @@ export interface TaskResult {
 	total?: number;
 	noGoal?: true;
 	doing?: string[];
-	blocked?: { id: string; reason: BlockReason; detail: string; on?: string }[];
+	blocked?: { id: string; reason: StoredBlockReason; detail: string; on?: string }[];
 	/** Unfinished leaves that still need acceptance criteria, with the call that adds them. */
 	criteriaMissing?: { id: string; title: string; has: number }[];
 }

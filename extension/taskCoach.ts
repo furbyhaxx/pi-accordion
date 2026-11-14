@@ -4,7 +4,7 @@
  * Pure state plus text; the extension feeds it tool results and the attached list.
  */
 import { charsToTokens } from "../core/tokens";
-import { currentBlock, IDLE_REASONS, type BlockReason, type Task, type TaskList } from "./tasks";
+import { currentBlock, IDLE_REASONS, type Task, type TaskBlock, type TaskList } from "./tasks";
 import { floorFoldNote, largeLeafReminder } from "./taskBinding";
 
 /**
@@ -85,7 +85,7 @@ export const IDLE_ENTRY = "accordion.tasks.idle";
 /** Where the agent stands when it stops: still working, legitimately waiting, or stopped early. */
 export type IdleVerdict =
 	| { state: "in-progress"; task: string }
-	| { state: "waiting"; tasks: { id: string; reason: BlockReason }[] }
+	| { state: "waiting"; tasks: { id: string; reason: TaskBlock["reason"] }[] }
 	| { state: "pending"; next: string }
 	| { state: "finished" };
 

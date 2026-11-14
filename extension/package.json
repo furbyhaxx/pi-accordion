@@ -6,6 +6,7 @@
   "description": "Pi-native context visualization and reversible folding.",
   "keywords": ["pi-package"],
   "scripts": {
+    "check": "npx -y -p typescript@5.9 tsc -p tsconfig.check.json",
     "build:app": "npm --prefix ../app run build",
     "build:extension": "node ./build-extension.mjs",
     "build:client": "node ./build-client.mjs",
