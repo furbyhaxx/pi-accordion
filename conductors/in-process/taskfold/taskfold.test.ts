@@ -33,6 +33,9 @@ class Session {
 		this.turn++;
 		return this.push({ id: `u:${1000 + this.order}`, kind: "user", text });
 	}
+	custom(text: string): string {
+		return this.push({ id: `c:${1000 + this.order}:notice`, kind: "custom", text });
+	}
 	text(text: string): string {
 		return this.push({ id: `a:resp${++this.resp}:p0`, kind: "text", text });
 	}
@@ -331,6 +334,52 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 		}
 	});
 describe("taskfold", () => {
+	it("folds extension notices in task spans without classifying or routing them", async () => {
+		const s = new Session();
+		s.user("Build it.");
+		const start = s.start("1", "Build").call;
+		const notice = s.custom("extension notice ".repeat(500));
+		s.text("Working.");
+		s.finish("1", { outcome: "Done" });
+		s.work(2, "tail");
+		const index = s.blocks.findIndex((b) => b.id === notice);
+		const span = scanTaskSpans(s.blocks, (b) => b.text)[0];
+		expect(span.intervals.some((r) => r.start <= index && index <= r.end)).toBe(true);
+		const host = new TestHost(), ledger = new VerdictLedger();
+		const classifier = vi.fn(() => ({ answers: { loss: { type: "score" as const, score: 2, confidence: 0.9 } }, model: "test" }));
+		host.setProtect(0);
+		const prepare = vi.fn(() => ({ system: "Extract", prompt: "p", apply: async () => ({ ids: [], applied: 0, dropped: 0 }) }));
+		host.classifier = classifier;
+		const c = new TaskfoldConductor({ keepRecentTasks: 0 }, ledger, { current: { prepare } });
+		c.attach(host);
+		host.appendBlocks(s.blocks);
+		await new Promise((r) => setTimeout(r, 0));
+		await host.departWire();
+		expect(groupOf(host, notice)?.id).toBe(groupOf(host, start)?.id);
+		expect(groupOf(host, notice)).toBeDefined();
+		expect(ledger.get(notice)).toBeUndefined();
+		expect(classifier).not.toHaveBeenCalled();
+		expect(prepare).not.toHaveBeenCalled();
+		c.detach();
+	});
+
+	it("counts a custom-only untracked run and seals it only at a human turn", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const notice = s.custom("large extension work ".repeat(1000));
+		const host = setup(s, 10);
+		host.setProtect(0);
+		const c = await attach(host);
+		expect(groupOf(host, notice)).toBeUndefined();
+		const at = s.blocks.length;
+		s.user("Continue.");
+		s.text("Continuing.");
+		host.appendBlocks(s.blocks.slice(at));
+		await host.commitTurn();
+		expect(carrier(groupOf(host, notice))?.untracked).toBeDefined();
+		c.detach();
+	});
+
 	it("keeps a closing message shared with the next start intact in bracket form", async () => {
 		const s = new Session();
 		s.user("Build two.");
@@ -786,6 +835,7 @@ describe("taskfold", () => {
 		s.work(6, "outside");
 		const work = s.blocks.slice(start).map((b) => b.id);
 		const reply = s.text("Finished.");
+		s.custom("Notice after the reply.");
 		const steering = s.user("Continue.");
 		const tail = s.blocks.length;
 		s.work(2, "tail");

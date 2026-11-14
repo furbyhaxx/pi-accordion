@@ -126,7 +126,7 @@ const MAX_SKELETON_RATIO = 0.6;
 const READ_TOOLS = new Set(["read", "read_file", "readfile", "view", "open"]);
 const WRITE_TOOLS = new Set(["write", "edit", "multiedit", "multi_edit", "write_file", "edit_file", "create_file"]);
 const BASH_TOOLS = new Set(["bash", "shell", "sh", "exec_command", "run_command", "execute", "powershell", "pwsh"]);
-const FOLDABLE: ReadonlySet<ViewBlock["kind"]> = new Set(["text", "thinking", "tool_result"]);
+const FOLDABLE: ReadonlySet<ViewBlock["kind"]> = new Set(["text", "thinking", "tool_result", "custom"]);
 const ASSISTANT_PART: ReadonlySet<ViewBlock["kind"]> = new Set(["text", "thinking", "tool_call"]);
 
 const SPEC_BASENAME = /^spec_.+\.md$/i;
@@ -456,6 +456,12 @@ export class KeelLiteConductor implements Conductor {
 		let i = 0;
 		while (i < pfi) {
 			const b = blocks[i];
+			if (b.kind === "custom" && groupable(i)) {
+				const previous = steps.at(-1);
+				if (previous) previous.end = i;
+				i++;
+				continue;
+			}
 			if (!ASSISTANT_PART.has(b.kind) || messageKey(b.id) === b.id) {
 				steps.push(null);
 				i++;

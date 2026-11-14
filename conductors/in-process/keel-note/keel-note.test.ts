@@ -42,6 +42,9 @@ class Session {
 		this.turn++;
 		return this.push({ id: `u:${1000 + this.order}`, kind: "user", text });
 	}
+	custom(text: string): string {
+		return this.push({ id: `c:${1000 + this.order}:notice`, kind: "custom", text });
+	}
 	step(p: { think?: string; say?: string; calls?: Call[]; signed?: boolean }): StepIds {
 		const r = ++this.resp;
 		let j = 0;
@@ -309,6 +312,21 @@ async function withLandedNote<H extends NoteHost = NoteHost>(opts: ConstructorPa
 // ── tests ───────────────────────────────────────────────────────────────────────────────────
 
 describe("keel-note · budget reserve", () => {
+	it("captures folded extension content with its own label and never uses it as a carrier", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const notice = s.custom("NOTICE-MARKER ".repeat(1000));
+		s.step({ say: "Continuing." });
+		const host = setup(s, { protect: 0, budget: 100 });
+		const c = new KeelNoteConductor(EAGER);
+		c.attach(host);
+		await host.commitTurn();
+		expect(host.get(notice)?.folded).toBe(true);
+		expect(host.calls[0].req.prompt).toContain("[extension message]\nNOTICE-MARKER");
+		expect(c.noteState.carrierId).not.toBe(notice);
+		c.detach();
+	});
+
 	it("reserves the whole cap inside keel-lite's budget math before any note exists", async () => {
 		// live = 84% of budget: keel-lite alone says nothing; with the 600-token reserve keel-note trims.
 		const a = session(12);

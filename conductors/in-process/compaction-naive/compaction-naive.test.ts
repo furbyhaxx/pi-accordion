@@ -111,6 +111,23 @@ async function runPass1(summaryText = SUMMARY_A): Promise<{ host: TestHost; cond
 }
 
 describe("NaiveCompactionConductor — trigger + first pass", () => {
+	it("includes aged extension messages under their distinct prompt label", async () => {
+		const host = new TestHost();
+		host.setBudget(BUDGET);
+		host.setProtect(PROTECT);
+		const blocks = buildPass1Blocks();
+		blocks[1] = mkBlock("c:1001:notice", 1, "custom", TOK, "EXTENSION-NOTICE");
+		host.appendBlocks(blocks);
+		const conductor = new NaiveCompactionConductor();
+		conductor.attach(host);
+		host.queueCompletion({ text: SUMMARY_A });
+		host.commitTurn();
+		await flush();
+		expect(host.completeLog[0].prompt).toContain("[extension message]\nEXTENSION-NOTICE");
+		expect(host.truth.groups[0].memberIds).toContain("c:1001:notice");
+		conductor.detach();
+	});
+
 	it("does not trigger below the 90% high-water mark", async () => {
 		const host = new TestHost();
 		host.setBudget(BUDGET);

@@ -1125,9 +1125,12 @@ export class TaskfoldConductor implements Conductor {
 			lastUser = i;
 			if (i === 0) continue;
 			let start = i - 1;
+			while (start >= 0 && blocks[start].kind === "custom") start--;
+			if (start < 0) continue;
+			const end = start + 1;
 			const key = messageKey(blocks[start].id);
 			while (start > 0 && messageKey(blocks[start - 1].id) === key) start--;
-			if (blocks[start].kind !== "user" && !blocks.slice(start, i).some((b) => b.kind === "tool_call")) finalReplies.add(key);
+			if (blocks[start].kind !== "user" && !blocks.slice(start, end).some((b) => b.kind === "tool_call")) finalReplies.add(key);
 		}
 		const limits = mode === "sealed"
 			? { minSteps: 1, minReclaimed: cold ? UNTRACKED_PRESSURE_MIN_TOKENS : this.k.untracked.minTokens, pressure: false }
@@ -1196,7 +1199,7 @@ export class TaskfoldConductor implements Conductor {
 		let saved = 0;
 		for (const { key, members } of runs) {
 			if (saved >= need) break;
-			const steps = new Set(members.filter((b) => b.kind === "text" || b.kind === "thinking" || b.kind === "tool_call").map((b) => messageKey(b.id)));
+			const steps = new Set(members.filter((b) => b.kind === "text" || b.kind === "thinking" || b.kind === "tool_call" || b.kind === "custom").map((b) => messageKey(b.id)));
 			if (steps.size < limits.minSteps) continue;
 			const collapsible = collapsibleMessageKeys(members, true);
 			if (!collapsible.size) continue;

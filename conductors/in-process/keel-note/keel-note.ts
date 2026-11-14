@@ -839,7 +839,7 @@ function spanText(b: ViewBlock, text: string, maxTokens: number): string {
 	const body = clip(text.trim(), maxTokens);
 	if (!body) return "";
 	const label =
-		b.kind === "thinking" ? "my thinking" : b.kind === "text" ? "my message" : b.kind === "tool_call" ? "my tool call" : `tool result${b.isError ? " (error)" : ""}${b.toolName ? ` · ${b.toolName}` : ""}`;
+		b.kind === "thinking" ? "my thinking" : b.kind === "text" ? "my message" : b.kind === "custom" ? "extension message" : b.kind === "tool_call" ? "my tool call" : `tool result${b.isError ? " (error)" : ""}${b.toolName ? ` · ${b.toolName}` : ""}`;
 	return `[${label}]\n${body}`;
 }
 

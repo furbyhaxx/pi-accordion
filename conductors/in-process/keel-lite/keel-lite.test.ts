@@ -42,6 +42,9 @@ class Session {
 		this.turn++;
 		return this.push({ id: `u:${1000 + this.order}`, kind: "user", text });
 	}
+	custom(text: string): string {
+		return this.push({ id: `c:${1000 + this.order}:notice`, kind: "custom", text });
+	}
 	step(p: { think?: string; signed?: boolean; say?: string; calls?: Call[] }): StepIds {
 		const r = ++this.resp;
 		let j = 0;
@@ -577,6 +580,33 @@ describe("keel-lite · reads (R4)", () => {
 });
 
 describe("keel-lite · group stage (R7)", () => {
+	it("folds a large extension message on a per-block rung", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const notice = s.custom("extension context ".repeat(1000));
+		s.step({ say: "Proceeding." });
+		const host = setup(s, { protect: 0, budget: 100 });
+		new KeelLiteConductor({ groupSteps: false }).attach(host);
+		await host.commitTurn();
+		expect(isFolded(host, notice)).toBe(true);
+		expect(isGrouped(host, notice)).toBe(false);
+		expect(host.statusLog.at(-1)?.metrics?.rungs).toContain("R5");
+	});
+
+	it("groups steps across an extension message without counting it as a step", async () => {
+		const s = new Session();
+		s.user("Go.");
+		const first = s.step({ say: "first ".repeat(800) }).say!;
+		const notice = s.custom("extension notice ".repeat(800));
+		const second = s.step({ say: "second ".repeat(800) }).say!;
+		s.step({ say: "tail" });
+		const host = setup(s, { protect: 0, budget: 10 });
+		new KeelLiteConductor({ maxRung: 0, groupChunkSteps: 2 }).attach(host);
+		await host.commitTurn();
+		const group = host.groups().find((g) => g.memberIds.includes(notice));
+		expect(group?.memberIds).toEqual([first, notice, second]);
+	});
+
 	it("groups the oldest whole steps into valid default-recap groups that never swallow a root", async () => {
 		const s = new Session();
 		const user = s.user("go");
