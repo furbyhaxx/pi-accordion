@@ -122,16 +122,18 @@ export function listNodes(list: TaskList, truth: Truth | null, data: ViewData, f
 		const own = folds.get(task.id);
 		const inner = [...folds.entries()].filter(([id, f]) => id.startsWith(`${task.id}.`) && f.complete !== false);
 		const note = taskNote(task);
+		const stale = !!data.stale?.has(key);
 		const meta = [
+			stale ? t.fg("warning", "stale") : "",
 			note ? t.fg(task.status === "blocked" ? "warning" : "dim", note) : "",
 			n.children.length ? `${done}/${n.children.length}` : "",
 			ms !== null ? formatDuration(ms) : "",
 			own && own.complete !== false ? t.fg("muted", "≡") : inner.length ? t.fg("muted", `≡${inner.length}`) : "",
 			task.autoClosed ? t.fg("dim", "closed automatically") : "",
-			data.stale?.has(key) ? t.fg("warning", "stale") : "",
+			// the row drops meta from the end when narrow, so the stale flag leads
 		].filter(Boolean);
 		if (ms !== null && durations) {
-			const at = (note ? 1 : 0) + (n.children.length ? 1 : 0);
+			const at = (stale ? 1 : 0) + (note ? 1 : 0) + (n.children.length ? 1 : 0);
 			durations.push((now) => { const elapsed = taskDuration(task, now); if (elapsed !== null) meta[at] = formatDuration(elapsed); });
 		}
 		return {
