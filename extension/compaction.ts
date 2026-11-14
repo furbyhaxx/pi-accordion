@@ -45,6 +45,8 @@ export interface CompactOutcome {
 	record: CompactRecord;
 	/** Present for `bake`: the summary Pi stores in place of the summarized messages. */
 	bake?: { summary: string; estimatedTokensAfter: number };
+	/** Estimated token figures for a dry run. */
+	projection?: { pass: number | null; aggressive: number; bake: number; native: null };
 }
 
 /** Blocks an `aggressive` pass may fold: unprotected, unfolded, unheld, ungrouped, and smaller folded. */
@@ -117,6 +119,14 @@ export async function runCompaction(req: CompactRequest, deps: CompactDeps): Pro
 	const base = { id: deps.id(), at: started, trigger: req.trigger, conductor: conductor?.id ?? null, before };
 	const empty = { blocks: 0, groups: 0, byKind: {} };
 	if (!truth) return { record: { ...base, strategy: req.strategy, after: before, durationMs: 0, folded: empty, undo: null, message: "No context to compact." } };
+	if (req.dryRun) {
+		const cap = Math.min(20_000, Math.max(1_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000))));
+		const summary = buildBakeSummary(truth.blocks, { capTokens: cap, instructions: req.instructions });
+		return {
+			record: { ...base, dryRun: true, strategy: req.strategy, after: before, durationMs: 0, folded: empty, undo: null, message: "Compaction preview." },
+			projection: { pass: deps.conductorSaved(), aggressive: aggressiveProjection(truth), bake: Math.ceil(summary.length / 4), native: null },
+		};
+	}
 
 	deps.armFolding();
 	if (req.strategy === "pass") {

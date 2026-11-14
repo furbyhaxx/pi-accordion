@@ -33,6 +33,21 @@ function deps(truth: Truth | null, over: Partial<CompactDeps> = {}): CompactDeps
 }
 
 describe("compaction strategies", () => {
+	test("dry run projects without mutating context or starting a pass", async () => {
+		const t = truthOf([blk("a:b0:p0", "text", 0, 1)], { protect: 0 });
+		const rev = t.rev;
+		let called = false;
+		const outcome = await runCompaction({ trigger: "command", strategy: "pass", dryRun: true }, deps(t, {
+			armFolding: () => { called = true; },
+			requestPass: async () => { called = true; return "settled"; },
+			conductorSaved: () => 42,
+		}));
+		expect(t.rev).toBe(rev);
+		expect(called).toBe(false);
+		expect(outcome.record.undo).toBeNull();
+		expect(outcome.projection).toEqual({ pass: 42, aggressive: aggressiveProjection(t), bake: expect.any(Number), native: null });
+	});
+
 	test("aggressive folds every eligible block and records an undo that restores exactly those", async () => {
 		const t = truthOf([blk("a:b0:p0", "text", 0, 1), blk("a:b1:p0", "tool_result", 1, 2), blk("a:b2:p0", "text", 2, 3)], { budget: 1000, protect: 0 });
 		const before = t.stats().liveTokens;

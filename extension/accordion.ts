@@ -705,6 +705,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Run a pass and keep its record for undo; `card` also reports it to the transcript. */
 	async function compact(req: CompactRequest, opts: { card?: boolean } = {}): Promise<CompactOutcome> {
 		const outcome = await runCompaction(req, compactionDeps());
+		if (req.dryRun) return outcome;
 		lastCompact = outcome.record;
 		lastBake = outcome.bake;
 		if (opts.card !== false) recordCompact(outcome.record);
@@ -3192,6 +3193,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return { results: [], rev: truth.rev };
 				}
 				void compact({ trigger: "command", strategy: cmd.strategy, ...(cmd.instructions ? { instructions: cmd.instructions } : {}), ...(cmd.dryRun ? { dryRun: true } : {}) }, { card: !cmd.dryRun })
+					.then(outcome => { if (cmd.dryRun) broadcast({ type: "compaction", record: outcome.record, dryRun: true, projection: outcome.projection }); })
 					.catch(error => broadcast({ type: "notice", text: `Compaction failed: ${error instanceof Error ? error.message : String(error)}` }));
 				return { results: [], rev: truth.rev };
 			}
