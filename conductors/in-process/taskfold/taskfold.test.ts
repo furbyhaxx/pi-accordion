@@ -13,7 +13,7 @@ import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
 import { parseExtraction } from "../../../extension/taskRouting";
-import type { ConductorHost, FoldTiming } from "../../../core/conductor/contract";
+import type { ClassificationResult, ConductorHost, FoldTiming } from "../../../core/conductor/contract";
 import { cacheProfileFor } from "../../../core/cacheProfiles";
 import type { TaskEvent } from "../../../core/taskEvents";
 import { entryById } from "../../../core/conductor/registry";
@@ -815,6 +815,29 @@ describe("taskfold", () => {
 		const last = host.statusLog.at(-1);
 		expect(last?.text).toContain("open task work/1");
 		expect(last?.metrics?.level).toBe("error");
+	});
+
+	it("ignores classifier results and errors after detach", async () => {
+		for (const fail of [false, true]) {
+			const s = new Session();
+			s.user("Goal");
+			const id = s.user("Steer");
+			const host = new TestHost();
+			const ledger = new VerdictLedger();
+			const deferred = Promise.withResolvers<ClassificationResult>();
+			host.classifier = () => deferred.promise;
+			const c = new TaskfoldConductor({}, ledger);
+			c.attach(host);
+			host.appendBlocks(s.blocks);
+			expect(host.classifyLog).toHaveLength(1);
+			c.detach();
+			if (fail) deferred.reject(new Error("failed"));
+			else deferred.resolve({ answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test" });
+			await deferred.promise.catch(() => {});
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(ledger.get(id)).toBeUndefined();
+		}
 	});
 
 	it("keeps an unclassified user message verbatim and splits the span around it", async () => {
