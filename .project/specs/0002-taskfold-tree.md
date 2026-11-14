@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 39
+  revision: 40
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T15:28:31+01:00"
+  updated_at: "2026-11-14T16:01:48+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 39
-      reason: "the fold-timing plan is merged and deleted"
-      changes: ["the fold-lifecycle evidence line no longer names the plan"]
+    - revision: 40
+      reason: "compact transcript exports"
+      changes: ["document the compact option for all dump formats"]
 ---
 
 # Taskfold
@@ -965,6 +965,8 @@ then dropped); glyph and counts are never cut.
 - All dump formats consume Truth's authoritative carriers once, with calibrated additive charges.
   Split/composed/untracked groups, dropped carriers, stragglers and substitutions retain their actual
   outgoing form. Structured details, handles and task metadata remain available as non-wire metadata.
+  `--compact` omits that inspection metadata and folded-group member lists in every format; it
+  retains all actual wire text, including reports present on the wire, and additive token charges.
   Delivery manifests are exported with their blocks. Notices are not Truth blocks (§4.4), so they
   are not in the dump; there is no transient suffix. A routed user message shows where its
   instructions went (`routed → p7, c3`) in the transcript row and its detail view.
