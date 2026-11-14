@@ -5,24 +5,23 @@ document:
   title: "Long-session hardening and spec conformance"
   description: "Units that fix the findings of the 2026-11-14 challenge pass and close the gaps between SPEC-0001/0002/0003, the docs and the code"
   status: "published"
-  revision: 1
+  revision: 2
   created_at: "2026-11-14T15:28:31+01:00"
-  updated_at: "2026-11-14T15:28:31+01:00"
+  updated_at: "2026-11-14T15:50:00+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["wave 1 units detailed, later waves sparse"]
+    - revision: 2
+      reason: "wave 1 landed"
+      changes: ["wave 2 units P13, P14 and the thermocline remainder detailed", "status cells are the integrator's"]
 ---
 
 # Long-session hardening and spec conformance
 
 Implements B-0005. Findings and their ids (H1, T7, C4, U2, S1, …):
 `.project/analyses/long-session-challenge/README.md`. Reviewer detail with the proposed fixes:
-`.project/analyses/long-session-challenge/evidence/*.md`. Every unit updates the `Status` cell of
-its findings in that README in the commit that fixes them (`fixed <short hash of the code commit>`
-is filled in by the integrator; the unit writes `fixed`).
+`.project/analyses/long-session-challenge/evidence/*.md`. The integrator fills the `Status` cells
+of that README at merge; units do not edit it.
 
 A long session is more than 1,000,000 tokens of transcript: 10,000 to 50,000 blocks, 300+ tasks,
 1,500+ requests.
@@ -30,11 +29,12 @@ A long session is more than 1,000,000 tokens of transcript: 10,000 to 50,000 blo
 ## Progress
 
 ```
-now   W1  P1 truth index · P2 taskfold bugs · P3 keel-lite · P4 thermocline · P5 remote+triptych
-          P6 privacy · P7 compaction · P8 panel · P9 web · P10 recall · P11 type check
-next  W2  P12 hook path (H4–H10, H12, H13), driven by a CPU profile of the replay
-          P13 taskfold planner cost (T1–T6) · P14 DROP role validation (H11)
-          P15 task tooling (U7–U13, U16, SPEC-0002 code gaps)
+done  W1  P1 truth index · P2 taskfold bugs · P3 keel-lite · P4 thermocline (C4, C9, C7)
+          P5 remote+triptych · P6 privacy · P7 compaction · P8 panel · P10 recall · P11 type check
+now   W1  P9 web
+now   W2  P13 taskfold planner cost (T1–T6) · P14 DROP role validation (H11)
+next  W2  P12 hook path (H4–H10, H12, H13, rest of C1), driven by a CPU profile of the replay
+          P15 task tooling (U7–U13, U16, SPEC-0002 code gaps) · P21–P23 thermocline pricing (C5, C6, C2)
 later W3  P16 notices in Truth (U1) · P17 history budget (U2) · P18 host-closed spans (U5, U14,
           B-0001 evaluation) · P19 U15, U17, U18, C8, C14
 later W4  P20 docs and spec text (S1–S4 stale text, D2), artifact cleanup, final gates
@@ -445,14 +445,135 @@ Verification: `npm --prefix extension run check` exits 0; the gate.
 
 ---
 
-## Later waves (sparse; detailed when they start)
+## P13: taskfold planner cost (T1–T6) — branch `perf/taskfold-planner`
 
-- **P12 hook path**: CPU-profile `extension/replay-session.mjs` on a session above 1M tokens after
-  P1; fix what the profile shows among H4 (queue persistence after the hook), H5 (cache usage by
-  leaf/model), H6 (fingerprint cost), H7, H8, H9, H10, H12, H13.
-- **P13 taskfold planner cost**: T1–T6: an incremental task index (intervals, parents, finish
-  counters), one group snapshot per epoch, dirty flags instead of a full plan per event.
-- **P14**: H11, run descriptors with next-survivor links.
+Files: `conductors/in-process/taskfold/taskfold.ts`, `taskfold.test.ts`. The planner's OUTPUT must
+not change: same units, same ops, same `reasons`, same statuses. Only the work to get there.
+
+Current: `onEvent` (`taskfold.ts:535`) calls `evaluate()` on `blocks-appended`, `turn-committed`,
+`wire-departing`, `resync` and human `state-changed`. `evaluate()` (`:792`) always calls `plan()`
+(`:829`), which materialises `host.blocks()`, scans all task spans, and then: tests ancestry with
+`spans.some((o) => contains(o, s))` per span; calls `host.groups()` in `plan`, `groupKeys`,
+`condense`, `foldRuns` and several times inside `unit` (`:1121-1208`, some per block:
+`heldByHuman` at `:1135`); filters all blocks per task in `spanHandle`/`record` (`:1215`,
+`:1273`); counts `tool_result` blocks after each span with `blocks.slice(span.end + 1).filter`
+(`:930`); and under pressure `floor`, `untracked` and `steps` each run `scanTaskSpans`,
+`taskCoverage` and `deliveryOwners` again.
+
+Steps, one commit each:
+
+0. **Characterisation test first, on the untouched code.** A seeded generator builds a `TestHost`
+   session: at least 150 tasks over two lists, nesting to depth 3, end states `done`, `failed`,
+   `abandoned` and still open, `blocked` with a reason, untracked runs of 3 to 12 assistant
+   messages between tasks, `read` calls of `.md` files, `tasks start` results carrying criteria.
+   Drive the conductor event by event (`blocks-appended`, `turn-committed`, `wire-departing`) with
+   a budget small enough that at least five pressure epochs happen, with a fixed `foldPolicy`
+   (`now`, `lastRequestAt`) so nothing depends on the clock. Record every `host.debug` record of
+   type `epoch` and every op list passed to `propose`, and compare with `toMatchSnapshot()`. Three
+   seeds; one with `floor: true`, one with `timing: "lazy"`. Commit the snapshot. Every later step
+   leaves it byte-identical.
+1. **T1.** In `plan`, build once `resultsAfter[i]` = number of `tool_result` blocks at index >= i
+   (one backward pass); `stepsSince = resultsAfter[span.end + 1] ?? 0`.
+2. **Ancestry by key set.** `contains(outer, inner)` is `inner.key.startsWith(outer.key + ".")`,
+   so an ancestor's key is a prefix of the key that ends just before a `.`. Add
+   `nearestAncestor(key, keys: ReadonlySet<string> | ReadonlyMap<string, unknown>): string | null`
+   that walks the `.` positions from the right. Use it for `allRoots`, `roots`, the "top-level
+   among descendants" filters in `fold`, and the diagnostics' `ancestor` (nearest ancestor that
+   has a reason: walk upward until `reasons.has`).
+3. **T5, T2: one snapshot per plan.** Introduce `interface PlanContext` built once at the top of
+   `plan`: `blocks`, `groups` (ONE `host.groups()` call), `groupKeys` (from that snapshot),
+   `positions: Map<blockId, index>`, `groupOf: Map<blockId, GroupInfo>`, `humanGrouped:
+   Set<blockId>` (members of groups whose `by !== "auto"`), `scan` (ONE `scanTaskSpans`),
+   `coverage` (ONE `taskCoverage`), `deliveries` (ONE `deliveryOwners`), `userTail`,
+   `resultsAfter`. Pass it to `unit`, `condense`, `floor`, `untracked`, `steps`, `foldRuns`; none
+   of them calls `host.blocks()`, `host.groups()`, `scanTaskSpans`, `taskCoverage` or
+   `deliveryOwners` any more. `plan` does not propose, so the snapshot stays valid for the whole
+   call; `commit` and `reconcileTaskUnfold` keep reading fresh state. Every
+   `g.memberIds.includes(id)` / `groups.some(...)` per block inside those functions becomes a map
+   or set lookup.
+4. **T4.** `spanHandle` and `record` walk the span's intervals
+   (`for (const r of task.intervals) for (let i = r.start; i <= r.end; i++)`) instead of
+   `blocks.filter((_, i) => intervals.some(...))`. Keep the resulting order (ascending index).
+5. **T6.** `floor` takes spans, coverage and deliveries from the context. The two `KeelLiteConductor`
+   instances stay (their read analysis is linear since `34061d4`).
+6. **T3: skip an unchanged idle state.** `private idleKey: string | null = null`. In `evaluate`,
+   after computing `stats`, `pressure` and the policy's `cold` flag, build
+   `key = [stats.rev, stats.budget, stats.protectTokens, stats.liveTokens, pressure, policy.timing, cold].join("|")`.
+   If `key === this.idleKey`, return at once. When `plan` returned no unit (both the healthy and
+   the saturated branch), set `this.idleKey = key` after setting the status. Set it to `null` in
+   `commit`, `attach`, `detach`, and in a private `touch()` called wherever conductor-owned state
+   that the plan reads changes: every `this.verdicts.set…` call, every add or delete on
+   `this.classifying` and `this.routing`, `reconcileTaskUnfold`, and an options change. Find them
+   with `rg -n 'this\.verdicts\.set|this\.classifying\.(add|delete)|this\.routing\.(add|delete)' taskfold.ts`.
+7. **Classifier queue leftovers** (from the T8 fix): a capacity error puts the item back and must
+   not restart it in the same tick. Drain only when another classifier call settles or on the next
+   `blocks-appended` / `turn-committed` event; when no call is in flight, arm one
+   `setTimeout(() => this.drainClassifiers(), 250)` (cleared in `detach`). Replace the
+   `this.host === host` checks of the classifier bookkeeping by a `private generation` counter
+   incremented in `attach` and `detach` and captured per call, so a call from before a detach can
+   never decrement the counter of a later attach of the same host object.
+
+Tests besides step 0: (a) `blocks-appended`, `turn-committed`, `wire-departing` in a row with no
+state change between them: `host.blocks` is called by one plan only (wrap it and count); after a
+classifier verdict arrives the plan runs again. (b) 20,000 blocks, 400 finished and folded tasks,
+no pressure: one `evaluate` from a cold `idleKey` takes under 150 ms; print the time before your
+change and after in the report. (c) Capacity error with fake timers: the item is retried after
+another call settles, never synchronously.
+
+Out of scope: any change to what folds or when; host-closed spans; history budget.
+
+Verification: `npx --prefix app vitest run --root app ../conductors/in-process/taskfold`, then
+`.pi/gate/gate.sh <worktree>` (five checks).
+
+## P14: DROP role validation (H11) — branch `perf/drop-role-floor`
+
+Files: `core/wire.ts` (`computeDegradedDropRuns`, the block from "Role-validity floor" at about
+`:500` to the end of that loop), `core/wire.test.ts` (or the test file that covers
+`computeDegradedDropRuns` today; find it with `rg -l computeDegradedDropRuns core app`).
+
+Current: each pass walks all messages; for every pure-drop run it re-scans forward
+(`while (k < msgs.length)`) over all following pure-drop runs to find the next surviving role, and
+run ends are re-found with `while (owner[j] === g)`. Many adjacent drop runs make one pass
+O(messages x runs).
+
+Change, same result:
+
+1. After the tool-pair fixpoint, build the run list once: `runs: { start: number; end: number;
+   group: G | null; role: string }[]`, a survivor message is a run of one with `group: null`.
+2. Keep the outer `for (let stable = false; !stable; )` loop and its left-to-right decisions
+   exactly as they are, but over `runs`. At the START of each pass compute, in one right-to-left
+   sweep, `nextRole[r]` = role of the first run after `r` that survives under the `degradeStart`
+   set as it is at pass start (a survivor message: its role; a REPLACE run or an already degraded
+   drop: `assistant` if its first message is assistant, else `user`; a pure drop: skipped). This
+   equals the old forward peek, because a peek only looks at runs the current pass has not reached
+   yet, whose status cannot have changed in this pass.
+3. `prevRole` handling, `leadingProblem`, `adjacencyProblem` and the comments stay as they are.
+
+Test that matters: keep the current function body in the test file as `oracle`, and for 3,000
+seeded random wires (10 to 60 messages, roles user/assistant/toolResult mixed with valid tool
+pairs, 0 to 8 groups of which half are drops, some adjacent) assert the same `degradeStart` set
+(compare whatever the function returns). Timing guard: 20,000 messages with 5,000 single-message
+drop runs alternating with survivors, and a second case with 5,000 adjacent drop runs of two
+groups alternating: each under 100 ms; print before and after.
+
+Out of scope: `applyPlan`, `Truth`.
+
+Verification: `npx --prefix app vitest run --root app ../core`, `node extension/build-remote-sdk.mjs`
+(commit both bundles), then `.pi/gate/gate.sh <worktree>`.
+
+## Later units (sparse; detailed when they start)
+
+- **P12 hook path**: CPU-profile `extension/replay-session.mjs` on a session above 1M tokens;
+  fix what the profile shows among H4 (queue persistence after the hook), H5 (cache usage by
+  leaf/model), H6 (fingerprint cost), H7, H8, H9, H10, H12, H13, and doorman's whole-view build
+  per fresh result (rest of C1).
+- **P21 fold pricing** (C5), **P22 DROP pricing** (C6), **P23 incremental projection** (C2), in
+  this order, same files (`conductors/ws/thermocline/policy.ts`, `thermocline.ts`). C5 needs an
+  exact price for "this text as the body of block X" from the host: `max(countTokens(padded
+  text), raw estimate + overhead)` under-charges a block the last receipt did not cover when the
+  calibration prior is above the current factor (`core/truth.ts:531-532`). C6: one
+  `host.groups()` snapshot per epoch, foreign groups and planned ops into
+  `computeDegradedDropRuns`. C2: running cost, equal to a full recount after top-up.
 - **P15 task tooling**: U7 bounded resume orientation, U8/U9 coaching recurrence and gate-mode
   notes, U10, U11, U12 session budget for fact extraction, U13 compact dump, U16, SPEC-0002 code
   gaps (`stale` in status/widget/results, `tasks.zombieSteps`, stable `t:` code, dropped routing
