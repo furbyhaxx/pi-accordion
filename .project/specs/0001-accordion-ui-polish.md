@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 23
+  revision: 24
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-14T15:28:31+01:00"
+  updated_at: "2026-11-14T15:41:35+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 23
-      reason: "the implementation plan is merged and deleted"
-      changes: ["open gaps point at the long-session hardening plan"]
+    - revision: 24
+      reason: "specify safe bake boundaries and prior-summary preservation"
+      changes: ["map both discarded message lists exactly and preserve prior summaries"]
 ---
 
 # Accordion UI polish
@@ -855,6 +855,12 @@ All entry points call it: `session_before_compact` (manual/threshold/overflow), 
 | `bake` | Only from `session_before_compact`. Runs `aggressive` over the range, then returns `{ compaction: { summary, firstKeptEntryId: preparation.firstKeptEntryId, tokensBefore: preparation.tokensBefore, estimatedTokensAfter, details: { accordionBake: 1 } } }`. Summary: `buildBakeSummary(truth, preparation.messagesToSummarize, instructions)` (§7.5). |
 | `native` | Returns nothing from `session_before_compact` (pi summarizes with `customInstructions`). From the panel/command it calls `ctx.compact({ customInstructions })`. |
 
+Bake covers exactly `preparation.messagesToSummarize` followed by `turnPrefixMessages`; messages
+from `firstKeptEntryId` onward are excluded. Both lists map to Truth by durable message identity and
+content. If the preparation or range is missing, an identity is missing, duplicated, non-durable
+or content-mismatched, or a folded group crosses the kept boundary, fall back to Pi's native
+compaction and notify the user.
+
 Trigger mapping while folding is armed (folding off ⇒ pi always compacts natively, unchanged):
 
 | Trigger | Strategy |
@@ -897,6 +903,11 @@ instructions: <customInstructions, if any>
 ── turn 4 · results
 <digest lines, one per folded block>
 ```
+
+`preparation.previousSummary`, when present, appears verbatim under its own `── previous summary`
+heading before the discarded message sections.
+If the previous summary and mandatory header alone exceed the cap, bake falls back to native
+compaction and notifies the user rather than truncating the previous summary or exceeding the cap.
 
 Rules: fold codes are stripped (`stripFoldTags`) because baked blocks can no longer be recalled;
 groups appear once at their first member; unfolded non-user blocks in the range are forced to their

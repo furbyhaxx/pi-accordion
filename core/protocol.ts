@@ -682,6 +682,8 @@ export interface CompactRecord {
 export interface CompactionMessage {
 	type: "compaction";
 	record: CompactRecord;
+	dryRun?: boolean;
+	projection?: { pass: number | null; aggressive: number; bake: number; native: null };
 }
 
 export type ServerMessage =

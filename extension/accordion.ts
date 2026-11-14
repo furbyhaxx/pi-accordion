@@ -56,7 +56,7 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
-import { aggressiveProjection, applyUndo, buildBakeSummary, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
+import { aggressiveProjection, applyUndo, bakeMessageBlocks, buildBakeSummary, needsSaturationFallback, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
 import { compactCardLines, compactCardTitle } from "./compactCard";
 import { Text } from "@earendil-works/pi-tui";
 import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
@@ -705,6 +705,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Run a pass and keep its record for undo; `card` also reports it to the transcript. */
 	async function compact(req: CompactRequest, opts: { card?: boolean } = {}): Promise<CompactOutcome> {
 		const outcome = await runCompaction(req, compactionDeps());
+		if (req.dryRun) return outcome;
 		lastCompact = outcome.record;
 		lastBake = outcome.bake;
 		if (opts.card !== false) recordCompact(outcome.record);
@@ -3201,6 +3202,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return { results: [], rev: truth.rev };
 				}
 				void compact({ trigger: "command", strategy: cmd.strategy, ...(cmd.instructions ? { instructions: cmd.instructions } : {}), ...(cmd.dryRun ? { dryRun: true } : {}) }, { card: !cmd.dryRun })
+					.then(outcome => { if (cmd.dryRun) broadcast({ type: "compaction", record: outcome.record, dryRun: true, projection: outcome.projection }); })
 					.catch(error => broadcast({ type: "notice", text: `Compaction failed: ${error instanceof Error ? error.message : String(error)}` }));
 				return { results: [], rev: truth.rev };
 			}
@@ -3326,6 +3328,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	pi.on("session_start", (event, ctx: ExtensionContext) => {
+		lastCompact = null;
+		lastBake = undefined;
 		void debugLog?.flush().catch((error: Error) => ctx.ui.notify(`Debug log: ${error.message}`, "warning"));
 		debugLog = null;
 		debugOverride = null;
@@ -3870,7 +3874,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	pi.on("session_before_compact", async (event, ctx: ExtensionContext) => {
 		if (!foldingEnabled) return;
-		const ev = event as { reason?: string; customInstructions?: string; preparation?: { firstKeptEntryId?: string; tokensBefore?: number; messagesToSummarize?: unknown[]; settings?: { reserveTokens?: number } } };
+		const ev = event as { reason?: string; customInstructions?: string; preparation?: { firstKeptEntryId?: string; tokensBefore?: number; messagesToSummarize?: PiMessage[]; turnPrefixMessages?: PiMessage[]; previousSummary?: string; settings?: { reserveTokens?: number } } };
 		const reason = ev.reason;
 		const bake = takeRequestedBake();
 		const strategy: CompactStrategy =
@@ -3878,39 +3882,60 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (strategy === "native") return;
 		const instructions = typeof ev.customInstructions === "string" && ev.customInstructions.trim() ? ev.customInstructions.trim() : undefined;
 		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
-		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}) }, { card: false });
-		// Saturated overflow: the configured fallback decides what happens after a pass frees nothing.
-		const saturatedFallback = trigger === "overflow" && first.record.after >= first.record.before;
-		const { record } = saturatedFallback && settings.compact.onSaturated === "bake"
-			? await compact({ trigger, strategy: "bake", ...(instructions ? { instructions } : {}) }, { card: false })
-			: first;
+		let bakeFailure = "could not map the exact compaction range";
+		const bakeRange = () => {
+			const prep = ev.preparation;
+			if (!truth || !prep?.firstKeptEntryId || !prep.messagesToSummarize) return null;
+			const cap = Math.min(20_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000)));
+			if (prep.previousSummary && Math.ceil(buildBakeSummary([], { capTokens: cap, previousSummary: prep.previousSummary, instructions }).length / 4) > cap) {
+				bakeFailure = "cannot fit the previous summary within the bake cap";
+				return null;
+			}
+			return bakeMessageBlocks(truth, [...prep.messagesToSummarize, ...(prep.turnPrefixMessages ?? [])], lastMessages);
+		};
+		const initialBakeBlocks = strategy === "bake" ? bakeRange() : undefined;
+		if (initialBakeBlocks === null) {
+			ctx.ui.notify(`Accordion bake ${bakeFailure}; falling back to native compaction.`, "warning");
+			return;
+		}
+		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}), ...(initialBakeBlocks ? { bakeBlocks: initialBakeBlocks, previousSummary: ev.preparation?.previousSummary } : {}) }, { card: false });
 		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
 		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
+		const saturatedFallback = strategy === "pass" && needsSaturationFallback(trigger, first.record.before, first.record.after, window, reserve);
+		const fallbackBakeBlocks = saturatedFallback && settings.compact.onSaturated === "bake" ? bakeRange() : undefined;
+		if (fallbackBakeBlocks === null) {
+			ctx.ui.notify(`Accordion bake ${bakeFailure}; falling back to native compaction.`, "warning");
+			return;
+		}
+		const { record } = fallbackBakeBlocks
+			? await compact({ trigger, strategy: "bake", bakeBlocks: fallbackBakeBlocks, previousSummary: ev.preparation?.previousSummary, ...(instructions ? { instructions } : {}) }, { card: false })
+			: first;
 		// Without a known window we cannot prove saturation, so the pass's result stands.
 		const underBudget = window > 0 ? record.after <= window - reserve : true;
-		const degraded = record.after >= record.before;
 		const note = `${record.message} — native compaction suppressed.`;
-		if (trigger === "threshold" && underBudget) return { cancel: true };
-		if (trigger === "threshold" && degraded && settings.compact.onSaturated !== "bake" && settings.compact.onSaturated !== "warn") {
+		if (trigger === "threshold" && !saturatedFallback && underBudget && record.strategy !== "bake") {
+			ctx.ui.setStatus("accordion", `accordion · ${record.message}`);
+			return { cancel: true };
+		}
+		if (trigger === "threshold" && saturatedFallback && settings.compact.onSaturated === "native") {
 			// Nothing freed and the context is still over the line: leave Pi's own summarizer to it.
 			const fallbackNote = "Accordion could not free enough — falling back to native compaction.";
 			try { ctx.ui.notify(fallbackNote, "info"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
-		if (trigger === "threshold" && degraded && settings.compact.onSaturated === "warn") {
+		if (trigger === "threshold" && saturatedFallback && settings.compact.onSaturated === "warn") {
 			const saturated = "context threshold reached: Accordion cannot free more; switch /compact to native or bake";
-			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
-			broadcast({ type: "notice", text: saturated });
+			ctx.ui.setStatus("accordion", `accordion · ${saturated}`);
 			return { cancel: true };
 		}
-		if (trigger === "overflow" && degraded && settings.compact.onSaturated !== "warn") {
+		if (trigger === "overflow" && saturatedFallback && record.strategy !== "bake" && settings.compact.onSaturated !== "warn") {
 			const fallbackNote = "Accordion saturated on context overflow — falling back to native compaction.";
 			try { ctx.ui.notify(fallbackNote, "warning"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: fallbackNote });
 			return;
 		}
-		if (trigger === "overflow" && degraded) {
+		if (trigger === "overflow" && saturatedFallback && record.strategy !== "bake") {
 			const saturated = "context overflow: Accordion cannot free more; switch /compact to native or bake";
 			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
 			broadcast({ type: "notice", text: saturated });
@@ -3975,6 +4000,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		lastCompact = null;
+		lastBake = undefined;
 		pendingToolNotice = null;
 		bootstrapShown = false;
 		const flush = debugLog?.flush();
@@ -4469,13 +4496,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				compactPreview: () => {
 					if (!truth) return null;
 					const window = truth.stats().contextWindow || 200_000;
-					const cap = Math.min(20_000, Math.max(1_000, Math.floor(0.1 * window)));
-					const summary = buildBakeSummary(truth.blocks, { capTokens: cap });
+					const cap = Math.min(20_000, Math.floor(0.1 * window));
+					const summary = buildBakeSummary(truth.blocks, { capTokens: cap, truth });
 					const saved = liveHost.cachedStatus()?.metrics?.saved;
 					return {
 						pass: typeof saved === "number" ? saved : null,
 						aggressive: aggressiveProjection(truth),
-						bake: Math.max(0, truth.stats().liveTokens - Math.ceil(summary.length / 4)),
+						bake: Math.ceil(summary.length / 4),
 						native: null,
 					};
 				},

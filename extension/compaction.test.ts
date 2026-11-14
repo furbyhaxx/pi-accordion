@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Truth } from "../core/truth";
 import type { Block, ParsedSession } from "../core/types";
-import { buildBakeSummary, aggressiveProjection, applyUndo, runCompaction, stripFoldTags, type CompactDeps } from "./compaction";
+import { buildBakeSummary, aggressiveProjection, applyUndo, bakeMessageBlocks, needsSaturationFallback, runCompaction, stripFoldTags, type CompactDeps } from "./compaction";
+import { linearize, wireToBlock, type PiMessage } from "../core/wire";
 
 const META = { format: "pi" as const, title: "t", cwd: "", model: "" };
 
@@ -33,6 +34,53 @@ function deps(truth: Truth | null, over: Partial<CompactDeps> = {}): CompactDeps
 }
 
 describe("compaction strategies", () => {
+	test("bake maps only discarded messages and refuses unknown identities", () => {
+		const messages: PiMessage[] = [
+			{ role: "user", timestamp: 1, content: "discarded" },
+			{ role: "user", timestamp: 2, content: "kept" },
+		];
+		const t = truthOf(linearize(messages).map(wireToBlock), { protect: 0 });
+		const range = bakeMessageBlocks(t, messages.slice(0, 1), messages);
+		expect(range?.map((b) => b.text)).toEqual(["discarded"]);
+		expect(bakeMessageBlocks(t, [{ role: "user", content: "no identity" }], messages)).toBeNull();
+		const summary = buildBakeSummary(range!, { capTokens: 2000, truth: t });
+		expect(summary).toMatch(/^\[accordion-bake v1\] 1 messages · \d+ → \d+ tok/);
+		expect(summary).toContain("discarded");
+		expect(summary).not.toContain("kept");
+	});
+	test("bake emits a folded task record once and digests ungrouped results", () => {
+		const t = truthOf([blk("a:b0:p0", "user", 0, 1), blk("a:b1:p0", "text", 1, 1), blk("a:b2:p0", "text", 2, 2)], { protect: 0 });
+		const record = '{#abc123 FOLDED} {"task":"demo/1","title":"Survey","status":"done","outcome":"found it"}';
+		t.apply([{ kind: "group", ids: ["a:b0:p0", "a:b1:p0"], summary: record }], "auto");
+		const summary = buildBakeSummary(t.blocks, { capTokens: 10000, truth: t });
+		expect(summary).toContain('── task demo/1 "Survey" done');
+		expect(summary.match(/found it/g)).toHaveLength(1);
+		expect(summary).not.toContain("FOLDED}");
+		expect(summary).not.toContain(t.blocks[2].text);
+	});
+
+
+	test("threshold remains saturated when a pass saves tokens but misses the reserve", () => {
+		expect(needsSaturationFallback("threshold", 1000, 900, 1000, 200)).toBe(true);
+		expect(needsSaturationFallback("threshold", 1000, 800, 1000, 200)).toBe(false);
+		expect(needsSaturationFallback("overflow", 1000, 1000, 1000, 200)).toBe(true);
+	});
+
+	test("dry run projects without mutating context or starting a pass", async () => {
+		const t = truthOf([blk("a:b0:p0", "text", 0, 1)], { protect: 0 });
+		const rev = t.rev;
+		let called = false;
+		const outcome = await runCompaction({ trigger: "command", strategy: "pass", dryRun: true }, deps(t, {
+			armFolding: () => { called = true; },
+			requestPass: async () => { called = true; return "settled"; },
+			conductorSaved: () => 42,
+		}));
+		expect(t.rev).toBe(rev);
+		expect(called).toBe(false);
+		expect(outcome.record.undo).toBeNull();
+		expect(outcome.projection).toEqual({ pass: 42, aggressive: aggressiveProjection(t), bake: expect.any(Number), native: null });
+	});
+
 	test("aggressive folds every eligible block and records an undo that restores exactly those", async () => {
 		const t = truthOf([blk("a:b0:p0", "text", 0, 1), blk("a:b1:p0", "tool_result", 1, 2), blk("a:b2:p0", "text", 2, 3)], { budget: 1000, protect: 0 });
 		const before = t.stats().liveTokens;
@@ -56,6 +104,23 @@ describe("compaction strategies", () => {
 		expect(record.after).toBeLessThan(before);
 		expect(record.undo).toEqual([{ kind: "unfold", ids: ["a:b0:p0"] }]);
 	});
+	test("undo removes groups created by a conductor pass", async () => {
+		const t = truthOf([blk("a:b0:p0", "user", 0, 1), blk("a:b1:p0", "text", 1, 1), blk("a:b2:p0", "user", 2, 2)], { protect: 0 });
+		const blocks = structuredClone(t.blocks);
+		const groups = structuredClone(t.groups);
+		const { record } = await runCompaction({ trigger: "manual", strategy: "pass" }, deps(t, {
+			requestPass: async () => {
+				t.apply([{ kind: "group", ids: ["a:b0:p0", "a:b1:p0"], summary: "summary" }], "auto");
+				return "settled";
+			},
+		}));
+		expect(record.folded.groups).toBe(1);
+		expect(record.undo).not.toBeNull();
+		expect(applyUndo(t, record.undo!)).toEqual({ restored: 1, skipped: 0 });
+		expect(t.blocks).toEqual(blocks);
+		expect(t.groups).toEqual(groups);
+	});
+
 
 	test("pass escalates to aggressive and says so when the conductor frees nothing", async () => {
 		const t = truthOf([blk("a:b0:p0", "text", 0, 1)], { budget: 1000, protect: 0 });
