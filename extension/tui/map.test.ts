@@ -21,8 +21,8 @@ describe("context map", () => {
 			expect(map.columns).toBe(Math.floor((width + 1) / 6));
 			expect(map.selectedIndex).toBe(0);
 			expect(map.lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-			expect(map.lines[0].startsWith("[A1.]  A1. ")).toBe(true);
-			expect(map.lines.join("").match(/A1\./g)).toHaveLength(50);
+			expect(map.lines[0].startsWith("[A1 ]  A1  ")).toBe(true);
+			expect(map.lines.join("").match(/A1 /g)).toHaveLength(50);
 		}
 	});
 
@@ -32,8 +32,8 @@ describe("context map", () => {
 		const middle = buildContextMap(t, "13", 17, 3);
 		expect(middle.columns).toBe(3);
 		expect(middle.selectedIndex).toBe(13);
-		expect(middle.lines).toEqual([" A5.   A5.   A5. ", " A5.  [A5.]  A5. ", " A5.   A6.   A6. "]);
-		expect(buildContextMap(t, "23", 17, 2).lines).toEqual([" A6.   A6.   A6. ", " A6.   A6.  [A6.]"]);
+		expect(middle.lines).toEqual([" A5    A5    A5  ", " A5   [A5 ]  A5  ", " A5    A6    A6  "]);
+		expect(buildContextMap(t, "23", 17, 2).lines).toEqual([" A6    A6    A6  ", " A6    A6   [A6 ]"]);
 	});
 
 	test("uses role, folding, and flag precedence from Truth", () => {
@@ -47,7 +47,7 @@ describe("context map", () => {
 		expect(result.results.every((entry) => entry.applied)).toBe(true);
 		const before = { rev: t.rev, blocks: structuredClone(t.blocks), groups: structuredClone(t.groups) };
 		const map = buildContextMap(t, "u", 80, 5);
-		expect(map.lines).toEqual([" S1!  [U1.]  a1.   H1*   c1G   r1G   U1P "]);
+		expect(map.lines).toEqual([" S1!  [U1 ]  a1    H1*   c1G   r1G   U1P "]);
 		expect({ rev: t.rev, blocks: t.blocks, groups: t.groups }).toEqual(before);
 		const group = t.groups[0];
 		t.apply([{ kind: "unfoldGroup", groupId: group.id }], "you");
@@ -60,10 +60,10 @@ describe("context map", () => {
 		const values = [100, 101, 500, 501, 1500, 1501, 5000, 5001, 15000, 15001];
 		const t = truth(values.map((tokens, i) => block(String(i), i, "text", tokens)));
 		t.setProtect(0);
-		expect(buildContextMap(t, undefined, 140, 2).lines[0]).toBe("[A1.]  A2.   A2.   A3.   A3.   A4.   A4.   A5.   A5.   A6. ");
+		expect(buildContextMap(t, undefined, 140, 2).lines[0]).toBe("[A1 ]  A2    A2    A3    A3    A4    A4    A5    A5    A6  ");
 		t.apply([{ kind: "fold", ids: ["0"] }], "you");
 		t.setCalibration(2, 0);
-		expect(buildContextMap(t, "0", 140, 2).lines[0].startsWith("[a2.]  A2.")).toBe(true);
+		expect(buildContextMap(t, "0", 140, 2).lines[0].startsWith("[a2 ]  A2 ")).toBe(true);
 	});
 
 	test("handles missing selection, empty context and narrow or zero dimensions", () => {
@@ -104,7 +104,7 @@ describe("context map", () => {
 			expect(bar.every((line) => visibleWidth(line) <= width)).toBe(true);
 			const coloredMap = buildContextMap(t, "a1", width, 4, { colored: true });
 			expect(coloredMap.lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-			expect(coloredMap.lines.join("\n")).toContain("[A4.]");
+			expect(coloredMap.lines.join("\n")).toContain("[A4 ]");
 			expect(coloredMap.lines.join("\n")).toContain("\x1b[38;2;");
 		}
 	});

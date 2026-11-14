@@ -169,6 +169,7 @@ export function buildContextMap(
 	if (!blocks.length) return { lines: [truncateToWidth("No blocks yet", availableWidth)], columns, selectedIndex };
 
 	const colored = options?.colored === true;
+	const firstProtected = blocks.findIndex((block) => truth.isProtected(block));
 	const totalRows = Math.ceil(blocks.length / columns);
 	const selectedRow = Math.floor(selectedIndex / columns);
 	const startRow = Math.max(0, Math.min(selectedRow - Math.floor(rowLimit / 2), totalRows - rowLimit));
@@ -180,7 +181,7 @@ export function buildContextMap(
 			const folded = truth.isFolded(block);
 			const group = truth.groupOf(block);
 			const role = folded ? roles[block.kind].toLowerCase() : roles[block.kind];
-			const flag = isBolted(block) ? "!" : block.override === "pinned" ? "*" : truth.isProtected(block) ? "P" : group ? "G" : ".";
+			const flag = isBolted(block) ? "!" : block.override === "pinned" ? "*" : row * columns + column === firstProtected ? "P" : group ? "G" : " ";
 			const content = `${role}${face}${flag}`;
 			const isSelected = row * columns + column === selectedIndex;
 			const rawCell = isSelected ? `[${content}]` : ` ${content} `;

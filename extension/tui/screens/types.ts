@@ -20,8 +20,10 @@ export interface ConfirmSpec {
 	crumb: string;
 	title: string;
 	options: string[];
-	/** Called with the chosen option index, or null when cancelled. */
-	then(choice: number | null): void;
+	/** An optional one-line text input under the options: its label. Printable keys type into it. */
+	input?: string;
+	/** Called with the chosen option index (null when cancelled) and the typed text. */
+	then(choice: number | null, text: string): void;
 }
 
 /** A digest edit, carried out of the custom component because Pi's editor is a separate dialog. */

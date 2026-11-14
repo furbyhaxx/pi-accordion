@@ -227,7 +227,8 @@ describe("accordion panel", () => {
 		await tick(1);
 		expect(s.screen(36)).toContain("[A1P]");
 		s.panel.handleInput(K.right);
-		expect(s.screen(36)).toContain("[A1P]");
+		expect(s.screen(36)).toContain(" A1P ");
+		expect(s.screen(36)).toContain("[A1 ]");
 		s.panel.handleInput(K.alt("f"));
 		await tick(1);
 		expect(s.commands[0]).toEqual({ kind: "ops", ops: [{ kind: "fold", ids: ["b"] }] });

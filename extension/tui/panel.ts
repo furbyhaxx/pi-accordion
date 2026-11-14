@@ -56,7 +56,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 	let readOnly = host.canSteer ? !host.canSteer() : false;
 	let help = false;
 	let helpTop = 0;
-	let modal: (ConfirmSpec & { selected: number }) | null = null;
+	let modal: (ConfirmSpec & { selected: number; text: string }) | null = null;
 	let settingsFocus: string | null = null;
 	let sizedFor = 0;
 	let bodyRows = 0;
@@ -123,7 +123,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 			if (at >= 0) active = at;
 		},
 		confirm: (spec) => {
-			modal = { ...spec, selected: 0 };
+			modal = { ...spec, selected: 0, text: "" };
 			update();
 		},
 		editDigest: (action) => leave(action),
@@ -186,13 +186,14 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 		if (modal) {
 			const [question, ...facts] = modal.title.split("\n");
 			const selected = modal.selected;
-			const choiceRows = Math.min(modal.options.length, bodyRows - 1);
+			const inputRows = modal.input ? 1 : 0;
+			const choiceRows = Math.min(modal.options.length, bodyRows - 1 - inputRows);
 			const first = Math.max(0, Math.min(selected - choiceRows + 1, modal.options.length - choiceRows));
-			const details = [...facts.map((fact) => `  ${theme.fg("muted", clean(fact))}`), ""].slice(0, bodyRows - choiceRows - 1);
+			const details = [...facts.map((fact) => `  ${theme.fg("muted", clean(fact))}`), ""].slice(0, bodyRows - choiceRows - inputRows - 1);
 			const choices = modal.options.slice(first, first + choiceRows).map((option, i) => (first + i === selected ? ` ${theme.fg("accent", "→")} ${theme.bold(clean(option))}` : `   ${clean(option)}`));
 			return renderFrame({
 				...base, crumbs: ["Accordion", tab.title, modal.crumb], above: first, below: modal.options.length - first - choiceRows, query: "", filterable: false,
-				body: [`  ${theme.bold(clean(question))}`, ...details, ...choices],
+				body: [`  ${theme.bold(clean(question))}`, ...details, ...choices, ...(modal.input ? [`  ${theme.fg("muted", `${modal.input}:`)} ${modal.text ? clean(modal.text) : theme.fg("dim", "(type to add, optional)")}`] : [])],
 				description: details.length < facts.length ? facts.slice(details.length).join(" ") : "The first choice is the safe one.",
 				hints: [rawHint(theme, "↑↓", "move", 1), bindingHint(theme, keys, "tui.select.confirm", "enter", "choose", 1), bindingHint(theme, keys, "tui.select.cancel", "escape", "cancel", 0)],
 			});
@@ -224,7 +225,12 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 			else if (keys.matches(data, "tui.select.down") || matchesKey(data, "tab")) m.selected = (m.selected + 1) % m.options.length;
 			else if (keys.matches(data, "tui.select.confirm") || cancel) {
 				modal = null;
-				m.then(cancel ? null : m.selected);
+				m.then(cancel ? null : m.selected, m.text);
+			} else if (m.input) {
+				const text = typed(data);
+				if (text !== null) m.text += text;
+				else if (matchesKey(data, "backspace")) m.text = [...m.text].slice(0, -1).join("");
+				else if (matchesKey(data, "ctrl+u")) m.text = "";
 			}
 			return update();
 		}

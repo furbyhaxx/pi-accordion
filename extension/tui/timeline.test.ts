@@ -43,7 +43,7 @@ describe("context timeline", () => {
 		t.setProtect(0);
 		t.apply([{ kind: "group", ids: ["a:b0:p0", "a:b1:p0"], summary: '{#abc123 FOLDED} {"task":"demo/1","title":"Survey"}', folded: true }], "auto");
 		const rows = buildTimeline(t);
-		expect(rows[0].label).toBe("▣ task demo/1");
+		expect(rows[0].label).toBe('▣ task demo/1 "Survey"');
 		expect(rows[0].cells.every((c) => c.glyph === "▣")).toBe(true);
 		expect(rows[0].folded).toBe(true);
 	});
@@ -56,7 +56,7 @@ describe("context timeline", () => {
 		expect(wide.full).toBe(7);
 		expect(mid.full).toBe(7);
 		expect(narrow.full).toBe(0);
-		expect(narrow.prompt).toBe(12);
+		expect([wide.prompt, mid.prompt, narrow.prompt]).toEqual([32, 24, 17]);
 		expect(tiny.prompt).toBe(0);
 		expect([wide, mid, narrow, tiny].every((c) => c.blocks >= 8)).toBe(true);
 	});
