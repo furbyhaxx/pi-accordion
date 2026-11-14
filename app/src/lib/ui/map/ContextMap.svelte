@@ -83,10 +83,11 @@
 
 	// Color = kind legend (toolbar). Each block kind owns one spectrum hue (--k-*);
 	// this names them so the grid's colours are self-explaining. Order follows the
-	// conversation grammar: you → reply → thinking → tool call → tool result.
+	// conversation grammar: you → extension message → reply → thinking → tool call → tool result.
 	const KINDS: { kind: BlockKind; lbl: string }[] = [
 		{ kind: "system", lbl: "system" },
 		{ kind: "user", lbl: "user" },
+		{ kind: "custom", lbl: "extension message" },
 		{ kind: "text", lbl: "reply" },
 		{ kind: "thinking", lbl: "thinking" },
 		{ kind: "tool_call", lbl: "tool call" },
@@ -1389,6 +1390,7 @@
 	}
 	.ksw.k-user { background: var(--k-user); }
 	.ksw.k-system { background: var(--k-system); }
+	.ksw.k-custom { background: var(--k-custom); }
 	.ksw.k-text { background: var(--k-text); }
 	.ksw.k-thinking { background: var(--k-thinking); }
 	.ksw.k-tool_call { background: var(--k-tool_call); }
@@ -1704,6 +1706,7 @@
 	}
 	.cell.k-system { background: var(--k-system); }
 	.cell.k-user { background: var(--k-user); }
+	.cell.k-custom { background: var(--k-custom); }
 	.cell.k-text { background: var(--k-text); }
 	.cell.k-thinking { background: var(--k-thinking); }
 	.cell.k-tool_call { background: var(--k-tool_call); }
@@ -1716,6 +1719,7 @@
 		background-image: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.06) 0 1px, transparent 1px 5px);
 	}
 	.cell.folded.k-user { background-color: color-mix(in srgb, var(--k-user) 15%, #141414); }
+	.cell.folded.k-custom { background-color: color-mix(in srgb, var(--k-custom) 15%, #141414); }
 	.cell.folded.k-text { background-color: color-mix(in srgb, var(--k-text) 15%, #141414); }
 	.cell.folded.k-thinking { background-color: color-mix(in srgb, var(--k-thinking) 15%, #141414); }
 	.cell.folded.k-tool_call { background-color: color-mix(in srgb, var(--k-tool_call) 15%, #141414); }
@@ -1730,6 +1734,7 @@
 		background-image: none;
 	}
 	.cell.folded.k-user:hover { background-color: var(--k-user); }
+	.cell.folded.k-custom:hover { background-color: var(--k-custom); }
 	.cell.folded.k-text:hover { background-color: var(--k-text); }
 	.cell.folded.k-thinking:hover { background-color: var(--k-thinking); }
 	.cell.folded.k-tool_call:hover { background-color: var(--k-tool_call); }
@@ -1974,6 +1979,7 @@
 		cursor: pointer;
 	}
 	.sliver.k-user        { background: color-mix(in srgb, var(--k-user)        66%, var(--panel-3)); }
+	.sliver.k-custom      { background: color-mix(in srgb, var(--k-custom)      66%, var(--panel-3)); }
 	.sliver.k-text        { background: color-mix(in srgb, var(--k-text)        66%, var(--panel-3)); }
 	.sliver.k-thinking    { background: color-mix(in srgb, var(--k-thinking)    66%, var(--panel-3)); }
 	.sliver.k-tool_call   { background: color-mix(in srgb, var(--k-tool_call)   66%, var(--panel-3)); }
@@ -2041,6 +2047,7 @@
 	}
 	.tr-msg.k-system { --kc: var(--k-system); }
 	.tr-msg.k-user { --kc: var(--k-user); }
+	.tr-msg.k-custom { --kc: var(--k-custom); }
 	.tr-msg.k-text { --kc: var(--k-text); }
 	.tr-msg.k-thinking { --kc: var(--k-thinking); }
 	.tr-msg.k-tool_call { --kc: var(--k-tool_call); }

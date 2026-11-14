@@ -437,7 +437,7 @@
 									? "Protected working tail — never folded"
 									: pinned
 										? "Pinned — unpin to fold"
-										: "Only text, thinking & tool results can fold"}
+										: "Only text, thinking, tool results & extension messages can fold"}
 					onclick={() => store.toggle(block!.id)}
 				>
 					<Icon name={folded ? "chevrons-up-down" : "chevrons-down-up"} size={14} />
@@ -553,7 +553,7 @@
 									? "Protected — never folded"
 									: partner?.override === "pinned"
 										? "Pinned — unpin to fold"
-										: "Only text, thinking & tool results can fold"}
+										: "Only text, thinking, tool results & extension messages can fold"}
 					onclick={() => store.toggle(partner!.id)}
 				>
 					<Icon name="corner-down-right" size={14} />
@@ -676,6 +676,7 @@
 	/* kind color variables */
 	.k-system     { --kc: var(--k-system); }
 	.k-user       { --kc: var(--k-user); }
+	.k-custom     { --kc: var(--k-custom); }
 	.k-text        { --kc: var(--k-text); }
 	.k-thinking    { --kc: var(--k-thinking); }
 	.k-tool_call   { --kc: var(--k-tool_call); }

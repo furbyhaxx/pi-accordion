@@ -85,7 +85,7 @@ export function readPalette(): Palette {
       // weight grammar as every other block, plus neutral corner brackets drawn below.
       system: v("--k-system") || "#FFF6A4",
       user: v("--k-user") || "#044EFF",
-      custom: "#9BD67A",
+      custom: v("--k-custom") || "#9BD67A",
       text: v("--k-text") || "#1AA6E8",
       thinking: v("--k-thinking") || "#B480DF",
       tool_call: v("--k-tool_call") || "#21D4C1",
