@@ -10,6 +10,7 @@ import { CHROME_ROWS } from "./chrome";
 import { openAccordionPanel, type PanelTabId } from "./panel";
 import type { TaskTabsHost } from "./screens/tasks";
 import type { TaskList } from "../tasks";
+import { tasksRowText } from "./screens/overview";
 import { DEFAULT_SETTINGS } from "../settings";
 import { settingPaths, validateSettingsPatch, type SettingsPatch } from "../settingsValidation";
 import type { SettingsSaveResult, SettingsSnapshot } from "../settingsStore";
@@ -19,7 +20,7 @@ function block(id: string, order: number): Block {
 }
 
 const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.down": "down", "tui.select.cancel": "escape", "tui.select.confirm": "enter", "tui.select.pageUp": "pageUp", "tui.select.pageDown": "pageDown" };
-const K = { up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
+const K = { home: "\x1b[H", end: "\x1b[F", up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
 const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
 function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsHost, terminalRows = 24) {
@@ -29,6 +30,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 	let listener = () => {};
 	let disposed = false;
 	let refuse = false;
+	let offMachine = true;
 	let steering = true;
 	let renders = 0;
 	let resolveCommand = () => {};
@@ -49,6 +51,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 	const host: AccordionTuiHost = {
 		truth: () => currentTruth, folding: () => false,
 		conductors: () => [conductor, { ...conductor, id: "taskfold", label: "Taskfold" }],
+		conductorOffMachine: () => offMachine,
 		activeConductor: () => null,
 		canSteer: () => steering,
 		settings: () => ({ settings: settingsState, sources, rev: String(settingsRevision) }),
@@ -76,7 +79,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 			token: tokenState,
 			clients: 1,
 		}),
-		compact: (strategy: string) => { compactStrategies.push(strategy); return { before: 40, after: 20, message: "compacted 40 → 20 tok" }; },
+		compact: (strategy: string, instructions?: string) => { compactStrategies.push(strategy); compactInstructions.push(instructions); return { before: 40, after: 20, message: "compacted 40 → 20 tok" }; },
 		compactPreview: () => ({ pass: 18_400, aggressive: 62_700, bake: 9_800, native: null }),
 		command: (cmd) => {
 			commands.push(cmd);
@@ -93,6 +96,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 	let editorHook = () => {};
 	let confirmResult = true;
 	const compactStrategies: string[] = [];
+	const compactInstructions: (string | undefined)[] = [];
 	let confirmations: string[] = [];
 	const ctx = { mode: "tui", hasUI: true, ui: { custom: (factory: Function) => new Promise<unknown>((resolve) => {
 		finish = () => { component?.dispose?.(); resolve(undefined); };
@@ -100,7 +104,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
-	return { host, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, compactStrategies: () => compactStrategies, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { host, setOffMachine: (value: boolean) => { offMachine = value; }, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, compactStrategies: () => compactStrategies, compactInstructions: () => compactInstructions, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 function selectSetting(s: ReturnType<typeof setup>, label: string) {
@@ -413,6 +417,8 @@ describe("accordion panel", () => {
 		s.panel.handleInput(K.tab);
 		await tick(1);
 		expect(s.screen()).toContain("sends content off-machine");
+		s.setOffMachine(false);
+		expect(s.screen()).not.toContain("sends content off-machine");
 		s.panel.handleInput(K.down);
 		expect(s.screen()).toContain("alt+i options");
 		s.panel.handleInput(K.alt("i"));
@@ -461,6 +467,71 @@ describe("accordion panel", () => {
 		s.close(); await s.opening;
 	});
 
+	test("the compact preview takes optional instructions, shows the bake summary size and opens from the Overview too", async () => {
+		const s = setup(false, "overview");
+		s.panel.handleInput(K.alt("c"));
+		await tick(1);
+		expect(s.screen(100)).toContain("Accordion › Overview › Compact");
+		expect(s.screen(100)).toContain("≈ 9.8k summary");
+		expect(s.screen(100)).toContain("instructions: (type to add, optional)");
+		for (const ch of "keep the plan") s.panel.handleInput(ch);
+		s.panel.handleInput(K.backspace);
+		expect(s.screen(100)).toContain("instructions: keep the pla");
+		expect(s.compactStrategies()).toEqual([]);
+		s.panel.handleInput(K.down); s.panel.handleInput(K.down); s.panel.handleInput(K.enter);
+		await tick(2);
+		expect(s.compactStrategies()).toEqual(["bake"]);
+		expect(s.compactInstructions()).toEqual(["keep the pla"]);
+		s.panel.handleInput(K.alt("c")); s.panel.handleInput(K.enter);
+		await tick(2);
+		expect(s.compactInstructions()).toEqual(["keep the pla", undefined]);
+		for (const width of [36, 57, 80, 140]) {
+			s.panel.handleInput(K.alt("c"));
+			expect(s.panel.render(width).every((line) => visibleWidth(line) <= width)).toBe(true);
+			s.panel.handleInput(K.esc);
+		}
+		s.close(); await s.opening;
+	});
+
+	test("list rows are aligned columns: kind(10) state(14) tokens(8) label", async () => {
+		const s = setup();
+		s.truth.blocks[0].tokens = 1234;
+		s.panel.handleInput(K.alt("v")); s.panel.handleInput(K.alt("v"));
+		const row = (width: number) => s.cursor(width).replace(/\x1b\[[0-9;]*m/g, "").trimEnd();
+		expect(row(36)).toBe("→ ■ text     live protected     1234");
+		expect(row(57)).toBe("→ ■ text     live protected     1234 a content a");
+		expect(row(80)).toBe("→ ■ text     live protected     1234 a content a");
+		expect(row(140)).toBe("→ ■ text     live protected     1234 a content a");
+		s.close(); await s.opening;
+	});
+
+	test("the grid leaves unflagged cells blank and marks only the first protected cell", async () => {
+		const s = setup();
+		s.truth.setProtect(0);
+		s.truth.setProtect(30);
+		s.panel.handleInput(K.alt("v"));
+		const screen = s.screen(36);
+		expect(screen).not.toMatch(/[A-Z][1-6]\./);
+		expect(screen.match(/[A-Z][1-6]P/g)).toHaveLength(1);
+		s.close(); await s.opening;
+	});
+
+	test("the inspector header carries kind, id, size and state once, and home and end scroll", async () => {
+		const s = setup();
+		s.truth.blocks[0].text = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
+		s.panel.handleInput(K.enter);
+		await tick(1);
+		const header = s.panel.render(100).find((line) => line.includes("text · a"))!;
+		expect(header).toContain("text · a · ");
+		expect(header.match(/tok/g)).toHaveLength(1);
+		s.panel.handleInput(K.end);
+		expect(s.screen()).toContain("line 39");
+		expect(s.screen()).not.toContain("line 0\n");
+		s.panel.handleInput(K.home);
+		expect(s.screen()).toContain("line 0");
+		s.close(); await s.opening;
+	});
+
 	test("typing filters the block list and esc clears the filter before closing", async () => {
 		const s = setup();
 		for (const ch of "content b") s.panel.handleInput(ch);
@@ -494,7 +565,7 @@ describe("accordion panel", () => {
 	test("a printable key never acts on any screen", async () => {
 		const printable = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i));
 		const reach: Record<string, string[]> = {
-			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1],
+			map: [], list: [K.alt("v")], inspector: [K.enter], help: [K.f1], overview: [K.shiftTab], preview: [K.alt("c")], overviewPreview: [K.shiftTab, K.alt("c")],
 			conductors: [K.tab], consent: [K.tab, K.down, K.enter],
 			settings: [K.tab, K.tab], confirm: [K.tab, K.tab], timing: [K.tab, K.tab], picker: [K.tab, K.tab], modelpicker: [K.tab, K.tab],
 		};
@@ -559,6 +630,31 @@ describe("accordion panel", () => {
 		await tick(1);
 		expect(expanded).toBe(true);
 		expect(s.screen()).toContain("expanded by default");
+		s.close(); await s.opening;
+	});
+
+	test("overview: the Tasks row shows progress, folds and the current task, and Enter on it opens the Tasks tab", async () => {
+		const at = new Date().toISOString();
+		const list: TaskList = { slug: "plan", title: "Plan", createdAt: at, updatedAt: at, claim: null, goals: [{ id: "g1", text: "Ship it" }],
+			tasks: [{ id: "1", title: "First", status: "done", createdAt: at, startedAt: at, endedAt: at, updatedAt: at, report: { outcome: "ok" } }, { id: "2", title: "Second 界 task", status: "doing", createdAt: at, startedAt: at, updatedAt: at }] };
+		expect(tasksRowText(list, new Set(), Date.now())).toBe("Plan 1/2 · 2 Second 界 task");
+		expect(tasksRowText(list, new Set(["1"]), Date.now())).toBe("Plan 1/2 · ≡1 · 2 Second 界 task");
+		const tasks: TaskTabsHost = {
+			views: { truth: () => null, verdict: () => undefined, threshold: () => null, lists: () => [list], canSteer: () => true, apply: async () => "Applied.", subscribe: () => () => {} },
+			lists: null,
+		};
+		const s = setup(false, "overview", tasks);
+		for (const width of [36, 57, 80, 140]) {
+			const lines = s.panel.render(width);
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			expect(lines.find((line) => line.includes("Tasks   "))!.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).toBe(width < 57 ? "  Tasks    Plan 1/2 · 2 Second 界 t…" : "  Tasks    Plan 1/2 · 2 Second 界 task");
+		}
+		expect(s.screen()).toContain("enter context");
+		s.panel.handleInput(K.down);
+		expect(s.cursor()).toContain("Tasks");
+		expect(s.screen()).toContain("enter tasks");
+		s.panel.handleInput(K.enter);
+		expect(s.panel.render(100)[0]).toContain("Accordion › Tasks");
 		s.close(); await s.opening;
 	});
 
@@ -840,8 +936,9 @@ describe("accordion panel", () => {
 		snapshot.sources.autoArm = "env";
 		snapshot.sources.defaultConductor = "flag";
 		for (let i = 0; i < 3; i++) s.panel.handleInput(K.down);
-		expect(s.cursor()).toContain("env · locked");
+		expect(s.cursor()).toContain("ACCORDION_AUTO_ARM · locked");
 		s.panel.handleInput(K.enter); s.panel.handleInput(K.alt("u"));
+		expect(s.screen()).toContain("autoArm is set by ACCORDION_AUTO_ARM; remove that override first");
 		s.panel.handleInput(K.down);
 		expect(s.cursor()).toContain("flag · locked");
 		s.panel.handleInput(K.right); s.panel.handleInput(K.alt("u"));
@@ -913,7 +1010,8 @@ describe("accordion panel", () => {
 		selectSetting(s, "Web access token");
 		s.host.settings!().sources.customToken = "env";
 		s.panel.handleInput(K.alt("r"));
-		expect(s.screen()).toContain("env · locked");
+		expect(s.screen()).toContain("ACCORDION_TOKEN · locked");
+		expect(s.screen()).toContain("customToken is set by ACCORDION_TOKEN");
 		expect(regenerations).toBe(0);
 		s.host.settings!().sources.customToken = "default";
 		s.panel.handleInput(K.alt("r")); s.panel.handleInput(K.down); s.panel.handleInput(K.enter); await tick();

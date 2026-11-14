@@ -115,14 +115,14 @@ export function createContextTab(shell: Shell): PanelTab {
 		const kindWord = block ? clean(block.kind.replace("_", " ")) : "block";
 		const who = block ? clean(block.toolName ?? block.id) : "";
 		const size = block && truth ? (inspectDigest && group?.folded ? truth.groupLiveTokens(group) : truth.effTokens(block)).toLocaleString("en-US") : "";
-		const headerLine = fitSegments([[kindWord, who, size ? `${size} tok` : "", describe(block)].filter(Boolean).join(" · ")], width);
+		const headerLine = fitSegments([[kindWord, who, size ? `${size} tok` : "", block ? stateOf(block) : ""].filter(Boolean).join(" · ")], width);
 		const room = Math.max(1, rows - 1);
 		inspectTop = Math.max(0, Math.min(inspectTop, lines.length - room));
 		return {
 			body: [theme.fg("muted", headerLine), ...lines.slice(inspectTop, inspectTop + room)],
 			crumbs: ["Inspector"],
 			description: `${describe(block)} · showing ${inspectDigest ? "digest" : "original"}`,
-			hints: [rawHint(theme, "↑↓", "scroll", 2), rawHint(theme, "alt+v", inspectDigest ? "original" : "digest", 3), rawHint(theme, "alt+e", "edit digest", 4), bindingHint(theme, keys, "tui.select.pageDown", "pageDown", "page", 6)],
+			hints: [rawHint(theme, "↑↓", "scroll", 2), rawHint(theme, "home end", "top/bottom", 7), rawHint(theme, "alt+v", inspectDigest ? "original" : "digest", 3), rawHint(theme, "alt+e", "edit digest", 4), bindingHint(theme, keys, "tui.select.pageDown", "pageDown", "page", 6)],
 			above: inspectTop,
 			below: Math.max(0, lines.length - inspectTop - room),
 		};
@@ -270,6 +270,8 @@ export function createContextTab(shell: Shell): PanelTab {
 				else if (down) inspectTop++;
 				else if (pageUp) inspectTop = Math.max(0, inspectTop - pageRows);
 				else if (pageDown) inspectTop += pageRows;
+				else if (matchesKey(data, "home")) inspectTop = 0;
+				else if (matchesKey(data, "end")) inspectTop = Number.MAX_SAFE_INTEGER;
 				else if (matchesKey(data, "alt+v")) {
 					inspectDigest = !inspectDigest;
 					inspectTop = 0;

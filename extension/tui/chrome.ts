@@ -58,7 +58,7 @@ export function cutToWidth(text: string, max: number): string {
 		if (visibleWidth(out + segment) > max - 1) break;
 		out += segment;
 	}
-	return max > 0 ? `${out}…` : "";
+	return max > 0 ? `${out.trimEnd()}…` : "";
 }
 
 /** Keep leading segments that fit `width`; the first one is always kept, truncated if it must be. */

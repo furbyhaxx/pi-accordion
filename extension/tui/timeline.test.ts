@@ -48,6 +48,25 @@ describe("context timeline", () => {
 		expect(rows[0].folded).toBe(true);
 	});
 
+	test("task labels carry the title, cut to the prompt column at every width", () => {
+		const t = truthOf([blk("a:b0:p0", "user", 0, 1, 100), blk("a:b1:p0", "text", 1, 1, 200), blk("a:b2:p0", "tool_result", 2, 2, 300)]);
+		t.setProtect(0);
+		t.apply([{ kind: "group", ids: ["a:b0:p0", "a:b1:p0"], summary: '{#abc123 FOLDED} {"task":"demo/1","title":"Survey the registry 界 and plan"}', folded: true }], "auto");
+		const label = (width: number) => buildTimeline(t, { promptWidth: timelineColumns(width).prompt || undefined })[0].label;
+		expect(label(57)).toBe("▣ task demo/1");
+		expect(label(80)).toBe('▣ task demo/1 "Survey…"');
+		expect(label(140)).toBe('▣ task demo/1 "Survey the regi…"');
+		expect(buildTimeline(t, { promptWidth: 10 })[0].label).toBe("▣ task demo/1");
+		expect(buildTimeline(t, { promptWidth: 50 })[0].label).toBe('▣ task demo/1 "Survey the registry 界 and plan"');
+	});
+
+	test("cells show their weight, and the system cell is bolted", () => {
+		const t = truthOf([blk("sys:0", "system", -1, 0, 55_000), blk("a:b0:p0", "tool_call", 0, 1, 100), blk("a:b1:p0", "tool_result", 1, 1, 600), blk("a:b2:p0", "tool_result", 2, 1, 9_000)]);
+		const rows = buildTimeline(t);
+		expect(rows[0].cells.map((c) => [c.glyph, !!c.bolted])).toEqual([["█", true]]);
+		expect(rows[1].cells.map((c) => [c.glyph, !!c.bolted])).toEqual([["▪", false], ["■", false], ["█", false]]);
+	});
+
 	test("columns drop `full` below 80 and the prompt below 57, keeping the block strip usable", () => {
 		const wide = timelineColumns(140);
 		const mid = timelineColumns(80);

@@ -561,8 +561,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		return h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
 	}
 
+	/** The host shown in web URLs: a wildcard bind shows the first non-internal IPv4 address, else loopback. */
 	function displayWebHost(): string {
-		return activeBindHost();
+		const host = activeBindHost();
+		if (host !== "0.0.0.0" && host !== "::") return host;
+		for (const addresses of Object.values(os.networkInterfaces())) {
+			for (const address of addresses ?? []) if (address.family === "IPv4" && !address.internal) return address.address;
+		}
+		return "127.0.0.1";
 	}
 
 	function activeBrowserToken(): string {
@@ -4405,6 +4411,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				sessionId: () => sessionId,
 				folding: () => foldingEnabled,
 				conductors: () => catalogMeta(readinessOf),
+				conductorOffMachine: (id) => { const entry = entryById(id); return !!entry && leavesMachine(entry); },
 				activeConductor: () => liveHost.activeMeta(),
 				conductorStatus: () => {
 					const st = liveHost.cachedStatus();

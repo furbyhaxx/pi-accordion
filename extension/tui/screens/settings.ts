@@ -15,6 +15,17 @@ type Row = SessionRow | SettingsRow;
 interface PickerItem { value: string | undefined; label: string; description: string }
 interface Picker { row: SettingsRow; items: PickerItem[]; filter: string; selected: number }
 const CONFIG_PATH = "~/.accordion/config.json";
+/** The environment variable and flag that can lock a row; mirrors the layers `settingsStore.ts` reads. */
+const OVERRIDES = {
+	autoArm: { env: "ACCORDION_AUTO_ARM" },
+	defaultConductor: { env: "ACCORDION_DEFAULT_CONDUCTOR" },
+	"compact.manual": { env: "ACCORDION_COMPACT_MODE" },
+	"compact.threshold": { env: "ACCORDION_COMPACT_MODE" },
+	"compact.onSaturated": { env: "ACCORDION_COMPACT_MODE" },
+	bindHost: { env: "ACCORDION_HOST", flag: "--accordion-host" },
+	doorPort: { env: "ACCORDION_DOOR_PORT", flag: "--accordion-port" },
+	customToken: { env: "ACCORDION_TOKEN", flag: "--accordion-token" },
+} as const satisfies Partial<Record<SettingPath, { env: string; flag?: string }>>;
 const SESSION_ROWS: SessionRow[] = [
 	{ id: "folding", label: "Folding", description: "Armed: Accordion rewrites the outgoing context. Off: messages pass through untouched. Applies at once." },
 	{ id: "budget", label: "Token budget", description: "Size this session folds toward, e.g. 200k, 1M or 85%. Applies at once; can also be saved as the model's default." },
@@ -84,13 +95,16 @@ export function createSettingsTab(shell: Shell): PanelTab {
 	const saved = (row: SettingsRow): unknown => settingValue(host.settings?.().settings ?? DEFAULT_SETTINGS, row.path);
 	const defaultValue = (row: SettingsRow): unknown => row.defaultValue ?? settingValue(DEFAULT_SETTINGS, row.path);
 	const value = (row: SettingsRow): unknown => (Object.hasOwn(staged, row.path) ? staged[row.path] : saved(row)) ?? defaultValue(row);
-	const locked = (row: SettingsRow) => {
+	/** The environment variable or flag that overrides a row, or null when nothing does. */
+	const locked = (row: SettingsRow): string | null => {
 		const source = host.settings?.().sources[row.path];
-		return source === "env" || source === "flag" ? source : null;
+		if (source !== "env" && source !== "flag") return null;
+		const names = OVERRIDES[row.path as keyof typeof OVERRIDES];
+		return (source === "flag" ? names?.flag : names?.env) ?? source;
 	};
 	const stage = (row: SettingsRow, next: unknown) => {
-		const source = locked(row);
-		if (source) return shell.say(`${row.path} is ${source} · locked; remove the override first`);
+		const lock = locked(row);
+		if (lock) return shell.say(`${row.path} is set by ${lock}; remove that override first`);
 		const valid = validateSetting(row.path, next);
 		if (!valid.ok) return shell.say(valid.error);
 		if (!Object.keys(staged).length) baseRev = host.settings?.().rev ?? "";
@@ -321,7 +335,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 				if (isGlobal(row) && row.kind !== "add-pattern" && row.kind !== "privacy") stage(row, row.defaultValue !== undefined ? undefined : defaultValue(row));
 				else shell.say("A session value has no stored default to return to");
 			} else if (matchesKey(data, "alt+r") && isGlobal(row) && row.path === "customToken") {
-				if (locked(row)) { shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`); return true; }
+				if (locked(row)) { shell.say(`${row.path} is set by ${locked(row)}; remove that override first`); return true; }
 				if (!host.regenerateToken) return true;
 				const regenerate = host.regenerateToken;
 				shell.confirm({ crumb: "New token", title: `Generate a new web access token?\nUse the new URL for browser access; existing connections stay open.\n${Object.hasOwn(staged, "customToken") ? "The staged token will be discarded.\n" : ""}This applies at once and is not staged.`,
@@ -332,7 +346,7 @@ export function createSettingsTab(shell: Shell): PanelTab {
 			else if (matchesKey(data, "alt+d") && isGlobal(row) && row.kind === "privacy") revokeConsent(row);
 			else if (keys.matches(data, "tui.select.confirm")) {
 				if (!isGlobal(row) && row.id === "folding") void shell.send({ kind: "setFolding", value: !host.folding() });
-				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is ${locked(row)} · locked; remove the override first`);
+				else if (isGlobal(row) && locked(row)) shell.say(`${row.path} is set by ${locked(row)}; remove that override first`);
 				else if (isGlobal(row) && row.kind === "toggle") stage(row, !value(row));
 				else if (isGlobal(row) && row.kind === "privacy") shell.say("Use alt+d to revoke this consent");
 				else if (isGlobal(row) && (row.kind === "conductor" || row.kind === "model")) openPicker(row);

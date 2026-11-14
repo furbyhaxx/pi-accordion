@@ -31,7 +31,7 @@ export function createConductorsTab(shell: Shell): PanelTab {
 				...list.map((c, i) =>
 					line(i + 1, activeId === c.id, c.label, [
 						c.readiness.state === "ready" ? `${theme.fg("success", "●")} ready` : `${theme.fg("error", "✗")} unavailable: ${clean(c.readiness.reason)}`,
-						...(c.privacy ? [theme.fg("warning", "▲ sends content off-machine")] : []),
+						...(c.privacy && host.conductorOffMachine?.(c.id) ? [theme.fg("warning", "▲ sends content off-machine")] : []),
 						theme.fg("muted", `locks: ${c.locks.join(", ") || "none"}`),
 					]),
 				),
