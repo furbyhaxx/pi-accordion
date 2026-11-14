@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 /*
  * taskfold.test.ts — driven through `TestHost` (a real `Truth`), so every proposed group is vetted
  * by the same predicates a live session enforces. Sessions use durable ids (`u:`/`a:…:p<j>`/`r:<callId>`).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { foldedTaskIds, foldedTaskTokens } from "../../../extension/tui/taskWidget";
 import { TaskfoldConductor, scanTaskSpans, staleSpans, taskKeyOfSummary } from "./taskfold";
 import { isHistoryCarrier, parseCarrier, shrinkDeepest, toHistory, type RecordObj } from "./records";
@@ -95,6 +96,155 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 	s.work(3, "tail");
 	return { s, start, end };
 }
+
+	it("retries classifier capacity only after another call settles", async () => {
+		vi.useFakeTimers();
+		try {
+			const s = new Session();
+			s.user("Goal");
+			const host = setup(s, 10);
+			const first = Promise.withResolvers<ClassificationResult>();
+			const result: ClassificationResult = { answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test" };
+			let calls = 0;
+			host.classifier = () => {
+				calls++;
+				if (calls === 1) return first.promise;
+				if (calls === 2) throw new Error("too many concurrent model calls in flight (max 4)");
+				return result;
+			};
+			const c = new TaskfoldConductor();
+			c.attach(host);
+			const at = s.blocks.length;
+			s.user("First");
+			s.user("Second");
+			host.appendBlocks(s.blocks.slice(at));
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(calls).toBe(2);
+			await vi.advanceTimersByTimeAsync(249);
+			expect(calls).toBe(2);
+			first.resolve(result);
+			await vi.advanceTimersByTimeAsync(0);
+			expect(calls).toBe(3);
+			c.detach();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("evaluates 20,000 blocks with 400 folded tasks in under 150 ms", async () => {
+		const s = new Session();
+		const ranges: string[][] = [];
+		for (let i = 0; i < 400; i++) {
+			const start = s.blocks.length;
+			s.start(`${i + 1}`, `Task ${i + 1}`);
+			for (let j = 0; j < 44; j++) s.text(`Task ${i} step ${j} ${"work ".repeat(20)}`);
+			s.finish(`${i + 1}`, { outcome: "done" });
+			ranges.push(s.blocks.slice(start, s.blocks.length).map((b) => b.id));
+		}
+		const host = setup(s, 100);
+		host.setProtect(0);
+		const ops = ranges.map((ids) => ({ kind: "group" as const, ids, summary: "folded", role: "assistant" as const }));
+		const result = await host.propose({ baseRev: host.stats().rev, ops });
+		expect(result.results.filter((r) => r.applied)).toHaveLength(400);
+		const c = new TaskfoldConductor({ timing: "pressure" });
+		c.attach(host);
+		const start = performance.now();
+		await host.commitTurn();
+		const elapsed = performance.now() - start;
+		console.log(`20k planner evaluation: ${elapsed.toFixed(1)} ms`);
+		expect(elapsed).toBeLessThan(150);
+		c.detach();
+	}, 120000);
+
+	it("skips unchanged idle events and replans after a classifier verdict", async () => {
+		const s = new Session();
+		s.user("Goal");
+		const host = setup(s, 10);
+		Object.assign(host, { foldPolicy: () => ({ timing: "eager", cache: cacheProfileFor("*"), now: 1000, lastRequestAt: null }) });
+		const blocks = host.blocks.bind(host);
+		let reads = 0;
+		host.blocks = () => { reads++; return blocks(); };
+		const c = new TaskfoldConductor();
+		c.attach(host);
+		const before = s.blocks.length;
+		s.text("Work");
+		host.appendBlocks(s.blocks.slice(before));
+		await host.commitTurn();
+		await host.departWire();
+		expect(reads).toBe(1);
+		const pending = Promise.withResolvers<ClassificationResult>();
+		host.classifier = () => pending.promise;
+		const at = s.blocks.length;
+		s.user("Another instruction");
+		host.appendBlocks(s.blocks.slice(at));
+		const afterAppend = reads;
+		pending.resolve({ answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test" });
+		await pending.promise;
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(reads).toBeGreaterThan(afterAppend);
+		c.detach();
+	});
+
+	it("characterizes seeded long-session planning", async () => {
+		const digests: string[] = [];
+		for (const seed of [1, 2, 3]) {
+			let random = seed;
+			const next = () => (random = (random * 16807) % 2147483647);
+			const s = new Session();
+			s.user("Seeded session");
+			const host = new TestHost();
+			const records: unknown[] = [];
+			let previousEpoch = "";
+			Object.assign(host, {
+				debug: (record: { type: string }) => {
+					if (record.type !== "epoch") return;
+					const serialized = JSON.stringify(record);
+					if (serialized !== previousEpoch) records.push(record);
+					previousEpoch = serialized;
+				},
+				foldPolicy: () => ({ timing: seed === 3 ? "lazy" : "eager", cache: cacheProfileFor("*"), now: 100000, lastRequestAt: null }),
+			});
+			const propose = host.propose.bind(host);
+			host.propose = (txn) => { records.push(txn.ops); return propose(txn); };
+			host.setProtect(0);
+			host.setBudget(3000);
+			const c = new TaskfoldConductor({ keepRecentTasks: 0, floor: seed === 2, timing: seed === 3 ? "lazy" : "eager" }, undefined, undefined, () => false);
+			host.truth.setLocks(c.locks, c.label, c.tailTokens);
+			c.attach(host);
+			let appended = 0;
+			for (let i = 0; i < 50; i++) {
+				const list = i % 2 ? "other" : "work";
+				const ids = [`${i + 1}`, `${i + 1}.1`, `${i + 1}.1.1`];
+				for (const id of ids) {
+					s.call("tasks", { action: "start", list, id }, `Started ${list}/${id} "Task ${id}". Criteria: ${"criteria ".repeat(20)}`);
+					s.call("read", { path: `docs/${next() % 7}.md` }, `Document ${id}`);
+				}
+				for (const [j, id] of ids.toReversed().entries()) {
+					const action = ["complete", "fail", "abandon", "block", "complete"][(i * 3 + j) % 5];
+					if ((i * 3 + j) % 11 !== 0) s.call("tasks", { action, list, id, reason: "dependency", report: { outcome: `Outcome ${id}` } }, `${list}/${id} ${action}.`);
+				}
+				for (let j = 0, n = 3 + next() % 10; j < n; j++) s.text(`Untracked ${i}.${j} ${"work ".repeat(80)}`);
+				if (i % 8 === 7 || i === 49) {
+					host.appendBlocks(s.blocks.slice(appended));
+					appended = s.blocks.length;
+					await host.commitTurn();
+					await host.departWire();
+				}
+			}
+			expect(records.filter((r) => !Array.isArray(r) && (r as { pressure?: boolean }).pressure).length).toBeGreaterThanOrEqual(5);
+			digests.push(`${records.length} ${createHash("sha256").update(JSON.stringify(records)).digest("hex")}`);
+			c.detach();
+		}
+		expect(digests).toMatchInlineSnapshot(`
+			[
+			  "31 7cd927252b60d5373cd380cb8bf8b6b285b74fe13bb7887fdd432d03d1487e7b",
+			  "31 37260b9b90614f4fb97c9bc112b7d1d103c72248de52caac2a27aef0d04df320",
+			  "33 b24942e4a1b38c0cd4ae08bd5cd60273d86b3f8ad0f75a50581995f390ffb694",
+			]
+		`);
+	}, 120000);
 
 	it("reports the last epoch's estimated savings for compaction previews", async () => {
 		const { s, start } = oneTask();
@@ -847,6 +997,7 @@ describe("taskfold", () => {
 	});
 
 	it("classifies twelve messages with bounded concurrency and retries capacity errors", async () => {
+		vi.useFakeTimers();
 		const s = new Session();
 		s.user("Goal");
 		const ids = Array.from({ length: 12 }, (_, i) => s.user(`Message ${i}`));
@@ -868,6 +1019,8 @@ describe("taskfold", () => {
 		};
 		new TaskfoldConductor({}, ledger).attach(host);
 		host.appendBlocks(s.blocks);
+		await vi.advanceTimersByTimeAsync(250);
+		vi.useRealTimers();
 		for (let i = 0; i < 100 && ids.some((id) => !ledger.has(id)); i++) await Promise.resolve();
 		expect(maximum).toBeLessThanOrEqual(2);
 		expect(ids.map((id) => ledger.get(id)?.source)).toEqual(ids.map(() => "classifier"));

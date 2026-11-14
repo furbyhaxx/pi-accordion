@@ -23,7 +23,7 @@
  * Folding proposes `group`, plus `ungroup` of absorbed child groups. Child handles remain recoverable
  * across group boundaries; a handle-based unfold reopens the task and recompiles its siblings.
  */
-import { isFoldTiming, type ClassifierAnswer, type ClassifierQuestion, type Conductor, type ConductorHost, type FoldTiming, type FoldingPolicy, type HostEvent, type ViewBlock } from "../../../core/conductor/contract";
+import { isFoldTiming, type ClassifierAnswer, type ClassifierQuestion, type Conductor, type ConductorHost, type FoldTiming, type FoldingPolicy, type GroupInfo, type HostEvent, type ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
 import { estTokens } from "../../../core/tokens";
@@ -393,6 +393,28 @@ interface Unit {
 
 type UnitResult = Unit | { declined: string; deferred?: true };
 
+interface PlanContext {
+	blocks: readonly ViewBlock[];
+	groups: readonly GroupInfo[];
+	groupKeys: Map<string, string>;
+	positions: Map<string, number>;
+	groupOf: Map<string, string>;
+	humanGrouped: Set<string>;
+	scan: TaskSpan[];
+	coverage: { open: Uint8Array; finished: Uint8Array };
+	deliveries: Set<string>;
+	userTail: number;
+	resultsAfter: Uint32Array;
+}
+function nearestAncestor(key: string, keys: ReadonlySet<string> | ReadonlyMap<string, unknown>): string | null {
+	for (let i = key.lastIndexOf("."); i > 0; i = key.lastIndexOf(".", i - 1)) {
+		const ancestor = key.slice(0, i);
+		if (keys.has(ancestor)) return ancestor;
+	}
+	return null;
+}
+
+
 function parseCall(text: string | null | undefined): Record<string, unknown> | null {
 	const space = text?.indexOf(" ") ?? -1;
 	if (space < 0) return null;
@@ -486,6 +508,8 @@ export class TaskfoldConductor implements Conductor {
 	private readonly classifying = new Set<string>();
 	private readonly classifyQueue: { id: string; state: Record<string, string>; retries: number }[] = [];
 	private classifierActive = 0;
+	private generation = 0;
+	private classifyTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Messages routing was attempted for this process, and those whose extraction is in flight. */
 	private readonly routeTried = new Set<string>();
 	private readonly routing = new Set<string>();
@@ -499,6 +523,9 @@ export class TaskfoldConductor implements Conductor {
 	/** The epoch currently committing, awaited by the wire-departing hold so the first request after load carries its folds. */
 	private inflight: Promise<void> | null = null;
 	private lastRequestAt: number | null = null;
+	private idleKey: string | null = null;
+
+	private touch(): void { this.idleKey = null; }
 
 	constructor(options: TaskfoldOptions = {}, verdicts: VerdictLedger = new VerdictLedger(), private readonly router: RoutingPort = taskfoldRouting, private readonly allowModel: () => boolean = () => true) {
 		this.k = { ...TASKFOLD_DEFAULTS, ...options };
@@ -512,12 +539,18 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	attach(host: ConductorHost): void {
+		this.touch();
+		this.generation++;
 		this.host = host;
 		this.verdicts.threshold = this.k.maxLoss;
 		this.off = host.on((e) => this.onEvent(e));
 	}
 
 	detach(): void {
+		this.touch();
+		this.generation++;
+		if (this.classifyTimer) clearTimeout(this.classifyTimer);
+		this.classifyTimer = null;
 		this.off?.();
 		this.off = null;
 		this.host?.setStatus(null);
@@ -549,6 +582,7 @@ export class TaskfoldConductor implements Conductor {
 				this.classifyNew(e.blocks);
 				return this.evaluate();
 			case "turn-committed":
+				this.drainClassifiers();
 				return this.evaluate();
 			case "state-changed": {
 				const unfolded = e.changes.filter((c) => c.by !== "auto" && c.what === "ungroup" && c.id && c.groupId);
@@ -562,6 +596,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private async reconcileTaskUnfold(changes: { id: string; groupId: string }[]): Promise<void> {
+		this.touch();
 		const host = this.host;
 		if (!host) return;
 		const groups = host.groups();
@@ -646,16 +681,19 @@ export class TaskfoldConductor implements Conductor {
 			const text = this.textOf(b);
 			if (this.k.harnessPatterns.some((re) => re.test(text))) {
 				this.verdicts.set(b.id, { loss: 0, source: "harness" });
+				this.touch();
 				continue;
 			}
 			const state = this.stateFor(b.id, text);
 			if (!state) {
 				this.verdicts.set(b.id, { loss: null, source: "opening" });
+				this.touch();
 				continue;
 			}
 			// Only a message that has not reached the model yet is new; a resumed session's history is born sent.
 			if (!b.sent) void this.routeOne(b.id, text);
 			this.classifying.add(b.id);
+			this.touch();
 			this.classifyQueue.push({ id: b.id, state, retries: 0 });
 		}
 		this.drainClassifiers();
@@ -698,6 +736,7 @@ export class TaskfoldConductor implements Conductor {
 		if (!request) return;
 		this.routeTried.add(id);
 		this.routing.add(id);
+		this.touch();
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), ROUTE_TIMEOUT_MS);
 		try {
@@ -710,6 +749,7 @@ export class TaskfoldConductor implements Conductor {
 					const result = await request.apply(reply.text, text);
 					if (this.host !== host) return;
 					if (result.applied || result.ids.length) this.verdicts.route(id, { ids: result.ids, at: new Date().toISOString() });
+					this.touch();
 					break;
 				} catch (error) {
 					if (!(error instanceof RoutingParseError) || attempt > 0 || controller.signal.aborted) throw error;
@@ -721,12 +761,15 @@ export class TaskfoldConductor implements Conductor {
 		} finally {
 			clearTimeout(timer);
 			this.routing.delete(id);
+			this.touch();
 		}
 		// Either way the message's fate is settled: fold around it raw, or with its span.
 		if (this.host === host) void this.evaluate();
 	}
 
 	private drainClassifiers(): void {
+		if (this.classifyTimer) clearTimeout(this.classifyTimer);
+		this.classifyTimer = null;
 		while (this.host?.classify && this.classifierActive < 2 && this.classifyQueue.length) {
 			const item = this.classifyQueue.shift()!;
 			this.classifierActive++;
@@ -738,10 +781,11 @@ export class TaskfoldConductor implements Conductor {
 		const { id, state } = item;
 		const host = this.host;
 		if (!host?.classify) return;
+		const generation = this.generation;
 		let retry = false;
 		try {
 			const res = await host.classify({ state, questions: USER_QUESTIONS });
-			if (this.host !== host) return;
+			if (this.generation !== generation) return;
 			const a = res.answers.loss as ClassifierAnswer | undefined;
 			const answers: Record<string, number> = {};
 			for (const [k, v] of Object.entries(res.answers)) if (k !== "loss" && v?.type === "bool") answers[k] = v.probability;
@@ -751,8 +795,9 @@ export class TaskfoldConductor implements Conductor {
 					? { loss: a.score, source: "classifier", confidence: a.confidence, answers, model: res.model, at: new Date().toISOString() }
 					: { loss: null, source: "error" },
 			);
+			this.touch();
 		} catch (error) {
-			if (this.host !== host) return;
+			if (this.generation !== generation) return;
 			if (error instanceof Error && /^too many concurrent model calls in flight \(max \d+\)$/.test(error.message) && item.retries < 3) {
 				item.retries++;
 				this.classifyQueue.push(item);
@@ -761,15 +806,19 @@ export class TaskfoldConductor implements Conductor {
 			}
 			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
 			this.verdicts.set(id, { loss: null, source: "error" });
+			this.touch();
 			this.classifyFailures++;
 		} finally {
-			if (this.host === host) {
-				if (!retry) this.classifying.delete(id);
+			if (this.generation === generation) {
+				if (!retry) { this.classifying.delete(id); this.touch(); }
 				this.classifierActive--;
-				this.drainClassifiers();
+				if (!retry) this.drainClassifiers();
+				else if (!this.classifierActive && !this.classifyTimer) {
+					this.classifyTimer = setTimeout(() => this.drainClassifiers(), 250);
+				}
 			}
 		}
-		if (this.host === host) void this.evaluate();
+		if (this.generation === generation) void this.evaluate();
 	}
 
 	private textOf(b: ViewBlock): string {
@@ -798,6 +847,10 @@ export class TaskfoldConductor implements Conductor {
 		}
 		const stats = host.stats();
 		const pressure = stats.budget > 0 && stats.liveTokens >= this.k.high * stats.budget;
+		const policy = this.policy(host);
+		const cold = policy.lastRequestAt === null || policy.now - policy.lastRequestAt >= policy.cache.ttlMs;
+		const key = [stats.rev, stats.budget, stats.protectTokens, stats.liveTokens, pressure, policy.timing, cold].join("|");
+		if (key === this.idleKey) return;
 		const plan = this.plan(host, undefined, pressure);
 		if (!plan.length) {
 			if (!pressure) {
@@ -806,6 +859,7 @@ export class TaskfoldConductor implements Conductor {
 					epochs: this.epochs, groups: this.groupKeys(host).size, live_tokens: stats.liveTokens, budget: stats.budget,
 					...(this.classifyFailures ? { level: "warning" } : {}),
 				});
+				this.idleKey = key;
 				return;
 			}
 			const blocks = host.blocks();
@@ -814,6 +868,7 @@ export class TaskfoldConductor implements Conductor {
 			const open = scanned.filter((s) => s.status === null).map((s) => ({ span: s, tokens: blocks.reduce((n, b, i) => n + (s.intervals.some((r) => r.start <= i && i <= r.end) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0) })).sort((a, b) => b.tokens - a.tokens)[0];
 			const holder = open ? `open task ${open.span.key} (~${open.tokens} tokens)` : "protected, held or otherwise ineligible context";
 			host.setStatus(`Taskfold saturated: ${holder}; no safe fold is available.${stale.length ? ` Stale open task${stale.length > 1 ? "s" : ""}: ${stale.join(", ")}.` : ""}`, { epochs: this.epochs, groups: this.groupKeys(host).size, level: "error" });
+			this.idleKey = key;
 			return;
 		}
 		const run = this.commit(host, plan).finally(() => { if (this.inflight === run) this.inflight = null; });
@@ -828,11 +883,30 @@ export class TaskfoldConductor implements Conductor {
 	/** Pressure relief runs in every mode; finished records obey the epoch's timing policy. */
 	private plan(host: ConductorHost, recompose?: ReadonlySet<string>, pressure = true): Unit[] {
 		const blocks = host.blocks();
+		const resultsAfter = new Uint32Array(blocks.length + 1);
+		for (let i = blocks.length - 1; i >= 0; i--) resultsAfter[i] = resultsAfter[i + 1] + (blocks[i].kind === "tool_result" ? 1 : 0);
 		const stats = host.stats();
-		const allSpans = this.spans(blocks);
+		const groups = host.groups();
+		const groupKeys = new Map<string, string>();
+		const groupOf = new Map<string, string>();
+		const humanGrouped = new Set<string>();
+		for (const g of groups) {
+			const key = g.by === "auto" ? taskKeyOfSummary(g.summary) : null;
+			if (key) groupKeys.set(g.id, key);
+			for (const id of g.memberIds) {
+				groupOf.set(id, g.id);
+				if (g.by !== "auto") humanGrouped.add(id);
+			}
+		}
+		const scan = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const ctx: PlanContext = { blocks, groups, groupKeys, groupOf, humanGrouped, scan,
+			positions: new Map(blocks.map((b, i) => [b.id, i])), coverage: taskCoverage(blocks.length, scan),
+			deliveries: this.deliveryOwners(blocks, scan), userTail: userTailFrom(blocks, stats.protectTokens), resultsAfter };
+		const allSpans = scan.filter((s): s is Span => s.status !== null);
 		const contains = (outer: Span, inner: Span) => inner.key.startsWith(`${outer.key}.`);
+		const allKeys = new Set(allSpans.map((s) => s.key));
 		if (!recompose && pressure) {
-			const allRoots = allSpans.filter((s) => !allSpans.some((o) => contains(o, s)));
+			const allRoots = allSpans.filter((s) => !nearestAncestor(s.key, allKeys));
 			for (const [key, state] of this.verdicts.unfoldStates()) {
 				const root = allRoots.find((s) => key === s.key || key.startsWith(`${s.key}.`));
 				if (state.open && root && state.count === 1 && allRoots.filter((s) => s.end > root.end).length >= 2 && !this.verdicts.setUnfold(key, { ...state, open: false })) host.setStatus("Taskfold could not persist the unfolded-task state.", { level: "warning" });
@@ -841,10 +915,10 @@ export class TaskfoldConductor implements Conductor {
 		const open = [...this.verdicts.unfoldStates()].filter(([, state]) => state.open).map(([key]) => key);
 		const spans = allSpans.filter((s) => !open.some((key) => s.key === key || s.key.startsWith(`${key}.`) || key.startsWith(`${s.key}.`)));
 		// Outermost finished spans are the fold units; finished descendants fold inside them.
-		const roots = spans.filter((s) => !spans.some((o) => contains(o, s))).sort((a, b) => a.start - b.start);
-		const groupKeys = this.groupKeys(host);
+		const spanKeys = new Set(spans.map((s) => s.key));
+		const roots = spans.filter((s) => !nearestAncestor(s.key, spanKeys)).sort((a, b) => a.start - b.start);
 		const foldedKeys = new Set(groupKeys.values());
-		const foldedHandles = host.groups().flatMap((g) => {
+		const foldedHandles = groups.flatMap((g) => {
 			if (!groupKeys.has(g.id) || !g.folded || typeof g.summary !== "string") return [];
 			const shown = visibleTags(g.summary);
 			return (g.handles ?? []).filter((h) => h.id.startsWith("t:") && shown.has(foldTag(h.id))).map((h) => ({ key: h.id.slice(2), members: new Set(h.memberIds) }));
@@ -874,11 +948,12 @@ export class TaskfoldConductor implements Conductor {
 		const fold = (span: Span, eager = false): void => {
 			if (!recompose && !eager && projected <= target) { reasons.set(span.key, "below-target"); return; }
 			const descendants = spans.filter((s) => contains(span, s));
-			const result: UnitResult = foldedKeys.has(span.key) ? { declined: "already-folded" } : this.unit(host, blocks, span, descendants, planned);
+			const descendantKeys = new Set(descendants.map((s) => s.key));
+			const result: UnitResult = foldedKeys.has(span.key) ? { declined: "already-folded" } : this.unit(host, ctx, span, descendants, planned);
 			if ("declined" in result) {
 				reasons.set(span.key, result.declined);
 				if (result.deferred && !pressure) return;
-				for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) fold(child, eager);
+				for (const child of descendants.filter((s) => !nearestAncestor(s.key, descendantKeys))) fold(child, eager);
 				return;
 			}
 			const unit = result;
@@ -887,7 +962,7 @@ export class TaskfoldConductor implements Conductor {
 			for (const op of unit.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
 			projected -= unit.saved;
 			// A finished descendant whose work lies outside the carrier (it ran while the parent was not open) folds on its own.
-			for (const child of descendants.filter((s) => !descendants.some((o) => contains(o, s)))) {
+			for (const child of descendants.filter((s) => !nearestAncestor(s.key, descendantKeys))) {
 				const outside = blocks.some((b, i) => child.intervals.some((r) => r.start <= i && i <= r.end) && !planned.has(b.id));
 				if (outside && !foldedKeys.has(child.key)) fold(child, eager);
 			}
@@ -898,7 +973,7 @@ export class TaskfoldConductor implements Conductor {
 		}
 		if (!recompose && pressure) {
 			for (const span of roots.filter((s) => recent.has(s.key))) fold(span);
-			const condensed = projected > target ? this.condense(host, blocks, projected - target, planned) : null;
+			const condensed = projected > target ? this.condense(host, ctx, projected - target, planned) : null;
 			if (condensed) {
 				units.push(condensed);
 				for (const op of condensed.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id);
@@ -907,7 +982,7 @@ export class TaskfoldConductor implements Conductor {
 			if (projected > target && this.k.floor) {
 				for (const scope of ["open", "untracked"] as const) {
 					if (projected <= target) break;
-					const floor = this.floor(host, blocks, projected, target, planned, scope);
+					const floor = this.floor(host, ctx, projected, target, planned, scope);
 					if (!floor) continue;
 					units.push(floor);
 					for (const op of floor.ops) {
@@ -918,16 +993,16 @@ export class TaskfoldConductor implements Conductor {
 				}
 			}
 			if (projected > target && this.k.untracked.enabled) {
-				const outside = this.untracked(host, blocks, projected - target, planned);
+				const outside = this.untracked(host, ctx, projected - target, planned);
 				units.push(...outside);
 				for (const u of outside) { projected -= u.saved; for (const op of u.ops) if (op.kind === "group") for (const id of op.ids) planned.add(id); }
 			}
-			if (projected > target && this.k.steps.enabled) units.push(...this.steps(host, blocks, projected - target, planned));
+			if (projected > target && this.k.steps.enabled) units.push(...this.steps(host, ctx, projected - target, planned));
 		}
 		const diagnostics = allSpans.map((span) => {
-			const ancestor = allSpans.filter((s) => contains(s, span) && reasons.has(s.key)).sort((a, b) => b.key.length - a.key.length)[0];
-			const reason = reasons.get(span.key) ?? (ancestor ? `ancestor:${reasons.get(ancestor.key)}` : "not-selected");
-			const stepsSince = blocks.slice(span.end + 1).filter((b) => b.kind === "tool_result").length;
+			const ancestor = nearestAncestor(span.key, reasons);
+			const reason = reasons.get(span.key) ?? (ancestor ? `ancestor:${reasons.get(ancestor)}` : "not-selected");
+			const stepsSince = resultsAfter[span.end + 1] ?? 0;
 			return { key: span.key, reason, stepsSince };
 		});
 		const zombie = diagnostics.find((d) => d.stepsSince > ZOMBIE_STEPS && !d.reason.includes("planned") && !d.reason.includes("already-folded"));
@@ -937,9 +1012,9 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** Pressure row of SPEC-0002 §8: folded records inside open roots become history entries, oldest first, until `need` tokens are freed. */
-	private condense(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit | null {
-		const positions = new Map(blocks.map((b, i) => [b.id, i]));
-		const ours = host.groups()
+	private condense(host: ConductorHost, ctx: PlanContext, need: number, planned: ReadonlySet<string>): Unit | null {
+		const { positions } = ctx;
+		const ours = ctx.groups
 			.filter((g) => g.by === "auto" && g.folded && typeof g.summary === "string" && parseCarrier(g.summary)?.obj.task !== undefined && !g.memberIds.some((id) => planned.has(id)))
 			.sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
 		const ops: Op[] = [];
@@ -998,12 +1073,8 @@ export class TaskfoldConductor implements Conductor {
 		return protectedIds;
 	}
 
-	private floor(host: ConductorHost, blocks: readonly ViewBlock[], live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
-		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
-		const coverage = taskCoverage(blocks.length, spans);
-		const deliveries = this.deliveryOwners(blocks, spans);
-		const positions = new Map(blocks.map((b, i) => [b.id, i]));
-		const userTail = userTailFrom(blocks, host.stats().protectTokens);
+	private floor(host: ConductorHost, ctx: PlanContext, live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
+		const { blocks, scan: spans, coverage, deliveries, positions, userTail } = ctx;
 		const documents = new Set<string>();
 		for (const b of blocks) {
 			if (b.kind !== "tool_call" || !b.callId || b.toolName !== "read") continue;
@@ -1015,9 +1086,10 @@ export class TaskfoldConductor implements Conductor {
 			const allowed = i >= 0 && (scope === "open" ? !!coverage.open[i] && !coverage.finished[i] : !coverage.open[i] && !coverage.finished[i]);
 			return !allowed || deliveries.has(b.id) || i >= userTail || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
 		};
+		const masked = blocks.map(mask);
 		const proxy: ConductorHost = {
-			on: () => () => {}, get: (id) => { const b = host.get(id); return b ? mask(b) : undefined; },
-			blocks: () => host.blocks().map(mask), groups: () => host.groups(), textOf: (id) => host.textOf(id),
+			on: () => () => {}, get: (id) => { const i = positions.get(id); return i === undefined ? undefined : masked[i]; },
+			blocks: () => masked, groups: () => ctx.groups, textOf: (id) => host.textOf(id),
 			stats: () => host.stats(), systemPrompt: () => host.systemPrompt(), countTokens: (text) => host.countTokens(text),
 			digestOf: (id) => host.digestOf(id), complete: (req) => host.complete(req), setStatus: () => {}, propose: (txn) => host.propose(txn),
 		};
@@ -1031,11 +1103,9 @@ export class TaskfoldConductor implements Conductor {
 		} finally { keel.detach(); }
 	}
 
-	private untracked(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
-		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
-		const coverage = taskCoverage(blocks.length, spans);
-		const deliveries = this.deliveryOwners(blocks, spans);
-		return this.foldRuns(host, blocks, need, planned, this.k.untracked.minSteps, (i) => (!deliveries.has(blocks[i].id) && !coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
+	private untracked(host: ConductorHost, ctx: PlanContext, need: number, planned: ReadonlySet<string>): Unit[] {
+		const { blocks, coverage, deliveries } = ctx;
+		return this.foldRuns(host, ctx, need, planned, this.k.untracked.minSteps, (i) => (!deliveries.has(blocks[i].id) && !coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
 	}
 
 	/**
@@ -1043,39 +1113,38 @@ export class TaskfoldConductor implements Conductor {
 	 * resume message, user messages, document reads and the user's tail dial stay live; finished
 	 * subtasks fold as their own records.
 	 */
-	private steps(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
-		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+	private steps(host: ConductorHost, ctx: PlanContext, need: number, planned: ReadonlySet<string>): Unit[] {
+		const { blocks, scan: spans, coverage, deliveries } = ctx;
 		const open = spans.filter((s) => s.status === null).sort((a, b) => a.key.split(".").length - b.key.split(".").length || a.start - b.start);
 		if (!open.length) return [];
-		const coverage = taskCoverage(blocks.length, spans);
-		const deliveries = this.deliveryOwners(blocks, spans);
 		const owner = new Array<string | undefined>(blocks.length);
 		const anchors = new Set<string>();
 		for (const s of open) {
 			for (const r of s.intervals) for (let i = Math.max(0, r.start); i <= Math.min(blocks.length - 1, r.end); i++) owner[i] = s.key;
 			for (const i of [s.start, s.lastEvent]) if (blocks[i]) anchors.add(messageKey(blocks[i].id));
 		}
-		return this.foldRuns(host, blocks, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !deliveries.has(blocks[i].id) && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
+		return this.foldRuns(host, ctx, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !deliveries.has(blocks[i].id) && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
 	}
 
 	/** Group maximal runs of whole messages sharing one non-null `ownerOf` key into recallable carriers, oldest first, until `need` is met. */
 	private foldRuns(
 		host: ConductorHost,
-		blocks: readonly ViewBlock[],
+		ctx: PlanContext,
 		need: number,
 		planned: ReadonlySet<string>,
 		minSteps: number,
 		ownerOf: (i: number) => string | null,
 		carrierOf: (tag: string, key: string, members: ViewBlock[], label: string, facts: { changed: string[]; verified: string[] }) => string,
 	): Unit[] {
-		const occupied = new Set<string>(host.groups().flatMap((g) => [...g.memberIds]));
+		const { blocks } = ctx;
+		const occupied = ctx.groupOf;
 		const documentCalls = new Set<string>();
 		for (const b of blocks) {
 			if (b.kind !== "tool_call" || !b.callId || b.toolName !== "read") continue;
 			const path = parseCall(this.textOf(b))?.path;
 			if (typeof path === "string" && /\.(md|mdx|markdown|rst|txt|adoc)$/i.test(path)) documentCalls.add(b.callId);
 		}
-		const userTail = Math.min(userTailFrom(blocks, host.stats().protectTokens), finalMessageFrom(blocks));
+		const userTail = Math.min(ctx.userTail, finalMessageFrom(blocks));
 		const eligible = (b: ViewBlock, i: number) => i < userTail && !b.protected && !b.held && b.kind !== "system" && b.kind !== "user" && !occupied.has(b.id) && !planned.has(b.id) && !(b.callId && documentCalls.has(b.callId));
 		const runs: { key: string; members: ViewBlock[] }[] = [];
 		let run: ViewBlock[] = [];
@@ -1112,16 +1181,14 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** The ops folding one span, or null when any part of it is not ours to fold right now. */
-	private unit(host: ConductorHost, blocks: readonly ViewBlock[], span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): UnitResult {
+	private unit(host: ConductorHost, ctx: PlanContext, span: Span, children: Span[], planned: ReadonlySet<string> = new Set()): UnitResult {
+		const { blocks, groups, groupKeys, groupOf, humanGrouped, positions } = ctx;
 		// Groups of this span's subtasks are absorbed; any other group (a neighbour's record sharing a
 		// boundary message, a foreign group) must stay outside the span.
 		const childKey = (key: string | undefined) => !!key && key.startsWith(`${span.key}.`);
-		const groupKeys = this.groupKeys(host);
 		// Step carriers folded while this span or a descendant was open are absorbed into its record.
-		const stepsKeys = new Map(host.groups().flatMap((g) => { const k = g.by === "auto" ? stepsKeyOfSummary(g.summary) : null; return k ? [[g.id, k] as const] : []; }));
+		const stepsKeys = new Map(groups.flatMap((g) => { const k = g.by === "auto" ? stepsKeyOfSummary(g.summary) : null; return k ? [[g.id, k] as const] : []; }));
 		const owns = (gid: string) => childKey(groupKeys.get(gid)) || ((k) => !!k && (k === span.key || k.startsWith(`${span.key}.`)))(stepsKeys.get(gid));
-		const groupOf = new Map<string, string>();
-		for (const g of host.groups()) for (const id of g.memberIds) groupOf.set(id, g.id);
 		const foreign = (b: ViewBlock) => {
 			if (planned.has(b.id)) return true;
 			const gid = groupOf.get(b.id);
@@ -1132,7 +1199,7 @@ export class TaskfoldConductor implements Conductor {
 			const call = end?.callId ? blocks.find((b) => b.kind === "tool_call" && b.callId === end.callId) : undefined;
 			const start = blocks[s.start];
 			const result = start?.callId ? blocks.find((b) => b.kind === "tool_result" && b.callId === start.callId) : undefined;
-			const heldByHuman = (b: ViewBlock | undefined) => !!b && (b.held || host.groups().some((g) => g.by !== "auto" && g.memberIds.includes(b.id)));
+			const heldByHuman = (b: ViewBlock | undefined) => !!b && (b.held || humanGrouped.has(b.id));
 			return s.intervals.length > 0 && ([end, call].some((b) => b && (b.held || foreign(b))) || [start, result].some(heldByHuman));
 		})) return { declined: "held-boundary" };
 		const sameMsg = (i: number, j: number) => messageKey(blocks[i].id) === messageKey(blocks[j].id);
@@ -1196,23 +1263,28 @@ export class TaskfoldConductor implements Conductor {
 			return runs.filter((r) => collapsibleMessageKeys(r, true).size > 0);
 		};
 		let viable = makeRuns();
-		for (const g of host.groups()) {
+		const runById = new Map<string, number>();
+		viable.forEach((run, i) => { for (const b of run) runById.set(b.id, i); });
+		for (const g of groups) {
 			if (!owns(g.id)) continue;
-			const matching = viable.filter((r) => r.some((b) => g.memberIds.includes(b.id)));
-			if (matching.length && (matching.length !== 1 || g.memberIds.some((id) => !matching[0].some((b) => b.id === id)))) excludedGroups.add(g.id);
+			const matching = new Set(g.memberIds.flatMap((id) => { const i = runById.get(id); return i === undefined ? [] : [i]; }));
+			if (matching.size && (matching.size !== 1 || g.memberIds.some((id) => !runById.has(id)))) excludedGroups.add(g.id);
 		}
 		if (excludedGroups.size) viable = makeRuns();
 		if (!viable.length) return { declined: "no-collapsible-run" };
 		const memberIds = new Set(viable.flatMap((r) => r.map((b) => b.id)));
-		const positions = new Map(blocks.map((b, i) => [b.id, i]));
-		const ours = host.groups().filter((g) => owns(g.id) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
+		const ours = groups.filter((g) => owns(g.id) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
 
 		const included = new Set(viable.flatMap((r) => r.map((b) => b.id)));
 		const hidden = new Set(viable.flatMap((run) => {
 			const keys = collapsibleMessageKeys(run, true);
 			return run.filter((b) => keys.has(messageKey(b.id))).map((b) => b.id);
 		}));
-		const spanHandle = (task: Span) => ({ id: `t:${task.key}`, memberIds: blocks.filter((_b, i) => task.intervals.some((r) => r.start <= i && i <= r.end) && (!bracket || i <= hi)).map((b) => b.id) });
+		const spanHandle = (task: Span) => {
+			const memberIds: string[] = [];
+			for (const r of task.intervals) for (let i = r.start; i <= r.end && (!bracket || i <= hi); i++) memberIds.push(blocks[i].id);
+			return { id: `t:${task.key}`, memberIds };
+		};
 		const covered = (h: { memberIds: string[] }) => h.memberIds.every((id) => included.has(id) || members.some((b) => b.id === id && b.kind === "user" && !this.folds(b)));
 		const rootHandle = spanHandle(span);
 		const handles = [...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] }))), ...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle)];
@@ -1270,7 +1342,11 @@ export class TaskfoldConductor implements Conductor {
 	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>, reach?: ReadonlyMap<string, "full" | "partial" | "none">, hidden?: ReadonlySet<string>): RecordObj {
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
 		const reportVisible = (task: Span) => this.k.leafForm === "bracket" && hidden && task.closingCall !== undefined && !hidden.has(blocks[task.closingCall].id);
-		const own = blocks.filter((b, i) => (!included || included.has(b.id)) && inside(span, i) && !children.some((c) => inside(c, i)));
+		const own: ViewBlock[] = [];
+		for (const r of span.intervals) for (let i = r.start; i <= r.end; i++) {
+			const b = blocks[i];
+			if ((!included || included.has(b.id)) && !children.some((c) => inside(c, i))) own.push(b);
+		}
 		const { changed, verified } = recordFacts(own, (b) => this.textOf(b));
 		const user = own.flatMap((b) => {
 			const ids = b.kind === "user" ? this.verdicts.get(b.id)?.routed?.ids : undefined;
@@ -1309,6 +1385,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private async commit(host: ConductorHost, units: Unit[]): Promise<void> {
+		this.touch();
 		this.busy = true;
 		try {
 			const ops = units.flatMap((u) => u.ops);
