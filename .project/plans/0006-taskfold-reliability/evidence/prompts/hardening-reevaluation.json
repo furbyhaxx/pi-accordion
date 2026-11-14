@@ -1,5 +1,5 @@
 {
-  "recordedAt": "2026-11-14T16:42:07+01:00",
+  "recordedAt": "2026-11-14T16:54:20+01:00",
   "runtime": "HEAD a8f16bae580d2021dc1e3fe3f5fdefd9e5282e30; pi-bolt 1.5.0 (Pi-Bolt 1.1.7, linux-x64, JIT off); thinking low; 30 requests / 360000 ms; folding armed; taskfold attached; enforce coach",
   "routes": {
     "claude": "claude/claude-sonnet-5-5",
@@ -631,29 +631,19 @@
     }
   },
   "failures": [
-    {"family":"deepseek","scenario":"refactor","route":"deepseek/deepseek-flash","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"refactor","route":"deepseek/deepseek-flash","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"bug","route":"deepseek/deepseek-flash","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"bug","route":"deepseek/deepseek-flash","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"docs","route":"deepseek/deepseek-flash","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"docs","route":"deepseek/deepseek-flash","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"decision","route":"deepseek/deepseek-flash","attempt":1,"requests":2,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"deepseek","scenario":"decision","route":"deepseek/deepseek-flash","attempt":2,"requests":2,"reason":"HTTP 402: Insufficient Balance"},
-    {"family":"glm","scenario":"refactor","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"refactor","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"bug","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"bug","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"docs","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"docs","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"decision","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":2,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"glm","scenario":"decision","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":2,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"refactor","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"refactor","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"bug","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"bug","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"docs","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"docs","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"decision","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":2,"reason":"HTTP 402: Insufficient credits"},
-    {"family":"kimi","scenario":"decision","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":2,"reason":"HTTP 402: Insufficient credits"}
+    {"family":"deepseek","route":"deepseek/deepseek-flash","scenarioRunsFailed":8,"requests":10,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","route":"opencode/deepseek-v4.1-flash","reason":"Probe failed: No API key found for opencode"},
+    {"family":"deepseek","route":"opencode/deepseek-v4-pro","reason":"Probe failed: No API key found for opencode"},
+    {"family":"deepseek","route":"nvidia/deepseek-ai/deepseek-v4.1-flash","reason":"Probe timed out after 120 seconds"},
+    {"family":"deepseek","route":"opencode/deepseek-v4.1-flash-free","reason":"Probe failed: No API key found for opencode"},
+    {"family":"glm","route":"openrouter/z-ai/glm-latest","scenarioRunsFailed":8,"requests":10,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","route":"opencode/glm-5.3","reason":"Probe failed: No API key found for opencode"},
+    {"family":"glm","route":"opencode/glm-5.3-flash","reason":"Probe failed: No API key found for opencode"},
+    {"family":"glm","route":"nvidia/z-ai/glm-5.3-flash","reason":"Probe timed out after 90 seconds"},
+    {"family":"glm","route":"opencode/glm-5.3-flash-free","reason":"Probe failed: No API key found for opencode"},
+    {"family":"kimi","route":"openrouter/moonshotai/kimi-k3","scenarioRunsFailed":8,"requests":10,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","route":"opencode/kimi-k3","reason":"Probe failed: No API key found for opencode"},
+    {"family":"kimi","route":"opencode/kimi-k2.7-code","reason":"Probe failed: No API key found for opencode"},
+    {"family":"kimi","route":"nvidia/moonshotai/kimi-k2.6","reason":"Probe HTTP 404: Function not found for account"}
   ]
 }
