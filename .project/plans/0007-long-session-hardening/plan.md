@@ -30,11 +30,13 @@ A long session is more than 1,000,000 tokens of transcript: 10,000 to 50,000 blo
 
 ```
 done  W1  P1 truth index · P2 taskfold bugs · P3 keel-lite · P4 thermocline (C4, C9, C7)
-          P5 remote+triptych · P6 privacy · P7 compaction · P8 panel · P10 recall · P11 type check
-now   W1  P9 web
-now   W2  P13 taskfold planner cost (T1–T6) · P14 DROP role validation (H11)
-next  W2  P12 hook path (H4–H10, H12, H13, rest of C1), driven by a CPU profile of the replay
-          P15 task tooling (U7–U13, U16, SPEC-0002 code gaps) · P21–P23 thermocline pricing (C5, C6, C2)
+          P5 remote+triptych · P6 privacy · P7 compaction · P8 panel · P9 web · P10 recall
+          P11 type check
+done  W2  P13 taskfold planner cost (T1–T6) · host block view per revision (C1)
+          H11 measured, no change · U16 no change
+now   W2  P12a ingest fingerprint (H6) · P15A–F task tooling (U7–U13)
+next  W2  P12 rest (H4, H5, H7–H10, H12, H13) · P21–P23 thermocline pricing (C5, C6, C2)
+          P24 SPEC-0002 code gaps
 later W3  P16 notices in Truth (U1) · P17 history budget (U2) · P18 host-closed spans (U5, U14,
           B-0001 evaluation) · P19 U15, U17, U18, C8, C14
 later W4  P20 docs and spec text (S1–S4 stale text, D2), artifact cleanup, final gates
@@ -527,48 +529,126 @@ Out of scope: any change to what folds or when; host-closed spans; history budge
 Verification: `npx --prefix app vitest run --root app ../conductors/in-process/taskfold`, then
 `.pi/gate/gate.sh <worktree>` (five checks).
 
-## P14: DROP role validation (H11) — branch `perf/drop-role-floor`
+## P12a: ingest fingerprint budget (H6) — branch `perf/ingest-fingerprint`
 
-Files: `core/wire.ts` (`computeDegradedDropRuns`, the block from "Role-validity floor" at about
-`:500` to the end of that loop), `core/wire.test.ts` (or the test file that covers
-`computeDegradedDropRuns` today; find it with `rg -l computeDegradedDropRuns core app`).
+Files: `core/wire.ts` (next to `contentFingerprint`, about `:372`), `core/wire.test.ts`,
+`extension/accordion.ts` (`ingestMessages` about `:3030-3062`, `setLastMessages`, `lastFps`,
+`sameMessageIdentity`), `extension/smoke-context.mjs`, `docs/adr/0021-truth-in-the-extension.md`
+(hot-path note), both regenerated bundles.
 
-Current: each pass walks all messages; for every pure-drop run it re-scans forward
-(`while (k < msgs.length)`) over all following pure-drop runs to find the next surviving role, and
-run ends are re-found with `while (owner[j] === g)`. Many adjacent drop runs make one pass
-O(messages x runs).
+Current: every `context` hook calls `contentFingerprint` on every message of the incoming array:
+a full FNV pass over all text (Pi hands over a deep copy, so object identity is gone). Measured on
+a 1.1M-token session: 10.9 s of a 37 s replay, 5 to 9 ms per MB, and the array reaches 6 MB.
 
-Change, same result:
+Change:
 
-1. After the tool-pair fixpoint, build the run list once: `runs: { start: number; end: number;
-   group: G | null; role: string }[]`, a survivor message is a run of one with `group: null`.
-2. Keep the outer `for (let stable = false; !stable; )` loop and its left-to-right decisions
-   exactly as they are, but over `runs`. At the START of each pass compute, in one right-to-left
-   sweep, `nextRole[r]` = role of the first run after `r` that survives under the `degradeStart`
-   set as it is at pass start (a survivor message: its role; a REPLACE run or an already degraded
-   drop: `assistant` if its first message is assistant, else `user`; a pure drop: skipped). This
-   equals the old forward peek, because a peek only looks at runs the current pass has not reached
-   yet, whose status cannot have changed in this pass.
-3. `prevRole` handling, `leadingProblem`, `adjacencyProblem` and the comments stay as they are.
+1. `core/wire.ts`: add `export function contentSignature(m: PiMessage): number`, O(parts): FNV
+   over the role tag, the part count, each part's type tag and text length, the tool-call name and
+   `isError`, and for each text at most 192 characters (first 64, last 64, 64 taken at an even
+   stride). No full pass.
+2. `accordion.ts`: keep `lastSigs: number[]` beside `lastFps`. In `ingestMessages`, for each old
+   message `i < prev.length`: compute `contentSignature`; differs from `lastSigs[i]` → diverged.
+   Full `contentFingerprint` only for (a) the last 8 old messages, (b) a rotating window of older
+   messages: start at `verifyCursor`, hash whole messages until 262,144 characters were hashed in
+   this hook, store the cursor, wrap at `prev.length - 8`; a mismatch with `lastFps[i]` →
+   diverged. Old messages outside (a) and (b) keep their stored fingerprint. New suffix messages
+   get both values as today. `rebuildTruth` recomputes both for all messages and resets the cursor.
+3. Rewrite the `COST` and `RESIDUAL GAP` paragraphs above `contentFingerprint` and the ADR note:
+   a rewrite that changes length, part shape or a sampled character, and any rewrite of the last
+   8 messages, is seen in the same hook; a same-length rewrite elsewhere is seen within
+   `ceil(total characters / 262,144)` hooks.
 
-Test that matters: keep the current function body in the test file as `oracle`, and for 3,000
-seeded random wires (10 to 60 messages, roles user/assistant/toolResult mixed with valid tool
-pairs, 0 to 8 groups of which half are drops, some adjacent) assert the same `degradeStart` set
-(compare whatever the function returns). Timing guard: 20,000 messages with 5,000 single-message
-drop runs alternating with survivors, and a second case with 5,000 adjacent drop runs of two
-groups alternating: each under 100 ms; print before and after.
+Tests: `contentSignature` differs for a length change, a part-count change, an `isError` flip and
+a change in the first 64 characters; smoke-context: (1) a same-length rewrite in the middle of
+the newest old message rebuilds in the same hook; (2) the same in message 2 of 400 large messages
+rebuilds within the bound, and the hook after it serves the new text to `recall`; (3) a length
+change in message 2 rebuilds in the same hook.
 
-Out of scope: `applyPlan`, `Truth`.
+Out of scope: `messageInfo`, `Truth.append`.
 
-Verification: `npx --prefix app vitest run --root app ../core`, `node extension/build-remote-sdk.mjs`
-(commit both bundles), then `.pi/gate/gate.sh <worktree>`.
+Verification: `npx --prefix app vitest run --root app ../core/wire.test.ts`,
+`node extension/smoke-context.mjs`, `node extension/build-remote-sdk.mjs`, the gate, and
+`node extension/replay-session.mjs "<session A>" --limit-requests 1230 --out /tmp/p12a.json`
+before and after (report `hookMs` and `ingestMs`; delete the file; session path from the
+integrator, never commit its content).
+
+## P15: task tooling — six units, files disjoint
+
+Code map with functions, lines, callers, tests and settings per finding:
+`evidence/p15-map.md` (groups A to F). Read your group there before anything else. Decisions:
+
+- **P15A coach** (U8, U9; `extension/taskCoach.ts`, its test, SPEC-0002 §3.4/§12 sentences;
+  branch `fix/task-coach-recurrence`).
+  - U8 coach mode: replace `remindedNoList`/`remindedNoLeaf` by a recurrence. After the first
+    reminder, remind again when 25 further untracked work results passed, then 50, 100, 200 and
+    every 200 after that. The counter is not reset by `started()`; it resets when a result is
+    tracked and on `userPrompt()`. Repeats use one line: `Still untracked: <n> tool results
+    without a task. <next step>` where the next step is the existing repair phrase (start the
+    named next task, or create a list). With a list but no task to name: stay silent, as today.
+  - U8 gate mode: after the gate failed open it closes again after 50 further untracked calls
+    and refuses once (one refusal, then open for the next 50). `gateFailOpenAfter` keeps its
+    meaning for the first opening. The notice in `accordion.ts:3504-3508` says "for the next 50
+    calls" (that line is yours).
+  - U9: the large-leaf reminder and the floor-fold note are emitted in `gate` mode too. The
+    large-leaf reminder is emitted when the leaf first crosses the threshold and again each time
+    its size doubled since the last emission, not every ten results.
+- **P15B resume note** (U7; `extension/taskBinding.ts`, its test; branch `fix/task-resume-note`).
+  A changed resume and a UI attachment send, instead of `renderList`'s whole tree: counts per
+  status, the active branch (root to the task in progress or the next task, id and title per
+  level), blocked tasks (id, reason; at most 10, then `+N more`), the next task, the changed ids
+  (at most 20, then `+N more`), and the line `Whole list: tasks status`. `renderList` stays for
+  its other callers. Test: 300 tasks, changed resume, the note is under 1,500 characters and
+  names the active branch and the changed ids.
+- **U16: no change.** SPEC-0001 §4.15 defines `complete` only from `doing`; the refusal names
+  the repair (`start`, then `complete`). One extra call does not justify a contract change in
+  store, tool description, Taskfold and views.
+- **P15C widget** (U10, widget text code rows; `extension/tui/taskWidget.ts`, `taskTree.ts`,
+  their tests; branch `fix/task-widget-reveal`). Clicking a hidden-siblings row reveals at most
+  10 more rows of that run; the rest stays behind the same `… N more` row. At most 30 revealed
+  rows per widget; beyond that the row reads `… N more · alt+t Tasks` and a click does nothing.
+  Header and row token pair follow SPEC-0002 §10.1/§10.2 as listed in the map ("code" rows only).
+  `foldedTaskIds`/`foldedTaskTokens` keep their signatures (a Vitest file imports them).
+- **P15D views** (U11; `extension/tui/taskViews.ts`, `taskTranscript.ts`, their tests; branch
+  `perf/task-views-cache`). Cache the structural tree and the per-span token charges by
+  transcript revision; elapsed-time labels are computed at render from cached timestamps. Per-span
+  charges come from one pass over the blocks (prefix sums per span interval), not one filter per
+  task. Extend the existing cache-count test: ten renders and ten key presses on an unchanged
+  transcript build the tree once.
+- **P15E facts** (U12; `extension/accordion.ts` only `noteFacts`, its state at `:460-465` and the
+  trigger at `:3779-3780`; `core/factLedger.ts`, its test; `extension/settings.ts`,
+  `settingsValidation.ts`, `tui/screens/settingsRows.ts`, SPEC-0003 §8; branch
+  `fix/fact-ledger-budget`).
+  - Idle check: `noteFacts` runs after every tool result and rebuilds `foldedTasks(t)` each time
+    (4.1 s of a 37 s replay). Replace `ledgerIdleRev` by `ledgerIdleKey`: the joined ids of the
+    `t:` handles of folded groups (`truth.groups`, O(groups)); while the key is unchanged and the
+    last scan found nothing to do, return before `foldedTasks`.
+  - Own entries only: a task's prompt entries exclude blocks inside a descendant task that
+    already has a ledger (hierarchy from the task key: `list/1.2` is inside `list/1`).
+  - Session budget: new setting `recall.ledger.maxCalls` (integer 1 to 10,000, default 120):
+    side-model calls for fact extraction per session process. A task whose chunks do not fit the
+    remaining budget is not started, not added to `ledgerTried`, and the idle key is not set by
+    that stop. When the budget is spent: one `ctx.ui.notify` ("fact extraction stopped after N
+    calls; recall still searches the full text") and one debug record.
+  - Tests: factLedger unit test for "own entries"; smoke-context: budget 2 with three folded
+    tasks leaves the third without a ledger and without a prompt; unchanged groups cause no
+    second `foldedTasks` scan (count via a spy the smoke can reach, or by timing-free call count).
+- **P15F dump** (U13; `extension/tui/transcriptDump.ts`, its test, the three usage lines in
+  `accordion.ts`, README and SPEC-0002 §10.3 text; branch `feat/transcript-dump-compact`). New
+  flag `--compact` for every format: the outgoing projection only. A folded span prints its
+  record, code, title and full/live tokens, without member blocks, task-list metadata or reports.
+  Per-node token sums still add up to the wire. Default output is unchanged.
+- **Not in these units** (they write `taskfold.ts`, after P13): `stale` in status, widget and
+  results; `tasks.zombieSteps`; one stable `t:` code; dropped routing operations logged.
+
+Verification per unit: its test file (`bun test <file>` under `extension/`, Vitest under
+`core/`), `node extension/smoke-context.mjs` where it touches `accordion.ts`, then the gate. UI
+units (C, D, F output) also run live in a Pi-Bolt terminal per "Environment".
 
 ## Later units (sparse; detailed when they start)
 
-- **P12 hook path**: CPU-profile `extension/replay-session.mjs` on a session above 1M tokens;
-  fix what the profile shows among H4 (queue persistence after the hook), H5 (cache usage by
-  leaf/model), H6 (fingerprint cost), H7, H8, H9, H10, H12, H13, and doorman's whole-view build
-  per fresh result (rest of C1).
+- **P12 rest**: H4 (queue persistence after the hook), H5 (cache usage by leaf/model), H7, H8,
+  H9, H10, H12, H13; proposals in `evidence/ReviewTruthHook.md` of the analysis. The replay
+  harness stubs Pi, so H4 and H5 do not show in its profile.
 - **P21 fold pricing** (C5), **P22 DROP pricing** (C6), **P23 incremental projection** (C2), in
   this order, same files (`conductors/ws/thermocline/policy.ts`, `thermocline.ts`). C5 needs an
   exact price for "this text as the body of block X" from the host: `max(countTokens(padded
@@ -576,10 +656,8 @@ Verification: `npx --prefix app vitest run --root app ../core`, `node extension/
   calibration prior is above the current factor (`core/truth.ts:531-532`). C6: one
   `host.groups()` snapshot per epoch, foreign groups and planned ops into
   `computeDegradedDropRuns`. C2: running cost, equal to a full recount after top-up.
-- **P15 task tooling**: U7 bounded resume orientation, U8/U9 coaching recurrence and gate-mode
-  notes, U10, U11, U12 session budget for fact extraction, U13 compact dump, U16, SPEC-0002 code
-  gaps (`stale` in status/widget/results, `tasks.zombieSteps`, stable `t:` code, dropped routing
-  operations logged, widget text).
+- **P24 SPEC-0002 code gaps** (after P13): `stale` in status/widget/results, `tasks.zombieSteps`,
+  one stable `t:` code, dropped routing operations logged.
 - **P16 notices in Truth** (U1), **P17 history budget** (U2), **P18 host-closed spans** (U5, U14)
   with the B-0001 evaluation and the Kimi baseline, **P19** U15, U17, U18, C8, C14.
 - **P20**: docs and spec text (S1–S4 rows marked "spec text", docs drift), delete consumed

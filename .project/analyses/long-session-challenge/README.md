@@ -52,12 +52,12 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 
 | Id | Finding | Where | Status |
 |---|---|---|---|
-| T1 | Diagnostic task ages rescan the transcript suffix per finished task on every plan, debug on or off: O(tasks x blocks) | `taskfold.ts:896-904` | open |
-| T2 | Absorbed child groups are matched with array searches: O(members x run) | `taskfold.ts:1142-1145` | open |
-| T3 | The whole planner runs on every append, turn commit and departing request, changed or not | `taskfold.ts:531-553,765-774` | open |
-| T4 | `spanHandle` and `record` filter all blocks per task node | `taskfold.ts:1158-1169,1213-1234` | open |
-| T5 | `host.groups()` deep-copies every member and handle array, several times per unit | `core/conductor/liveHost.ts:225-227`, `taskfold.ts:1062-1078` | open |
-| T6 | Each pressure-floor scope builds a fresh keel-lite conductor and its quadratic read analysis | `taskfold.ts:948-973` | open |
+| T1 | Diagnostic task ages rescan the transcript suffix per finished task on every plan, debug on or off: O(tasks x blocks) | `taskfold.ts:896-904` | fixed b89194c |
+| T2 | Absorbed child groups are matched with array searches: O(members x run) | `taskfold.ts:1142-1145` | fixed b89194c |
+| T3 | The whole planner runs on every append, turn commit and departing request, changed or not | `taskfold.ts:531-553,765-774` | fixed b89194c |
+| T4 | `spanHandle` and `record` filter all blocks per task node | `taskfold.ts:1158-1169,1213-1234` | fixed b89194c |
+| T5 | `host.groups()` deep-copies every member and handle array, several times per unit | `core/conductor/liveHost.ts:225-227`, `taskfold.ts:1062-1078` | fixed b89194c |
+| T6 | Each pressure-floor scope builds a fresh keel-lite conductor and its quadratic read analysis | `taskfold.ts:948-973` | fixed 34061d4 (linear analysis), b89194c (one span scan) |
 | T7 | Bug: delivered context (criteria, pins, attachments in a `tasks start` or `claim` result) can fold while its task is still open | `taskfold.ts:959-962,1021-1022` | fixed bb32da1 |
 | T8 | Bug: a classification backlog starts every call at once; the host admits four, the rest become error verdicts and are never retried | `taskfold.ts:639-654`, `extension/accordion.ts:168,1280` | fixed 9a135d1 |
 | T9 | Bug: an agent-opened task loses its protection after two newer roots without pressure (SPEC-0002 §7.3 asks for pressure) | `taskfold.ts:803-807` | fixed 41daf32 |
@@ -68,7 +68,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 
 | Id | Finding | Where | Status |
 |---|---|---|---|
-| C1 | `blocks()` of the view adapter and the remote replica materialise the whole history with the quadratic group lookup of H1; doorman does it per fresh result | `core/conductor/view.ts:179`, `core/conductor/remote.ts:220`, `doorman.ts:129` | open: lookup fixed 05ef299; doorman still builds the whole view per fresh result (P12) |
+| C1 | `blocks()` of the view adapter and the remote replica materialise the whole history with the quadratic group lookup of H1; doorman does it per fresh result | `core/conductor/view.ts:179`, `core/conductor/remote.ts:220`, `doorman.ts:129` | fixed 05ef299 (lookup), aad898b (one view per revision) |
 | C2 | Thermocline's ladder calls `project()` per move: O(blocks x moves) | `conductors/ws/thermocline/policy.ts:699-706` | open |
 | C3 | keel-lite reread detection compares every read with every read and write | `conductors/in-process/keel-lite/keel-lite.ts:729-731` | fixed 34061d4 |
 | C4 | Bug: thermocline replaces signed thinking blocks; the wire keeps the old signature | `policy.ts:928-930` | fixed cd2401c, 4b3c378 |
@@ -102,7 +102,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | U13 | Every transcript dump format carries all task metadata; there is no compact export | `extension/tui/transcriptDump.ts:221-283` | open |
 | U14 | Agents declare only 56% of their work as tasks (Claude 0%, GLM rejects 96% under the gate); undeclared work folds only under pressure (B-0001) | `.project/plans/0006-taskfold-reliability/plan.md` | open |
 | U15 | The agent is never told that nothing foldable is left; saturation is a footer status | `taskfold.ts:785` | open |
-| U16 | `complete` on a blocked task is refused; the agent must resume first | `extension/tasks.ts:887-890` | open |
+| U16 | `complete` on a blocked task is refused; the agent must resume first | `extension/tasks.ts:887-890` | no change: SPEC-0001 §4.15 allows `complete` only from `doing`, and the refusal names the repair (`start`, then `complete`). One extra call does not justify changing the end-state contract in store, tool description, Taskfold and views |
 | U17 | `unfold` restores in place and rewrites an early part of the wire (diverge: deliver at the tail) | `core/agentView.ts`, `extension/accordion.ts` unfold tool | open |
 | U18 | Agents re-read or redo folded work instead of recalling it (diverge: echo the fold code when a tool call touches a folded task's files) | none yet | open |
 
