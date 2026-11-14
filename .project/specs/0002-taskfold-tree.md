@@ -7,13 +7,13 @@ document:
   status: "published"
   revision: 40
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T16:01:48+01:00"
+  updated_at: "2026-11-14T16:02:26+01:00"
   created_by: "orchestrator"
-  updated_by: "orchestrator"
+  updated_by: "coder"
   changelog:
     - revision: 40
-      reason: "compact transcript exports"
-      changes: ["document the compact option for all dump formats"]
+      reason: "long-session task tooling"
+      changes: ["document the compact option for all dump formats", "describe compact task-list orientation", "describe coaching and gate recurrence"]
 ---
 
 # Taskfold
@@ -577,6 +577,11 @@ persisted in the session and never an edit of an earlier message:
 "Last saw" is the list after the agent's own `tasks` call, after the last note, or after an attach
 note, so the agent never hears about its own edits. File changes on disk are never notices; they are
 reported at the next delivery (§4.2).
+
+A changed resume or user attachment sends a compact orientation: status counts, the active branch,
+up to ten blocked tasks and reasons, the next task, and `Whole list: tasks status`. A changed resume
+also names up to 20 task ids updated since the last binding, or reports that a task was removed or
+edited without a new timestamp when none can be identified.
 
 Notices are not Truth blocks (`linearize` skips custom messages), so they do not enter the delivery
 ledger (§4.3). A `restored` notice, which would re-deliver context a human fold or a compaction hid
