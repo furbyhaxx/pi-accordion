@@ -12,7 +12,7 @@ being reworked for another reason.
 
 ## What Slice 1 actually shipped
 
-One shared **kind** predicate `wireFoldable(b)` in `engine/digest.ts` (KIND-only — durable-id
+One shared **kind** predicate `wireFoldable(b)` in [`core/digest.ts`](../core/digest.ts) (KIND-only — durable-id
 stays a live-wire emit concern in `computeFoldOps`, because on-disk/demo parse ids legitimately
 differ and the view must fold by kind in every mode). Both fold doors route through it:
 `store.fold()` refuses a non-foldable kind; `store.substOne()` (the conductor chokepoint for
@@ -73,10 +73,9 @@ with two different rule sets that were never reconciled:
 - **View side** — the store decides what the human sees: `isFolded` / `effTokens` /
   `digestOf` in [`app/src/lib/engine/store.svelte.ts`](../app/src/lib/engine/store.svelte.ts).
   `fold()` accepts **any** block (no kind/durability gate).
-- **Wire side** — what the agent actually gets: `computeFoldOps` in
-  [`app/src/lib/live/plan.ts`](../app/src/lib/live/plan.ts) and `applyPlan` in
-  [`app/src/lib/live/mapping.ts`](../app/src/lib/live/mapping.ts) (the latter re-derives
-  every safety rule independently, in the extension). These enforce a strict gate.
+- **Wire side** — what the agent actually gets: `Truth.computeFoldOps()` and `Truth.serializeWire()`
+  in [`core/truth.ts`](../core/truth.ts), called by the extension; [`applyPlan()`](../core/wire.ts)
+  produces the provider messages.
 
 The view side is permissive; the wire side is strict; nobody forces them equal. The gap is
 the lie. The concrete trigger that surfaced this: a human folds a `tool_call`. The tile
@@ -118,7 +117,7 @@ Extract the wire's rules into single pure functions and route the store **throug
 the view can no longer form a folded-state the wire would refuse.
 
 1. **One foldability predicate.** A single `wireFoldable(block)` lives in the engine
-   ([`digest.ts`](../app/src/lib/engine/digest.ts), next to `FOLDABLE_KINDS`). `store.fold()`,
+   ([`core/digest.ts`](../core/digest.ts), next to `FOLDABLE_KINDS`). `store.fold()`,
    `store.substOne()`, `store.canFold()`, `store.isFolded` accounting, and `computeFoldOps`
    all gate on it. (As shipped it is **kind-only** — see the note above; the durable-id guard
    remains wire-side in `computeFoldOps`, and the extension's `applyPlan` keeps re-deriving as

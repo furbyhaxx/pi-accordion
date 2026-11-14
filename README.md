@@ -209,9 +209,10 @@ already have in Claude Code, ChatGPT and everywhere else. It is the baseline the
 measured against, and it makes the point that Accordion covers what exists today before it does
 anything past that.
 
-Conductors are opt-in, same as folding itself. An exclusive one shows you a consent screen
-naming which controls it takes over, and detaching converts everything it did into your own
-edits so its work survives being removed.
+By default, session start arms folding (`autoArm: true`) and attaches the configured default
+conductor (`keel-lite` by default). Set `autoArm: false` to start unarmed; choose `None`
+to detach a conductor. An exclusive one shows you a consent screen naming which controls
+it takes over, and detaching converts everything it did into your own edits so its work survives being removed.
 
 Compaction-naive, handoff, keel-note, thermocline and triptych ask for consent before attaching
 when their chat model is remote: they send session content to its provider, which may log it.
@@ -229,7 +230,7 @@ on each are in **[conductors/](conductors/)**.
   working tail.
 - ✅ Live link to a running pi session, with auto-discovery.
 - ✅ Multi-session: every live pi session on the machine in one sidebar, switchable.
-- ✅ Opt-in live steering — apply your fold plan to what the agent is shown.
+- ✅ Automatic live folding — apply your fold plan to what the agent is shown.
 - ✅ Reversible, provider-safe folding with deterministic `{#code FOLDED}` digests the
   agent can ask to unfold.
 - ✅ Involvement locks — exclusive conductors, the consent gate, freeze-on-detach, and
@@ -245,7 +246,7 @@ groups, no replay. That's the build ahead.
 
 - [x] Core fold/unfold engine — reversible, tool-pair safe
 - [x] The separate window — desktop app: Map view, budget, inspector
-- [x] Live link to pi + auto-discovery, opt-in steering
+- [x] Live link to pi + auto-discovery, automatic folding
 - [x] Agent-driven unfold + `recall`, involvement locks
 - [x] LLM-generated summaries, computed once and cached
 - [x] The Conductor — automatic fold/unfold between turns
@@ -270,7 +271,7 @@ npm install --legacy-peer-deps
 pi-bolt -ne --offline -e ./extension/accordion.ts
 ```
 
-Run `/accordion` in the session to open its context panel (tabs **Context**, **Tasks**, **Lists**, **Conductors** and
+Run `/accordion` in the session to open its context panel (tabs **Overview**, **Context**, **Tasks**, **Lists**, **Conductors** and
 **Settings**; `Tab` switches, `F1` lists the keys of the current tab). The Context view shows a
 Claude Code `/context`-style proportional category bar, token savings, and a 2D Spectrum-colored
 Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system).
@@ -300,7 +301,7 @@ Unicode block grid (`■` live, `▫` folded, `▣` grouped, `⛨` bolted system
   for a cold/expired cache or high pressure; `pressure` waits only for high pressure. The session
   mode overrides `modelDefaults` timing (exact model, provider wildcard, `*`), then global
   `taskfold.timing`. Settings stages the global value; the footer shows the resolved mode.
-- `/accordion tasks [lists | expand | collapse | hide | show]` browses task lists and controls the taskfold task list above the editor.
+- `/accordion tasks` (or `/accordion tasks toggle`) toggles the task list; its subcommands are `lists`, `tree`, `adopt [--dry-run]`, `dump-transcript`, `expand`, `collapse`, `hide` and `show`.
 
 The fork is also a Pi package and can be installed from Git:
 
