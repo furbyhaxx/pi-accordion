@@ -103,6 +103,36 @@ describe("task views", () => {
 		expect(nodes[1].open).toBe(true);
 	});
 
+	it("flags the stale task in the list meta, and only that one", () => {
+		const nodes = listNodes(list, null, { ...data(null), stale: new Set(["l/1.1"]) });
+		const flat = flattenTree(nodes, new Map([["l/1", true]]));
+		const metaOf = (key: string) => flat.find((r) => r.node.key === key)!.node.meta;
+		expect(metaOf("l/1.1")).toContain("stale");
+		for (const key of ["l/1", "l/1.2", "l/2"]) expect(metaOf(key)).not.toContain("stale");
+	});
+
+	it("computes stale keys from the host's step limit and the transcript", () => {
+		const bs: TBlock[] = [];
+		const call = (tool: string, args: Record<string, unknown>, result: string) => {
+			const c = `s${bs.length}`;
+			bs.push({ id: `a:${c}:p0`, kind: "tool_call", text: `${tool} ${JSON.stringify(args)}`, toolName: tool, callId: c, full: 10, live: 10 });
+			bs.push({ id: `r:${c}`, kind: "tool_result", text: result, toolName: tool, callId: c, full: 10, live: 10 });
+		};
+		call("tasks", { action: "start", list: "l", id: "1" }, 'Started l/1 "Parent".');
+		call("tasks", { action: "start", list: "l", id: "2" }, 'Started l/2 "Later".');
+		call("tasks", { action: "complete", list: "l", id: "2", report: { outcome: "ok" } }, "l/2 is done.");
+		call("bash", { command: "ls" }, "x");
+		const truth = truthOf(bs);
+		const staleKeys = (steps: number) => {
+			const host: TaskViewsHost = { truth: () => truth, verdict: () => undefined, threshold: () => null, staleAfter: () => steps, lists: () => [list], canSteer: () => false, apply: async () => "", subscribe: () => () => {} };
+			const o = open(host, { kind: "list", slug: "l" });
+			o.screen();
+			return [...(o.v["data"]().stale ?? [])];
+		};
+		expect(staleKeys(3)).toEqual(["l/1"]);
+		expect(staleKeys(100)).toEqual([]);
+	});
+
 	it("shows goal, criteria and scoped facts without confusing inherited and task pins", () => {
 		const pin = { id: "p1", kind: "rule" as const, text: "Exact\nlist fact", source: "user", at: at(0) };
 		const attachment = { id: "a1", path: "spec.md", lines: "2-4", note: "Design evidence", at: at(0), hash: "recorded-hash" };

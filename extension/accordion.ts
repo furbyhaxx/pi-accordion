@@ -3336,6 +3336,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		truth: () => truth,
 		enabled: tasksToolActive,
 		settings: () => settings.taskWidget,
+		staleAfter: () => settings.tasks.zombieSteps,
 		saveExpanded: (expanded) => {
 			if (settings.taskWidget.expanded === expanded) return;
 			void saveSettingsPatch({ "taskWidget.expanded": expanded }).then(result => {
@@ -4205,6 +4206,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			folding: () => foldingEnabled,
 			verdict: (id) => taskfoldVerdicts.get(id),
 			threshold: () => taskfoldVerdicts.threshold,
+			staleAfter: () => settings.tasks.zombieSteps,
 			lists: () => current() && taskListSnapshot?.project === openedProject && taskListSnapshot.session === openedPiSession ? taskListSnapshot.lists : [],
 			invalid: () => current() ? taskListSnapshot?.invalid ?? [] : [],
 			rescan: () => void scanTaskLists(),
