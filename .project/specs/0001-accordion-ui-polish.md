@@ -5,21 +5,20 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 25
+  revision: 26
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-14T16:56:39+01:00"
+  updated_at: "2026-11-14T17:03:30+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 25
-      reason: "align specification details with current implementation"
-      changes: ["align panel, settings, compaction, footer, protocol and web behavior"]
+    - revision: 26
+      reason: "align specification details with current implementation; the widget sketch is fully carried by §4"
+      changes: ["align panel, settings, compaction, footer, protocol and web behavior", "drop the citation of the user's widget sketch"]
 ---
 
 # Accordion UI polish
 
-Inputs: the approved chat wireframes of 2026-11-05 (reproduced here), the user's sketch
-`.project/user-uploaded-assets/2026-11-05T09:00+01:00-taskfold-widget-sketch.md`, and the house UI
+Inputs: the approved chat wireframes of 2026-11-05 (reproduced here) and the house UI
 conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md` and, for the panel,
 `references/dashboard-standard.md`). Open gaps between this spec and the code are carried by
 `.project/plans/0007-long-session-hardening/plan.md`.
