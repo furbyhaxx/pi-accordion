@@ -146,7 +146,13 @@ async function replay(opts, home) {
 			slot.groups++;
 			slot.chars += g.digest.length;
 		}
-		return { session: createHash("sha256").update(file).digest("hex").slice(0, 8), fileMB: fs.statSync(file).size / 1e6, commit: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.dirname(new URL(import.meta.url).pathname), encoding: "utf8" }).trim(), conductor: opts.conductor, budget: opts.budget, tail: opts.tail, messages: fed.length, requests: records.length, blocks: last?.blocks ?? 0, fullTokens: last?.fullTokens ?? 0, skippedLines, hookMs: hooks, commitMs: commits, ingestMs: ingests, liveTokens: { mean: live.mean, p95: live.p95, max: live.max, final: last?.liveTokens ?? 0 }, wireChars: { sum: wire.sum, mean: wire.mean, max: wire.max }, invalidatedChars: { sum: invalid.sum, events: records.filter(r => r.invalidatedChars > 0).length, max: invalid.max }, folds: { groupsFolded: last?.groupsFolded ?? 0, blocksFolded: last?.blocksFolded ?? 0 }, carriers, overBudgetRequests: records.filter(r => r.liveTokens > opts.budget).length, rssPeakMB: rssPeak / 1e6, wallSec: (performance.now() - started) / 1000, hookMsByQuarter: quarters, series };
+		const liveByKind = {};
+		for (const b of host.truth().blocks) {
+			if (host.truth().inFoldedGroup?.(b.id)) continue;
+			const key = b.kind === "thinking" && b.signed ? "thinking (signed)" : b.kind;
+			liveByKind[key] = (liveByKind[key] ?? 0) + (b.override === "folded" || b.autoFolded ? 0 : b.tokens);
+		}
+		return { session: createHash("sha256").update(file).digest("hex").slice(0, 8), fileMB: fs.statSync(file).size / 1e6, commit: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.dirname(new URL(import.meta.url).pathname), encoding: "utf8" }).trim(), conductor: opts.conductor, budget: opts.budget, tail: opts.tail, messages: fed.length, requests: records.length, blocks: last?.blocks ?? 0, fullTokens: last?.fullTokens ?? 0, skippedLines, hookMs: hooks, commitMs: commits, ingestMs: ingests, liveTokens: { mean: live.mean, p95: live.p95, max: live.max, final: last?.liveTokens ?? 0 }, wireChars: { sum: wire.sum, mean: wire.mean, max: wire.max }, invalidatedChars: { sum: invalid.sum, events: records.filter(r => r.invalidatedChars > 0).length, max: invalid.max }, folds: { groupsFolded: last?.groupsFolded ?? 0, blocksFolded: last?.blocksFolded ?? 0 }, carriers, conductorStatus: host.conductorStatus()?.text ?? null, liveByKind, overBudgetRequests: records.filter(r => r.liveTokens > opts.budget).length, rssPeakMB: rssPeak / 1e6, wallSec: (performance.now() - started) / 1000, hookMsByQuarter: quarters, series };
 	} finally {
 		await handlers.session_shutdown?.({}, ctx);
 	}
