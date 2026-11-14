@@ -747,6 +747,30 @@ await waitFor(() => b.inbox.snapshot.length > 0, 2000, "client B snapshot").catc
 	if (a.inbox.event.some((e) => e.event?.kind === "ops")) fails.push("stale conditional command mutated Truth");
 }
 
+// updateSettings merges different fields saved against one baseRev and reports the same field as a conflict (SPEC-0001 §6.3).
+{
+	const baseRev = a.inbox.settings?.at(-1)?.snapshot?.rev;
+	if (typeof baseRev !== "string") fails.push("client A never received a settings snapshot");
+	else {
+		const update = (seq, patch) => a.ws.send(JSON.stringify({ type: "command", seq, cmd: { kind: "updateSettings", patch, baseRev } }));
+		const resultOf = async (seq, what) => {
+			await waitFor(() => a.inbox.commandResult.some((r) => r.seq === seq), 4000, what).catch(() => fails.push(`${what} was not answered`));
+			return a.inbox.commandResult.find((r) => r.seq === seq);
+		};
+		update(9101, { "taskWidget.maxRows": 21 });
+		const first = await resultOf(9101, "first settings save");
+		if (first?.error || first?.conflict) fails.push(`first settings save failed: ${JSON.stringify(first)}`);
+		update(9102, { "taskWidget.expanded": true });
+		const second = await resultOf(9102, "second settings save on a stale baseRev");
+		if (second?.error || second?.conflict) fails.push(`a stale baseRev on a different field must merge, got ${JSON.stringify(second)}`);
+		update(9103, { "taskWidget.maxRows": 22 });
+		const third = await resultOf(9103, "same-field settings save");
+		if (!third?.conflict || !third?.error) fails.push(`a stale baseRev on the same field must report a conflict, got ${JSON.stringify(third)}`);
+		const onDisk = JSON.parse(fs.readFileSync(path.join(HOME, ".accordion", "config.json"), "utf8"));
+		if (onDisk.taskWidget?.maxRows !== 21 || onDisk.taskWidget?.expanded !== true) fails.push(`both merged fields must persist, config has ${JSON.stringify(onDisk.taskWidget)}`);
+	}
+}
+
 // Commands: setProtect 0 (so the block is foldable), setFolding true, then fold the assistant text.
 // Each yields a commandResult to the sender AND a broadcast `event` (config / folding / ops) to ALL.
 {

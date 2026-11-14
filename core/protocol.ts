@@ -652,7 +652,11 @@ export interface SettingsMessage {
 export interface TasksMessage {
 	type: "tasks";
 	list: WireTaskList | null;
+	/** Ids of the list's tasks that run folded (a task whose own spans are covered by folded groups); not group ids. */
 	folded: string[];
+	/** Folded tokens of each task in `folded`, before and after folding; optional so an older host stays valid. */
+	foldTokens?: Record<string, { full: number; live: number }>;
+	/** This session's whole context, at full size and as currently sent. */
 	tokens: { full: number; live: number } | null;
 }
 
