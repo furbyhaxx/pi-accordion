@@ -469,7 +469,9 @@ Steps, one commit each:
    Drive the conductor event by event (`blocks-appended`, `turn-committed`, `wire-departing`) with
    a budget small enough that at least five pressure epochs happen, with a fixed `foldPolicy`
    (`now`, `lastRequestAt`) so nothing depends on the clock. Record every `host.debug` record of
-   type `epoch` and every op list passed to `propose`, and compare with `toMatchSnapshot()`. Three
+   type `epoch` (dropping one that is deep-equal to the record just before it, so the skip of
+   step 6 does not change the result) and every op list passed to `propose`, and compare with
+   `toMatchSnapshot()`. Three
    seeds; one with `floor: true`, one with `timing: "lazy"`. Commit the snapshot. Every later step
    leaves it byte-identical.
 1. **T1.** In `plan`, build once `resultsAfter[i]` = number of `tool_result` blocks at index >= i
