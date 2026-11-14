@@ -128,7 +128,7 @@ attaches):
     "leafForm": "record",
     "recordTokens": 1500,
     "floor": false,
-    "untracked": { "enabled": true, "minSteps": 8 },
+    "untracked": { "enabled": true, "minTokens": 2000 },
     "steps": { "enabled": true, "minSteps": 4 }
   },
   "conductorOptions": {

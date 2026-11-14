@@ -80,7 +80,7 @@ export interface TaskfoldSettings {
 	leafForm: NonNullable<TaskfoldOptions["leafForm"]>;
 	recordTokens: number;
 	floor: boolean;
-	untracked: { enabled: boolean; minSteps: number };
+	untracked: { enabled: boolean; minTokens: number };
 	steps: { enabled: boolean; minSteps: number };
 }
 
@@ -339,7 +339,7 @@ export function sanitizeTaskfoldSettings(value: unknown): TaskfoldSettings {
 	const steps = raw.steps && typeof raw.steps === "object" && !Array.isArray(raw.steps) ? raw.steps as Record<string, unknown> : {};
 	const timing = isFoldTiming(raw.timing) ? raw.timing : defaults.timing;
 	const leafForm = raw.leafForm === "record" || raw.leafForm === "bracket" ? raw.leafForm : defaults.leafForm;
-	return { timing, leafForm, recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minSteps: range(untracked.minSteps, defaults.untracked.minSteps, 1, 10000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
+	return { timing, leafForm, recordTokens: range(raw.recordTokens, defaults.recordTokens, 100, 100000), floor: typeof raw.floor === "boolean" ? raw.floor : defaults.floor, untracked: { enabled: typeof untracked.enabled === "boolean" ? untracked.enabled : defaults.untracked.enabled, minTokens: range(untracked.minTokens, defaults.untracked.minTokens, 100, 1000000) }, steps: { enabled: typeof steps.enabled === "boolean" ? steps.enabled : defaults.steps.enabled, minSteps: range(steps.minSteps, defaults.steps.minSteps, 1, 10000) } };
 }
 
 /** Move previously shipped Taskfold options to their canonical registry-backed address. */

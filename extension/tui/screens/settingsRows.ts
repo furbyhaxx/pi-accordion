@@ -62,8 +62,8 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Taskfold", path: "taskfold.leafForm", label: "Leaf form", kind: "choice", choices: ["record", "bracket"], description: "Choose task record or recoverable bracket folds." },
 	{ section: "Taskfold", path: "taskfold.recordTokens", label: "Record token limit", kind: "number", description: "Maximum estimated tokens in a task record." },
 	{ section: "Taskfold", path: "taskfold.floor", label: "Pressure floor", kind: "toggle", description: "Allow the opt-in pressure floor for open and untracked work." },
-	{ section: "Taskfold", path: "taskfold.untracked.enabled", label: "Untracked folding", kind: "toggle", description: "Allow pressure folding of work outside task spans." },
-	{ section: "Taskfold", path: "taskfold.untracked.minSteps", label: "Untracked min steps", kind: "number", description: "Minimum steps in an untracked fold." },
+	{ section: "Taskfold", path: "taskfold.untracked.enabled", label: "Untracked folding", kind: "toggle", description: "Allow folding of work outside task spans." },
+	{ section: "Taskfold", path: "taskfold.untracked.minTokens", label: "Untracked min tokens", kind: "number", description: "Minimum tokens reclaimed by a warm-cache untracked fold." },
 	{ section: "Taskfold", path: "taskfold.steps.enabled", label: "Open task folding", kind: "toggle", description: "Allow pressure folding of steps within an open task." },
 	{ section: "Taskfold", path: "taskfold.steps.minSteps", label: "Open task min steps", kind: "number", description: "Minimum steps in an open-task fold." },
 	...ENTRIES.flatMap((entry): SettingsRow[] => (entry.options ?? []).map((option) => ({

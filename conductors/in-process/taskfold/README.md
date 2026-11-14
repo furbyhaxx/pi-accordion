@@ -142,7 +142,10 @@ provider. Content already sent cannot be retracted.
 
 ## Untracked work
 
-If pressure remains after finished tasks are folded and open roots condensed, runs of at least eight
-assistant steps outside task spans can fold into recoverable `[untracked-work]` records. User
-messages, document reads, existing groups, held blocks and your tail dial stay outside those
-runs. Without task boundaries these records have only limited derived facts, not the agent's report.
+Untracked work becomes a recoverable record after the next user message seals its turn, according
+to the task folding timing policy. A warm-cache fold must reclaim `untracked.minTokens` (default
+2,000, range 100–1,000,000); a cold-cache or pressure fold needs 400 tokens. The final text-only
+reply stays live unless pressure requires folding it. Under pressure, the current turn can fold too.
+User messages, held blocks and the tail dial stay live. Document reads stay live without pressure;
+under pressure only the newest read of each path stays live. Records contain derived facts, not an
+agent-written report.
