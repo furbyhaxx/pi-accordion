@@ -12,7 +12,7 @@
     "build:remote-sdk": "node ./build-remote-sdk.mjs",
     "build": "npm run build:app && npm run build:client && npm run build:extension && npm run build:remote-sdk",
     "prepack": "npm run build && npm run smoke",
-    "smoke": "node smoke-package.mjs && node smoke-context.mjs && node smoke.mjs && node smoke-conductor.mjs && node smoke-autoarm.mjs"
+    "smoke": "node smoke-package.mjs && node smoke-context.mjs && node smoke.mjs && node smoke-conductor.mjs && node smoke-autoarm.mjs && node replay-session.mjs --self-test"
   },
   "pi": {
     "extensions": ["./accordion.js"]

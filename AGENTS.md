@@ -285,6 +285,7 @@ not trusted by default; production Tauri custom-protocol origins do not need thi
 cd extension && node smoke.mjs              # extension smoke test
 cd extension && node smoke-conductor.mjs    # real out-of-process conductor spawn e2e (thermocline)
 cd extension && node smoke-autoarm.mjs      # autoArm + spawned default conductor attaches at session start
+cd extension && node replay-session.mjs <session.jsonl> --out result.json   # long-session replay: hook time, wire size, folds
 cd extension && npm pack --dry-run          # package readiness: app build → client copy → bundle → smoke (both above) → tarball listing
 cd app/src-tauri && cargo check              # Rust layer — run from PowerShell (see below)
 ```
