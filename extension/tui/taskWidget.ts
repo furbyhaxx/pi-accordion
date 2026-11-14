@@ -6,7 +6,8 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { Truth } from "../../core/truth";
-import { scanTaskSpans, staleSpans, taskKeyOfSummary, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
+import { staleSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
+import { taskSpansOf } from "../taskSpans";
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
 import { fitSegments } from "./chrome";
@@ -264,7 +265,8 @@ export function foldedTaskIds(list: TaskList, folds: ReadonlyMap<string, FoldTok
 }
 
 /** Tokens of each of `list`'s tasks that owns folded Taskfold groups, summed over its parts. */
-export function foldedTaskTokens(list: TaskList, truth: Truth, spans: readonly TaskSpan[] = scanTaskSpans(truth.blocks, (b) => b.text)): Map<string, FoldTokens> {
+export function foldedTaskTokens(list: TaskList, truth: Truth): Map<string, FoldTokens> {
+	const spans = taskSpansOf(truth);
 	const out = new Map<string, FoldTokens>();
 	const charges = new Map(truth.projectContext().flatMap((p) => p.members.map((b) => [b.id, b] as const)));
 	for (const task of list.tasks) {
@@ -283,7 +285,8 @@ export function foldedTaskTokens(list: TaskList, truth: Truth, spans: readonly T
 }
 
 /** Exact additive charges of this list's intervals and the carriers snapped around them. */
-export function taskSpanTokens(list: TaskList, truth: Truth, allSpans: readonly TaskSpan[] = scanTaskSpans(truth.blocks, (b) => b.text)): { full: number; live: number } | null {
+export function taskSpanTokens(list: TaskList, truth: Truth): { full: number; live: number } | null {
+	const allSpans = taskSpansOf(truth);
 	const spans = allSpans.filter((s) => s.list === list.slug);
 	if (!spans.length) return null;
 	const covered = new Set(truth.blocks.filter((_b, i) => spans.some((s) => spanContains(s, i))).map((b) => b.id));
@@ -545,10 +548,9 @@ export class TaskWidgetController {
 		const steps = this.deps.staleAfter?.() ?? 0;
 		const key = `${list.slug}|${list.updatedAt}|${truth?.rev ?? -1}|${truth?.blocks.length ?? 0}|${steps}`;
 		if (this.cache?.key === key) return this.cache.model;
-		const spans = truth ? scanTaskSpans(truth.blocks, (b) => b.text) : [];
-		const foldTokens = truth ? foldedTaskTokens(list, truth, spans) : new Map<string, FoldTokens>();
-		const stale = truth && steps > 0 ? new Set(staleSpans(spans, truth.blocks, steps).filter((s) => s.list === list.slug).map((s) => s.id)) : new Set<string>();
-		const model: TaskWidgetModel = { list, folded: foldedTaskIds(list, foldTokens), foldTokens, stale, tokens: truth ? taskSpanTokens(list, truth, spans) : null };
+		const foldTokens = truth ? foldedTaskTokens(list, truth) : new Map<string, FoldTokens>();
+		const stale = truth && steps > 0 ? new Set(staleSpans(taskSpansOf(truth), truth.blocks, steps).filter((s) => s.list === list.slug).map((s) => s.id)) : new Set<string>();
+		const model: TaskWidgetModel = { list, folded: foldedTaskIds(list, foldTokens), foldTokens, stale, tokens: truth ? taskSpanTokens(list, truth) : null };
 		this.cache = { key, model };
 		return model;
 	}
