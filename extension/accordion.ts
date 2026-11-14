@@ -156,6 +156,8 @@ import {
 // WebSocket frames otherwise inherit ws's 100 MiB default. Plans and control messages are
 // normally kilobytes; 8 MiB leaves ample headroom while bounding allocation + JSON.parse work.
 const MAX_WS_PAYLOAD_BYTES = 8 * 1024 * 1024;
+// Leave room for a whole snapshot and subsequent same-tick messages; disconnect only beyond that lag.
+const MAX_WS_BUFFERED_BYTES = 64 * 1024 * 1024;
 // Browser-served session A may switch to session B without possessing B's token. B verifies A
 // through A's loopback-only /__accordion/meta endpoint plus the live registry. Bound that
 // upgrade-time probe so an unrelated local port cannot tie up verifier work indefinitely.
@@ -216,6 +218,8 @@ interface RuntimeDependencies {
 	complete?: CompletionFunction;
 	openPanel?: typeof openAccordionPanel;
 	beforeControllerHeartbeatWrite?: () => void;
+	/** Test seam for the outbound socket buffer limit in bytes. */
+	wsBufferLimit?: number;
 }
 // Vite's fixed localhost:1420 Origin is browser-obtainable, unlike Tauri's production custom
 // origins. Trust it only for an explicit local development session; shipped installs stay closed.
@@ -862,13 +866,22 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	let bindError: string | null = null;
 
 	const attached = (): boolean => clients.size > 0;
+	let lastSnapshotBytes = 0;
 
-	function send(ws: WebSocket, m: ServerMessage): void {
+	function sendText(ws: WebSocket, text: string): void {
+		if (ws.bufferedAmount > Math.max(dependencies.wsBufferLimit ?? MAX_WS_BUFFERED_BYTES, 2 * lastSnapshotBytes)) {
+			ws.terminate();
+			return;
+		}
 		try {
-			ws.send(JSON.stringify(m));
+			ws.send(text);
 		} catch {
 			/* socket gone */
 		}
+	}
+
+	function send(ws: WebSocket, m: ServerMessage): void {
+		sendText(ws, JSON.stringify(m));
 	}
 
 	/** Send a message to every connected client (Phase B fan-out). */
@@ -878,8 +891,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
-	function broadcast(m: ServerMessage): void {
-		for (const ws of clients.keys()) if (ws.readyState === 1 /* OPEN */) send(ws, m);
+	function broadcast(m: ServerMessage, text = JSON.stringify(m)): void {
+		for (const ws of clients.keys()) if (ws.readyState === 1 /* OPEN */) sendText(ws, text);
 		notifyNative();
 	}
 
@@ -898,8 +911,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function sendSnapshot(ws?: WebSocket): void {
 		if (!truth) return;
 		const m: ServerMessage = { type: "snapshot", state: serializeSnapshot(truth, foldingEnabled) };
-		if (ws) send(ws, m);
-		else broadcast(m);
+		const text = JSON.stringify(m);
+		lastSnapshotBytes = text.length;
+		if (ws) sendText(ws, text);
+		else broadcast(m, text);
 	}
 
 	/** Broadcast a stream lifecycle frame to every attached client (presentation-only ghosts). */

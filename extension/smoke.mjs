@@ -108,6 +108,7 @@ const pi = {
 // Set by the recall({ask}) section; any other completion in this instance is unexpected.
 let askComplete = null;
 accordionLive(pi, {
+	wsBufferLimit: 256 * 1024,
 	complete: async (...args) => {
 		if (!askComplete) throw new Error("unexpected completion in the main smoke instance");
 		return askComplete(...args);
@@ -1651,6 +1652,46 @@ await new Promise((r) => setTimeout(r, 50));
 		candidate.on("error", () => {});
 	});
 	if (oversized.code !== 1009) fails.push(`ws-hardening: oversized frame did not close with 1009 (${JSON.stringify(oversized)})`);
+
+	const slow = connectClient("slow-buffer-smoke", "Slow client");
+	const healthy = connectClient("healthy-buffer-smoke", "Healthy client");
+	await waitFor(() => slow.inbox.snapshot.length && healthy.inbox.snapshot.length, 3000, "buffer-bound snapshots");
+	const slowPort = slow.ws._socket.localPort;
+	const terminate = WebSocket.prototype.terminate;
+	let slowTerminated = false;
+	let broadcasts = 0;
+	const text = "x".repeat(64 * 1024);
+	WebSocket.prototype.terminate = function () {
+		if (this._socket?.remotePort === slowPort) slowTerminated = true;
+		return terminate.call(this);
+	};
+	try {
+		slow.ws._socket.pause();
+		let rev = healthy.inbox.snapshot.at(-1).state.rev;
+		while (!slowTerminated && broadcasts < 2000) {
+			const timestamp = T0 + 100_000 + broadcasts++;
+			handlers.message_end({ message: { role: "user", content: text, timestamp } }, ctx);
+			await waitFor(() => healthy.inbox.event.some((m) => m.event?.blocks?.some((block) => block.id === `u:${timestamp}`)), 3000, "healthy client event");
+			const event = healthy.inbox.event.at(-1).event;
+			if (event.rev !== rev + 1) fails.push(`ws-buffer: healthy revision jumped from ${rev} to ${event.rev}`);
+			rev = event.rev;
+		}
+		if (!slowTerminated) fails.push(`ws-buffer: slow client not terminated after ${broadcasts} broadcasts`);
+		else console.log(`ws-buffer: slow client terminated after ${broadcasts} broadcasts of ${Buffer.byteLength(text)} text bytes`);
+		const fresh = connectClient("fresh-buffer-smoke", "Fresh client");
+		try {
+			await waitFor(() => fresh.inbox.hello.length && fresh.inbox.snapshot.length && fresh.inbox.settings?.length && fresh.inbox.tasks?.length && fresh.inbox.telemetry.length, 5000, "reconnected handshake");
+			if (fresh.ws.readyState !== WebSocket.OPEN) fails.push("ws-buffer: fresh client closed during its handshake");
+			if (fresh.inbox.snapshot.at(-1).state.rev !== rev)
+				fails.push(`ws-buffer: fresh snapshot rev ${fresh.inbox.snapshot.at(-1).state.rev} does not match healthy rev ${rev}`);
+		} finally {
+			fresh.ws.terminate();
+		}
+	} finally {
+		WebSocket.prototype.terminate = terminate;
+		slow.ws.terminate();
+		healthy.ws.terminate();
+	}
 }
 
 // ── v16 the stable door: bind / stand-down / takeover / foreign occupant (ADR 0024) ──
