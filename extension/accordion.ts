@@ -81,6 +81,7 @@ import { refusalMessage, type TaskViewsHost } from "./tui/taskViews";
 import { transcriptSource, transcriptSpans } from "./tui/taskTranscript";
 import { DUMP_FORMATS, dumpDocument, dumpFileName, formatOfPath, parseFormatSpec, renderDump, withExtension, type DumpFormat } from "./tui/transcriptDump";
 import { foldToolRow, noticeRow, tasksDetails, tasksRow, toolRowRenderers, type TasksDetails } from "./tui/toolRows";
+import { sessionEntryToContextMessages, type SessionEntry as PiSessionEntry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 
@@ -820,6 +821,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// snapshot, extended by message_end / agent_end deltas). pi's next `event.messages` is compared
 	// against it by a cheap durable-id walk to decide append-a-suffix vs. rebuild.
 	let lastMessages: PiMessage[] = [];
+	let positionalMessages = new WeakSet<PiMessage>();
 	let lastFps: number[] = [];
 	let lastSigs: number[] = [];
 	let verifyCursor = 0;
@@ -1587,7 +1589,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (!c) return [];
 		let sm: {
 			buildSessionContext?: () => { messages?: unknown };
-			getBranch?: (fromId?: string) => Array<{ type: string; message?: unknown }>;
+			getBranch?: (fromId?: string) => PiSessionEntry[];
 		} | undefined;
 		try {
 			sm = c.sessionManager as unknown as typeof sm;
@@ -1603,8 +1605,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		try {
 			const branch = sm.getBranch?.() ?? [];
-			const msgs = branch.filter((e) => e.type === "message" && e.message).map((e) => e.message as PiMessage);
-			return msgs;
+			return branch.flatMap((e) =>
+				e.type === "message" || e.type === "custom_message"
+					? sessionEntryToContextMessages(e) as PiMessage[]
+					: [],
+			);
 		} catch {
 			return [];
 		}
@@ -2945,6 +2950,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			recallAccount.reset();
 			guardLoadedSession = true;
 		}
+		positionalMessages = new WeakSet();
+		messages.forEach((message, i) => {
+			if (messageInfo(message, i).hasNonDurable) positionalMessages.add(message);
+		});
 		setLastMessages(messages); // fingerprints the full array once (rare rebuild path) — see lastFps
 		if (!prev) applyDials();
 	}
@@ -3052,7 +3061,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// and still yields 0 for an empty log and 0 for a log holding only the system block.
 		const orderStart = lastB ? lastB.order + 1 : 0;
 		const turnStart = lastB ? lastB.turn : 0;
-		const fresh = linearize(messages.slice(from), orderStart, turnStart).map(wireToBlock);
+		const fresh = linearize(messages.slice(from), orderStart, turnStart, from).map(wireToBlock);
 		truth.append(fresh); // idempotent by id; emits `appended` → forwarded to clients
 	}
 
@@ -3103,6 +3112,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		for (let i = prev.length; i < messages.length; i++) {
 			incomingFps.push(contentFingerprint(messages[i]));
 			incomingSigs.push(contentSignature(messages[i]));
+			if (messageInfo(messages[i], i).hasNonDurable) positionalMessages.add(messages[i]);
 		}
 		if (messages.length > prev.length) appendSuffix(messages, prev.length);
 		setLastMessages(messages, incomingFps, incomingSigs);
@@ -3206,8 +3216,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 */
 	function ingestFinishedMessage(msg: PiMessage, allowCalibration = true): void {
 		if (!truth) return;
-		const ids = messageInfo(msg, 0).ids;
+		const info = messageInfo(msg, lastMessages.length);
+		const ids = info.ids;
 		if (!ids.length) return;
+		if (info.hasNonDurable && positionalMessages.has(msg)) return;
 		if (ids.every((id) => truth!.get(id))) return; // already represented → nothing to do
 		// Calibration pairing runs only for a message actually being NEWLY appended (review round,
 		// issue #11): the `agent_end` backstop replays the whole run in order, and an already-appended
@@ -3216,6 +3228,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// departing wire the backstop is actually recovering, snapping k visibly low for one turn.
 		if (allowCalibration) maybeObserveCalibration(msg);
 		appendSuffix([...lastMessages, msg], lastMessages.length);
+		if (info.hasNonDurable) positionalMessages.add(msg);
 		setLastMessages([...lastMessages, msg], [...lastFps, contentFingerprint(msg)], [...lastSigs, contentSignature(msg)]);
 		if (msg.role === "assistant") turnPending = true;
 	}
@@ -3425,6 +3438,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		contextWindow = null;
 		tokens = null;
 		setLastMessages([]); // clears lastMessages + lastFps together (invariant: never one without the other)
+		positionalMessages = new WeakSet();
 		// E2 (external review round): folding is OPT-IN and OFF by default PER SESSION — reset the
 		// arm on every `session_start`, regardless of `_event.reason` ("startup"/"reload"/"new"/
 		// "resume"/"fork"). Everything else this handler touches (Truth, `lastMessages`, `meta`, the

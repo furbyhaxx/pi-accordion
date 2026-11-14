@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createJiti } from "jiti";
+import { sessionEntryToContextMessages } from "@earendil-works/pi-coding-agent";
 
 const usage = "Usage: node extension/replay-session.mjs <session.jsonl> [--conductor <id>|none] [--budget <tokens>] [--tail <tokens>] [--limit-requests <n>] [--sample-every <n>] [--out <file.json>]\n       node extension/replay-session.mjs --self-test";
 function options(args) {
@@ -45,7 +46,7 @@ async function loadSession(file) {
 	for (let entry = leaf; entry; entry = entry.parentId ? entries.get(entry.parentId) : undefined) {
 		if (visited.has(entry.id)) throw new Error("Session branch contains a cycle");
 		visited.add(entry.id);
-		if (entry.type === "message" && entry.message) branch.push(entry.message);
+		if ((entry.type === "message" && entry.message) || entry.type === "custom_message") branch.push(...sessionEntryToContextMessages(entry));
 	}
 	branch.reverse();
 	let model;
@@ -152,7 +153,7 @@ async function replay(opts, home) {
 			const key = b.kind === "thinking" && b.signed ? "thinking (signed)" : b.kind;
 			liveByKind[key] = (liveByKind[key] ?? 0) + (b.override === "folded" || b.autoFolded ? 0 : b.tokens);
 		}
-		return { session: createHash("sha256").update(file).digest("hex").slice(0, 8), fileMB: fs.statSync(file).size / 1e6, commit: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.dirname(new URL(import.meta.url).pathname), encoding: "utf8" }).trim(), conductor: opts.conductor, budget: opts.budget, tail: opts.tail, messages: fed.length, requests: records.length, blocks: last?.blocks ?? 0, fullTokens: last?.fullTokens ?? 0, skippedLines, hookMs: hooks, commitMs: commits, ingestMs: ingests, liveTokens: { mean: live.mean, p95: live.p95, max: live.max, final: last?.liveTokens ?? 0 }, wireChars: { sum: wire.sum, mean: wire.mean, max: wire.max }, invalidatedChars: { sum: invalid.sum, events: records.filter(r => r.invalidatedChars > 0).length, max: invalid.max }, folds: { groupsFolded: last?.groupsFolded ?? 0, blocksFolded: last?.blocksFolded ?? 0 }, carriers, conductorStatus: host.conductorStatus()?.text ?? null, liveByKind, overBudgetRequests: records.filter(r => r.liveTokens > opts.budget).length, rssPeakMB: rssPeak / 1e6, wallSec: (performance.now() - started) / 1000, hookMsByQuarter: quarters, series };
+		return { session: createHash("sha256").update(file).digest("hex").slice(0, 8), fileMB: fs.statSync(file).size / 1e6, commit: execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: path.dirname(new URL(import.meta.url).pathname), encoding: "utf8" }).trim(), conductor: opts.conductor, budget: opts.budget, tail: opts.tail, messages: fed.length, customMessages: fed.filter(message => message.role === "custom").length, requests: records.length, blocks: last?.blocks ?? 0, fullTokens: last?.fullTokens ?? 0, skippedLines, hookMs: hooks, commitMs: commits, ingestMs: ingests, liveTokens: { mean: live.mean, p95: live.p95, max: live.max, final: last?.liveTokens ?? 0 }, wireChars: { sum: wire.sum, mean: wire.mean, max: wire.max }, invalidatedChars: { sum: invalid.sum, events: records.filter(r => r.invalidatedChars > 0).length, max: invalid.max }, folds: { groupsFolded: last?.groupsFolded ?? 0, blocksFolded: last?.blocksFolded ?? 0 }, carriers, conductorStatus: host.conductorStatus()?.text ?? null, liveByKind, overBudgetRequests: records.filter(r => r.liveTokens > opts.budget).length, rssPeakMB: rssPeak / 1e6, wallSec: (performance.now() - started) / 1000, hookMsByQuarter: quarters, series };
 	} finally {
 		await handlers.session_shutdown?.({}, ctx);
 	}
@@ -163,6 +164,8 @@ function synthetic(file) {
 	let id = 0, parentId = null, call = 0, assistants = 0;
 	function add(message) { const next = String(++id); entries.push({ type: "message", id: next, parentId, message }); parentId = next; }
 	add({ role: "user", timestamp: id + 1, content: "Complete the tasks." });
+	entries.push({ type: "custom_message", id: String(++id), parentId, timestamp: "2026-01-01T00:00:00.000Z", customType: "replay.notice", content: "Extension notice", display: false });
+	parentId = String(id);
 	function tool(name, args, text) {
 		const callId = `call-${++call}`;
 		add({ role: "assistant", responseId: `response-${call}`, timestamp: id + 1, content: [{ type: "toolCall", id: callId, name, arguments: args }] });
@@ -252,6 +255,8 @@ try {
 		const file = path.join(home, "synthetic.jsonl"), expected = synthetic(file);
 		const result = await replay({ file, conductor: "taskfold", budget: 20000, tail: 2000, sampleEvery: 50 }, home);
 		assert.equal(result.requests, expected);
+		assert.equal(result.customMessages, 1);
+		assert.ok(result.liveByKind.custom > 0);
 		assert.ok(result.folds.groupsFolded >= 1);
 		assert.ok(result.liveTokens.final < result.fullTokens);
 		assert.ok(Number.isFinite(result.hookMs.max));

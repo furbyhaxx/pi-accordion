@@ -180,10 +180,10 @@ function spanDetails(m: { toolName?: string; details?: unknown }): { details?: u
  * `orderStart` / `turnStart` let a caller linearize a SUFFIX with globally-correct numbering
  * (Phase B incremental append): pass the count of blocks already appended as `orderStart` and the
  * current turn number as `turnStart`, so the suffix's `order` continues contiguously and its `turn`
- * continues from the last block's turn (a leading user message advances to `turnStart + 1`). Both
- * default to 0 — a full linearize is unchanged.
+ * continues from the last block's turn (a leading user message advances to `turnStart + 1`).
+ * `indexStart` is the suffix's message index in the full list, for positional IDs.
  */
-export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0): WireBlock[] {
+export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0, indexStart = 0): WireBlock[] {
 	const out: WireBlock[] = [];
 	const customIds = new Set<string>();
 	let order = orderStart;
@@ -199,7 +199,8 @@ export function linearize(messages: PiMessage[], orderStart = 0, turnStart = 0):
 		out.push({ id, kind, turn, order: order++, text, tokens: tokensFor(text), ...extra });
 	};
 
-	messages.forEach((m, i) => {
+	messages.forEach((m, localIndex) => {
+		const i = localIndex + indexStart;
 		switch (m.role) {
 			case "user": {
 				turn += 1;

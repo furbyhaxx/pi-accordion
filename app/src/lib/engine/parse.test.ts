@@ -159,6 +159,25 @@ describe("pi parsing", () => {
 		]);
 	});
 
+	it("keeps custom entries in order without starting a turn", () => {
+		const s = parse(jsonl(
+			piSession(),
+			piUser("m1", "first"),
+			{ type: "custom_message", id: "notice", customType: "ext.notice", content: [
+				{ type: "text", text: "extension" }, { type: "image", data: "ignored" }, { type: "text", text: "notice" },
+			] },
+			piAssistant("a1", [{ type: "text", text: "reply" }]),
+			piUser("m2", "next"),
+		));
+		expect(s.blocks.map((b) => [b.id, b.kind, b.turn, b.text])).toEqual([
+			["m1:u", "user", 1, "first"],
+			["notice", "custom", 1, "extension\nnotice"],
+			["a1:0", "text", 1, "reply"],
+			["m2:u", "user", 2, "next"],
+		]);
+		expect(s.skipped).toBe(0);
+	});
+
 	it("drops empty non-result blocks but KEEPS an empty tool_result", () => {
 		const s = parse(
 			jsonl(
