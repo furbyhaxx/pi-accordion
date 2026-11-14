@@ -5,15 +5,15 @@ document:
   title: "Challenge pass: logic cost and long-session usability"
   description: "Ranked findings of the 2026-11-14 challenge pass over Taskfold, the other conductors and the context hook, how each one was closed, task tracking per model family, and the replay numbers for sessions above 1M tokens"
   status: "published"
-  revision: 2
+  revision: 3
   created_at: "2026-11-14T15:28:31+01:00"
-  updated_at: "2026-11-14T17:58:53+01:00"
+  updated_at: "2026-11-14T18:16:48+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 2
-      reason: "every finding is closed"
-      changes: ["status of every finding with its commit or reason", "task tracking by model family", "final replay numbers of both full sessions and of keel-lite"]
+    - revision: 3
+      reason: "the live terminal check of the panel found two more defects"
+      changes: ["S5 and S6 with their fixes"]
 ---
 
 # Challenge pass: logic cost and long-session usability
@@ -125,6 +125,8 @@ finding is open and none went to the backlog.
 | D2 | The orientation-modes harness imports symbols Taskfold no longer exports | the orientation-modes analysis (`harness/`) | fixed: the analysis and its harness are deleted with the other consumed analyses; its experiment branch was resolved before and its results are in SPEC-0002 |
 | D3 | Bug, found by the new type check: recall release and the unfold ceiling read `settings.taskfold.high`, a setting that no longer exists, so both compared against `NaN` and never acted | `extension/accordion.ts` (`taskfoldHigh`) | fixed ad8ed21 |
 | D4 | Carried over from the history-conductor analyses: a proposed held-out trial of keel-note as memory for a coordinator session in other projects | none | dropped: it is a trial plan for other projects' sessions and nothing in this repository waits for it. Its code findings are tracked here as C4 and C13 (fixed), C14 and U1 |
+| S5 | Bug, found by running the panel in a real Pi-Bolt terminal (80x24 and 160x45, truecolor): bold and reverse video from Pi's theme never reach the screen, so the selected timeline row has no bold label, its strip cell is not inverse, and a confirm question is plain. Pi styles those two through chalk, which emits nothing there while its colours work; the test themes return tags and hid it | `extension/tui/panel.ts`, `chrome.ts`, `taskWidget.ts`, `toolRows.ts` | fixed 7deeb94: the panel, the task widget and the tool rows write bold, reverse video and strikethrough as plain SGR. Seen live at both sizes for the panel; the widget and the tool rows were not seen live (no model call was made) |
+| S6 | Bug, same live check: at 80x24 the frame's bottom rule with the scroll counts is clipped on every tab. Pi's layout keeps one transcript row above the panel and a footer of four or five rows below; the panel reserved four | `extension/tui/chrome.ts` (`HOST_ROWS`) | fixed 562d32b: the reserve is six rows, the body is `clamp(rows − 14, 3, 20)`. Seen live with footers of four and five rows; a six-row footer at 24 rows would clip the rule again, since Pi gives the panel no height to measure |
 
 ## Diverge round
 

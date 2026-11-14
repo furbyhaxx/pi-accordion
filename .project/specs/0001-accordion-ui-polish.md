@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 28
+  revision: 29
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-14T17:58:53+01:00"
+  updated_at: "2026-11-14T18:16:48+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 28
-      reason: "the gaps between this spec and the code are closed"
-      changes: ["drop the pointer to the hardening plan"]
+    - revision: 29
+      reason: "the live terminal check showed the frame's bottom rule clipped at 24 rows"
+      changes: ["panel body height is clamp(rows − 14, 3, 20)", "the panel draws bold and reverse video as plain SGR"]
 ---
 
 # Accordion UI polish
@@ -81,9 +81,15 @@ These apply to every TUI surface in this spec. Each MUST hold.
 7. **Hints.** One hint row per screen, built from a priority-ordered list; the highest priority
    number is dropped first and the cancel key is always kept. Key names come from the user's
    bindings (`keys.getKeys`).
-8. **Height.** The panel body has a fixed height while open: `clamp(rows − 12, 3, 20)`, computed
-   on open and on resize only. Switching tabs, filtering, drilling in, help and confirms never
-   change it; content scrolls inside and the rules show `↑ N more` / `↓ N more`.
+8. **Height.** The panel body has a fixed height while open: `clamp(rows − 14, 3, 20)`, computed
+   on open and on resize only. The 14 are the eight frame lines plus six rows Pi keeps around a
+   panel that replaces the editor: one transcript row above and a footer of up to five rows below.
+   Pi gives the panel no height, and with a smaller reserve its layout clips the frame's last
+   line, the bottom rule. Switching tabs, filtering, drilling in, help and confirms never
+   change the height; content scrolls inside and the rules show `↑ N more` / `↓ N more`.
+   The panel, the task widget and the tool rows take colours from Pi's theme and write bold,
+   reverse video and strikethrough as plain SGR: Pi's own helpers for those can emit nothing
+   while its colours work, and the selected timeline cell has no other cue.
 9. **Session binding.** A panel belongs to the session that opened it (unchanged rule in
    `AGENTS.md`); late async results after a session switch touch nothing.
 10. **Untrusted text** (block text, task titles, model output) goes through the existing `clean()`
