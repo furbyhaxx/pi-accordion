@@ -484,6 +484,8 @@ export class TaskfoldConductor implements Conductor {
 	/** User block id → verdict; computed once and never recomputed, kept across resumes by the ledger. */
 	private readonly verdicts: VerdictLedger;
 	private readonly classifying = new Set<string>();
+	private readonly classifyQueue: { id: string; state: Record<string, string>; retries: number }[] = [];
+	private classifierActive = 0;
 	/** Messages routing was attempted for this process, and those whose extraction is in flight. */
 	private readonly routeTried = new Set<string>();
 	private readonly routing = new Set<string>();
@@ -521,6 +523,8 @@ export class TaskfoldConductor implements Conductor {
 		this.host?.setStatus(null);
 		this.host = null;
 		this.classifying.clear();
+		this.classifyQueue.length = 0;
+		this.classifierActive = 0;
 		this.consentQueue.clear();
 		this.routeTried.clear();
 		this.routing.clear();
@@ -651,8 +655,10 @@ export class TaskfoldConductor implements Conductor {
 			}
 			// Only a message that has not reached the model yet is new; a resumed session's history is born sent.
 			if (!b.sent) void this.routeOne(b.id, text);
-			void this.classifyOne(b.id, state);
+			this.classifying.add(b.id);
+			this.classifyQueue.push({ id: b.id, state, retries: 0 });
 		}
+		this.drainClassifiers();
 	}
 
 	/** The classifier's view of a user message, shaped like the calibration data; null for the session's opening message. */
@@ -720,10 +726,19 @@ export class TaskfoldConductor implements Conductor {
 		if (this.host === host) void this.evaluate();
 	}
 
-	private async classifyOne(id: string, state: Record<string, string>): Promise<void> {
+	private drainClassifiers(): void {
+		while (this.host?.classify && this.classifierActive < 2 && this.classifyQueue.length) {
+			const item = this.classifyQueue.shift()!;
+			this.classifierActive++;
+			void this.classifyOne(item);
+		}
+	}
+
+	private async classifyOne(item: { id: string; state: Record<string, string>; retries: number }): Promise<void> {
+		const { id, state } = item;
 		const host = this.host;
 		if (!host?.classify) return;
-		this.classifying.add(id);
+		let retry = false;
 		try {
 			const res = await host.classify({ state, questions: USER_QUESTIONS });
 			if (this.host !== host) return;
@@ -736,13 +751,23 @@ export class TaskfoldConductor implements Conductor {
 					? { loss: a.score, source: "classifier", confidence: a.confidence, answers, model: res.model, at: new Date().toISOString() }
 					: { loss: null, source: "error" },
 			);
-		} catch {
+		} catch (error) {
 			if (this.host !== host) return;
+			if (error instanceof Error && /^too many concurrent model calls in flight \(max \d+\)$/.test(error.message) && item.retries < 3) {
+				item.retries++;
+				this.classifyQueue.push(item);
+				retry = true;
+				return;
+			}
 			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
 			this.verdicts.set(id, { loss: null, source: "error" });
 			this.classifyFailures++;
 		} finally {
-			this.classifying.delete(id);
+			if (this.host === host) {
+				if (!retry) this.classifying.delete(id);
+				this.classifierActive--;
+				this.drainClassifiers();
+			}
 		}
 		if (this.host === host) void this.evaluate();
 	}

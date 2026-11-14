@@ -817,6 +817,33 @@ describe("taskfold", () => {
 		expect(last?.metrics?.level).toBe("error");
 	});
 
+	it("classifies twelve messages with bounded concurrency and retries capacity errors", async () => {
+		const s = new Session();
+		s.user("Goal");
+		const ids = Array.from({ length: 12 }, (_, i) => s.user(`Message ${i}`));
+		const host = new TestHost();
+		const ledger = new VerdictLedger();
+		let active = 0;
+		let maximum = 0;
+		let capacityFailures = 0;
+		host.classifier = async () => {
+			active++;
+			maximum = Math.max(maximum, active);
+			try {
+				if (active > 2 || capacityFailures++ < 2) throw new Error("too many concurrent model calls in flight (max 4)");
+				await Promise.resolve();
+				return { answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test" };
+			} finally {
+				active--;
+			}
+		};
+		new TaskfoldConductor({}, ledger).attach(host);
+		host.appendBlocks(s.blocks);
+		for (let i = 0; i < 100 && ids.some((id) => !ledger.has(id)); i++) await Promise.resolve();
+		expect(maximum).toBeLessThanOrEqual(2);
+		expect(ids.map((id) => ledger.get(id)?.source)).toEqual(ids.map(() => "classifier"));
+	});
+
 	it("ignores classifier results and errors after detach", async () => {
 		for (const fail of [false, true]) {
 			const s = new Session();
