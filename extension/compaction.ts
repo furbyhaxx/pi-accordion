@@ -132,14 +132,20 @@ export async function runCompaction(req: CompactRequest, deps: CompactDeps): Pro
 	if (req.strategy === "pass") {
 		if (!conductor) deps.attachDefault();
 		const foldedBefore = foldedIds(truth);
+		const groupsBefore = new Set(truth.groups.map((group) => group.id));
 		const settled = await deps.requestPass(req.instructions ? { instructions: req.instructions } : {});
 		const after = truth.stats().liveTokens;
 		if (after < before) {
-			const newly = [...foldedIds(truth)].filter((id) => !foldedBefore.has(id));
+			const groups = truth.groups.filter((group) => !groupsBefore.has(group.id));
+			const groupMembers = new Set(groups.flatMap((group) => group.memberIds));
+			const newly = [...foldedIds(truth)].filter((id) => !foldedBefore.has(id) && !groupMembers.has(id));
+			const folded = describe(truth, newly);
+			folded.groups = groups.length;
+			const undo: Op[] = [...groups.map((group): Op => ({ kind: "ungroup", groupId: group.id })), ...(newly.length ? [{ kind: "unfold" as const, ids: newly }] : [])];
 			return {
 				record: {
-					...base, strategy: "pass", after, durationMs: deps.now() - started, folded: describe(truth, newly),
-					undo: newly.length ? [{ kind: "unfold", ids: newly }] : null,
+					...base, strategy: "pass", after, durationMs: deps.now() - started, folded,
+					undo: undo.length ? undo : null,
 					message: `conductor freed ${before - after} tok${settled === "timeout" ? " before the pass timed out" : ""}`,
 				},
 			};

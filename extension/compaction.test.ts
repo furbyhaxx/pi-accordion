@@ -71,6 +71,23 @@ describe("compaction strategies", () => {
 		expect(record.after).toBeLessThan(before);
 		expect(record.undo).toEqual([{ kind: "unfold", ids: ["a:b0:p0"] }]);
 	});
+	test("undo removes groups created by a conductor pass", async () => {
+		const t = truthOf([blk("a:b0:p0", "user", 0, 1), blk("a:b1:p0", "text", 1, 1), blk("a:b2:p0", "user", 2, 2)], { protect: 0 });
+		const blocks = structuredClone(t.blocks);
+		const groups = structuredClone(t.groups);
+		const { record } = await runCompaction({ trigger: "manual", strategy: "pass" }, deps(t, {
+			requestPass: async () => {
+				t.apply([{ kind: "group", ids: ["a:b0:p0", "a:b1:p0"], summary: "summary" }], "auto");
+				return "settled";
+			},
+		}));
+		expect(record.folded.groups).toBe(1);
+		expect(record.undo).not.toBeNull();
+		expect(applyUndo(t, record.undo!)).toEqual({ restored: 1, skipped: 0 });
+		expect(t.blocks).toEqual(blocks);
+		expect(t.groups).toEqual(groups);
+	});
+
 
 	test("pass escalates to aggressive and says so when the conductor frees nothing", async () => {
 		const t = truthOf([blk("a:b0:p0", "text", 0, 1)], { budget: 1000, protect: 0 });

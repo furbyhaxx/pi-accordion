@@ -3319,6 +3319,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	}
 
 	pi.on("session_start", (event, ctx: ExtensionContext) => {
+		lastCompact = null;
+		lastBake = undefined;
 		void debugLog?.flush().catch((error: Error) => ctx.ui.notify(`Debug log: ${error.message}`, "warning"));
 		debugLog = null;
 		debugOverride = null;
@@ -3968,6 +3970,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		lastCompact = null;
+		lastBake = undefined;
 		pendingToolNotice = null;
 		bootstrapShown = false;
 		const flush = debugLog?.flush();
