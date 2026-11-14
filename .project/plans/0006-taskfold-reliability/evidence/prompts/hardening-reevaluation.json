@@ -1,0 +1,659 @@
+{
+  "recordedAt": "2026-11-14T16:42:07+01:00",
+  "runtime": "HEAD a8f16bae580d2021dc1e3fe3f5fdefd9e5282e30; pi-bolt 1.5.0 (Pi-Bolt 1.1.7, linux-x64, JIT off); thinking low; 30 requests / 360000 ms; folding armed; taskfold attached; enforce coach",
+  "routes": {
+    "claude": "claude/claude-sonnet-5-5",
+    "gpt": "openai/gpt-6.1-sol",
+    "deepseek": "deepseek/deepseek-flash",
+    "glm": "openrouter/z-ai/glm-latest",
+    "kimi": "openrouter/moonshotai/kimi-k3"
+  },
+  "coach": [
+    {
+      "family": "claude",
+      "scenario": "refactor",
+      "requests": 3,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 2,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": 0,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 3,
+        "trustedRequests": 0,
+        "unknownRequests": 3,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "3 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "claude",
+      "scenario": "bug",
+      "requests": 4,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 3,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": 0,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 4,
+        "trustedRequests": 0,
+        "unknownRequests": 4,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "4 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "claude",
+      "scenario": "docs",
+      "requests": 4,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 3,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": 0,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 4,
+        "trustedRequests": 0,
+        "unknownRequests": 4,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "4 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "claude",
+      "scenario": "decision",
+      "requests": 6,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 4,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": 0,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 6,
+        "trustedRequests": 0,
+        "unknownRequests": 6,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "6 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "gpt",
+      "scenario": "refactor",
+      "requests": 16,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0.8,
+      "trackedResults": 8,
+      "workResults": 10,
+      "callsBeforeFirstStart": 2,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 16,
+        "trustedRequests": 0,
+        "unknownRequests": 16,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "16 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "gpt",
+      "scenario": "bug",
+      "requests": 16,
+      "behaviorPassed": false,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0.9,
+      "trackedResults": 9,
+      "workResults": 10,
+      "callsBeforeFirstStart": 1,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 16,
+        "trustedRequests": 0,
+        "unknownRequests": 16,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "16 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "gpt",
+      "scenario": "docs",
+      "requests": 20,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 1,
+      "trackedResults": 16,
+      "workResults": 16,
+      "callsBeforeFirstStart": 0,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 20,
+        "trustedRequests": 0,
+        "unknownRequests": 20,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "20 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "gpt",
+      "scenario": "decision",
+      "requests": 21,
+      "behaviorPassed": true,
+      "testsPassed": true,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": 0.9166666666666666,
+      "trackedResults": 11,
+      "workResults": 12,
+      "callsBeforeFirstStart": 1,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 0,
+      "tokens": {
+        "requestsObserved": 21,
+        "trustedRequests": 0,
+        "unknownRequests": 21,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "21 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "deepseek",
+      "scenario": "refactor",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "deepseek",
+      "scenario": "bug",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "deepseek",
+      "scenario": "docs",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "deepseek",
+      "scenario": "decision",
+      "requests": 4,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 4,
+        "trustedRequests": 0,
+        "unknownRequests": 4,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "4 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "glm",
+      "scenario": "refactor",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "glm",
+      "scenario": "bug",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "glm",
+      "scenario": "docs",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "glm",
+      "scenario": "decision",
+      "requests": 4,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 4,
+        "trustedRequests": 0,
+        "unknownRequests": 4,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "4 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "kimi",
+      "scenario": "refactor",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "kimi",
+      "scenario": "bug",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "kimi",
+      "scenario": "docs",
+      "requests": 2,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 2,
+        "trustedRequests": 0,
+        "unknownRequests": 2,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "2 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    },
+    {
+      "family": "kimi",
+      "scenario": "decision",
+      "requests": 4,
+      "behaviorPassed": null,
+      "testsPassed": null,
+      "timedOut": false,
+      "capped": false,
+      "trackedFraction": null,
+      "trackedResults": null,
+      "workResults": null,
+      "callsBeforeFirstStart": null,
+      "rejectionsPer100": null,
+      "lists": null,
+      "prematureStops": null,
+      "tokens": {
+        "requestsObserved": 4,
+        "trustedRequests": 0,
+        "unknownRequests": 4,
+        "requestsOverBudget": null,
+        "leafTokensPerBudgetP90": null,
+        "diagnosticRequests": 0,
+        "unmeasured": [
+          "4 request(s) have no diagnostic record",
+          "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
+        ]
+      }
+    }
+  ],
+  "totals": {
+    "overall": {
+      "behavior": "7/20 attempted (12 provider failures unscored; 1 completed failure)",
+      "requests": 120,
+      "tracked": "44/60 scored work results"
+    },
+    "claude": {
+      "behavior": "4/4",
+      "requests": 17,
+      "tracked": "0/12"
+    },
+    "gpt": {
+      "behavior": "3/4",
+      "requests": 73,
+      "tracked": "44/48"
+    },
+    "deepseek": {
+      "behavior": "unscored; 4 provider failures",
+      "requests": 10,
+      "tracked": "unscored"
+    },
+    "glm": {
+      "behavior": "unscored; 4 provider failures",
+      "requests": 10,
+      "tracked": "unscored"
+    },
+    "kimi": {
+      "behavior": "unscored; 4 provider failures",
+      "requests": 10,
+      "tracked": "unscored"
+    }
+  },
+  "previous": {
+    "claude": {
+      "behavior": "3/4",
+      "requests": 15,
+      "tracked": "0/10"
+    },
+    "gpt": {
+      "behavior": "4/4",
+      "requests": 76,
+      "tracked": "50/52"
+    },
+    "deepseek": {
+      "behavior": "4/4",
+      "requests": 73,
+      "tracked": "21/43"
+    },
+    "glm": {
+      "behavior": "4/4",
+      "requests": 34,
+      "tracked": "5/30"
+    },
+    "total": {
+      "behavior": "15/16",
+      "requests": 198,
+      "tracked": "76/135"
+    }
+  },
+  "failures": [
+    {"family":"deepseek","scenario":"refactor","route":"deepseek/deepseek-flash","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"refactor","route":"deepseek/deepseek-flash","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"bug","route":"deepseek/deepseek-flash","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"bug","route":"deepseek/deepseek-flash","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"docs","route":"deepseek/deepseek-flash","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"docs","route":"deepseek/deepseek-flash","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"decision","route":"deepseek/deepseek-flash","attempt":1,"requests":2,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"deepseek","scenario":"decision","route":"deepseek/deepseek-flash","attempt":2,"requests":2,"reason":"HTTP 402: Insufficient Balance"},
+    {"family":"glm","scenario":"refactor","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"refactor","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"bug","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"bug","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"docs","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"docs","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"decision","route":"openrouter/z-ai/glm-latest","attempt":1,"requests":2,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"glm","scenario":"decision","route":"openrouter/z-ai/glm-latest","attempt":2,"requests":2,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"refactor","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"refactor","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"bug","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"bug","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"docs","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"docs","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":1,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"decision","route":"openrouter/moonshotai/kimi-k3","attempt":1,"requests":2,"reason":"HTTP 402: Insufficient credits"},
+    {"family":"kimi","scenario":"decision","route":"openrouter/moonshotai/kimi-k3","attempt":2,"requests":2,"reason":"HTTP 402: Insufficient credits"}
+  ]
+}
