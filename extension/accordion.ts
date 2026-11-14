@@ -86,7 +86,7 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Truth } from "../core/truth";
 import { wireFoldable } from "../core/digest";
 import { estTokens } from "../core/tokens";
-import { linearize, messageInfo, contentFingerprint, wireToBlock, type PiMessage } from "../core/wire";
+import { linearize, messageInfo, contentFingerprint, contentFingerprintLength, contentSignature, wireToBlock, type PiMessage } from "../core/wire";
 import type { Block } from "../core/types";
 import { serializeSnapshot, wireEventFromTruthEvent } from "../core/replica";
 import { resolveUnfoldBounded } from "../core/agentView";
@@ -798,17 +798,14 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// snapshot, extended by message_end / agent_end deltas). pi's next `event.messages` is compared
 	// against it by a cheap durable-id walk to decide append-a-suffix vs. rebuild.
 	let lastMessages: PiMessage[] = [];
-	// Index-aligned content fingerprints for `lastMessages` (E1 hardening, sol P1). Computed once at
-	// INGEST time so the per-hook identity walk hashes only the fresh INCOMING copy and reads the prev
-	// side straight from this cache — never re-hashing already-ingested history on every `context` hook
-	// (see `contentFingerprint`'s doc comment for the cost analysis). INVARIANT: `lastFps` is written
-	// ONLY through `setLastMessages`, in the SAME statement as `lastMessages`, so the two can never
-	// drift out of alignment — a stale/misaligned fingerprint here would silently defeat E1 (a false
-	// "same identity" on a real rewrite), the exact failure this cache must never introduce.
 	let lastFps: number[] = [];
-	function setLastMessages(messages: PiMessage[], fps?: number[]): void {
+	let lastSigs: number[] = [];
+	let verifyCursor = 0;
+	function setLastMessages(messages: PiMessage[], fps?: number[], sigs?: number[]): void {
 		lastMessages = messages;
-		lastFps = fps ?? messages.map((m) => contentFingerprint(m));
+		lastFps = fps ?? messages.map(contentFingerprint);
+		lastSigs = sigs ?? messages.map(contentSignature);
+		if (!fps) verifyCursor = 0;
 	}
 
 	// ── hook telemetry (replaces the plan-outcome ack) ──────────────────────────
@@ -2988,15 +2985,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 	}
 
-	/**
-	 * Two messages share identity iff they emit the same durable block ids (cheap; no token work) AND
-	 * the same content fingerprint (E1: catches a same-id in-place rewrite — see `contentFingerprint`).
-	 * The two fingerprints are passed in, not recomputed: `fpA` is the cached `lastFps[i]` for the
-	 * prev side, `fpB` the incoming hash the caller computed once this hook — so the prev side is never
-	 * re-hashed on the hot path. The int compare goes FIRST as the cheapest short-circuit for the
-	 * common content-changed case; the id walk still runs to catch an anchor-only change (same text,
-	 * new responseId/timestamp) that leaves the fingerprint untouched.
-	 */
+	/** Compare durable block ids and the cached versus incoming sampled content signature. */
 	function sameMessageIdentity(a: PiMessage, b: PiMessage, i: number, fpA: number, fpB: number): boolean {
 		if (a.role !== b.role) return false;
 		if (fpA !== fpB) return false;
@@ -3036,28 +3025,43 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		const prev = lastMessages;
 		let diverged = messages.length < prev.length;
-		// Incoming content fingerprints, hashed once (prev side comes from the `lastFps` cache). Only the
-		// prefix is needed to decide divergence; the suffix is filled below so an append can hand the
-		// whole array to `setLastMessages` without a second hashing pass. Left null when we already know
-		// we diverge (shorter array) — the rebuild path re-hashes from scratch anyway.
-		const incomingFps = diverged ? null : new Array<number>(messages.length);
-		if (!diverged) {
-			for (let i = 0; i < prev.length; i++) {
-				const fp = contentFingerprint(messages[i]);
-				incomingFps![i] = fp;
-				if (!sameMessageIdentity(prev[i], messages[i], i, lastFps[i], fp)) {
+		const incomingFps = lastFps.slice();
+		const incomingSigs = lastSigs.slice();
+		const olderEnd = Math.max(0, prev.length - 8);
+		for (let i = 0; !diverged && i < prev.length; i++) {
+			const sig = contentSignature(messages[i]);
+			if (!sameMessageIdentity(prev[i], messages[i], i, lastSigs[i], sig)) {
+				diverged = true;
+				break;
+			}
+			if (i >= olderEnd) {
+				if (contentFingerprint(messages[i]) !== lastFps[i]) diverged = true;
+			}
+		}
+		if (!diverged && olderEnd > 0) {
+			if (verifyCursor >= olderEnd) verifyCursor = 0;
+			const start = verifyCursor;
+			let checkedChars = 0;
+			do {
+				const i = verifyCursor;
+				if (contentFingerprint(messages[i]) !== lastFps[i]) {
 					diverged = true;
 					break;
 				}
-			}
+				checkedChars += contentFingerprintLength(messages[i]);
+				verifyCursor = (verifyCursor + 1) % olderEnd;
+			} while (checkedChars < 262_144 && verifyCursor !== start);
 		}
 		if (diverged) {
 			rebuildTruth(messages);
 			return;
 		}
-		for (let i = prev.length; i < messages.length; i++) incomingFps![i] = contentFingerprint(messages[i]);
+		for (let i = prev.length; i < messages.length; i++) {
+			incomingFps.push(contentFingerprint(messages[i]));
+			incomingSigs.push(contentSignature(messages[i]));
+		}
 		if (messages.length > prev.length) appendSuffix(messages, prev.length);
-		setLastMessages(messages, incomingFps!);
+		setLastMessages(messages, incomingFps, incomingSigs);
 	}
 
 	/**
@@ -3168,7 +3172,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// departing wire the backstop is actually recovering, snapping k visibly low for one turn.
 		if (allowCalibration) maybeObserveCalibration(msg);
 		appendSuffix([...lastMessages, msg], lastMessages.length);
-		setLastMessages([...lastMessages, msg], [...lastFps, contentFingerprint(msg)]);
+		setLastMessages([...lastMessages, msg], [...lastFps, contentFingerprint(msg)], [...lastSigs, contentSignature(msg)]);
 		if (msg.role === "assistant") turnPending = true;
 	}
 

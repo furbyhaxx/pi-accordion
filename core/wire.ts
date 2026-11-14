@@ -299,11 +299,8 @@ export function messageInfo(m: PiMessage, i: number): MsgInfo {
 
 // ── content fingerprint (E1 reconciliation, sol P1 hardening) ────────────────
 //
-// `messageInfo` proves SHAPE identity (which durable blocks a message emits, in what order).
-// `contentFingerprint` is its sibling: it proves CONTENT identity (did any block's payload change
-// under a stable anchor). The extension's per-hook reconcile compares BOTH — same shape + same
-// fingerprint ⇒ append-a-suffix; either differs ⇒ divergence rebuild. Lives here, dependency-free,
-// next to `messageInfo` so the wire semantics it mirrors stay in one place.
+// `messageInfo` checks durable block shape. Content signatures and rotating full fingerprints
+// detect rewrites under stable anchors without hashing all historical text on every hook.
 
 /**
  * FNV-1a 32-bit rolling hash primitives (no deps, deterministic, non-crypto). Each 16-bit code unit
@@ -333,6 +330,107 @@ function fnvContent(h: number, content: unknown): number {
 	return h;
 }
 
+/** Content fields used by reconciliation, in the same order as the full fingerprint. */
+function contentSegments(m: PiMessage): string[] {
+	const segments = [m.role];
+	const content = (value: PiMessage["content"]) => {
+		if (typeof value === "string") segments.push("string", value);
+		else if (Array.isArray(value)) {
+			segments.push("parts", String(value.length));
+			for (const part of value) {
+				const text = (part as { text?: unknown } | null)?.text;
+				segments.push(part?.type ?? "", typeof text === "string" ? text : "");
+			}
+		} else segments.push("empty");
+	};
+	switch (m.role) {
+		case "user":
+			content(m.content);
+			break;
+		case "assistant":
+			segments.push(m.model ?? "");
+			if (Array.isArray(m.content)) {
+				segments.push(String(m.content.length));
+				for (const part of m.content) {
+					segments.push(part?.type ?? "");
+					if (part?.type === "text") segments.push((part as PiTextPart).text || "");
+					else if (part?.type === "thinking") {
+						segments.push((part as PiThinkingPart).thinking || "", thinkingIsSigned(part as PiThinkingPart) ? "signed" : "");
+					} else if (part?.type === "toolCall") {
+						const call = part as PiToolCallPart;
+						segments.push(call.name || "", JSON.stringify(call.arguments ?? {}));
+					}
+				}
+			} else segments.push("0");
+			break;
+		case "toolResult": {
+			const details = spanDetails(m).details;
+			segments.push(m.isError ? "error" : "", m.toolName ?? "", details === undefined ? "" : JSON.stringify(details));
+			content(m.content);
+			break;
+		}
+		default:
+			segments.push(m.summary ?? "");
+	}
+	return segments;
+}
+
+/** A bounded sample of each content field, including its length and part structure. */
+export function contentSignature(m: PiMessage): number {
+	let h = 0x811c9dc5;
+	for (const text of contentSegments(m)) {
+		h = fnvStr(h, `${text.length}:`);
+		const n = text.length;
+		for (let i = 0; i < Math.min(64, n); i++) {
+			const c = text.charCodeAt(i);
+			h = fnvByte(fnvByte(h, c), c >>> 8);
+		}
+		for (let i = Math.max(64, n - 64); i < n; i++) {
+			const c = text.charCodeAt(i);
+			h = fnvByte(fnvByte(h, c), c >>> 8);
+		}
+		for (let i = 0; i < 64 && n > 0; i++) {
+			const c = text.charCodeAt(Math.floor(i * (n - 1) / 63));
+			h = fnvByte(fnvByte(h, c), c >>> 8);
+		}
+	}
+	return h >>> 0;
+}
+/** Number of text code units visited by the full fingerprint. */
+export function contentFingerprintLength(m: PiMessage): number {
+	const contentLength = (content: PiMessage["content"]): number => {
+		if (typeof content === "string") return content.length;
+		if (!Array.isArray(content)) return 0;
+		let n = 0;
+		for (const part of content) {
+			const text = (part as { text?: unknown } | null)?.text;
+			if (typeof text === "string") n += text.length;
+		}
+		return n;
+	};
+	switch (m.role) {
+		case "user": return contentLength(m.content);
+		case "assistant": {
+			let n = m.model?.length ?? 0;
+			if (Array.isArray(m.content)) for (const part of m.content) {
+				if (part?.type === "text") n += ((part as PiTextPart).text || "").length;
+				else if (part?.type === "thinking") n += ((part as PiThinkingPart).thinking || "").length;
+				else if (part?.type === "toolCall") {
+					const call = part as PiToolCallPart;
+					n += (call.name || "").length + JSON.stringify(call.arguments ?? {}).length;
+				}
+			}
+			return n;
+		}
+		case "toolResult": {
+			const details = spanDetails(m).details;
+			return (m.toolName?.length ?? 0) + (details === undefined ? 0 : JSON.stringify(details).length) + contentLength(m.content);
+		}
+		default: return m.summary?.length ?? 0;
+	}
+}
+
+
 /**
  * Real CONTENT fingerprint for one message — the counterpart to `messageInfo`'s durable ids, compared
  * alongside them by the extension's `sameMessageIdentity` (E1, external review round; hardened per sol
@@ -355,20 +453,11 @@ function fnvContent(h: number, content: unknown): number {
  *     the doorman conductor then classified from) and `toolName`; assistant `model`.
  * A per-field tag byte separates parts so "text 'ab'" ≠ "text 'a' + thinking 'b'".
  *
- * COST (the ADR 0021 hot-path promise: the `context` hook stays local + fast). This is O(chars in the
- * message) — a real pass over the text, unlike the length-sum it replaces. The extension CACHES each
- * message's fingerprint at ingest, so a hook re-hashes only the fresh INCOMING copy pi hands it (object
- * identity never survives the deep copy). Measured on the ~130k-token dev sample
- * (`app/static/sample-session.jsonl`, ~585KB of text): a full two-byte FNV pass over the WHOLE context
- * is ~3.2ms — comfortably under the ~10ms budget at which a sampled/strided hybrid would be needed, and
- * well under the LATENCY badge's 250ms amber. Full fidelity is worth it for the redaction cases here.
- *
- * RESIDUAL GAP: a same-length in-place rewrite (fixed-width redaction) is NO LONGER an accepted gap —
- * it now moves the hash and forces a rebuild. What remains is the FNV-1a 32-bit collision floor: two
- * genuinely different messages hash-collide with probability ~2^-32, in which case a real rewrite would
- * be missed. Accepted over a crypto hash (orders of magnitude slower on this hot path) for a vanishingly
- * rare, non-adversarial-by-construction event — a peer extension is first-party; no attacker is choosing
- * colliding rewrites.
+ * COST: reconciliation samples each field and fully fingerprints the newest eight messages. Older
+ * content is checked in whole-message windows of at least 262,144 characters, wrapping within the
+ * hook. Length, part-shape and sampled-character changes are detected in the same hook; an
+ * unsampled same-length rewrite is detected within ceil(T / 262,144) hooks, where T is the number
+ * of fingerprinted characters outside the newest eight messages. FNV retains its collision risk.
  */
 export function contentFingerprint(m: PiMessage): number {
 	let h = 0x811c9dc5; // FNV offset basis

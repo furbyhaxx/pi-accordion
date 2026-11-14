@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { linearize, applyPlan, blockId, isDurableId, messageInfo, contentFingerprint, wireToBlock, thinkingIsSigned, type PiMessage } from "./wire";
+import { linearize, applyPlan, blockId, isDurableId, messageInfo, contentFingerprint, contentSignature, wireToBlock, thinkingIsSigned, type PiMessage } from "./wire";
 import { blockToWire } from "./replica";
 import type { GroupOp } from "./protocol";
 
@@ -115,6 +115,17 @@ describe("core/wire — messageInfo (now exported)", () => {
 		expect(messageInfo(ms[1], 1).calls).toEqual(["c1"]);
 		expect(messageInfo(ms[2], 2).results).toEqual(["c1"]);
 		expect(messageInfo(ms[0], 0).hasNonDurable).toBe(false);
+	});
+});
+
+describe("core/wire — contentSignature", () => {
+	it("detects length, shape, error and sampled-character changes", () => {
+		const base: PiMessage = { role: "toolResult", toolName: "read", content: [{ type: "text", text: "a".repeat(500) }], isError: false };
+		const signature = contentSignature(base);
+		expect(contentSignature({ ...base, content: [{ type: "text", text: "a".repeat(501) }] })).not.toBe(signature);
+		expect(contentSignature({ ...base, content: [{ type: "text", text: "a".repeat(500) }, { type: "text", text: "" }] })).not.toBe(signature);
+		expect(contentSignature({ ...base, isError: true })).not.toBe(signature);
+		expect(contentSignature({ ...base, content: [{ type: "text", text: "b" + "a".repeat(499) }] })).not.toBe(signature);
 	});
 });
 
