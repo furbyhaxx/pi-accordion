@@ -165,6 +165,7 @@ interface ReadRef {
 	id: string;
 	path: string;
 	ranged: boolean;
+	range?: { start: number; end: number };
 }
 
 /** Per-epoch structural reading of the log: roots, stale reads, tool families. */
@@ -694,14 +695,14 @@ export class KeelLiteConductor implements Conductor {
 			const info = callInfo(call, b);
 			if (READ_TOOLS.has(info.tool)) {
 				readResults.add(b.id);
-				if (info.path && !b.isError) reads.push({ idx: i, id: b.id, path: info.path, ranged: info.ranged });
+				if (info.path && !b.isError) reads.push({ idx: i, id: b.id, path: info.path, ranged: info.ranged, range: info.range });
 			} else if (info.tool === "codemode" && call) {
 				let wholeBash = false;
 				let hasBash = false;
 				for (const nested of codemodeCalls(call)) {
 					if (READ_TOOLS.has(nested.tool)) {
 						readResults.add(b.id);
-						if (nested.path && !b.isError) reads.push({ idx: i, id: b.id, path: nested.path, ranged: nested.ranged });
+						if (nested.path && !b.isError) reads.push({ idx: i, id: b.id, path: nested.path, ranged: nested.ranged, range: nested.range });
 						else mixedCodemode.add(b.id);
 					} else if (BASH_TOOLS.has(nested.tool)) {
 						hasBash = true;
@@ -723,14 +724,56 @@ export class KeelLiteConductor implements Conductor {
 			}
 		});
 
-		// Stale: a later full re-read (or an identical-range re-read), or a later write/edit.
+		const paths = new Map<string, { full: number; write: number; ranges: Array<{ start: number; end: number }> }>();
+		const suffixes = new Map<string, Set<string>>();
+		const state = (path: string) => {
+			let entry = paths.get(path);
+			if (!entry) {
+				entry = { full: -1, write: -1, ranges: [] };
+				paths.set(path, entry);
+				for (let i = path.indexOf("/"); i >= 0; i = path.indexOf("/", i + 1)) {
+					const suffix = path.slice(i + 1);
+					let matches = suffixes.get(suffix);
+					if (!matches) suffixes.set(suffix, matches = new Set());
+					matches.add(path);
+				}
+			}
+			return entry;
+		};
+		const matching = (path: string) => {
+			const matches = new Set<string>(suffixes.get(path));
+			matches.add(path);
+			for (let i = path.indexOf("/"); i >= 0; i = path.indexOf("/", i + 1)) matches.add(path.slice(i + 1));
+			return matches;
+		};
 		const stale = new Set<string>();
 		const fresh = new Set<string>();
-		for (const r of reads) {
-			const reread = reads.some((o) => o.idx > r.idx && samePath(o.path, r.path) && (!o.ranged || r.ranged));
-			const rewritten = writes.some((w) => w.idx > r.idx && samePath(w.path, r.path));
-			if (reread || rewritten) stale.add(r.id);
-			else fresh.add(r.id);
+		let writeIndex = writes.length - 1;
+		for (let end = reads.length - 1; end >= 0;) {
+			const idx = reads[end].idx;
+			while (writeIndex >= 0 && writes[writeIndex].idx > idx) {
+				const w = writes[writeIndex--];
+				state(w.path).write = w.idx;
+			}
+			let start = end;
+			while (start > 0 && reads[start - 1].idx === idx) start--;
+			for (let i = start; i <= end; i++) {
+				const r = reads[i];
+				const superseded = [...matching(r.path)].some((path) => {
+					const newer = paths.get(path);
+					return newer !== undefined && (newer.write > idx || newer.full > idx ||
+						(r.ranged && r.range !== undefined && newer.ranges.some((range) => range.start <= r.range!.start && range.end >= r.range!.end)));
+				});
+				if (superseded) stale.add(r.id);
+				else fresh.add(r.id);
+			}
+			for (let i = start; i <= end; i++) {
+				const r = reads[i];
+				const entry = state(r.path);
+				if (!r.ranged) entry.full = r.idx;
+				else if (r.range) entry.ranges.push(r.range);
+			}
+			end = start - 1;
 		}
 		for (const id of mixedCodemode) stale.delete(id);
 		for (const id of fresh) stale.delete(id);
@@ -853,6 +896,7 @@ interface CallInfo {
 	path?: string;
 	command?: string;
 	ranged: boolean;
+	range?: { start: number; end: number };
 }
 
 /** The tool family and the args keel-lite cares about, recovered from the tool_call block. */
@@ -861,12 +905,18 @@ function callInfo(call: ViewBlock | undefined, result: ViewBlock | undefined): C
 	const own = (call?.toolName ?? result?.toolName ?? "").trim().toLowerCase();
 	const tool = own && own !== "tool" ? own : (text?.trimStart().match(/^([^\s{]+)/)?.[1] ?? "").toLowerCase();
 	const args = parseArgs(text);
+	const ranged = args.offset !== undefined || args.limit !== undefined || args.start_line !== undefined || args.end_line !== undefined;
+	const start = args.offset ?? args.start_line ?? 1;
+	const end = args.end_line ?? (args.limit === undefined ? Infinity : typeof start === "number" && typeof args.limit === "number" ? start + args.limit - 1 : undefined);
+	const range = ranged && typeof start === "number" && Number.isFinite(start) && typeof end === "number" && !Number.isNaN(end) && end >= start
+		? { start, end } : undefined;
 	const rawPath = str(args.path) ?? str(args.file_path) ?? str(args.filePath);
 	return {
 		tool,
 		path: rawPath ? normPath(rawPath) : undefined,
 		command: str(args.command),
-		ranged: args.offset !== undefined || args.limit !== undefined || args.start_line !== undefined || args.end_line !== undefined,
+		ranged,
+		range,
 	};
 }
 
@@ -905,10 +955,6 @@ function normPath(p: string): string {
 	return s;
 }
 
-/** Same file, allowing one side to be relative to the other (`src/a.py` vs `/w/src/a.py`). */
-function samePath(a: string, b: string): boolean {
-	return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
-}
 
 function baseName(p: string): string {
 	return p.slice(p.lastIndexOf("/") + 1);
