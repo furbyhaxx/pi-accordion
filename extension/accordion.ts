@@ -3883,7 +3883,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// Without a known window we cannot prove saturation, so the pass's result stands.
 		const underBudget = window > 0 ? record.after <= window - reserve : true;
 		const note = `${record.message} — native compaction suppressed.`;
-		if (trigger === "threshold" && !saturatedFallback && underBudget && record.strategy !== "bake") return { cancel: true };
+		if (trigger === "threshold" && !saturatedFallback && underBudget && record.strategy !== "bake") {
+			ctx.ui.setStatus("accordion", `accordion · ${record.message}`);
+			return { cancel: true };
+		}
 		if (trigger === "threshold" && saturatedFallback && settings.compact.onSaturated === "native") {
 			// Nothing freed and the context is still over the line: leave Pi's own summarizer to it.
 			const fallbackNote = "Accordion could not free enough — falling back to native compaction.";
@@ -3893,8 +3896,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		if (trigger === "threshold" && saturatedFallback && settings.compact.onSaturated === "warn") {
 			const saturated = "context threshold reached: Accordion cannot free more; switch /compact to native or bake";
-			try { ctx.ui.notify(saturated, "error"); } catch { /* ignore */ }
-			broadcast({ type: "notice", text: saturated });
+			ctx.ui.setStatus("accordion", `accordion · ${saturated}`);
 			return { cancel: true };
 		}
 		if (trigger === "overflow" && saturatedFallback && record.strategy !== "bake" && settings.compact.onSaturated !== "warn") {
