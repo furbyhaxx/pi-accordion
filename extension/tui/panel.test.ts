@@ -327,7 +327,7 @@ describe("accordion panel", () => {
 		const s = setup();
 		s.truth.blocks[0].text = "wide 界 \u001b]0;unsafe\u0007 text";
 		const height = s.panel.render(80).length;
-		expect(height).toBe(12 + CHROME_ROWS);
+		expect(height).toBe(10 + CHROME_ROWS);
 		const check = () => {
 			for (const width of [20, 36, 57, 80, 140]) {
 				const lines = s.panel.render(width);
@@ -356,7 +356,7 @@ describe("accordion panel", () => {
 		const check = () => {
 			for (const width of [20, 36, 57, 80, 140]) {
 				const lines = s.panel.render(width);
-				expect(lines).toHaveLength(12 + CHROME_ROWS);
+				expect(lines).toHaveLength(10 + CHROME_ROWS);
 				expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
 				expect(lines.join("")).not.toContain("\u001b]");
 				expect(lines.join("")).not.toContain("\u0007");

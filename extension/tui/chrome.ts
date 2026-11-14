@@ -5,8 +5,10 @@ export const CHROME_ROWS = 8;
 // The task trees are the tallest content; shorter tabs are padded to the same height.
 const MAX_BODY_ROWS = 20;
 const MIN_BODY_ROWS = 3;
-// Rows Pi keeps around a panel that replaces the editor: a spacer above, footer and status below.
-const HOST_ROWS = 4;
+// Rows Pi's fullscreen layout keeps around a panel that replaces the editor: one transcript row above (its minimum) and the footer
+// below, 4 rows with one status line and 5 when the statuses wrap. Pi gives the component no height, and a shortfall clips the
+// frame's last line, the bottom rule (measured live at 80x24: 4 left the rule off).
+const HOST_ROWS = 6;
 const ELLIPSIS = "…";
 const TAB_SEPARATOR = "❱";
 
