@@ -3873,14 +3873,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (strategy === "native") return;
 		const instructions = typeof ev.customInstructions === "string" && ev.customInstructions.trim() ? ev.customInstructions.trim() : undefined;
 		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
+		let bakeFailure = "could not map the exact compaction range";
 		const bakeRange = () => {
 			const prep = ev.preparation;
 			if (!truth || !prep?.firstKeptEntryId || !prep.messagesToSummarize) return null;
+			const cap = Math.min(20_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000)));
+			if (prep.previousSummary && Math.ceil(buildBakeSummary([], { capTokens: cap, previousSummary: prep.previousSummary, instructions }).length / 4) > cap) {
+				bakeFailure = "cannot fit the previous summary within the bake cap";
+				return null;
+			}
 			return bakeMessageBlocks(truth, [...prep.messagesToSummarize, ...(prep.turnPrefixMessages ?? [])], lastMessages);
 		};
 		const initialBakeBlocks = strategy === "bake" ? bakeRange() : undefined;
 		if (initialBakeBlocks === null) {
-			ctx.ui.notify("Accordion bake could not map the exact compaction range; falling back to native compaction.", "warning");
+			ctx.ui.notify(`Accordion bake ${bakeFailure}; falling back to native compaction.`, "warning");
 			return;
 		}
 		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}), ...(initialBakeBlocks ? { bakeBlocks: initialBakeBlocks, previousSummary: ev.preparation?.previousSummary } : {}) }, { card: false });
@@ -3889,7 +3895,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const saturatedFallback = strategy === "pass" && needsSaturationFallback(trigger, first.record.before, first.record.after, window, reserve);
 		const fallbackBakeBlocks = saturatedFallback && settings.compact.onSaturated === "bake" ? bakeRange() : undefined;
 		if (fallbackBakeBlocks === null) {
-			ctx.ui.notify("Accordion bake could not map the exact compaction range; falling back to native compaction.", "warning");
+			ctx.ui.notify(`Accordion bake ${bakeFailure}; falling back to native compaction.`, "warning");
 			return;
 		}
 		const { record } = fallbackBakeBlocks

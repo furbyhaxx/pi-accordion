@@ -906,6 +906,8 @@ instructions: <customInstructions, if any>
 
 `preparation.previousSummary`, when present, appears verbatim under its own `── previous summary`
 heading before the discarded message sections.
+If the previous summary and mandatory header alone exceed the cap, bake falls back to native
+compaction and notifies the user rather than truncating the previous summary or exceeding the cap.
 
 Rules: fold codes are stripped (`stripFoldTags`) because baked blocks can no longer be recalled;
 groups appear once at their first member; unfolded non-user blocks in the range are forced to their

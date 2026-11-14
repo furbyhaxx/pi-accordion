@@ -142,7 +142,8 @@ check("a requested bake goes to pi with our summary instead of folding and claim
 		{ role: "assistant", timestamp: 1, content: [{ type: "text", text: "done: the layout is flat" }] },
 		{ role: "user", timestamp: 2, content: [{ type: "text", text: "kept secret" }] },
 	];
-	const r = runtime(messages);
+	const notices = [];
+	const r = runtime(messages, { notify: text => notices.push(text) });
 	const compactCalls = [];
 	try {
 		const host = await r.open();
@@ -163,6 +164,11 @@ check("a requested bake goes to pi with our summary instead of folding and claim
 		await new Promise(resolve => setImmediate(resolve));
 		const second = await r.handlers.session_before_compact({ reason: "manual", preparation: { ...preparation, previousSummary: bak.compaction.summary } }, r.ctx);
 		assert.ok(second?.compaction?.summary.includes(bak.compaction.summary), "the second bake preserves the first summary verbatim");
+		host.command({ kind: "compact", strategy: "bake" });
+		await new Promise(resolve => setImmediate(resolve));
+		const tooLarge = await r.handlers.session_before_compact({ reason: "manual", preparation: { ...preparation, previousSummary: "x".repeat(80_000) } }, r.ctx);
+		assert.equal(tooLarge, undefined, "oversized previous summary falls back to Pi");
+		assert.match(notices.at(-1), /previous summary.*cap.*native/);
 	} finally { r.close(); }
 });
 check("a saturated threshold pass bakes the discarded range", async () => {
