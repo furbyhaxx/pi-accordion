@@ -86,6 +86,9 @@ function parsePi(entries: any[]): ParsedSession {
 				meta.cwd = e.cwd || "";
 				meta.title = e.title || "";
 				break;
+			case "custom_message":
+				sink.push(eid, "custom", asText(e.content));
+				break;
 			case "message": {
 				const m = e.message || {};
 				if (m.role === "user") {

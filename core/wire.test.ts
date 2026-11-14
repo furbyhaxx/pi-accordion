@@ -80,6 +80,19 @@ describe("core/wire — durable ids", () => {
 });
 
 describe("core/wire — linearize", () => {
+	it("preserves positional IDs when linearizing a suffix", () => {
+		const messages: PiMessage[] = [
+			{ role: "user", timestamp: 1, content: "start" },
+			{ role: "user", content: "next" },
+			{ role: "toolResult", content: "result" },
+			{ role: "custom", customType: "notice", timestamp: 2, content: [{ type: "text", text: "notice" }, { type: "image", data: "image" }] },
+			{ role: "assistant", content: [{ type: "text", text: "reply" }] },
+		];
+		const full = linearize(messages);
+		const suffix = linearize(messages.slice(1), 1, 1, 1);
+		expect(suffix.map((block) => block.id)).toEqual(full.slice(1).map((block) => block.id));
+		expect(suffix.map((block) => block.id)).toEqual(["m1:u", "m2:r", "m3:c", "m4:p0"]);
+	});
 	it("explodes messages into typed blocks in conversation order", () => {
 		const blocks = linearize(session());
 		expect(blocks.map((b) => b.kind)).toEqual(["user", "thinking", "text", "tool_call", "tool_result"]);
