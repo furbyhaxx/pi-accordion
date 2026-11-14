@@ -2341,7 +2341,8 @@ function runRemoteConductor(conductor, opts) {
     function sendCompleteRequest(req) {
       return new Promise((resolve, reject) => {
         const id = ++reqId;
-        pendingCompletes.set(id, { resolve, reject });
+        const pending = { resolve, reject };
+        pendingCompletes.set(id, pending);
         send({
           type: "completeRequest",
           reqId: id,
@@ -2355,11 +2356,15 @@ function runRemoteConductor(conductor, opts) {
           const onAbort2 = () => {
             if (!pendingCompletes.has(id)) return;
             pendingCompletes.delete(id);
+            pending.removeAbort?.();
             send({ type: "cancelComplete", reqId: id });
             reject(signal.reason instanceof Error ? signal.reason : new Error("remote conductor: completion aborted"));
           };
           if (signal.aborted) onAbort2();
-          else signal.addEventListener("abort", onAbort2, { once: true });
+          else {
+            signal.addEventListener("abort", onAbort2, { once: true });
+            pending.removeAbort = () => signal.removeEventListener("abort", onAbort2);
+          }
         }
       });
     }
@@ -2412,6 +2417,7 @@ function runRemoteConductor(conductor, opts) {
       }
       pendingProposes.clear();
       for (const [, p] of pendingCompletes) {
+        p.removeAbort?.();
         p.reject(new Error("remote conductor: connection closed before completion resolved"));
       }
       pendingCompletes.clear();
@@ -2534,6 +2540,7 @@ function runRemoteConductor(conductor, opts) {
           const p = pendingCompletes.get(msg.reqId);
           if (!p) return;
           pendingCompletes.delete(msg.reqId);
+          p.removeAbort?.();
           if (msg.ok) p.resolve({ text: msg.text ?? "", model: msg.model ?? "", inputTokens: msg.inputTokens, outputTokens: msg.outputTokens, ...msg.stopReason ? { stopReason: msg.stopReason } : {} });
           else p.reject(new Error(msg.error ?? "remote conductor: completion failed"));
           break;
@@ -3918,11 +3925,22 @@ var TriptychConductor = class extends AgedSummaryConductor {
    * caching is safe; the map is reset on attach.
    */
   skelCache = /* @__PURE__ */ new Map();
+  offCacheEvents = null;
   attach(host) {
     this.active = false;
     this.widened = false;
+    this.offCacheEvents?.();
     this.skelCache = /* @__PURE__ */ new Map();
     super.attach(host);
+    this.offCacheEvents = host.on((event) => {
+      if (this.skelCache.size === 0) return;
+      if (event.type === "resync") {
+        const ids = new Set(host.blocks().filter((block) => !block.grouped).map((block) => block.id));
+        for (const id of this.skelCache.keys()) if (!ids.has(id)) this.skelCache.delete(id);
+      } else if (event.type === "state-changed") {
+        for (const block of host.blocks()) if (block.grouped) this.skelCache.delete(block.id);
+      }
+    });
     void this.skel.init().then(
       () => this.rerun(),
       (err) => {
@@ -3931,6 +3949,11 @@ var TriptychConductor = class extends AgedSummaryConductor {
         this.host.setStatus(this.failureStatus, { level: "warning" });
       }
     );
+  }
+  detach() {
+    this.offCacheEvents?.();
+    this.offCacheEvents = null;
+    super.detach();
   }
   // ── the triptych pass ──────────────────────────────────────────────────────────
   conduct(view) {
