@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { Truth } from "./truth";
 import { foldCode, foldTag } from "./digest";
 import { estTokens } from "./tokens";
-import { RECALL_POLICY, RecallAccount, serveRecall } from "./recallAccount";
+import { RECALL_POLICY, RecallAccount, serveRecall, serveRecallAnswer } from "./recallAccount";
 import type { Block } from "./types";
 
 const META = { format: "pi" as const, title: "t", cwd: "", model: "" };
@@ -40,6 +40,23 @@ function land(truth: Truth, callId: string, text: string): void {
 }
 
 describe("RecallAccount", () => {
+	it("reserves concurrent answers, refuses without calling the model, and releases failures", async () => {
+		const { truth } = archive(1);
+		const account = new RecallAccount(() => ({ callTokens: 2000, liveTokens: 2000, margin: 0, minGrant: 1000 }));
+		const { promise, resolve } = Promise.withResolvers<string>();
+		const first = serveRecallAnswer(truth, account, "first", () => promise);
+		let called = false;
+		const refused = await serveRecallAnswer(truth, account, "second", async () => { called = true; return "unexpected"; });
+		expect(refused.refused).toBe(true);
+		expect(called).toBe(false);
+		resolve("x".repeat(8000));
+		expect((await first).text.length).toBe(8000);
+		expect(account.outstanding(truth)).toBe(2000);
+		account.reset();
+		await expect(serveRecallAnswer(truth, account, "failed", async () => { throw new Error("failed"); })).rejects.toThrow("failed");
+		expect(account.outstanding(truth)).toBe(0);
+	});
+
 	it("bounds parallel calls with many codes by the session allowance, not per call", () => {
 		const { truth, codes } = archive(11);
 		const account = new RecallAccount();

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Truth } from "./truth";
 import { foldCode, foldTag } from "./digest";
 import { resolveRecall } from "./agentView";
@@ -29,6 +29,43 @@ function foldedTask(n: number, size: number, child = 0): Truth {
 }
 
 describe("recallView", () => {
+	it("rejects oversized queries and unknown regex flags and names unshown archive results", () => {
+		const truth = foldedTask(10, 500);
+		const code = foldCode(PARENT);
+		expect(recallView(truth, { codes: [code], query: "x".repeat(201) }).text).toContain("200-character limit");
+		expect(recallView(truth, { codes: [code], query: "/entry/g" }).text).toContain("allowed flags are i and s");
+		expect(recallView(truth, { codes: [], query: "entry", grantChars: 700 }).text).toContain("Not shown:");
+	});
+
+	it("reuses indexed member text across searches and pages until Truth changes", () => {
+		const truth = foldedTask(5000, 10);
+		const code = foldCode(PARENT);
+		const lower = vi.spyOn(String.prototype, "toLowerCase");
+		try {
+			for (const [query, page] of [["entry", 1], ["entry", 2], ["entry", 3], ["entry", 4], ["needle", 1]] as const) {
+				recallView(truth, { codes: [code], query, page });
+			}
+			expect(lower.mock.instances.filter((s) => String(s).startsWith("entry "))).toHaveLength(5000);
+			truth.setBudget(100_000);
+			recallView(truth, { codes: [code], query: "entry" });
+			expect(lower.mock.instances.filter((s) => String(s).startsWith("entry "))).toHaveLength(10_000);
+		} finally {
+			lower.mockRestore();
+		}
+	});
+
+	it("pages long task reports with usable continuation calls", () => {
+		const truth = foldedTask(4, 100);
+		const code = foldCode(PARENT);
+		const reportOf = () => ({ title: "Long report", status: "done", decisions: Array.from({ length: 40 }, (_, i) => `decision-${i} ${"detail ".repeat(40)}`) });
+		const first = recallView(truth, { codes: [code], reportOf, budgetChars: 2600 });
+		const second = recallView(truth, { codes: [code], reportOf, budgetChars: 2600, page: 2 });
+		expect(first.text).toContain(`recall({codes:["${code}"], page:2})`);
+		expect(first.text).toContain("decision-0");
+		expect(second.text).not.toContain("decision-0");
+		expect(second.text).toContain("decision-");
+	});
+
 	it("returns a small fold whole, like the original recall", () => {
 		const t = foldedTask(3, 100);
 		const v = recallView(t, { codes: [foldCode(PARENT)] });

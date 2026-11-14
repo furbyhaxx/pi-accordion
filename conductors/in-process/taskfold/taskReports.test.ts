@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { TaskfoldConductor } from "./taskfold";
 import { taskReports } from "./taskReports";
 import { TestHost } from "../../../core/conductor/testhost";
-import { foldCode } from "../../../core/digest";
+import { foldCode, foldTag } from "../../../core/digest";
 import { recallView, RECALL_BUDGET_CHARS } from "../../../core/recallView";
 import { RecallAccount, serveRecall } from "../../../core/recallAccount";
 import type { Block } from "../../../core/types";
@@ -13,7 +13,7 @@ import type { Block } from "../../../core/types";
 const SECRET = "TRANSCRIPT-ONLY-PAYLOAD";
 
 /** `tasks` finished root tasks, each with two subtasks and `callsPerSub` large tool results. */
-function session(tasks: number, callsPerSub: number): Block[] {
+function session(tasks: number, callsPerSub: number, nested = false): Block[] {
 	const blocks: Block[] = [];
 	let order = 0;
 	let resp = 0;
@@ -32,6 +32,11 @@ function session(tasks: number, callsPerSub: number): Block[] {
 		start(`${t}`, `Phase ${t}`);
 		for (const sub of [1, 2]) {
 			start(`${t}.${sub}`, `Phase ${t} part ${sub}`);
+			if (nested) {
+				start(`${t}.${sub}.1`, `Grandchild ${sub}`);
+				call("bash", { command: `grandchild-${sub}` }, `unique grandchild ${sub} content`);
+				finish(`${t}.${sub}.1`, { outcome: `Grandchild ${sub} finished` });
+			}
 			for (let i = 0; i < callsPerSub; i++) call("bash", { command: `cat phase-${t}-${sub}-${i}.log` }, `${SECRET} `.repeat(1400));
 			call("edit", { path: `src/phase${t}/part${sub}.ts`, oldText: "a", newText: "b" }, "Successfully replaced text.");
 			call("bash", { command: "npm test" }, "12 passed");
@@ -57,6 +62,29 @@ async function folded(tasks: number, callsPerSub: number): Promise<TestHost> {
 }
 
 describe("recall of task codes", () => {
+	it("lists absorbed grandchildren as ancestor entry ranges that can be recalled", () => {
+		const host = new TestHost();
+		const blocks = session(1, 1, true);
+		host.appendBlocks(blocks);
+		host.setProtect(0);
+		const ids = blocks.slice(1, -9).map((b) => b.id);
+		const root = "t:work/1";
+		const result = host.truth.apply([{ kind: "group", ids, summary: `${foldTag(root)} root`, handles: [{ id: root, memberIds: ids }] }], "auto");
+		expect(result.results[0].applied).toBe(true);
+		const code = foldCode(root);
+		const report = recallView(host.truth, { codes: [code], reportOf: taskReports(host.truth) });
+		for (const n of [1, 2]) {
+			const row = report.text.split("\n").find((line) => line.includes(`Grandchild ${n}`));
+			expect(row).toBeDefined();
+			const match = row?.match(new RegExp(`#${code}\\.(\\d+)-(\\d+)`));
+			expect(match).not.toBeNull();
+			const first = Number(match![1]);
+			const last = Number(match![2]);
+			const entries = Array.from({ length: last - first + 1 }, (_, i) => recallView(host.truth, { codes: [`${code}.${first + i}`] }).text).join("\n");
+			expect(entries).toContain(`unique grandchild ${n} content`);
+		}
+	});
+
 	it("returns eleven reports for eleven large task codes in one call, without transcript", async () => {
 		const host = await folded(11, 6);
 		const codes = Array.from({ length: 11 }, (_, i) => foldCode(`t:work/${i + 1}`));
