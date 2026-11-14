@@ -18,6 +18,14 @@ import type { Truth } from "../truth";
 import type { TruthEvent } from "../events";
 import type { Op } from "../ops";
 import type { HostEvent, ViewBlock, StateChange } from "./contract";
+import { estTokens, BLOCK_OVERHEAD } from "../tokens";
+
+/** Price complete wire text using the target block's calibration and structural overhead. */
+export function countBlockTokens(truth: Truth, id: string, text: string): number {
+	const block = truth.get(id);
+	if (!block) throw new RangeError(`unknown block ${id}`);
+	return truth.calBlockTokens(block, estTokens(text) + BLOCK_OVERHEAD);
+}
 
 /**
  * Project one Truth block into the `ViewBlock` shape every conductor/host client sees — the

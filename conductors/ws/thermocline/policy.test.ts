@@ -122,6 +122,11 @@ test("project subtracts fold + stratum savings from liveTokens, no double-count"
 	expect(project(v, { foldedIds: new Set(), strata: [{ memberIds: ["b", "c"], summaryTokens: 200 }] })).toBe(10_200);
 });
 
+test("project prices the replacement rather than the existing digest", () => {
+	const v = view([blk({ id: "a", tokens: 3_000, foldedTokens: 72 })]);
+	expect(project(v, { foldedIds: new Set(["a"]), foldTokens: new Map([["a", 312]]) })).toBe(312);
+});
+
 // F1 (issue #11, ADR 0025 stage 2): `ConductorView.liveTokens`/`ViewBlock.tokens` are CALIBRATED
 // (real, provider-anchored numbers) — `project()` mixes them with `summaryTokens` in one expression
 // (`members − s.summaryTokens`), so `summaryTokens` must ALSO be calibrated or the subtraction is not

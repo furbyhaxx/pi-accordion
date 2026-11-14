@@ -261,6 +261,8 @@ export interface ConductorHost {
 	 * against `contextWindow`) stays unit-consistent.
 	 */
 	countTokens(text: string): number;
+	/** Estimate complete wire text for one block, including its tag and block overhead, using that block's calibration. Throws RangeError for an unknown id. */
+	countBlockTokens(id: string, text: string): number;
 	/** The engine's per-kind folded digest for block `id`, or null if unknown. */
 	digestOf(id: string): string | null;
 	/** Run an out-of-band model completion. Rejects if the model is unavailable or the call fails. */
