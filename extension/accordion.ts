@@ -3145,7 +3145,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		lastEstWireTokens = est;
 		truth.setCalibration(verdict.ratio, throughOrder);
 		applyCalibrationPrior();
-		debug({ type: "request", model: modelSpec(), estimate: est, realInput: verdict.real, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, deduped: verdict.deduped, k: truth.calibration, prior: truth.calibrationPrior,
+		if (debugOverride ?? settings.debug) debug({ type: "request", model: modelSpec(), estimate: est, realInput: verdict.real, cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, deduped: verdict.deduped, k: truth.calibration, prior: truth.calibrationPrior,
 			budget: truth.budget, protectTokens: truth.protectTokens, liveTokens: truth.liveTokens(), fullTokens: truth.fullTokens(), timing: currentDials()?.timing ?? settings.taskfold.timing });
 	}
 

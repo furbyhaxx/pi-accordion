@@ -46,6 +46,12 @@ export function recallStub(call: Block | undefined): string {
 /** The `replace` ops that release recall results; empty when nothing qualifies. */
 export function expireRecall(truth: Truth, req: ExpiryRequest): Op[] {
 	const blocks = truth.blocks;
+	const live: number[] = [];
+	for (let i = 0; i < blocks.length; i++) {
+		const b = blocks[i];
+		if (isRecallResult(b) && b.override === null && b.subst === undefined && !truth.inFoldedGroup(b.id) && b.tokens >= SMALL_RESULT_TOKENS) live.push(i);
+	}
+	if (!live.length) return [];
 	const calls = new Map<string, Block>();
 	// later[i]: assistant messages after block i; promptAfter[i]: a user message follows block i.
 	const later = new Array<number>(blocks.length).fill(0);
@@ -65,7 +71,6 @@ export function expireRecall(truth: Truth, req: ExpiryRequest): Op[] {
 			if (b.kind === "tool_call" && b.toolName === RECALL_TOOL && b.callId) calls.set(b.callId, b);
 		}
 	}
-	const live = blocks.flatMap((b, i) => (isRecallResult(b) && b.override === null && b.subst === undefined && !truth.inFoldedGroup(b.id) && b.tokens >= SMALL_RESULT_TOKENS ? [i] : []));
 	let chosen = live.filter((i) => later[i] >= req.keepSteps);
 	if (!chosen.length && req.earlierPrompts) chosen = live.filter((i) => promptAfter[i]);
 	return chosen.flatMap((i) => {
