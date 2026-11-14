@@ -205,7 +205,7 @@ export function transcriptNodes(nodes: readonly TNode[], data: ViewData, keyBase
 			const answer = n.blocks.find((b) => b.kind === "text") ?? n.blocks[0];
 			out.push({
 				key: `${keyBase}answer:${n.blocks[0].id}`,
-				label: `${t.fg("muted", "A")} ${firstLine(answer.text, 70)}`,
+				label: `${t.fg("muted", stepLetter(answer.kind))} ${firstLine(answer.text, 70)}`,
 				meta: [blockState(t, ...n.blocks)].filter(Boolean),
 				right: t.fg("dim", tok(n.tokens)),
 				children: n.blocks.length > 1 ? stepNodes(n.blocks, data, `${keyBase}a:${n.blocks[0].id}>`) : undefined,
@@ -253,10 +253,15 @@ export function transcriptNodes(nodes: readonly TNode[], data: ViewData, keyBase
 	return out;
 }
 
+/** The step marker of a non-call block: `A` reply, `H` thinking, `ext` extension message, `R` result. */
+function stepLetter(kind: TBlock["kind"]): string {
+	return kind === "text" ? "A" : kind === "thinking" ? "H" : kind === "custom" ? "ext" : "R";
+}
+
 function stepNode(b: TBlock, result: TBlock | null, data: ViewData, keyBase: string): TreeNode<ViewRef> {
 	const t = data.theme;
 	const failed = !!result?.isError;
-	const label = b.kind === "tool_call" ? `${t.fg(failed ? "error" : "success", failed ? "✗" : "✓")} ${b.toolName ?? "tool"}  ${stepTarget(b)}` : `${t.fg("muted", b.kind === "text" ? "A" : b.kind === "thinking" ? "H" : "R")} ${firstLine(b.text, 60)}`;
+	const label = b.kind === "tool_call" ? `${t.fg(failed ? "error" : "success", failed ? "✗" : "✓")} ${b.toolName ?? "tool"}  ${stepTarget(b)}` : `${t.fg("muted", stepLetter(b.kind))} ${firstLine(b.text, 60)}`;
 	return {
 		key: `${keyBase}step:${b.id}`,
 		label,

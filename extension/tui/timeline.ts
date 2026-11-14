@@ -36,7 +36,7 @@ export interface TimelineRow {
 	folded: boolean;
 }
 
-const KIND_LETTER: Partial<Record<BlockKind, string>> = { user: "U", thinking: "H", text: "A" };
+const KIND_LETTER: Partial<Record<BlockKind, string>> = { user: "U", custom: "X", thinking: "H", text: "A" };
 
 /** Weight glyph from calibrated full tokens: `▪` < 500, `■` < 5 000, `█` otherwise. */
 export function weightGlyph(tokens: number): string {

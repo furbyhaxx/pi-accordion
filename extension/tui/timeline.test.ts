@@ -88,4 +88,13 @@ describe("context timeline", () => {
 		expect(clampCell(2, undefined)).toBe(0);
 		expect(cellGlyph(t, t.blocks[0])).toBe("U");
 	});
+
+	test("an extension message shows as X in its turn and is not a prompt", () => {
+		const t = truthOf([blk("u:1", "user", 0, 1, 100), blk("c:9:x", "custom", 1, 1, 100), blk("a:b1:p0", "text", 2, 1, 100)]);
+		t.setProtect(0);
+		const rows = buildTimeline(t);
+		expect(rows[0].cells.map((c) => c.glyph)).toEqual(["U", "X", "A"]);
+		expect(rows[0].label).toBe("u:1");
+		expect(cellGlyph(t, t.blocks[1])).toBe("X");
+	});
 });
