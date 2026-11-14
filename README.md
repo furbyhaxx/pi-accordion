@@ -211,6 +211,11 @@ Conductors are opt-in, same as folding itself. An exclusive one shows you a cons
 naming which controls it takes over, and detaching converts everything it did into your own
 edits so its work survives being removed.
 
+Compaction-naive, handoff, keel-note, thermocline and triptych ask for consent before attaching
+when their chat model is remote: they send session content to its provider, which may log it.
+Local-only models need no consent. Taskfold attaches its deterministic tools first and gates its
+model work until consent is granted.
+
 thermocline and triptych run as their own process and ship with the repo. They aren't in the
 npm package, so they only show up in the picker when you run Accordion from a checkout. Details
 on each are in **[conductors/](conductors/)**.

@@ -160,6 +160,11 @@ describe("signed thinking host views", () => {
 
 // ── registry ──────────────────────────────────────────────────────────────────
 describe("registry", () => {
+	it("declares privacy for each conductor that sends session text to a model", () => {
+		for (const id of ["compaction-naive", "handoff", "keel-note", "thermocline", "triptych", "taskfold"]) {
+			expect(entryById(id)?.privacy, id).toMatchObject({ models: expect.arrayContaining(["chat"]), notice: expect.any(String) });
+		}
+	});
 	it("keeps unavailable spawn conductors visible with host-computed readiness", () => {
 		const without = catalogMeta();
 		expect(without.find((e) => e.id === "thermocline")?.readiness.state).toBe("unavailable");

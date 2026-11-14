@@ -88,8 +88,10 @@ For example:
 }
 ```
 
-A conductor that sends session content to a model running off this machine asks once for consent
-before it attaches. Accepted notices are stored under `privacyConsent`.
+Compaction-naive, handoff, keel-note, thermocline and triptych ask once before attaching when
+their chat model runs off this machine. Their provider receives session content and may log it.
+When every routed model is local, no consent is needed. Taskfold attaches its deterministic tools
+first and gates model work until consent is granted. Accepted notices are stored under `privacyConsent`.
 
 Every new Taskfold list has one to five goals (a task may add up to three of its own) and can hold scoped pins and file attachments. The list browser asks for the title and a goal when creating a list. Goals, criteria, pins and attachments carry list-unique ids (`g1`, `c1`, `p1`, `a1`) that are never reused; `tasks update` edits goals and criteria with `{add, remove, edit}`. Files from earlier versions are converted on their first write and the original is kept as `<slug>.v1.json` or `<slug>.v2.json`. Goals, criteria, pins and attachments reach
 the agent once, in the `tasks start` or `claim` result, and are never added to later requests.

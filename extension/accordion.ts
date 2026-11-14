@@ -957,12 +957,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			throw new Error(`${entry.label}: privacy consent required for remote model; reattach the conductor to grant consent`);
 	}
 
+	let conductorSelection = 0;
+
 	/**
 	 * Attach a conductor through its privacy gate. Ungated, consented or fully local conductors attach
 	 * at once (returns true). Otherwise the user confirms once in an interactive session; acceptance is
 	 * persisted and attaches the conductor, and a session switch while the dialog is open drops it.
 	 */
 	function selectConductor(id: string | null): boolean {
+		conductorSelection++;
 		const consentKey = entryById(id)?.privacy?.consentKey ?? id ?? "none";
 		const entry = entryById(id);
 		if (!entry?.privacy || settings.privacyConsent[consentKey] || !leavesMachine(entry)) {
@@ -996,15 +999,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function askConductorConsent(entry: RegistryEntry, consentKey: string, ctx: ExtensionContext): void {
 		const session = sessionId;
 		const surface = controllerLease?.surfaceId;
+		const selection = conductorSelection;
 		const active = () => {
 			refreshControllerNow();
-			return session === sessionId && (!surface || holdsControl(surface, session));
+			return selection === conductorSelection && session === sessionId && (!surface || holdsControl(surface, session));
 		};
 		void ctx.ui.confirm(`${entry.label}: privacy notice`, `${entry.privacy!.notice}\n\nAccept once and enable ${entry.label}'s model-backed work?`).then(async accepted => {
 			if (!accepted || !active()) return;
 			const result = await saveSettingsPatch({ [`privacyConsent.${consentKey}`]: new Date().toISOString() }, settingsStore.current().rev, active);
 			if (!result.ok) { ctx.ui.notify(result.error, "warning"); return; }
-			if (active() && liveHost.activeMeta()?.id === entry.id) liveHost.select(entry.id);
+			if (active()) liveHost.select(entry.id);
 		}).catch(error => ctx.ui.notify(`Privacy consent could not be saved: ${error instanceof Error ? error.message : String(error)}`, "warning"));
 	}
 

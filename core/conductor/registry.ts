@@ -148,6 +148,10 @@ const THERMOCLINE: RegistryEntry = {
 	tailTokens: 0,
 	holdWireUpToMs: 200,
 	kind: "spawn",
+	privacy: {
+		models: ["chat"],
+		notice: "Thermocline sends the units it compresses to its chat model, by default the session model. The provider receives and may log this content.",
+	},
 	spawn: { entryFile: "thermocline/runner.mjs" },
 };
 
@@ -165,6 +169,10 @@ const TRIPTYCH: RegistryEntry = {
 	tailTokens: 0,
 	holdWireUpToMs: 0,
 	kind: "spawn",
+	privacy: {
+		models: ["chat"],
+		notice: "Triptych sends the aged part of the transcript to its chat model, by default the session model. The provider receives and may log this content.",
+	},
 	spawn: {
 		entryFile: "triptych/runner.mjs",
 		requiredModules: ["web-tree-sitter", "tree-sitter-wasms/package.json"],
@@ -222,11 +230,29 @@ export function keelNoteOptionsFromEnv(env?: Record<string, string | undefined>)
 /** The full catalog, in picker order: detach first, then the shipped conductors. */
 export const ENTRIES: readonly RegistryEntry[] = [
 	NONE,
-	inProcess(() => new NaiveCompactionConductor()),
-	inProcess(() => new HandoffConductor()),
+	{
+		...inProcess(() => new NaiveCompactionConductor()),
+		privacy: {
+			models: ["chat"],
+			notice: "Compaction-naive sends the aged part of the transcript to its chat model, by default the session model. The provider receives and may log this content.",
+		},
+	},
+	{
+		...inProcess(() => new HandoffConductor()),
+		privacy: {
+			models: ["chat"],
+			notice: "Handoff sends the aged part of the transcript to its chat model, by default the session model. The provider receives and may log this content.",
+		},
+	},
 	inProcess(() => new DoormanConductor()),
 	inProcess(() => new KeelLiteConductor(keelLiteOptionsFromEnv())),
-	inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
+	{
+		...inProcess(() => new KeelNoteConductor(keelNoteOptionsFromEnv())),
+		privacy: {
+			models: ["chat"],
+			notice: "Keel-note sends the text of trimmed spans to its chat model, by default the session model. The provider receives and may log this content.",
+		},
+	},
 	{
 		...inProcess((options) => new TaskfoldConductor(options, taskfoldVerdicts), [
 			{ key: "high", label: "High water", description: "Start folding at this share of the budget", type: "fraction", min: 0.5, max: 0.95, default: TASKFOLD_DEFAULTS.high },

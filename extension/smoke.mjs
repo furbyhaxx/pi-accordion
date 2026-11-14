@@ -44,6 +44,8 @@ process.env.ACCORDION_DOOR_PORT = "0";
 // sets these (defaults: 2s heartbeat / 1s poll).
 process.env.ACCORDION_CONTROLLER_HEARTBEAT_MS = "60";
 process.env.ACCORDION_CONTROLLER_POLL_MS = "5000";
+fs.mkdirSync(path.join(HOME, ".accordion"), { recursive: true });
+fs.writeFileSync(path.join(HOME, ".accordion", "config.json"), JSON.stringify({ autoArm: false, privacyConsent: { "compaction-naive": "2026-01-01T00:00:00Z" } }));
 const SESSIONS_DIR = path.join(HOME, ".accordion", "sessions");
 const FOCUS_PATH = path.join(HOME, ".accordion", "focus.json");
 const CONTROLLER_PATH = path.join(HOME, ".accordion", "controller.json");

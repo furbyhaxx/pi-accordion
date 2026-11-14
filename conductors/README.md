@@ -6,6 +6,11 @@ host that attaches them, the shipped-conductor catalog, and the out-of-process r
 conductor and lives in [`core/conductor/`](../core/conductor/) instead — see that directory and
 [ADR 0022](../docs/adr/0022-conductor-contract-v2.md) for the contract.
 
+Compaction-naive, handoff, keel-note, thermocline and triptych send session content to their chat
+model; its provider may log it. They ask for consent before attaching if the model is remote.
+Taskfold attaches its deterministic tools first and gates remote model work until consent is given.
+No consent is needed when every routed model is local.
+
 ## `in-process/`
 
 Conductors instantiated directly inside `LiveConductorHost` (`core/conductor/liveHost.ts`) — no

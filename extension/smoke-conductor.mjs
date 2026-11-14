@@ -41,6 +41,8 @@ process.env.ACCORDION_APP_PATH = path.join(HOME, "missing-accordion-app.exe");
 // fail instantly (ENOENT), reject, and the strategy degrades to its age-based fallback. This is a
 // real absent-probe path, not a faked spawn — the runner, its attach, and its proposes are all real.
 process.env.ATTN_PROBE_PYTHON = path.join(HOME, "no-such-python-binary");
+fs.mkdirSync(path.join(HOME, ".accordion"), { recursive: true });
+fs.writeFileSync(path.join(HOME, ".accordion", "config.json"), JSON.stringify({ privacyConsent: { thermocline: "2026-01-01T00:00:00Z" } }));
 
 const SESSIONS_DIR = path.join(HOME, ".accordion", "sessions");
 const jiti = createJiti(import.meta.url);
