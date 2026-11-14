@@ -277,6 +277,52 @@ describe("TriptychConductor", () => {
 		for (const g of host.truth.groups) expect(g.digest ?? "").not.toMatch(FOLD_TAG_RE);
 	});
 
+	it("evicts skeletons after summary grouping and removes missing blocks on resync", async () => {
+		const blocks: Block[] = [];
+		const add = (kind: BlockKind, tokens: number, text: string, extra: Partial<Block> = {}) => {
+			const order = blocks.length;
+			blocks.push(mkBlock(idOf(order), order, kind, tokens, text, extra));
+		};
+		for (let i = 0; i < 55; i++) add("text", 1000, `OLD-${i}`);
+		const ids: string[] = [];
+		for (let i = 0; i < 50; i++) {
+			const callId = `read-${i}`;
+			add("tool_call", 50, `read {"file_path":"/proj/src/file${i}.ts"}`, { toolName: "read", callId });
+			ids.push(idOf(blocks.length));
+			add("tool_result", 800, BIG_SOURCE, { toolName: "read", callId });
+		}
+		for (let i = 0; i < 50; i++) add("text", 1000, `NEW-${i}`);
+		const host = new TestHost();
+		host.setBudget(150_000);
+		host.setProtect(PROTECT);
+		host.appendBlocks(blocks);
+		host.queueCompletion({ text: SUMMARY_A });
+		const { skel } = fakeSkeletonizer();
+		const conductor = new TriptychConductor(skel);
+		conductor.attach(host);
+		await flush(20);
+		await host.commitTurn();
+		await flush(20);
+		const cache = conductor["skelCache"];
+		expect(ids.filter((id) => cache.has(id))).toHaveLength(50);
+
+		const originalBlocks = host.blocks.bind(host);
+		host.blocks = () => originalBlocks().filter((block) => block.id !== ids[0]);
+		await host.resync();
+		expect(cache.has(ids[0])).toBe(false);
+		host.blocks = originalBlocks;
+
+		host.queueCompletion({ text: SUMMARY_B });
+		host.appendBlocks(Array.from({ length: 110 }, (_, i) => mkBlock(idOf(blocks.length + i), blocks.length + i, "text", 1000, `LATER-${i}`)));
+		await host.commitTurn();
+		await flush(30);
+		expect(ids.every((id) => host.truth.groups.some((group) => group.memberIds.includes(id)))).toBe(true);
+		await host.commitTurn();
+		await flush(20);
+		expect(ids.filter((id) => cache.has(id))).toHaveLength(0);
+		conductor.detach();
+	});
+
 	it("snaps the top-band boundary to a message edge — the lossy group never swallows un-summarized parts", async () => {
 		// Adversarial-review regression: 30 blocks × 200 tok (raw 6000 ≥ 5400 trigger); the raw
 		// 2·cap/3 crossing lands at index 10, which BISECTS a two-part assistant message (blocks 9
