@@ -1263,6 +1263,81 @@ describe("taskfold", () => {
 			conductor.detach();
 		}
 	});
+	it("keeps the second task's code when its start shares the first task's closing message", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "First");
+		s.work(2, "first");
+		const boundary = s.batch([
+			["tasks", { action: "complete", list: "work", id: "1", report: { outcome: "First done" } }, "work/1 is done."],
+			["tasks", { action: "start", list: "work", id: "2" }, 'Started work/2 "Second".'],
+		]);
+		s.work(2, "second");
+		const host = setup(s, 10);
+		const proposals = vi.spyOn(host, "propose");
+		const c = await attach(host);
+		expect(groupOf(host, boundary.calls[1])).toBeDefined();
+		const before = s.blocks.length;
+		s.finish("2", { outcome: "Second done" });
+		s.work(3, "tail");
+		host.appendBlocks(s.blocks.slice(before));
+		await host.commitTurn();
+		const group = host.groups().find((g) => taskKeyOfSummary(g.summary) === "work/2");
+		expect(group?.summary?.startsWith(foldTag("t:work/2"))).toBe(true);
+		const handle = group?.handles?.find((h) => h.id === "t:work/2");
+		expect(handle).toBeDefined();
+		for (const id of boundary.calls) expect(handle?.memberIds).not.toContain(id);
+		expect(resolveRecall(host.truth, [foldCode("t:work/2")]).missing).toEqual([]);
+		for (const result of proposals.mock.results) expect((await result.value).results.some((r) => r.clamped === "invalid-group")).toBe(false);
+		c.detach();
+	});
+
+	it("recalls a task around a human-held middle block", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Task");
+		s.work(1, "before");
+		const held = s.text("Keep this visible");
+		s.work(1, "after");
+		const end = s.finish("1", { outcome: "Done" }).result;
+		s.work(3, "tail");
+		const host = setup(s, 10);
+		expect(host.truth.apply([{ kind: "pin", ids: [held] }], "you").results[0].applied).toBe(true);
+		const proposals = vi.spyOn(host, "propose");
+		const c = await attach(host);
+		const group = groupOf(host, end);
+		expect(group?.summary?.startsWith(foldTag("t:work/1"))).toBe(true);
+		const handle = group?.handles?.find((h) => h.id === "t:work/1");
+		expect(handle).toBeDefined();
+		expect(handle?.memberIds).not.toContain(held);
+		expect(resolveRecall(host.truth, [foldCode("t:work/1")]).missing).toEqual([]);
+		for (const result of proposals.mock.results) expect((await result.value).results.some((r) => r.clamped === "invalid-group")).toBe(false);
+		c.detach();
+	});
+
+	it("includes a recall code for a child held only in part", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Parent");
+		s.start("1.1", "Child");
+		s.work(1, "before");
+		const held = s.text("Keep this visible");
+		s.work(1, "after");
+		s.finish("1.1", { outcome: "Child done" });
+		const end = s.finish("1", { outcome: "Parent done" }).result;
+		s.work(3, "tail");
+		const host = setup(s, 10);
+		expect(host.truth.apply([{ kind: "pin", ids: [held] }], "you").results[0].applied).toBe(true);
+		const proposals = vi.spyOn(host, "propose");
+		const c = await attach(host);
+		const group = groupOf(host, end);
+		expect(carrier(group)?.children["1.1"].recall).toBe(foldTag("t:work/1.1"));
+		expect(group?.handles?.find((h) => h.id === "t:work/1.1")?.memberIds).not.toContain(held);
+		expect(resolveRecall(host.truth, [foldCode("t:work/1.1")]).missing).toEqual([]);
+		for (const result of proposals.mock.results) expect((await result.value).results.some((r) => r.clamped === "invalid-group")).toBe(false);
+		c.detach();
+	});
+
 
 	it("absorbs a folded child span when its parent finishes", async () => {
 		const s = new Session();
