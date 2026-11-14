@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 38
+  revision: 39
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-13T14:35:00+01:00"
+  updated_at: "2026-11-14T15:28:31+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 38
-      reason: "integrate recall v2 with fold timing and conductor options"
-      changes: ["retain timing and option contracts alongside SPEC-0003 recall"]
+    - revision: 39
+      reason: "the fold-timing plan is merged and deleted"
+      changes: ["the fold-lifecycle evidence line no longer names the plan"]
 ---
 
 # Taskfold
@@ -805,8 +805,8 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
 
 ## 8. Fold lifecycle
 
-Evidence: `.project/analyses/fold-representations/README.md` §2–4 and §8; PLAN-0005's real-session
-audit corrects the earlier simulation's assumption that a nearby lookback alone guarantees a hit.
+Evidence: `.project/analyses/fold-representations/README.md` §2–4 and §8; the real-session audit
+of 2026-11-10 corrects the earlier simulation's assumption that a nearby lookback alone guarantees a hit.
 Eager folding keeps the rewritten suffix short; it does not guarantee a cache hit. A completed root
 is written once in its final form and never rewritten.
 

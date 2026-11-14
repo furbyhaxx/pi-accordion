@@ -1,9 +1,0 @@
-{
-  "beforeActivation": 1,
-  "afterActivation": 2,
-  "sameProcess": true,
-  "sessionChanged": true,
-  "beforeRememberedSessionMatches": true,
-  "afterRememberedSessionPresent": false,
-  "fixtureFirstHostResetByNewActivation": true
-}

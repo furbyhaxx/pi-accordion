@@ -1,0 +1,469 @@
+---
+document:
+  type: "plan"
+  id: "PLAN-0007"
+  title: "Long-session hardening and spec conformance"
+  description: "Units that fix the findings of the 2026-11-14 challenge pass and close the gaps between SPEC-0001/0002/0003, the docs and the code"
+  status: "published"
+  revision: 1
+  created_at: "2026-11-14T15:28:31+01:00"
+  updated_at: "2026-11-14T15:28:31+01:00"
+  created_by: "orchestrator"
+  updated_by: "orchestrator"
+  changelog:
+    - revision: 1
+      reason: "document creation"
+      changes: ["wave 1 units detailed, later waves sparse"]
+---
+
+# Long-session hardening and spec conformance
+
+Implements B-0005. Findings and their ids (H1, T7, C4, U2, S1, …):
+`.project/analyses/long-session-challenge/README.md`. Reviewer detail with the proposed fixes:
+`.project/analyses/long-session-challenge/evidence/*.md`. Every unit updates the `Status` cell of
+its findings in that README in the commit that fixes them (`fixed <short hash of the code commit>`
+is filled in by the integrator; the unit writes `fixed`).
+
+A long session is more than 1,000,000 tokens of transcript: 10,000 to 50,000 blocks, 300+ tasks,
+1,500+ requests.
+
+## Progress
+
+```
+now   W1  P1 truth index · P2 taskfold bugs · P3 keel-lite · P4 thermocline · P5 remote+triptych
+          P6 privacy · P7 compaction · P8 panel · P9 web · P10 recall · P11 type check
+next  W2  P12 hook path (H4–H10, H12, H13), driven by a CPU profile of the replay
+          P13 taskfold planner cost (T1–T6) · P14 DROP role validation (H11)
+          P15 task tooling (U7–U13, U16, SPEC-0002 code gaps)
+later W3  P16 notices in Truth (U1) · P17 history budget (U2) · P18 host-closed spans (U5, U14,
+          B-0001 evaluation) · P19 U15, U17, U18, C8, C14
+later W4  P20 docs and spec text (S1–S4 stale text, D2), artifact cleanup, final gates
+```
+
+## Environment (every unit)
+
+- One worktree per unit: `.pi/worktrees/<slug>`, branch as named in the unit, created off local
+  `feat/pi-native` by the integrator. `extension/node_modules` and `app/node_modules` are symlinks
+  to the main checkout: do not run `npm ci` or `npm install`.
+- Never edit or run git in the main checkout. Commit in the worktree: Conventional Commits,
+  explicit paths, no AI attribution. Do not push.
+- Gate before reporting done, from the worktree root, all four exit 0:
+  `bun test extension/settings.test.ts extension/tui/*.test.ts` ·
+  `npm --prefix extension run smoke` · `npm --prefix app run check` (0 errors, 0 warnings) ·
+  `npm --prefix app test`.
+  `core/**/*.test.ts` and `conductors/**/*.test.ts` are Vitest suites and run inside
+  `npm --prefix app test`; a single file: `npx --prefix app vitest run --root app ../core/truth.test.ts`.
+  Do not run them with `bun test` (seven of them use Vitest fake timers and fail there).
+- `conductors/ws/thermocline/remote-sdk.mjs` and `conductors/ws/triptych/triptych-sdk.mjs` are
+  generated (`node extension/build-remote-sdk.mjs`). A unit that changes `core/conductor/remote.ts`,
+  thermocline or triptych sources regenerates them in its last commit; the integrator regenerates
+  again after merging.
+- Type check: `npm --prefix extension run check` once P11 has landed; before that, the temporary
+  tsconfig recipe (TypeScript 5.9, `files: [extension/accordion.ts]`, `strict`, `noEmit`,
+  `allowImportingTsExtensions`, `moduleResolution: bundler`). A unit adds no new error.
+- Live terminal check for UI units, isolated from the user's state:
+
+  ```bash
+  rm -rf /tmp/acc-home /tmp/acc-proj && mkdir -p /tmp/acc-home/.accordion /tmp/acc-proj && git -C /tmp/acc-proj init -q
+  cat > /tmp/acc-home/.accordion/config.json <<'EOF'
+  { "autoArm": true, "defaultConductor": "taskfold", "doorPort": 0,
+    "privacyConsent": { "taskfold": "2026-11-05T08:00:00.000Z" },
+    "taskWidget": { "mode": "auto", "expanded": false, "maxRows": 9, "toggleKey": "alt+t" } }
+  EOF
+  tmux new-session -d -s acc -x 100 -y 40 \
+    "cd /tmp/acc-proj && ACCORDION_HOME=/tmp/acc-home pig --no-session -ne -e <worktree>/extension/accordion.ts --model deepseek/deepseek-flash"
+  tmux capture-pane -p -t acc     # tmux resize-window -t acc -x 36 for a narrow width
+  ```
+
+  Use a session name and home of your own (`acc-<slug>`, `/tmp/acc-<slug>-home`) and remove both
+  afterwards. PiG delivers no mouse clicks to extension components; every action needs a key.
+- Fake Pi objects in `extension/smoke*.mjs` must gain any new `pi.*` registration called at load.
+- No disk I/O and no await on the `context` hook. Folding stays content substitution. Every write
+  goes through `Truth.apply`; the controller lease is untouched.
+
+## What not to do
+
+- Do not change task end states, block reasons or the `tasks` tool contract unless the unit says so.
+- Do not weaken, skip or delete a test to get green. A wrong test is reported with the reason.
+- Do not fix findings of another unit; report what you see.
+- Do not commit anything derived from the private session files under `/mnt/shared/data/sessions`.
+
+---
+
+## P1: Truth indexes (H1, H2, H3, C1) — branch `perf/truth-index`
+
+Files: `core/truth.ts`, `core/conductor/hostAdapter.ts` (only if a call there must change),
+`core/truth.test.ts`.
+
+Current: `groupOf(b)` and `inFoldedGroup(id)` loop over `groupList` and call
+`g.memberIds.includes(id)` (`core/truth.ts:760-777`); `opGroup` repeats that per member
+(`:1772`); `computeFoldOps` calls `groupOf` per folded block (`:1939`). `stats()` (`:665`) runs
+`calibratedLiveTokens()` and `calibratedFullTokens()`, each a pass over all blocks, and is called
+several times per request. `groupWire()` (`:836`) is cached by `revCounter` and calls
+`classifyGroup(g)` (`:974`) for every folded group whenever any rev changes.
+
+Change:
+
+1. Add `private groupsEpoch = 0` and `private memberGroup: Map<string, Group> | null = null`.
+   Every statement that changes `groupList`, a group's `memberIds`, `folded`, `digest`, `handles`
+   or `role` calls one private method `groupsChanged()` (`this.groupsEpoch++; this.memberGroup = null`).
+   Find the sites with `rg -n 'groupList|memberIds|\.folded = |\.digest = ' core/truth.ts`; they
+   include `opGroup`, `opUngroup`, `opFoldGroup`, `opUnfoldGroup`, freeze, `resetAll`, pruning in
+   `housekeep`, `rebuildFrom`, snapshot adoption (`core/replica.ts` builds a Truth: check how it
+   installs groups and route it through the same method).
+2. `private memberIndex(): Map<string, Group>` builds the map lazily (first group wins for an id,
+   which is what the loop does today). `groupOf(b)` returns `memberIndex().get(b.id)`;
+   `inFoldedGroup(id)` returns `memberIndex().get(id)?.folded === true` IF a block can be in at
+   most one group. Verify that invariant in `opGroup` (it refuses a block already grouped); if
+   two groups may share a block, keep a second map for folded groups only.
+3. `opGroup`'s membership test uses the index.
+4. Cache `classifyGroup` per group: `private shapeCache = new WeakMap<Group, { epoch: number; attached: boolean; shape: GroupShape }>()`,
+   valid while `epoch === this.groupsEpoch` and `attached === this.wireAttached`. A block that
+   disappears (rebuild, prune) goes through `groupsChanged()`, so the epoch covers it.
+   `groupWire()` keeps its rev key but now reads cached shapes.
+5. Cache the aggregates by rev: one private record
+   `{ rev, live, full, calLive, calFull, folded }` filled on first use after a rev change, used by
+   `liveTokens()`, `fullTokens()`, `foldedCount()`, `calibratedLiveTokens()`,
+   `calibratedFullTokens()`. Before relying on it, confirm that every mutation that can change one
+   of these numbers bumps `revCounter` (appends, ops, calibration, prior, `setSystemPrompt`,
+   rebuild). If one does not, invalidate the record there explicitly.
+
+Test that matters (`core/truth.test.ts`): a seeded random sequence of at least 400 operations
+(append blocks, `group`, `ungroup`, `foldGroup`, `unfoldGroup`, `fold`, `unfold`, `replace`,
+`resetAll`, freeze, `rebuildFrom` with a shortened block list, `setProtect`, calibration) on a
+Truth with 300 blocks; after every operation assert, for every block, that `groupOf` and
+`inFoldedGroup` equal the naive loops (keep the two old loops as local helper functions inside
+the test), and that `stats()` equals a freshly computed sum. Plus a timing guard: 20,000 blocks,
+one folded group over 15,000 of them, `serializeWire`-equivalent `computeFoldOps` + 50 `stats()`
+calls finish in under 500 ms (it is seconds today).
+
+Out of scope: `core/wire.ts`, the extension, conductors.
+
+Verification: `npx --prefix app vitest run --root app ../core/truth.test.ts ../core/replica.test.ts ../core/conductor/liveHost.test.ts`, then the gate.
+
+## P2: Taskfold bugs (T7–T11) — branch `fix/taskfold-long-session-bugs`
+
+Files: `conductors/in-process/taskfold/taskfold.ts`, `taskfold.test.ts`, SPEC-0002 only where
+named. One commit per finding, each with its regression test (`TestHost`, see the existing tests).
+
+- **T9** (`taskfold.ts:803-807`): the `open` flag of an agent-opened task is cleared after two
+  newer finished roots. Add the pressure condition: clear it only when that plan run is under
+  pressure (the same `pressure` value the planner uses for timing). SPEC-0002 §7.3 already says so.
+- **T11** (`:775-778`): in the branch that returns with no plan and no pressure, clear a previously
+  set saturation or raw-warning status (`host.setStatus` with the normal status the conductor
+  reports when healthy; look at how a successful epoch sets it at `:1319-1325`). Test: saturate,
+  raise the budget, run an evaluation, assert the last status has no warning or error level.
+- **T10** (`:728-740`): classification success and failure both check `this.host === host` (the
+  host captured when the call started) before touching the verdict ledger or evaluating, exactly
+  as routing does (`routeOne`). Test: start a classification, detach, resolve it, assert the ledger
+  has no entry.
+- **T8** (`:639-654`): replace "start every unclassified message" with a FIFO owned by the
+  conductor: at most 2 classifier calls in flight; when one settles, start the next. The host
+  refuses a fifth concurrent call (`extension/accordion.ts:168,1280`): find the error it throws
+  and treat that error as "no capacity": put the message back at the end of the queue without a
+  verdict, at most 3 times per message, then record the error verdict as today. Detach clears the
+  queue. Test: 12 unclassified user messages and a scripted `complete` that rejects with the
+  capacity error whenever more than 2 are in flight; assert all 12 end with a real verdict and
+  never more than 2 were in flight.
+- **T7** (`:959-962`, `:1021-1022`): add one predicate `deliveryOwner(block)`: for a `tool_result`
+  of the `tasks` tool whose call action is `start`, `resume`, `claim`, `pin` or `attach`, the key
+  of the task (or, for `claim`, the list) it belongs to; else null. A block whose owner is an OPEN
+  task (or a list with an open task) is excluded from the floor mask, from `steps` runs and from
+  `untracked` runs. Check how the scan reads actions and task keys (`scanTaskSpans`, the
+  `taskEvents` details in `core/taskEvents.ts`) and reuse that parsing. Test: an open task whose
+  `start` result carries 2,000 characters of criteria, then enough steps and pressure for `steps`
+  and (with `floor: true`) the floor to act: the `start` result stays unfolded; after `complete`
+  the span folds as before.
+
+Out of scope: planner cost (P13), new options.
+
+Verification: `npx --prefix app vitest run --root app ../conductors/in-process/taskfold`, then the gate.
+
+## P3: keel-lite reread analysis (C3, C10) — branch `fix/keel-lite-rereads`
+
+Files: `conductors/in-process/keel-lite/keel-lite.ts` and its test file.
+
+Current (`keel-lite.ts:729-731`): for each read, a search over all reads and writes decides
+whether a later full read, ranged read or write supersedes it; a ranged read is superseded by ANY
+later ranged read of the same file because only a boolean is kept.
+
+Change: one backward pass over the blocks that keeps, per normalized path, the newest full read
+position, the newest write position and the list of ranges of newer ranged reads. A read is stale
+when a newer write or a newer full read of the path exists, or (ranged read) when a newer ranged
+read covers its whole range. Keep the path normalisation that exists. The decision for every
+other case must stay what it is today.
+
+Tests: (1) two ranged reads of one file with disjoint ranges: the older one is NOT stale;
+(2) a later ranged read that covers the earlier range: stale; (3) equivalence: for a seeded
+random script of 300 reads and writes over 20 paths, the new function returns the same stale set
+as the old implementation, except for the disjoint-range cases (keep the old function in the
+test file as the oracle and filter those cases); (4) 10,000 reads plan in under 300 ms.
+
+Verification: `npx --prefix app vitest run --root app ../conductors/in-process/keel-lite ../conductors/in-process/keel-note ../conductors/in-process/taskfold`, then the gate.
+
+## P4: thermocline pricing and safety (C2, C4, C5, C6, C7, C9) — branch `fix/thermocline-pricing`
+
+Files: `conductors/ws/thermocline/policy.ts`, `thermocline.ts`, their tests, the regenerated
+`remote-sdk.mjs`. One commit per finding. Order: C4, C9, C5, C6, C2, C7.
+
+- **C4** (`policy.ts:928-930`): a block with `ViewBlock.signed === true` is never a per-block fold
+  candidate and contributes no projected saving. It may still be a member of a whole-message
+  group. Test: a signed thinking block in the compress zone gets no `replace`/`fold` op.
+- **C9** (`policy.ts:347-348`): graduation requires the folded state of the members that CAN be
+  folded (kinds `text`, `thinking`, `tool_result`), not of the tool call. Test: a cold tool pair
+  whose result is folded graduates after the dwell.
+- **C5** (`policy.ts:276-278`, `thermocline.ts:1334-1338`): the projected cost of a newly planned
+  fold is the token count of the text that will be written (digest or trim, including its
+  `{#code FOLDED}` tag), computed with the same counter the plan uses for strata. Test: a plan
+  whose trims are longer than the engine digests still projects at or under the cap that
+  `serializeWire` then measures.
+- **C6** (`policy.ts:860-862`): a DROP stratum's projected cost is what the role floor leaves:
+  use the canonical computation (`computeDegradedDropRuns` in `core/wire.ts`, the same one
+  `Truth` uses) to find drops that degrade to a recap and charge the recap text. Test: a drop
+  that would leave two same-role neighbours is priced above zero and the hard-cap check holds
+  against the serialized wire.
+- **C2** (`policy.ts:699-706`, `:272-288`): `project()` builds its block index once per plan; the
+  ladder keeps a running projected cost and updates it per added move. Test: equivalence of the
+  resulting plan with the old implementation on the existing policy fixtures (they must pass
+  unchanged) plus a guard: 20,000 blocks and 5,000 moves plan in under 1 s.
+- **C7** (`thermocline.ts:844-845`): look up `appliedFolds` first and call `foldBody()` only for
+  units without an applied body.
+
+Verification: `npx --prefix app vitest run --root app ../conductors/ws/thermocline`, `node extension/build-remote-sdk.mjs`, `node extension/smoke-conductor.mjs`, then the gate.
+
+## P5: remote listener leak and triptych cache (C11, C12) — branch `fix/remote-triptych-leaks`
+
+Files: `core/conductor/remote.ts`, `core/conductor/remote.test.ts`,
+`conductors/ws/triptych/triptych.ts` and its test, both regenerated bundles.
+
+- **C11** (`remote.ts:205`): the abort listener added per `complete()` is removed when that
+  completion settles (result, rejection, cancellation, connection drain): keep the remover in the
+  pending entry. Test: 200 settled completions on one `AbortSignal` leave zero listeners (count
+  them by wrapping `addEventListener`/`removeEventListener` on the signal).
+- **C12** (`triptych.ts:283-290`): delete a `skelCache` entry when its block has been swept into
+  a summary group and when a resync no longer contains the block. Test: after the top band
+  swallows 50 skeletonised blocks the cache holds none of their ids.
+
+Verification: `npx --prefix app vitest run --root app ../core/conductor/remote.test.ts ../conductors/ws/triptych`, `node extension/build-remote-sdk.mjs`, `node extension/smoke-conductor.mjs`, then the gate.
+
+## P6: privacy declarations (C13) — branch `fix/conductor-privacy`
+
+Files: `core/conductor/registry.ts`, its test, `extension/smoke*.mjs` where a smoke attaches one
+of these conductors, `README.md`/`extension/README.md` conductor tables, `conductors/README.md`.
+
+Current: only Taskfold declares `privacy` (`registry.ts:238`). `agedSummaryConductor.ts`
+(compaction-naive, handoff, triptych's base), `keel-note.ts` and `thermocline.ts` call
+`host.complete` with session text, so `selectConductor` attaches them without the consent gate
+(`extension/privacyGate.ts`). Root `AGENTS.md` requires the declaration.
+
+Change: add `privacy: { models: ["chat"], notice }` to the entries of `compaction-naive`,
+`handoff`, `keel-note`, `thermocline` and `triptych`. No `deferred` (they have no deterministic
+tools), no custom `consentKey` (the default key per conductor id applies; check
+`privacyGate.ts` for how the key is derived). Notice text, one per conductor, same style as
+Taskfold's: what is sent (compaction-naive, handoff, triptych: the aged part of the transcript;
+keel-note: the text of trimmed spans; thermocline: the units it compresses), to which model (the
+conductor's chat model, by default the session model), and that the provider receives and may log
+it. The gate already skips consent when every routed model is local.
+
+Then fix what the gate breaks: `extension/smoke-conductor.mjs` and `smoke-autoarm.mjs` attach
+thermocline; give their isolated home a `privacyConsent` entry for the conductor they attach.
+Search tests for `selectConductor` with one of the five ids and do the same.
+
+Test that matters: a registry test asserting that EVERY entry whose conductor source calls
+`host.complete` declares `privacy` (list the five ids plus taskfold explicitly), and a host test:
+selecting `keel-note` without consent asks and does not attach on refusal.
+
+Verification: `npx --prefix app vitest run --root app ../core/conductor`, the gate (all smokes).
+
+## P7: compaction against SPEC-0001 §7 (S1, compaction rows) — branch `fix/compaction-spec`
+
+Files: `extension/compaction.ts`, its test, the compaction parts of `extension/accordion.ts`
+(`:660-720`, `:3186-3196`, `:3870-3910`, `compactPreview` at `:4460-4472`), `core/protocol.ts`
+only for the result shape below. Spec: `.project/specs/0001-accordion-ui-polish.md` §7 (read
+§7.1–§7.6 first). Rows: `evidence/Spec0001Audit.md`, the lines that name §7.
+
+- **dryRun** (`compaction.ts:112-169`): `req.dryRun === true` computes the projection and returns
+  it without calling `Truth.apply`, without an undo record and without a card. The WS `compact`
+  command with `dryRun` answers with a `compaction` message that carries `dryRun: true` and the
+  projected numbers per strategy (reuse the shape `compactPreview()` returns:
+  `{ pass, aggressive, bake, native }`); add the optional fields to `CompactionMessage` in
+  `core/protocol.ts` additively (no version bump: optional fields, old clients ignore them).
+- **bake projection**: `compactPreview().bake` is the estimated size of the bake summary
+  (`buildBakeSummary` length / 4), not the tokens freed.
+- **Undo** (§7.4): the undo record also holds the ids of groups the pass created and undo emits
+  `ungroup` for them; `folded.groups` reports their count; a session switch (`session_start`,
+  `session_shutdown`) clears `lastCompact`.
+- **Threshold fallback** (§7.2, `accordion.ts:3874-3897`): a saturated threshold pass applies
+  `compact.onSaturated`, including `bake`; today only `overflow` reaches the bake branch.
+- **Quiet cancels** (§7.6, `:3884-3908`): a threshold pass that cancels updates the footer status
+  only: no notify, no broadcast.
+- **Bake summary** (§7.5, `compaction.ts:66-109`): header
+  `[accordion-bake v1] <N> messages · <before> → <after> tok`, each folded group once, unfolded
+  non-user blocks as their engine digest (`digest()` from `core/digest.ts`), task records as their
+  own sections, the cap as the spec states it.
+
+Tests (`extension/compaction.test.ts` or the existing compaction tests): dry run leaves `rev`
+unchanged and returns projections; undo after a pass that created a group restores the block and
+group state exactly (compare a snapshot before and after); threshold + saturated +
+`onSaturated: "bake"` requests the bake; the bake header format.
+
+Out of scope: the panel preview screen and the web dialog (P8, P9 consume what you return).
+
+Verification: the unit's tests, `node extension/smoke-context.mjs`, the gate.
+
+## P8: panel against SPEC-0001 §3, §5, §6.2, §8 (S1, panel rows) — branch `fix/panel-spec`
+
+Files: `extension/tui/**` (not `taskWidget.ts`, `taskTree.ts`, `taskViews.ts`: P15), the footer
+call in `extension/accordion.ts:1019-1033` and `displayWebHost` at `:564-583`. Spec sections as
+named per row in `evidence/Spec0001Audit.md`. Decisions per row (where this list says "spec text",
+the code stays and P20 corrects the spec):
+
+| Row | Decision |
+|---|---|
+| §3.2 Overview `line()`/`wrapped()` | implement: measure with `visibleWidth` and fit with `fitSegments` |
+| §3.5 selected timeline cell inverse | spec text (a grid cell is not a row) |
+| §3.8 body cap, §4.4 `?`, §4.12 `b`/`t`, §5.2 tab list, §5.6 cursor glyph, §6.1 key table, §6.2 section list | spec text |
+| §5.3 context bar width and legend layout | spec text |
+| §5.3 Tasks row | implement: `<title> <done>/<total> · ≡<folded> · <current id and title>`; Enter on that row opens the Tasks tab |
+| §5.3 Web UI host | implement: for `0.0.0.0` and `::` show the first non-internal IPv4 from `os.networkInterfaces()`; no OSC 8 (spec text) |
+| §5.4 cell glyph by weight | implement with the existing unused `weightGlyph` (`timeline.ts`) |
+| §5.4 task label | implement: `▣ task <key> "<title>"`, title cut to fit |
+| §5.4 `!` on the system cell | implement |
+| §5.4 group colour | spec text (accent stays) |
+| §5.4 prompt width | implement the spec's clamp formula |
+| §5.4 grid flags | implement: blank instead of `.`, `P` only on the first protected cell |
+| §5.4 list columns | implement `kind(10) state(14) tokens(8) label(rest)` |
+| §5.5 inspector header and `home`/`end` | implement |
+| §5.6 privacy badge | implement: only when the entry has `privacy` and the routed model is not local (the host already knows whether consent is required; expose that boolean on the conductor row instead of `!!entry.privacy`) |
+| §6.2 lock labels | implement: `<ENV NAME or --flag> · locked`, and the refusal message names it |
+| §7.6 preview | implement: an instructions input line in the `alt+c` preview (typed text is passed as `instructions`), bake row shows `≈ <n> summary`, `alt+c` on the Overview opens the same preview |
+| §8 footer | implement in `status.ts`: build segments `accordion <usage%>`, conductor label, timing, status text; measure with `visibleWidth`; when the whole line exceeds `max`, drop the status text first, then the timing, then switch to the compact form `acc <usage%> · <conductor id> <✓ or ▲ or ✗>`; never cut inside a character (no surrogate split). The level glyph is always present when a status level is warning (`▲`) or error (`✗`). |
+
+Tests: extend `extension/tui/*.test.ts` per changed renderer (literal expected lines at 36, 57,
+80 and 140 columns for the footer, the timeline labels and the list columns); the printable-key
+sweep in `panel.test.ts` still passes with the new instructions input (printable keys type, they
+do not act). Live: run the recipe above at 36 and 140 columns, capture Overview, Context (grid
+and list), Conductors, Settings and the compact preview with `tmux capture-pane -p`, and paste
+the captures into the report.
+
+Verification: `bun test extension/tui/*.test.ts`, the gate, the live captures.
+
+## P9: web surface against SPEC-0001 §9 and §6.3 (S1, web rows) — branch `fix/web-spec`
+
+Files: `app/src/lib/ui/live/SettingsPanel.svelte`, `TasksPanel.svelte`, `CompactDialog.svelte`,
+`app/src/lib/ui/map/MapHeader.svelte`, `app/src/lib/live/liveClient.svelte.ts`, their tests, and
+two host spots in `extension/accordion.ts`: `updateSettings` (`:3177-3185`) and `broadcastTasks`
+(`:1372-1380`, `:3301`). Load the `ui-ux-implementation` skill is not needed; follow the existing
+components. Svelte 5 runes; `npm --prefix app run check` must stay at 0 errors and 0 warnings.
+
+- **updateSettings** (§6.3): do not refuse a stale `baseRev` up front. Pass the patch and the
+  `baseRev` to `SettingsStore.save`, which already merges different fields and reports a conflict
+  for the same field; map its result to `commandResult` (`conflict: true` plus `error` text).
+- **tasks broadcast** (§9): the Truth-change listener that calls `taskWidget.sync()` also
+  schedules `broadcastTasks()` through one 250 ms trailing debounce (clear the timer on session
+  shutdown).
+- **SettingsPanel**: keep staged values until the `commandResult` for that command arrives; show
+  "Saved to the session host." only on success; on `error`/`conflict` keep the staged values and
+  show the error text. `liveClient` must expose the result of a command to its caller (it ignores
+  `commandResult.error`/`conflict` at `:492-499` today): return a promise from the send function
+  that resolves with the matching `commandResult` (match by the command id the protocol already
+  carries; read `core/protocol.ts` `CommandResultMessage`).
+- **TasksPanel** (§4.4 as referenced by §9): a tree, not a flat list: indent by depth, glyphs
+  `▣ ☒ ⊘ ◐ ▶ ⧗ ☐` coloured through CSS tokens (success, error, muted, warning; never the reserved
+  user blue `#044EFF`), click on a parent row toggles its children, a `≡` marker and
+  `full → live` tokens on folded rows, finished siblings collapsed into one
+  `… N finished` row that expands on click.
+- **MapHeader**: a collapsed task summary `Tasks <done>/<total> · ≡<folded>` next to the
+  saved/pressure numbers, shown when the host sent a task list.
+- **CompactDialog**: on open and on strategy change send `compact` with `dryRun: true` and show
+  the projections from the `compaction` reply that has `dryRun: true` (shape: P7); remove the
+  read of `settings.lastConductorSaved`. Until P7 is merged the reply never comes: show `…` for
+  the numbers in that case and keep the Run button working.
+
+Tests: component/unit tests next to the existing ones in `app/src/lib/**` for the tree builder
+(pure function: tasks → rows with depth, collapsed finished run, toggle state), the command
+promise in `liveClient`, and a host test or smoke for the two-field merge over the WS (two
+`updateSettings` with the same `baseRev` on different keys both persist; same key: the second
+gets `conflict`).
+
+Verification: `npm --prefix app run check`, `npm --prefix app test`, `node extension/smoke.mjs`, the gate.
+
+## P10: recall navigation and SPEC-0003 edges (U3, U4, U6, S3) — branch `fix/recall-navigation`
+
+Files: `core/recallView.ts`, `core/recallSearch.ts`, `core/agentView.ts`, their tests, the
+`recall`/`unfold` descriptions and the `ask` path in `extension/accordion.ts` (`:4736`,
+`:4850-4911`), `.project/specs/0003-recall.md`, both skills under
+`extension/skills/accordion-context-*`. Read SPEC-0003 first; root `AGENTS.md` says: change the
+contract → update the tool description and both skills.
+
+- **U4** (`recallView.ts:207-238`): a task report honours `page`: sections and subtask rows are
+  split into pages of the call limit; each page ends with the exact call for the next page.
+- **U3**: the report of a task lists ALL descendants with their codes, indented by depth, not only
+  direct children; a descendant whose own carrier is gone (absorbed) is addressed as
+  `<ancestor code>.<n>` the way `code.N` entries already work. Check where handles are dropped
+  (`taskfold.ts:1194-1196`); if the code is not recoverable from `core/` alone, keep the handle in
+  the group's `handles` (do not print it in the standing carrier) and state in the report what you
+  changed there. Test: a three-level tree, all folded into the root: `recall` of the root's code
+  prints the grandchildren's addresses and each of them recalls its own content.
+- **U6** (`recallView.ts:155-166,365-386`, `agentView.ts:180-203`): search builds one index per
+  Truth `rev`: code → member block ids, and per member the lower-cased text; a search and its
+  pages reuse it while `rev` is unchanged. Resolving metadata for the result list does not join
+  full texts. Test: two searches and three pages on an unchanged Truth of 5,000 blocks call the
+  text join once (count through an injected spy or a module counter).
+- **S3**: unknown regex flags are rejected with an error line that names the allowed flags
+  (`recallSearch.ts:40,65`); a query longer than 200 characters is refused with a message, not cut
+  (`recallView.ts:26,101`), and SPEC-0003 §2 states the 200-character limit; a codeless search
+  that overflows lists what it did not show in a `Not shown:` line like the coded form
+  (`recallView.ts:138`); `recall({ask})` charges the account through `serveRecall`
+  (`accordion.ts:4850-4879`); SPEC-0003 §7 states the 1,000-character `ask` limit; the `recall`
+  description mentions the facts line, clipped results and expiry stubs in one sentence each and
+  says the limits are settings; the `unfold` description names both refusal reasons.
+
+Verification: `npx --prefix app vitest run --root app ../core/recallView.test.ts ../core/recallSearch.test.ts ../core/recallAccount.test.ts ../core/recallInvariant.test.ts`, `node extension/smoke-context.mjs`, the gate.
+
+## P11: type check gate (D1) — branch `chore/extension-typecheck`
+
+Files: `conductors/in-process/agedSummaryConductor.ts`, four spots in `extension/accordion.ts`,
+new `extension/tsconfig.check.json`, `extension/package.json` (`check` script), root `AGENTS.md`
+("Running & verifying").
+
+- `extension/tsconfig.check.json`: `target ES2022`, `module ESNext`, `moduleResolution bundler`,
+  `strict`, `noEmit`, `skipLibCheck`, `allowImportingTsExtensions`, `types: ["node"]`,
+  `files: ["accordion.ts"]`. Script: `"check": "tsc -p tsconfig.check.json"` with `typescript`
+  5.9 as a devDependency of `extension/` — it is not installed there: check
+  `ls extension/node_modules/.bin/tsc`. If absent, use `"check": "npx -y -p typescript@5.9 tsc -p tsconfig.check.json"`
+  and add no dependency (the integrator owns manifests and lockfiles).
+- Fix the seven errors: `agedSummaryConductor.ts` TS2612 ×3 (a subclass property overwrites a base
+  property: declare it with `declare` or assign in the constructor instead of a field
+  initialiser, whichever keeps runtime behaviour identical); `accordion.ts` TS2345 ×2 (an optional
+  URL string passed where a string is required in the WebSocket origin check: narrow it) and
+  TS2322 ×2 (`unfold`/`recall` `execute` return type: return the `details` shape the tool type
+  asks for).
+- Do not add `// @ts-ignore`, `as any` or loosened compiler options.
+
+Verification: `npm --prefix extension run check` exits 0; the gate.
+
+---
+
+## Later waves (sparse; detailed when they start)
+
+- **P12 hook path**: CPU-profile `extension/replay-session.mjs` on a session above 1M tokens after
+  P1; fix what the profile shows among H4 (queue persistence after the hook), H5 (cache usage by
+  leaf/model), H6 (fingerprint cost), H7, H8, H9, H10, H12, H13.
+- **P13 taskfold planner cost**: T1–T6: an incremental task index (intervals, parents, finish
+  counters), one group snapshot per epoch, dirty flags instead of a full plan per event.
+- **P14**: H11, run descriptors with next-survivor links.
+- **P15 task tooling**: U7 bounded resume orientation, U8/U9 coaching recurrence and gate-mode
+  notes, U10, U11, U12 session budget for fact extraction, U13 compact dump, U16, SPEC-0002 code
+  gaps (`stale` in status/widget/results, `tasks.zombieSteps`, stable `t:` code, dropped routing
+  operations logged, widget text).
+- **P16 notices in Truth** (U1), **P17 history budget** (U2), **P18 host-closed spans** (U5, U14)
+  with the B-0001 evaluation and the Kimi baseline, **P19** U15, U17, U18, C8, C14.
+- **P20**: docs and spec text (S1–S4 rows marked "spec text", docs drift), delete consumed
+  analyses and uploaded assets, final gates, `npm pack --dry-run`.
+
+## Done
+
+Every finding in the analysis README is `fixed`, `backlog <id>` or `no change` with a reason; the
+replay numbers before and after are in that README; the four gates and
+`cd extension && npm pack --dry-run` pass; then delete this plan and B-0005 with trailers.

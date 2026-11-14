@@ -3,22 +3,24 @@ document:
   type: "plan"
   id: "PLAN-0006"
   title: "Taskfold reliability: token truth, ordered work and measured coaching"
-  status: "active"
-  revision: 4
+  description: "Token truth, ordered task lifecycle, deferred consent, coaching and gate, and the measured tracking target for Taskfold"
+  status: "published"
+  revision: 5
   created_at: "2026-11-12T02:56:59+01:00"
-  updated_at: "2026-11-12T11:35:00+01:00"
+  updated_at: "2026-11-14T15:28:31+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 4
-      reason: "record token truth (S2) as shipped"
-      changes: ["S2 receipt validity, per-model prior and v24 protocol recorded", "current behavior refreshed"]
+    - revision: 5
+      reason: "PLAN-0001 and PLAN-0005 are merged and deleted"
+      changes: ["the settings prerequisite names the merged files", "the bracket evidence pointer is removed"]
 ---
 
 # Taskfold reliability
 
-Implements B-0001. Progress is tracked in the project-scope `backlog-completion` task list,
-which also carries the other backlog items; do not create a competing claim or duplicate list.
+Implements B-0001. Open: the tracking target and the Kimi baseline (see Progress); the
+host-closed-span work that answers the target is unit P18 of
+`.project/plans/0007-long-session-hardening/plan.md`.
 
 ## Goal
 
@@ -101,10 +103,10 @@ The folding floor and untracked safety options remain opt-in.
 
 ## Shared settings prerequisite
 
-Finish `.project/plans/0001-accordion-ui-polish/plan.md` S2 and S3 first. That work owns the
-SQLite sidecar lock extraction, revisioned settings store, cross-instance sync, validation
-schema, registry option plumbing and generic staged screen. This plan adds reliability fields
-and runtime effects to that framework; it does not build a second store or temporary editor.
+The revisioned settings store, cross-instance sync, validation schema, registry option plumbing
+and the staged Settings screen are merged (`extension/settingsStore.ts`,
+`extension/settingsValidation.ts`, `extension/tui/screens/settings.ts`). This plan adds reliability
+fields and runtime effects to that framework; it does not build a second store or temporary editor.
 Preserve the existing `~/.accordion/config.json` location and the session-dial precedence.
 
 ## S1: audit and baseline
@@ -254,8 +256,7 @@ adds cost without improving behavior. Done 2026-11-12: the candidate was reverte
 (`evidence/prompts/comparison.json`); the shipped wording is unchanged, so no doc or skill
 update follows from it. Audit folded-history comprehension too: a completed
 record is evidence of recorded work, not proof that hidden execution never occurred. Exercise
-`recall` and batched tool boundaries before disavowing it. The record/bracket live observations
-are in `.project/plans/0005-fold-timing/evidence/form-live/bracket-checks.json`.
+`recall` and batched tool boundaries before disavowing it.
 
 ## Verification and done when
 

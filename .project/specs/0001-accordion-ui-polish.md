@@ -5,15 +5,15 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 22
+  revision: 23
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-12T12:07:29+01:00"
+  updated_at: "2026-11-14T15:28:31+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 22
-      reason: "Taskfold attaches before consent and gates only its model work"
-      changes: ["deferred privacy policy", "revocation gates instead of detaching", "consent grant drains waiting work"]
+    - revision: 23
+      reason: "the implementation plan is merged and deleted"
+      changes: ["open gaps point at the long-session hardening plan"]
 ---
 
 # Accordion UI polish
@@ -21,8 +21,8 @@ document:
 Inputs: the approved chat wireframes of 2026-11-05 (reproduced here), the user's sketch
 `.project/user-uploaded-assets/2026-11-05T09:00+01:00-taskfold-widget-sketch.md`, and the house UI
 conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md` and, for the panel,
-`references/dashboard-standard.md`). The implementation plan is
-`.project/plans/0001-accordion-ui-polish/plan.md`.
+`references/dashboard-standard.md`). Open gaps between this spec and the code are carried by
+`.project/plans/0007-long-session-hardening/plan.md`.
 
 "MUST" marks a requirement an implementation is checked against. Everything else is explanation.
 
