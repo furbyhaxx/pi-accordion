@@ -121,6 +121,7 @@ export class TriptychConductor extends AgedSummaryConductor {
 	 * caching is safe; the map is reset on attach.
 	 */
 	private skelCache = new Map<string, string | null>();
+	private offCacheEvents: (() => void) | null = null;
 
 	constructor(
 		private readonly skel: Skeletonizer,
@@ -132,8 +133,18 @@ export class TriptychConductor extends AgedSummaryConductor {
 	attach(host: ConductorHost): void {
 		this.active = false;
 		this.widened = false;
+		this.offCacheEvents?.();
 		this.skelCache = new Map();
 		super.attach(host);
+		this.offCacheEvents = host.on((event) => {
+			if (this.skelCache.size === 0) return;
+			if (event.type === "resync") {
+				const ids = new Set(host.blocks().filter((block) => !block.grouped).map((block) => block.id));
+				for (const id of this.skelCache.keys()) if (!ids.has(id)) this.skelCache.delete(id);
+			} else if (event.type === "state-changed") {
+				for (const block of host.blocks()) if (block.grouped) this.skelCache.delete(block.id);
+			}
+		});
 		// Kick the (idempotent) engine init off-path; when it resolves, re-run so the middle band
 		// materializes without waiting for the next turn. Init failure degrades to summaries-only.
 		void this.skel.init().then(
@@ -146,6 +157,12 @@ export class TriptychConductor extends AgedSummaryConductor {
 				this.host.setStatus(this.failureStatus, { level: "warning" });
 			},
 		);
+	}
+
+	detach(): void {
+		this.offCacheEvents?.();
+		this.offCacheEvents = null;
+		super.detach();
 	}
 
 	// ── the triptych pass ──────────────────────────────────────────────────────────
