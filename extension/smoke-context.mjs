@@ -69,6 +69,34 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("unfold respects the configured Taskfold high water", async () => {
+	const { foldCode } = await jiti.import("../core/digest.ts");
+	const messages = [
+		{ role: "user", content: "Inspect this.", timestamp: 1 },
+		{ role: "assistant", responseId: "threshold", timestamp: 2, content: [{ type: "text", text: "details ".repeat(1000) }] },
+	];
+	const r = runtime(messages);
+	try {
+		const host = await r.open();
+		const truth = host.truth();
+		const block = truth.blocks.find(b => b.kind === "text" && b.text.startsWith("details "));
+		assert.ok(block);
+		host.command({ kind: "setFolding", value: true });
+		host.command({ kind: "setProtect", value: 0 });
+		const full = truth.liveTokens();
+		host.command({ kind: "setBudget", value: Math.ceil(full / 0.75) });
+		host.command({ kind: "ops", ops: [{ kind: "fold", ids: [block.id] }] });
+		assert.equal(truth.isFolded(block), true);
+		const code = foldCode(block.id);
+		assert.equal((await host.updateSettings({ "conductorOptions.taskfold.high": 0.7 }, host.settings().rev)).ok, true);
+		const denied = await r.tools.unfold.execute("threshold-low", { codes: [code] }, undefined, undefined, r.ctx);
+		assert.equal(denied.details.refused[0]?.reason, "budget");
+		assert.equal(truth.isFolded(block), true);
+		assert.equal((await host.updateSettings({ "conductorOptions.taskfold.high": 0.9 }, host.settings().rev)).ok, true);
+		const allowed = await r.tools.unfold.execute("threshold-high", { codes: [code] }, undefined, undefined, r.ctx);
+		assert.equal(allowed.details.restored.length, 1);
+	} finally { r.close(); }
+});
 check("turn notifications avoid full-history boundary IPC and follow completed tool batches", async () => {
 	const { LiveConductorHost } = await jiti.import("../core/conductor/liveHost.ts");
 	const original = LiveConductorHost.prototype.fireTurnCommitted;

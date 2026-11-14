@@ -72,7 +72,7 @@ import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
-import { TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_DEFAULTS, TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
 import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { createRouting } from "./taskRouting";
 import { nativeCompletion, type CompletionFunction } from "./nativeCompletion";
@@ -900,6 +900,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	/** Broadcast a stream lifecycle frame to every attached client (presentation-only ghosts). */
 	function sendStream(frame: StreamMessage): void {
 		broadcast(frame);
+	}
+
+	function taskfoldHigh(): number {
+		const high = settings.conductorOptions.taskfold?.high;
+		return typeof high === "number" ? high : TASKFOLD_DEFAULTS.high;
 	}
 
 	// ── Phase C: the live conductor host (registry, locks, wire-departing hold, completion relay) ─
@@ -3699,7 +3704,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				if (clipped.length) truth.apply(clipped, "auto");
 			}
 			// Near the budget, recall results that were already used go first: they are copies.
-			if (truth && truth.budget > 0 && truth.stats().liveTokens >= settings.taskfold.high * truth.budget) releaseRecall(false);
+			if (truth && truth.budget > 0 && truth.stats().liveTokens >= taskfoldHigh() * truth.budget) releaseRecall(false);
 			if (truth) {
 				// (b) PHASE C: the wire-departing hold. ONLY paid when folding is armed AND the attached
 				//     conductor declares a hold window — the sync fast path (no conductor / no hold /
@@ -4756,7 +4761,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			}
 			// LOCAL: mutates the Truth (broadcasts to clients). Bounded: a fold too large to stand in the
 			// context stays folded and the agent is pointed at `recall` (SPEC-0003 §6).
-			const ceiling = truth.budget > 0 ? settings.taskfold.high * truth.budget : Number.POSITIVE_INFINITY;
+			const ceiling = truth.budget > 0 ? taskfoldHigh() * truth.budget : Number.POSITIVE_INFINITY;
 			const res = resolveUnfoldBounded(truth, codes.map((c) => c.replace(/^#/, "")), { maxTokens: settings.recall.unfoldTokens, ceiling });
 			const lines: string[] = [];
 			for (const r of res.refused) {
