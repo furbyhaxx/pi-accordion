@@ -473,6 +473,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function debug(record: DebugRecord): void {
 		if (debugOverride ?? settings.debug) debugLog?.record(record);
 	}
+
+	// Pi's appendEntry writes synchronously: entries produced while the context hook runs wait until it returned.
 	let hookDepth = 0;
 	const deferredEntries: { session: string; type: string; data: unknown }[] = [];
 	function persistEntry(type: string, data: unknown): void {
