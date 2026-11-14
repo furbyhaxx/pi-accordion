@@ -132,7 +132,7 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 		}
 	});
 
-	it("evaluates 20,000 blocks with 400 folded tasks in under 150 ms", async () => {
+	it("evaluates 20,000 blocks with 400 folded tasks in under 500 ms", async () => {
 		const s = new Session();
 		const ranges: string[][] = [];
 		for (let i = 0; i < 400; i++) {
@@ -153,7 +153,8 @@ function oneTask(between?: (s: Session) => void): { s: Session; start: string; e
 		await host.commitTurn();
 		const elapsed = performance.now() - start;
 		console.log(`20k planner evaluation: ${elapsed.toFixed(1)} ms`);
-		expect(elapsed).toBeLessThan(150);
+		// Measured 93 ms alone and 216 ms under parallel load; the bound only has to catch a planner that scales with tasks x blocks again.
+		expect(elapsed).toBeLessThan(500);
 		c.detach();
 	}, 120000);
 
