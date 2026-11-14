@@ -10,7 +10,7 @@ import { staleSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfo
 import { taskSpansOf } from "../taskSpans";
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
-import { fitSegments } from "./chrome";
+import { fitSegments, sgrBold } from "./chrome";
 import { formatCompactTokens } from "./map";
 import { spanContains, taskFoldRefs } from "./taskTranscript";
 import { buildTaskTree, isFinished, layoutTaskTree, summarizeTasks, taskDuration, type TaskGlyphState, type TaskNode, type TaskRow } from "./taskTree";
@@ -20,6 +20,11 @@ export interface WidgetTheme {
 	fg(color: "accent" | "muted" | "dim" | "success" | "error" | "warning" | "text", text: string): string;
 	bold(text: string): string;
 	strikethrough(text: string): string;
+}
+
+/** The widget's theme over the host's: colours from the host, bold and strikethrough as plain SGR because Pi's chalk-based styles can emit nothing. */
+export function widgetTheme(host: WidgetTheme): WidgetTheme {
+	return { fg: (color, text) => host.fg(color, text), bold: sgrBold, strikethrough: (text) => `\x1b[9m${text}\x1b[29m` };
 }
 
 /** What the widget shows: one list, which of its tasks are folded, and the tokens its spans take. */
@@ -452,7 +457,7 @@ export class TaskWidgetController {
 					WIDGET_KEY,
 					(tui, theme) => {
 						this.installed?.dispose();
-						this.installed = new TaskWidgetComponent(tui, theme, () => this.model(), this.view, (expanded) => { this.updateLegend(expanded); this.deps.saveExpanded(expanded); }, () => this.problem);
+						this.installed = new TaskWidgetComponent(tui, widgetTheme(theme), () => this.model(), this.view, (expanded) => { this.updateLegend(expanded); this.deps.saveExpanded(expanded); }, () => this.problem);
 						return this.installed;
 					},
 					{ placement: "aboveEditor" },

@@ -3,7 +3,7 @@ import { decodeKittyPrintable, matchesKey, wrapTextWithAnsi } from "@earendil-wo
 import type { WireCommand } from "../../core/protocol";
 import type { Op, OpResult } from "../../core/ops";
 import { EMPTY_DIGEST, stripFoldTags } from "../../core/digest";
-import { bindingHint, bodyRowsFor, type Chrome, type ChromeKeys, type ChromeTheme, clean, type Hint, makeChrome, rawHint, renderFrame } from "./chrome";
+import { bindingHint, bodyRowsFor, type Chrome, type ChromeKeys, type ChromeTheme, clean, type Hint, makeChrome, panelTheme, rawHint, renderFrame } from "./chrome";
 import type { AccordionTuiHost } from "./host";
 import { formatCompactTokens } from "./map";
 import { createConductorsTab } from "./screens/conductors";
@@ -280,7 +280,7 @@ export async function openAccordionPanel(ctx: ExtensionContext, host: AccordionT
 	async function loop(): Promise<void> {
 	while (true) {
 		const action = await ctx.ui.custom<DigestAction | undefined>((tui, uiTheme, uiKeys, done) => {
-			theme = uiTheme as unknown as ChromeTheme;
+			theme = panelTheme(uiTheme as unknown as ChromeTheme);
 			keys = uiKeys as unknown as ChromeKeys;
 			live = true;
 			let disposed = false;
