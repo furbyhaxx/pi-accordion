@@ -1,12 +1,12 @@
 {
-  "recordedAt": "2026-11-14T16:54:20+01:00",
-  "runtime": "HEAD a8f16bae580d2021dc1e3fe3f5fdefd9e5282e30; pi-bolt 1.5.0 (Pi-Bolt 1.1.7, linux-x64, JIT off); thinking low; 30 requests / 360000 ms; folding armed; taskfold attached; enforce coach",
+  "recordedAt": "2026-11-14T17:07:50+01:00",
+  "runtime": "New synthetic scenarios HEAD 321e8aefdac48ea82c11b6f58347369a3f9adf79 (ACCORDION_EVAL_PROVIDER=synthetic; provider argument change in worktree); initial Claude/GPT scenarios HEAD a8f16bae580d2021dc1e3fe3f5fdefd9e5282e30; pi-bolt 1.5.0 (Pi-Bolt 1.1.7, linux-x64, JIT off); thinking low; 30 requests / 360000 ms; folding armed; taskfold attached; enforce coach",
   "routes": {
     "claude": "claude/claude-sonnet-5-5",
     "gpt": "openai/gpt-6.1-sol",
-    "deepseek": "deepseek/deepseek-flash",
-    "glm": "openrouter/z-ai/glm-latest",
-    "kimi": "openrouter/moonshotai/kimi-k3"
+    "deepseek": "synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017",
+    "glm": "synthetic/hf:zai-org/GLM-5.3",
+    "kimi": "synthetic/hf:moonshotai/Kimi-K3"
   },
   "coach": [
     {
@@ -236,27 +236,27 @@
     {
       "family": "deepseek",
       "scenario": "refactor",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 25,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 0.7647058823529411,
+      "trackedResults": 13,
+      "workResults": 17,
+      "callsBeforeFirstStart": 3,
+      "rejectionsPer100": 11.11111111111111,
+      "lists": 1,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 25,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 25,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "25 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -264,27 +264,27 @@
     {
       "family": "deepseek",
       "scenario": "bug",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 16,
+      "behaviorPassed": false,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 0.6,
+      "trackedResults": 6,
+      "workResults": 10,
+      "callsBeforeFirstStart": 4,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 16,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 16,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "16 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -292,28 +292,27 @@
     {
       "family": "deepseek",
       "scenario": "docs",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 22,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
       "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedResults": 6,
+      "workResults": 12,
+      "callsBeforeFirstStart": 3,
+      "rejectionsPer100": 20,
+      "lists": 1,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
-        
+        "requestsObserved": 22,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 22,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "22 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -321,27 +320,27 @@
     {
       "family": "deepseek",
       "scenario": "decision",
-      "requests": 4,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 10,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 9,
       "callsBeforeFirstStart": null,
       "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "lists": 0,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 4,
+        "requestsObserved": 10,
         "trustedRequests": 0,
-        "unknownRequests": 4,
+        "unknownRequests": 10,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "4 request(s) have no diagnostic record",
+          "10 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -349,27 +348,27 @@
     {
       "family": "glm",
       "scenario": "refactor",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 7,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 8,
       "callsBeforeFirstStart": null,
       "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "lists": 0,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 7,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 7,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "7 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -377,27 +376,27 @@
     {
       "family": "glm",
       "scenario": "bug",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 8,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 9,
       "callsBeforeFirstStart": null,
       "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "lists": 0,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 8,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 8,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "8 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -405,27 +404,27 @@
     {
       "family": "glm",
       "scenario": "docs",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 8,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
+      "trackedFraction": 0,
+      "trackedResults": 0,
+      "workResults": 12,
       "callsBeforeFirstStart": null,
       "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "lists": 0,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 8,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 8,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "8 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -433,27 +432,27 @@
     {
       "family": "glm",
       "scenario": "decision",
-      "requests": 4,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 19,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 0.6,
+      "trackedResults": 6,
+      "workResults": 10,
+      "callsBeforeFirstStart": 4,
+      "rejectionsPer100": 22.22222222222222,
+      "lists": 1,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 4,
+        "requestsObserved": 19,
         "trustedRequests": 0,
-        "unknownRequests": 4,
+        "unknownRequests": 19,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "4 request(s) have no diagnostic record",
+          "19 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -461,27 +460,27 @@
     {
       "family": "kimi",
       "scenario": "refactor",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 14,
+      "behaviorPassed": true,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 1,
+      "trackedResults": 16,
+      "workResults": 16,
+      "callsBeforeFirstStart": 0,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 1,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 14,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 14,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "14 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -489,27 +488,27 @@
     {
       "family": "kimi",
       "scenario": "bug",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 22,
+      "behaviorPassed": false,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 1,
+      "trackedResults": 19,
+      "workResults": 19,
+      "callsBeforeFirstStart": 0,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 0,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 22,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 22,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "22 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -517,27 +516,27 @@
     {
       "family": "kimi",
       "scenario": "docs",
-      "requests": 2,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 5,
+      "behaviorPassed": false,
+      "testsPassed": true,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 1,
+      "trackedResults": 5,
+      "workResults": 5,
+      "callsBeforeFirstStart": 0,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 1,
       "tokens": {
-        "requestsObserved": 2,
+        "requestsObserved": 5,
         "trustedRequests": 0,
-        "unknownRequests": 2,
+        "unknownRequests": 5,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "2 request(s) have no diagnostic record",
+          "5 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -545,27 +544,27 @@
     {
       "family": "kimi",
       "scenario": "decision",
-      "requests": 4,
-      "behaviorPassed": null,
-      "testsPassed": null,
+      "requests": 18,
+      "behaviorPassed": false,
+      "testsPassed": false,
       "timedOut": false,
       "capped": false,
-      "trackedFraction": null,
-      "trackedResults": null,
-      "workResults": null,
-      "callsBeforeFirstStart": null,
-      "rejectionsPer100": null,
-      "lists": null,
-      "prematureStops": null,
+      "trackedFraction": 0.8,
+      "trackedResults": 12,
+      "workResults": 15,
+      "callsBeforeFirstStart": 3,
+      "rejectionsPer100": 0,
+      "lists": 1,
+      "prematureStops": 1,
       "tokens": {
-        "requestsObserved": 4,
+        "requestsObserved": 18,
         "trustedRequests": 0,
-        "unknownRequests": 4,
+        "unknownRequests": 18,
         "requestsOverBudget": null,
         "leafTokensPerBudgetP90": null,
         "diagnosticRequests": 0,
         "unmeasured": [
-          "4 request(s) have no diagnostic record",
+          "18 request(s) have no diagnostic record",
           "leaf token spans are not stored in the session file, so leaf tokens per budget stay unknown"
         ]
       }
@@ -573,9 +572,9 @@
   ],
   "totals": {
     "overall": {
-      "behavior": "7/20 attempted (12 provider failures unscored; 1 completed failure)",
-      "requests": 120,
-      "tracked": "44/60 scored work results"
+      "behavior": "15/20",
+      "requests": 264,
+      "tracked": "127/202"
     },
     "claude": {
       "behavior": "4/4",
@@ -588,19 +587,19 @@
       "tracked": "44/48"
     },
     "deepseek": {
-      "behavior": "unscored; 4 provider failures",
-      "requests": 10,
-      "tracked": "unscored"
+      "behavior": "3/4",
+      "requests": 73,
+      "tracked": "25/48"
     },
     "glm": {
-      "behavior": "unscored; 4 provider failures",
-      "requests": 10,
-      "tracked": "unscored"
+      "behavior": "4/4",
+      "requests": 42,
+      "tracked": "6/39"
     },
     "kimi": {
-      "behavior": "unscored; 4 provider failures",
-      "requests": 10,
-      "tracked": "unscored"
+      "behavior": "1/4",
+      "requests": 59,
+      "tracked": "52/55"
     }
   },
   "previous": {
