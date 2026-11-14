@@ -81,7 +81,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | C11 | `remote.ts` never removes abort listeners of settled completions | `core/conductor/remote.ts:205` | fixed 4f79dce |
 | C12 | Triptych's skeleton cache grows with every skeleton ever built | `conductors/ws/triptych/triptych.ts:283-290` | fixed f11b380, 784b329 |
 | C13 | Bug: keel-note, compaction-naive, handoff, thermocline and triptych send session text to a model but declare no `privacy`, so they attach without consent | `core/conductor/registry.ts:225-249` | fixed 1669879 |
-| C14 | keel-lite's protected roots are the benchmark's file names (`AGENT_BRIEFING.md`, `spec_*.md`) | `keel-lite.ts:14-18,92-116` | open |
+| C14 | keel-lite's protected roots are the benchmark's file names (`AGENT_BRIEFING.md`, `spec_*.md`) | `keel-lite.ts:14-18,92-116` | no change: outside the benchmark the names never match, so the rule does nothing there. Conductor options carry numbers and booleans only (`ConductorOptions` in `core/conductor/registry.ts`); a list of file names needs a new option type in the registry, the settings validation and the settings screen, and nobody uses it yet |
 
 ## Long-session use (agent and user)
 
@@ -103,8 +103,8 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | U14 | Agents declare only 56% of their work as tasks (Claude 0%, GLM rejects 96% under the gate); undeclared work folds only under pressure (B-0001) | `.project/plans/0006-taskfold-reliability/plan.md` | fixed 1969b98 for the cost side: undeclared work folds with the turn (U5). Full replay of the 2M-token session: live tokens mean 66,391 to 56,066, final 64,086 to 47,118, characters sent over all requests 2.61 G to 1.87 G (−28%), invalidated characters 37.7 M to 38.5 M, no request over budget before or after. How often each model family declares tasks is measured again for B-0001 |
 | U15 | The agent is never told that nothing foldable is left; saturation is a footer status | `taskfold.ts:785` | open |
 | U16 | `complete` on a blocked task is refused; the agent must resume first | `extension/tasks.ts:887-890` | no change: SPEC-0001 §4.15 allows `complete` only from `doing`, and the refusal names the repair (`start`, then `complete`). One extra call does not justify changing the end-state contract in store, tool description, Taskfold and views |
-| U17 | `unfold` restores in place and rewrites an early part of the wire (diverge: deliver at the tail) | `core/agentView.ts`, `extension/accordion.ts` unfold tool | open |
-| U18 | Agents re-read or redo folded work instead of recalling it (diverge: echo the fold code when a tool call touches a folded task's files) | none yet | open |
+| U17 | `unfold` restores in place and rewrites an early part of the wire (diverge: deliver at the tail) | `core/agentView.ts`, `extension/accordion.ts` unfold tool | no change: measured over 74 sessions of November 2026, agents called `unfold` 0 times and `recall` 51 times (20 sessions). `recall` already delivers at the tail; `unfold` is capped at `recall.unfoldTokens` |
+| U18 | Agents re-read or redo folded work instead of recalling it (diverge: echo the fold code when a tool call touches a folded task's files) | none yet | no change: the folded task's record stays in the context and lists the changed and verified paths with its recall code, and reading the current file is the right action after a change. An extra line on each such read would repeat the record |
 
 ## Spec, docs and debt
 
