@@ -1232,7 +1232,7 @@ check("start re-delivers task context only when the model can no longer see it",
 	};
 	try {
 		const host = await r.open();
-		await run({ action: "create", list: "w", title: "W", goals: ["Ship it"], tasks: [{ title: "A", acceptanceCriteria: ["a holds"], subtasks: [{ title: "A1", acceptanceCriteria: ["a1 holds"] }, { title: "A2", acceptanceCriteria: ["a2 holds"] }] }] });
+		await run({ action: "create", list: "w", title: "W", goals: ["Ship it"], tasks: [{ title: "A", acceptanceCriteria: ["a holds"], subtasks: [{ title: "A1", acceptanceCriteria: ["a1 holds"] }, { title: "A2", acceptanceCriteria: ["a2 holds"] }] }, { title: "B", goals: ["B ships"], subtasks: [{ title: "B1", acceptanceCriteria: ["b1 holds"] }] }] });
 		const first = await run({ action: "start", list: "w", id: "1.1" });
 		assert.deepEqual(first.list, { goals: [{ id: "g1", text: "Ship it" }] });
 		assert.deepEqual(first.started[0], { id: "1", title: "A", criteria: [{ id: "c1", text: "a holds" }] });
@@ -1259,6 +1259,10 @@ check("start re-delivers task context only when the model can no longer see it",
 		await run({ action: "pin", list: "w", items: [{ kind: "rule", text: "Plan it.", source: "user" }] });
 		await run({ action: "block", list: "w", id: "1.2", reason: "user-input", detail: "key" });
 		assert.equal((await run({ action: "start", list: "w", id: "1.2" })).list, undefined);
+		// A task whose only context is a goal still gets it delivered.
+		await run({ action: "abandon", list: "w", id: "1.2", report: { outcome: "x" } });
+		const goalsOnly = await run({ action: "start", list: "w", id: "2.1" });
+		assert.deepEqual(goalsOnly.started[0], { id: "2", title: "B", goals: [{ id: "g2", text: "B ships" }] }, JSON.stringify(goalsOnly));
 	} finally {
 		r.close();
 		fs.rmSync(dir, { recursive: true, force: true });

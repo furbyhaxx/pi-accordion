@@ -4792,19 +4792,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					delivered = delivery.delivered.map(scoped);
 					if (Object.keys(delivery.seen).length) store.recordSeen(args.list, delivery.seen);
 					const byId = new Map(delivery.tasks.map((t) => [t.id, t]));
+					const hasContext = (c: (typeof delivery.tasks)[number]) => !!(c.goals || c.criteria || c.pins || c.attachments);
 					const withContext = (ref: unknown) => {
 						const id = typeof ref === "string" ? ref : (ref as { id: string }).id;
 						const c = byId.get(id);
-						return c && (c.criteria || c.pins || c.attachments) ? c : ref;
+						return c && hasContext(c) ? c : ref;
 					};
 					if (args.action === "claim") {
-						if (delivery.tasks.length) result.active = delivery.tasks.map((c) => (c.criteria || c.pins || c.attachments ? c : { id: c.id, title: c.title }));
+						if (delivery.tasks.length) result.active = delivery.tasks.map((c) => (hasContext(c) ? c : { id: c.id, title: c.title }));
 					} else {
 						if (run.result.started) result.started = run.result.started.map(withContext);
 						if (run.result.resumed) result.resumed = run.result.resumed.map(withContext);
 						const missing = parents.flatMap((id) => {
 							const c = byId.get(id);
-							return c && (c.goals || c.criteria || c.pins || c.attachments) ? [c] : [];
+							return c && hasContext(c) ? [c] : [];
 						});
 						if (missing.length) {
 							const { ok: _ok, ...rest } = result;
