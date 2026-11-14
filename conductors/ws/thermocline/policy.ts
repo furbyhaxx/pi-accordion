@@ -239,7 +239,7 @@ function makeUnit(members: ViewBlock[]): Unit {
 		held = held || m.held;
 		protectedFlag = protectedFlag || m.protected;
 		grouped = grouped || m.grouped;
-		if (!FOLDABLE_KINDS.has(m.kind)) foldable = false;
+		if (!FOLDABLE_KINDS.has(m.kind) || m.signed) foldable = false;
 	}
 	return {
 		id: first.id,
@@ -893,8 +893,8 @@ function biggestForceFoldable(units: Unit[], foldedIds: Set<string>, inStratum: 
  *  single foldable block this equals `savingOf`. */
 function memberFoldSaving(u: Unit): number {
 	let save = 0;
-	u.blocks.forEach((b, i) => {
-		if (FOLDABLE_KINDS.has(u.kinds[i])) save += Math.max(0, b.tokens - b.foldedTokens);
+	u.blocks.forEach((b) => {
+		if (isMemberFoldable(u, b.id)) save += Math.max(0, b.tokens - b.foldedTokens);
 	});
 	return save;
 }
@@ -927,7 +927,7 @@ function savingOf(u: Unit): number {
 /** Is this member block foldable on its own (so it may carry a per-block fold inside a unit)? */
 function isMemberFoldable(unit: Unit, id: string): boolean {
 	const idx = unit.ids.indexOf(id);
-	return idx >= 0 && FOLDABLE_KINDS.has(unit.kinds[idx]);
+	return idx >= 0 && FOLDABLE_KINDS.has(unit.kinds[idx]) && !unit.blocks[idx].signed;
 }
 
 /**
