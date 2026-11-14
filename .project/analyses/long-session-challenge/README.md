@@ -34,9 +34,9 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 
 | Id | Finding | Where | Status |
 |---|---|---|---|
-| H1 | Block to group lookup scans every group's member array: `groupOf`, `inFoldedGroup`, `opGroup`. Serialising and every `host.blocks()` are quadratic once most blocks are grouped (about 1.25e9 id comparisons at 50k blocks) | `core/truth.ts:760-777,1772,1939`, `core/conductor/hostAdapter.ts:47` | open |
-| H2 | `stats()` sums all blocks twice per call and is called 4 to 8 times per request (pressure check, receipt estimate, footer on every broadcast, telemetry) | `core/truth.ts:655-680`, `extension/accordion.ts:876,1026` | open |
-| H3 | Group shapes are cached by the global `rev`, so `markSent`, calibration and appends reclassify every folded group | `core/truth.ts:836-849,974-997` | open |
+| H1 | Block to group lookup scans every group's member array: `groupOf`, `inFoldedGroup`, `opGroup`. Serialising and every `host.blocks()` are quadratic once most blocks are grouped (about 1.25e9 id comparisons at 50k blocks) | `core/truth.ts:760-777,1772,1939`, `core/conductor/hostAdapter.ts:47` | fixed 05ef299 |
+| H2 | `stats()` sums all blocks twice per call and is called 4 to 8 times per request (pressure check, receipt estimate, footer on every broadcast, telemetry) | `core/truth.ts:655-680`, `extension/accordion.ts:876,1026` | fixed 05ef299 |
+| H3 | Group shapes are cached by the global `rev`, so `markSent`, calibration and appends reclassify every folded group | `core/truth.ts:836-849,974-997` | fixed 05ef299 |
 | H4 | Taskfold persists an unfold-state change from the `wire-departing` path; Pi's `appendEntry` is `appendFileSync`: disk I/O on the context hook | `conductors/in-process/taskfold/taskfold.ts:807`, `extension/accordion.ts:3413,3711` | open |
 | H5 | `ctx.getContextUsage()` on every request makes Pi rebuild its session projection (10+ walks over all entries), also with folding off | `extension/accordion.ts:1611` | open |
 | H6 | Reconciliation fingerprints every historical message on every request (all characters, tool arguments re-stringified) | `extension/accordion.ts:3021-3024`, `core/wire.ts:373-409` | open |
@@ -58,17 +58,17 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | T4 | `spanHandle` and `record` filter all blocks per task node | `taskfold.ts:1158-1169,1213-1234` | open |
 | T5 | `host.groups()` deep-copies every member and handle array, several times per unit | `core/conductor/liveHost.ts:225-227`, `taskfold.ts:1062-1078` | open |
 | T6 | Each pressure-floor scope builds a fresh keel-lite conductor and its quadratic read analysis | `taskfold.ts:948-973` | open |
-| T7 | Bug: delivered context (criteria, pins, attachments in a `tasks start` or `claim` result) can fold while its task is still open | `taskfold.ts:959-962,1021-1022` | open |
-| T8 | Bug: a classification backlog starts every call at once; the host admits four, the rest become error verdicts and are never retried | `taskfold.ts:639-654`, `extension/accordion.ts:168,1280` | open |
-| T9 | Bug: an agent-opened task loses its protection after two newer roots without pressure (SPEC-0002 §7.3 asks for pressure) | `taskfold.ts:803-807` | open |
-| T10 | Bug: a classifier result that arrives after a session switch writes into the new session's verdict ledger | `taskfold.ts:728-740` | open |
-| T11 | Bug: the saturation status is never cleared once the session is healthy again | `taskfold.ts:775-778` | open |
+| T7 | Bug: delivered context (criteria, pins, attachments in a `tasks start` or `claim` result) can fold while its task is still open | `taskfold.ts:959-962,1021-1022` | fixed bb32da1 |
+| T8 | Bug: a classification backlog starts every call at once; the host admits four, the rest become error verdicts and are never retried | `taskfold.ts:639-654`, `extension/accordion.ts:168,1280` | fixed 9a135d1 |
+| T9 | Bug: an agent-opened task loses its protection after two newer roots without pressure (SPEC-0002 §7.3 asks for pressure) | `taskfold.ts:803-807` | fixed 41daf32 |
+| T10 | Bug: a classifier result that arrives after a session switch writes into the new session's verdict ledger | `taskfold.ts:728-740` | fixed dbb5819 |
+| T11 | Bug: the saturation status is never cleared once the session is healthy again | `taskfold.ts:775-778` | fixed af5a584 |
 
 ## Other conductors
 
 | Id | Finding | Where | Status |
 |---|---|---|---|
-| C1 | `blocks()` of the view adapter and the remote replica materialise the whole history with the quadratic group lookup of H1; doorman does it per fresh result | `core/conductor/view.ts:179`, `core/conductor/remote.ts:220`, `doorman.ts:129` | open |
+| C1 | `blocks()` of the view adapter and the remote replica materialise the whole history with the quadratic group lookup of H1; doorman does it per fresh result | `core/conductor/view.ts:179`, `core/conductor/remote.ts:220`, `doorman.ts:129` | open: lookup fixed 05ef299; doorman still builds the whole view per fresh result (P12) |
 | C2 | Thermocline's ladder calls `project()` per move: O(blocks x moves) | `conductors/ws/thermocline/policy.ts:699-706` | open |
 | C3 | keel-lite reread detection compares every read with every read and write | `conductors/in-process/keel-lite/keel-lite.ts:729-731` | fixed 34061d4 |
 | C4 | Bug: thermocline replaces signed thinking blocks; the wire keeps the old signature | `policy.ts:928-930` | open |
@@ -80,7 +80,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | C10 | Bug: keel-lite marks an earlier ranged read stale when a later read covers a different range | `keel-lite.ts:730` | fixed 34061d4 |
 | C11 | `remote.ts` never removes abort listeners of settled completions | `core/conductor/remote.ts:205` | open |
 | C12 | Triptych's skeleton cache grows with every skeleton ever built | `conductors/ws/triptych/triptych.ts:283-290` | open |
-| C13 | Bug: keel-note, compaction-naive, handoff, thermocline and triptych send session text to a model but declare no `privacy`, so they attach without consent | `core/conductor/registry.ts:225-249` | open |
+| C13 | Bug: keel-note, compaction-naive, handoff, thermocline and triptych send session text to a model but declare no `privacy`, so they attach without consent | `core/conductor/registry.ts:225-249` | fixed 1669879 |
 | C14 | keel-lite's protected roots are the benchmark's file names (`AGENT_BRIEFING.md`, `spec_*.md`) | `keel-lite.ts:14-18,92-116` | open |
 
 ## Long-session use (agent and user)
