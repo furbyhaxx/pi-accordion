@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 43
+  revision: 44
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T16:29:26+01:00"
+  updated_at: "2026-11-14T17:42:27+01:00"
   created_by: "orchestrator"
-  updated_by: "coder"
+  updated_by: "orchestrator"
   changelog:
-    - revision: 43
-      reason: "keep task recall codes stable for partially held spans"
-      changes: ["describe the reachable members of task handles"]
+    - revision: 44
+      reason: "notify the agent when Taskfold saturates"
+      changes: ["align task contracts with current behavior", "describe saturation notices"]
 ---
 
 # Taskfold
@@ -23,13 +23,6 @@ The Taskfold tree is implemented; active changes are tracked in project task lis
 This spec amends SPEC-0001 §4.3, §4.4, §4.10, §4.11 and §4.15. Each slice that changes one of those
 behaviours updates SPEC-0001 in the same commit.
 
-Evidence it builds on:
-- `.project/analyses/orientation-modes/README.md` (experiments from branch `exp/orientation-modes`)
-- `.project/analyses/2026-11-05-taskfold-session-failures/analysis.md` and
-  `.project/plans/0006-taskfold-reliability/plan.md` (reliability decisions from branch `fix/failing-sessions`)
-
-The evidence originated in those branches; their code is ported, not merged, except
-commit `f04f39d`.
 
 ## 1. Scope
 
@@ -90,7 +83,7 @@ referenced by `$schema`.
 | `tasks[].id` | Optional when authoring. Derived from position on load (`1`, `1.2`, …). An explicit id that disagrees with its position is a validation error |
 | `acceptanceCriteria` | Optional, ≤8 items (1–3 recommended) `{id, text}` of ≤300 chars, checkable end-state statements. Authoring accepts plain strings and assigns ids |
 | `status` | Optional when authoring (`todo`). Other `Task` fields (`report`, timestamps, `blocks`, `supersededBy`, `autoClosed`) keep their v1 meaning |
-| `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files with `lines` are converted to a quote anchor on load. Authors omit ids, a pin's `at` and an attachment's `hash`/`at`; a hand-written quote may give only `exact`, and its first delivery resolves it without a `moved` state and stores the completed anchor |
+| `pins`, `attachments` | On the list and on any task (§4). `attachment.anchor` is one of `{section}`, `{symbol}`, `{quote: {exact, prefix, suffix, start}}` or absent (whole file). v2 files convert only `goal` and string criteria on load; a hand-written `lines` attachment may remain in a v3 file until first delivery resolves it to a quote anchor. Authors omit ids, a pin's `at` and an attachment's `hash`/`at`; a hand-written quote may give only `exact`, and its first delivery resolves it without a `moved` state and stores the completed anchor |
 
 `id` stays a dotted path. Everything that keys on `<list>/<id>` (span keys, records, widget,
 verdicts, bindings) is unchanged.
@@ -106,8 +99,7 @@ verdicts, bindings) is unchanged.
 - **No goals** (a migrated legacy list): `start`, `add` and `move` are refused until
   `tasks update {list, goals: {add: [...]}}` sets one. The native lists browser asks for title and goals when creating a list. `list`, `status`, `claim` and the finishing actions still
   work, so a running task can always be ended.
-- **Hand edits** made while a list is claimed are accepted if they validate. Changing the id or
-  position of a started task is a validation error: started ids are frozen (§3.5).
+- **Hand edits** made while a list is claimed are accepted if they validate. Validation has no started-task history, so an edited id or position can load; the store refuses to renumber a started task during a move or insert.
 - `tasks list` names files that fail to load (`<slug> — invalid file; "status" shows what to fix`)
   instead of skipping them silently.
 - Validator: `extension/taskSchema.ts`, pure and import-free, used by the store
@@ -147,10 +139,10 @@ fields are omitted; the examples below are pretty-printed for reading only.
 
 ```ts
 type Ok = { ok: true } & ActionResult;
-type Err = { ok: false; error: ErrorCode; message: string; fix?: string };
+type Err = { ok: false; error: ErrorCode; message: string };
 ```
 
-| `error` | When | `fix` |
+| `error` | When | `message` |
 |---|---|---|
 | `invalid_args` | missing/unknown field, wrong type, `dependency`/`blockedBy`, `delegate` without `delegated` | the call that works |
 | `not_found` | list, task, pin, attachment or anchor does not exist | closest match |
@@ -163,7 +155,6 @@ type Err = { ok: false; error: ErrorCode; message: string; fix?: string };
 | `empty_span` | §3.5 | block or abandon call |
 | `cap_exceeded` | pin/attachment caps (§4.1, §4.2) | |
 | `quote_mismatch` | pin text not found in its source | |
-
 `details` (renderer/scan data, never sent to the model) stays a separate structured object (§5.1).
 
 ### 3.3 Shared shapes
@@ -225,6 +216,8 @@ tasks({ action: "list" })
   {"list": "old", "invalid": true}]}
 ```
 `claim`: `this` | `other` | omitted (unclaimed). Invalid files are listed, not skipped.
+`other` also covers stale claims; another session can reclaim a stale claim without `force`, while
+a live claim requires `force: true`.
 
 #### status
 
@@ -239,8 +232,9 @@ tasks({ action: "status", list: "auth" })
 ```
 State only: no tree, no finished tasks, no pins or content. `next` is the first `todo` leaf in
 document order that is not blocked and whose dependencies are finished. `done`/`total` count
-finished tasks (done, failed, abandoned) over all tasks. `criteriaMissing` appears when the
-criteria policy is on and an unfinished leaf outside a branch still needs some.
+finished tasks (done, failed, abandoned) over all tasks.
+`noGoal` appears when a list has no goals; `next.resume: true` means a dependency-blocked task can resume.
+`criteriaMissing` appears when the criteria policy is on and an unfinished leaf outside a branch still needs some.
 
 #### claim
 
@@ -253,10 +247,10 @@ tasks({ action: "claim", list: "auth", force: null })
  "active": [{"id": "3", "title": "Implement"}, {"id": "3.1.1.2", "title": "set()", "criteria": [ … ], "attachments": [ … ]}],
  "blocked": [ … ], "next": { … }}
 ```
-`claim` is how a session (re)acquires a list it may have no context for. It returns the status
-fields plus the missing context of the list and of every `doing` task (`active`, `TaskContext[]`),
-minus what is already live in this context (§4.3). Claiming a list the session already holds with
-all context live returns the status fields only.
+`claim` (re)acquires a list. It returns status fields, missing list context, and an `active` entry
+for each `doing` task. An entry is `{id, title}` when none of that task's goals, criteria, pins or
+attachments need delivery; otherwise it carries the missing context. A claim can return bare refs
+even when this session already holds the list.
 
 #### release
 
@@ -333,9 +327,8 @@ tasks({ action: "detach", list: "auth", id: "3.1.1", attachments: ["a2"] })
 {"ok": true}
 ```
 `ref` is returned because the tool canonicalized the anchor (§4.2), which the agent did not write in
-that form. Content is not returned: attaching to a task that is already `doing` means the agent is
-looking at the material. The attachment is recorded as delivered by reference only; its content is
-not considered live (§4.3), so a later `claim` or resume delivers it if needed.
+that form. The attach result returns no content and records no delivery. A later `start` or `claim`
+delivers attachment content when its id is not live (§4.3); its stored hash marks content changes.
 
 #### start
 
@@ -367,8 +360,13 @@ Resume after its delivery folded, with a changed attachment:
 ```json
 {"ok": true, "resumed": [{"id": "1.2", "title": "Review interface", "attachments": [{"id": "a3", "ref": "docs/auth.md#Interface", "state": "changed", "content": "…"}]}]}
 ```
-`started` / `resumed` hold `TaskContext` (or the bare id when nothing is missing), outermost first,
-for every task that enters `doing` with this call.
+`started` / `resumed` hold `TaskContext` (or an `{id, title}` reference when no context is missing),
+outermost first, for every task that enters `doing` with this call.
+
+After a start that automatically closes finished ancestors:
+```json
+{"ok": true, "started": [{"id": "3.2", "title": "Write path"}], "closed": [{"id": "3.1.1", "status": "done"}]}
+```
 
 **Order is part of the contract.** `start` accepts only the task the list's `next` names — the first
 unfinished leaf in depth-first list order — or any blocked leaf, which `start` resumes. A parent is
@@ -431,12 +429,13 @@ tasks({ action: "abandon", list: "auth", id: "5", report: { outcome: "Docs moved
 {"ok": true}
 {"ok": true, "next": {"id": "3.1.1.2", "title": "set()"}}
 {"ok": true, "parentReady": "3.1.1"}
-{"ok": true, "closed": ["3.1.1", "3.1"], "next": {"id": "3.2", "title": "Write path"}}
+{"ok": true, "next": {"id": "3.2", "title": "Write path"}}
+{"ok": true, "resumable": ["1.2"]}
 {"ok": true, "cascaded": ["3.2", "3.3"]}
 ```
 - `next`: the next task under the nearest open ancestor, when one exists.
 - `parentReady`: every subtask of that parent is finished; the agent should complete it.
-- `closed`: ancestors closed automatically (when that policy applies).
+- `resumable`: blocked ancestors that can resume after the dependency finishes.
 - `cascaded`: subtasks abandoned with a failed/abandoned parent.
 The report is not echoed.
 
@@ -466,7 +465,7 @@ Insert and move, empty-span refusal, the review gate and the resume note keep th
 |---|---|
 | `kind` | `rule`, `convention`, `constraint`, `standard`, `fact` |
 | `text` | Verbatim quote, ≤300 chars, checked against `source` (a file or a user message of this session, whitespace-normalized) |
-| `source` | `user`, `path`, `path:line`, `path:start-end`, or an anchor ref (§4.2) |
+| `source` | `user`, `path`, `path:line`, or `path:start-end` |
 | scope | List (no `id`) or task (`id`): applies to the task and its subtree |
 | caps | List pins ≤2,000 tokens, per task ≤1,500 tokens |
 
@@ -491,6 +490,8 @@ first:
   arbitrary files.
 - `lines` is input sugar only: at attach time the range becomes a quote anchor over those lines
   (`exact` = their text). Line numbers are never stored and never compared.
+- A `path:N` or `path:N-M` suffix is equivalent to `lines: "N"` or `lines: "N-M"` and cannot be
+  combined with another anchor; either form becomes a quote anchor on attach.
 - Exactly one of `section`, `symbol`, `quote`, `lines` may be given. Content resolved from any
   anchor is capped at `tasks.attachments.maxLines` (default 60); a larger target is refused with
   `cap_exceeded` and a suggestion to anchor a smaller part. A target that grows past the cap after
@@ -524,19 +525,19 @@ no-disk-I/O invariant there.
 
 The tool must know what the model can still see. That is derived, not tracked:
 
-- Every `tasks` result that delivers context records a **manifest** in its `details`:
-  `delivered: { list?: { goals: {id, hash}[], pins: id[], attachments: {id, hash}[] }, tasks: {id, goals: {id, hash}[], criteria: {id, hash}[], pins: id[], attachments: {id, hash}[]}[] }`.
-  `pin` records its pin ids; `attach` records attachment ids with `hash: null` (reference only).
-- Ingest already copies tool-result `details` onto the Truth block (§5.1).
-- **Live set** = the union of manifests on `tasks` tool-result blocks that are present in the
-  authoritative Truth and not folded (`!isFolded(b)`, and not a member of a folded group). An item
-  is live when a live manifest contains it with the current hash (goals and criteria by id + text hash,
-  pins by id since pins are immutable, attachments by content hash; `null` never matches).
+- A context delivery records `details.delivered: string[]`, a flat list of list-scoped keys such as
+  `auth/item:g1#<hash>`, `auth/pin:p1` and `auth/att:a1`. `start` and `claim` record the context they
+  deliver; `pin` records its pin id; `attach` records no delivery.
+- Ingest copies tool-result `details` onto the Truth block (§5.1).
+- **Live set** = the union of keys on `tasks` tool-result blocks that remain in authoritative Truth
+  and are not folded (`!isFolded(b)`, nor members of a folded group). Goals and criteria are live by
+  item id and current text hash; pins and attachments are live by id. Attachment content hashes
+  drive `state: "changed"`, not liveness.
 - A `start`/resume/`claim` delivers exactly `required − live`, where `required` is the list context
   plus the context of every task entering (or, for claim, in) `doing`, and for `start` that of its
   ancestors already `doing`, whose pins and attachments apply to the new task too.
-- Keys are scoped by list (`<slug>/goal#…`, `<slug>/pin:p1`), since pin and attachment ids repeat
-  across lists. While folding is disarmed nothing on the wire is folded, so every present
+- Keys are scoped by list (`<slug>/item:g1#<hash>`, `<slug>/pin:p1`, `<slug>/att:a1`), since ids
+  repeat across lists. While folding is disarmed nothing on the wire is folded, so every present
   delivery counts.
 - A `start` run inside another tool (§5.3) records no live delivery: the outer tool decides what
   of the nested result reaches the model. The next direct `start` or `claim` delivers it again.
@@ -546,14 +547,13 @@ Why this is correct without extra state:
   re-sends what it carried.
 - **Compaction, `/tree` navigation, fork, reload:** Truth is rebuilt from the active branch; blocks
   not on the branch do not exist, so their manifests do not count.
-- **Edits:** a changed goal, criterion or attachment content changes its hash, so the old delivery no
-  longer matches.
+- **Edits:** changed goal or criterion text has a new hash, so its old key stops counting. Attachment
+  content hashes are checked when content is delivered and determine whether it is marked changed.
 - **Other sessions:** a manifest only counts in the session whose Truth contains it.
 
-Protection: a delivery block belongs to the span of the task it started, so it folds when that span
-folds. Until then strategies must not fold it alone: the floor (§9.2), untracked records (§9.3)
-and history skip `tasks` result blocks whose manifest names a `doing` task. Only a human fold can hide
-it early; §4.4 covers that.
+Protection: a `start` result stays with the task span it opens; a `claim`, `pin` or `attach` result
+stays with its open task span or spans. The floor, untracked records and history do not fold them
+separately. Only a human fold can hide them early; §4.4 covers that.
 
 ### 4.4 Out-of-band changes
 
@@ -570,7 +570,7 @@ persisted in the session and never an edit of an earlier message:
 
 | Kind | Trigger | Content |
 |---|---|---|
-| `changed` | the user edits the list (UI, hand edit, another session) | the delta against the state the agent last saw: list goals, pins and attachments; tasks added, removed, renamed or with a new status; goals, criteria, pins and attachments of tasks on the `doing` branch (`within`, by task id). At most 20 task entries, the rest counted in `more`. Compared before each prompt and after each tool result |
+| `changed` | the user edits the list (UI, hand edit, another session) | the delta against the state the agent last saw: list goals, pins and attachments; tasks added, removed, renamed or with a new status; goals, criteria, pins and attachments of tasks on the `doing` branch (`within`, by task id). At most 20 added, removed or changed task entries are included, with the rest counted in `more`; `within` entries are uncapped. Compared before each prompt and after each tool result |
 | `changed` `by: "user-message"` | the extractor changed the list (§4.6) | the applied operations with the ids they created; `text` is shortened to 100 characters |
 | `waiting` | user prompt while a task is blocked on `user-decision`/`user-input` | the blocked tasks and their `detail` |
 
@@ -583,9 +583,12 @@ up to ten blocked tasks and reasons, the next task, and `Whole list: tasks statu
 also names up to 20 task ids updated since the last binding, or reports that a task was removed or
 edited without a new timestamp when none can be identified.
 
-Notices are not Truth blocks (`linearize` skips custom messages), so they do not enter the delivery
-ledger (§4.3). A `restored` notice, which would re-deliver context a human fold or a compaction hid
-from a task in progress, is therefore not sent: `start` and `claim` re-deliver it (§4.3), and the next
+Notices are Truth blocks of kind `custom`: they count against the budget, fold per block and with the span or
+run that holds them, and show in views, dumps and `recall` as extension messages. They are never read as
+the human's words: the classifier and extractor of §4.6 skip them, and the last reply before a user
+message keeps its protection when a notice sits between the two. The delivery ledger (§4.3) is
+unchanged and does not read notices. There is no `restored` notice: context that a human fold or a
+compaction hid from a task in progress is re-delivered by `start` and `claim` (§4.3), and the next
 `start`/resume of the task shows what is missing.
 
 ### 4.5 Removed
@@ -600,9 +603,9 @@ from a task in progress, is therefore not sent: `start` and `claim` re-deliver i
 
 ### 4.6 User messages
 
-Evidence: `.project/analyses/fold-representations/README.md` §3.4. The agent alone records a third
-of durable instructions too few (recall 0.68, real nukular corrections 0/9); an extractor applied by
-the extension reaches 0.93.
+In a 50-message routing benchmark, agent-only handling recalled 0.68 and missed all nine real
+corrections; sidecar application reached 0.93 overall and 1.00 on real messages. The shipped
+extractor's 41-message live run reached 0.89 recall.
 
 - A user message is **never a fold boundary**. Inside a span it folds with the span. Outside every
   span it stays raw.
@@ -612,27 +615,27 @@ the extension reaches 0.93.
      `chat` and `answer` produce nothing.
   2. **Extract**: one structured model call (a `chat` completion, resolved through `models` like other out-of-band calls) with the list,
      the `doing` branch, the agent's last turn and the message. Output: list operations
-     `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, value, pinKind?}`,
-     where `target` is the list, a task id, or an item id (`g2`, `c5`, `p3`, `a1`) for `-`/`~`.
-     Questions, approvals and one-off instructions for the next step produce no operations.
+     `{op: "+"|"-"|"~", kind: "goal"|"task"|"criterion"|"pin"|"attach", target, id?, value, pinKind?}`,
+     where `target` is the list or a task id, and `id` names the goal, criterion, pin or attachment
+     for `-`/`~`.
      Parse the first balanced JSON object in the reply, allowing prose and fences and respecting
      quoted/escaped braces. A parse failure retries once, before any mutation, within one shared
      45-second deadline. `length` is reported as truncation; provider error/abort stops are reported
      as failures, never parse failures. Store failures and rejected operations are not retried.
   3. **Apply** through the store with `source: "user"`. A pin must occur verbatim in the message
      (existing quote check) or it is dropped. Removals and renames of started tasks follow the store's
-     rules; a refused operation is dropped and logged. Identical goal/criterion additions reuse the
-     existing item id without a write or change notice, including facts the agent recorded while
+     rules; a refused operation is dropped and logged when debug diagnostics are enabled. Identical
+     goal/criterion additions reuse the existing item id without a write or change notice, including facts the agent recorded while
      extraction ran. The request is bound to its originating store/list; after asynchronous grammar
      warming, validate that binding before the synchronous mutation batch. A changed binding fails
      extraction rather than steering the replacement list.
   4. **Notify** the agent once with a §4.4 `changed` notice carrying `by: "user-message"` and the
      applied operations. The agent may revert any of them with `tasks`.
-- The message's block records `details.routed = {ops: [...ids], at}` only when an operation applied
-  or an existing fact id was retained. A routed message joins its span's group. An unrouted one
-  (extraction failed, timed out, no list was attached, or all operations were empty/rejected) falls
-  back to the classifier gate: it folds only below the loss threshold and otherwise stays raw and
-  ends the run.
+- The session's `accordion.taskfold.verdict` entry records `routed: {ids, at}` only when an operation
+  applied or an existing item id was retained; the user block has no `details.routed` field. A routed
+  message joins its span's group. An unrouted one (extraction failed, timed out, no list was attached,
+  or all operations were empty/rejected) falls back to the classifier gate: it folds only below the
+  loss threshold and otherwise stays raw and ends the run.
 - Records carry `"user": [{"said": "<first 120 chars>", "ids": ["p7", "c3"]}]` for the routed messages
   inside the task's own intervals, so the agent sees where each instruction went. History entries
   (§6.3) carry no `user` links: the pins they keep are the lasting part, and `recall` returns the
@@ -642,8 +645,8 @@ the extension reaches 0.93.
   `openai-codex/gpt-6-luna`, using the host model registry. A configured model wins. If neither
   default resolves, the session model is used and a warning is shown once per session. The consent
   notice names both model types; `taskfold-chat-v1` consent replaces classifier-only consent.
-- Proposing the operations to the agent instead was measured and rejected: it applied 71 % of
-  proposals, 37 % when some were already applied.
+- The agent applied 71% of proposals when it handled all changes, and 37% when some changes were
+  already recorded.
 
 ## 5. Spans
 
@@ -657,13 +660,13 @@ The scan reads `TasksDetails` from the `tasks` tool result instead of parsing re
 - If Pi does not persist `details` for reloaded sessions, the scan falls back to the current prose
   regexes for blocks without it.
 
-`TasksDetails` gains:
-- `delivered`: the delivery manifest (§4.3)
-- `started: string[]`: the task and its auto-started or resumed ancestors
-- `closed: {id, status}[]`: auto-closed parents
-- `cascaded: {id, status}[]`: subtasks abandoned with their parent
-
-### 5.2 Intervals
+`TasksDetails` carries:
+- `delivered: string[]`: list-scoped delivery keys (§4.3)
+- `started: string[]`: ids of the task and its auto-started or resumed ancestors
+- `closed: {id, title, status, report?, acceptanceCriteria?, pins?}[]`: auto-closed parents
+- `cascaded: {id, title, status, report?, acceptanceCriteria?, pins?}[]`: subtasks abandoned with their parent
+- `taskEvents: {action, list, id, task?, started?, closed?, cascaded?}[]`: lifecycle events; `delivered`
+  is a sibling field, not part of an event
 
 A task's span is a list of intervals `[open, close]`:
 
@@ -681,14 +684,13 @@ veto.
 
 ### 5.3 Nested `tasks` calls
 
-`tasks` may run inside another tool, most often `codemode`. The scan must see those calls: a
-session that batched `complete` + `start` through codemode left every later span open and could no
-longer fold anything (ANA-fold-representations §5).
+`tasks` may run inside another tool, most often `codemode`; the scan reads structured events from
+the outer tool result and applies them in execution order.
 
-- The `tasks` handler records every execution, direct or nested, as a structured **task event** on
-  the outermost tool result of the step: `details.taskEvents: {action, list, id, started, finished,
-  closed, cascaded, delivered}[]`, in execution order. A direct call puts one event on its own
-  result.
+- The `tasks` handler records every execution as a structured event on the outermost tool result of
+  the step: `details.taskEvents: {action, list, id, task?, started?, closed?, cascaded?}[]`, in
+  execution order. `delivered` is a sibling `details` field, not part of an event. A direct call
+  places one event on its own result.
 - Mechanism (pi ≥1.5): a nested call runs through `ctx.executeTool()` with id `<outer>/<n>`, and
   its `tool_call`/`tool_result` events carry `parentToolCallId`. The `tasks` handler queues its
   event under the outer id (the id prefix before the first `/`, so calls nested twice resolve to
@@ -710,7 +712,9 @@ longer fold anything (ANA-fold-representations §5).
 
 ## 6. Records
 
-Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
+In model probes, the in-root S record averaged 0.978 accuracy at 1.30 steps per probe; root history
+averaged 0.956 at 1.76 steps. On the nukular fixture, per-root history rebilled 24k tokens versus
+261k for S.
 
 ### 6.1 Carrier
 
@@ -819,10 +823,11 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
 
 ## 8. Fold lifecycle
 
-Evidence: `.project/analyses/fold-representations/README.md` §2–4 and §8; the real-session audit
-of 2026-11-10 corrects the earlier simulation's assumption that a nearby lookback alone guarantees a hit.
-Eager folding keeps the rewritten suffix short; it does not guarantee a cache hit. A completed root
-is written once in its final form and never rewritten.
+In offline simulations, eager folding reduced weighted cost by 27–88% and rebilled tokens by 5–95×
+versus lazy. A simplified cache model estimated a 41% weighted-cost increase for a 20k protected tail
+on the 120k nukular replay; this is not observed provider billing. Eager folding keeps the rewritten
+suffix short but does not guarantee a cache hit. A completed root is written once in its final form
+and never rewritten.
 
 | Event | Effect at the first eligible request (timing below) |
 |---|---|
@@ -832,19 +837,17 @@ is written once in its final form and never rewritten.
 | pressure ≥ `high` inside an open root | finished subtrees, oldest first, become history until `low` |
 
 - **Taskfold owns the tail.** It holds the `tail-size` lock with a zero tail, so a finished span
-  folds at the next request instead of after it leaves the protected tail. Waiting rewrote the cache
-  from a position tens of thousands of tokens back, beyond the provider's lookback, so every such
-  fold re-billed the whole tail (ANA-fold-representations §8: +41 % on the nukular replay at a 20k
-  tail). While attached, the user's tail dial is locked; Taskfold applies its value to pressure folds
-  of open and untracked work (§9.2, §9.3). On detach the dial returns as far as it leaves every fold
-  outside the tail.
+  folds at the next request instead of after it leaves the protected tail. Waiting can move the
+  cache breakpoint tens of thousands of tokens back, beyond the provider's lookback, and rebill the
+  whole tail. While attached, the user's tail dial is locked; Taskfold applies its value to pressure
+  folds of open and untracked work (§9.2, §9.3). On detach the dial returns as far as it leaves every
+  fold outside the tail.
 - **A carrier never ends the request.** Record form waits for a following message. Bracket form
   retains the original closing call/result, so it can fold at the first post-completion request.
 - **The first request after load waits for the epoch.** Taskfold declares `holdWireUpToMs`, and its
   `wire-departing` handler returns the epoch that is still committing. After a resume, restart or
-  model change the host fires that epoch on attach; the hold makes the first request carry its folds
-  instead of leaving one request early and paying for the rewrite on the next one (the 177k miss in
-  this repository's session).
+  model change the host fires that epoch on attach; the hold makes the first request carry the
+  committed folds instead of leaving one request early and paying for the rewrite on the next one.
 - **Finished-task timing is explicit.** `eager` (default for every provider) folds at the first safe
   request, regardless of span length. `lazy` folds only when the cache is cold/expired or pressure
   reaches `high`. `pressure` folds only at `high`. There is no 20-block or deep-span eligibility veto.
@@ -865,8 +868,7 @@ is written once in its final form and never rewritten.
   Existing system/tool/tail markers and TTL order are preserved within four slots. Disabled caching,
   missing/ambiguous/uncacheable boundaries, unsupported controls or exhausted slots leave the payload
   unchanged. This applies only to Anthropic Messages requests, not other provider APIs.
-- No other aging. A history entry is never rewritten, merged or shortened. (Merging all history
-  under pressure was measured: up to 20× more rebilled tokens on the nukular session.)
+- No other aging. A history entry is never rewritten, merged or shortened.
 - History within an open root rewrites from the oldest affected subtree onward: it happens only
   under pressure and in the same propose as everything else that epoch.
 - A human or agent unfold (§7.3) reopens the task raw; refolding returns it to its form above.
@@ -894,9 +896,8 @@ folds and multiplies rebilled tokens; it exists for experiments only.
 
 ### 9.2 Floor
 
-- Composition, adapted from `exp/orientation-modes` `conductors/in-process/taskfold/thinning.ts`.
-  Taskfold previews a `KeelLiteConductor` behind a masked host; its decisions are rebuilt from
-  Truth each epoch and it does not independently commit.
+- Taskfold previews a `KeelLiteConductor` behind a masked host; its decisions are rebuilt from
+  Truth each epoch and it does not commit independently.
 - **Hidden from keel-lite:** blocks in Taskfold groups and planned groups, document and rule-file
   reads (`DOC_PATH_RE`, `RULE_FILE_RE`), the user's tail dial (§8), kept user messages.
 - R1–R5 only (`maxRung: 5`); R7 is off (`groupSteps: false`).
@@ -925,6 +926,8 @@ inside a still-open task become step carriers `{"steps":"<key>","label":…,"cou
 grouped per innermost open task. The task's start message, user messages, newest document reads and the
 tail stay live. When the task finishes, its record absorbs the carriers. Without this, one long
 open task saturated the session.
+When Taskfold saturates, it notifies the agent once per saturation episode, at most once per 50 tool
+results.
 
 ## 10. Task widget (amends SPEC-0001 §4.3–4.4)
 
@@ -962,13 +965,13 @@ then dropped); glyph and counts are never cut.
   thinking before its recovery handle. Child handles inside another task's carrier retain their
   member charges. Wire/dump charges remain additive and are not changed to repair a row.
 - **Progress breakdown** over the subtree's leaves: `7✓ 2☒ 1⊘ 3☐` (done, failed, abandoned, not
-  finished; blocked counts as not finished). Zero counts are omitted. `success`/`error`/`dim`/`dim`
-  colours. Replaces `(done/total)`.
+  finished; blocked counts as not finished). Zero counts are omitted. The whole marker uses `muted`
+  colour. Replaces `(done/total)`.
 - **A finished parent with unfinished descendants** shows `!` in the fold column, in `warning`.
 - **Hidden rows split:** `… N finished (k≡ · full→live) · duration` and `… N upcoming`. A run never
   mixes finished and unfinished siblings.
 - **Legend:** one dim line under the header the first time the widget expands in a process, and on
-  `?` in the panel's Tasks view: `▣ done ☒ failed ⊘ abandoned ◐ partly done ▶ doing ⧗ blocked ☐ todo · ≡ folded · raw`.
+  `≡ folded · raw ! inconsistent · ▣ done ☒ failed ⊘ abandoned ◐ partly done ▶ doing ⧗ blocked ☐ todo`.
 - Verified in a real terminal at 36, 57, 80 and 140 columns.
 
 ### 10.3 Inspection and export
@@ -986,9 +989,9 @@ then dropped); glyph and counts are never cut.
   outgoing form. Structured details, handles and task metadata remain available as non-wire metadata.
   `--compact` omits that inspection metadata and folded-group member lists in every format; it
   retains all actual wire text, including reports present on the wire, and additive token charges.
-  Delivery manifests are exported with their blocks. Notices are not Truth blocks (§4.4), so they
-  are not in the dump; there is no transient suffix. A routed user message shows where its
-  instructions went (`routed → p7, c3`) in the transcript row and its detail view.
+  Delivery manifests are exported with their blocks. Notices appear in dumps as extension messages;
+  there is no transient suffix. A routed user message shows where its instructions went
+  (`routed → p7, c3`) in the transcript row and its detail view.
   YAML preserves arbitrary indentation, final newlines and carriage returns; terminal control
   characters and Unicode line separators use escaped scalars rather than invalid literal blocks.
 
@@ -1065,10 +1068,10 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
 }
 ```
 
-Previously stored `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks` migrate to
-`conductorOptions.taskfold`; explicit new-path values win. Earlier valid values remain effective,
-even if outside the narrower editor ranges. Saves validate new edits against the registry bounds
-and require `low < high`. `roots` keeps absolute paths (`~/` expanded) and drops anything else.
+Legacy `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks` values migrate to
+`conductorOptions.taskfold`; explicit new-path values win. Migrated values remain effective even
+outside the narrower editor ranges. Saves validate new edits against the registry bounds and require
+`low < high`. `roots` keeps absolute paths (`~/` expanded) and drops anything else.
 `tasks.zombieSteps` is an integer from 1 to 10,000. `gateFailOpenAfter` controls the refusals
 before the first gate opening.
 The extractor model resolves through `models` like other out-of-band calls.
@@ -1113,7 +1116,7 @@ session content and must be reviewed before sharing.
 | Records, history | exact carrier JSON, `assistant` role for every carrier, root history with direct child codes, truthful subtree status |
 | Eager timing | a finished task is folded at the next request; consecutive requests share every byte before the new fold |
 | User messages | routed messages fold inside spans, unrouted ones fall back to the classifier gate; verbatim pin check; `changed` notice once; extraction failure keeps the message raw |
-| Comprehension, routing | `.project/analyses/fold-representations/harness/eval.py`, `routing.py` against the implementation's real rendering |
+| User-message routing | `extension/taskRouting.test.ts` (parser and store application); `conductors/in-process/taskfold/taskfold.test.ts` (`routes a new user message into the list, then folds it with its span`) |
 | Tree, compile, diff, records, intervals | `bun test conductors/in-process/taskfold/*.test.ts` with real `Truth` (`TestHost`) |
 | Handles | `core/truth.test.ts`, `core/agentView` recall/unfold tests |
 | Regression scripts (synthetic, no private sessions) | Each must stay ≤ `low·budget` or end saturated with only unfoldable blocks, and every fold and handle code must round-trip through `recall`: blocked task with sibling work (S2 1.3.4); giant open leaf; prelude before the list; three-level tree folded in two epochs; tail-pruned group re-proposed |
