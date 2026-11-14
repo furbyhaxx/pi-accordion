@@ -24,6 +24,7 @@ import {
 	trimText,
 	unitText,
 	buildDigestPrompt,
+	buildStratumPrompt,
 	type ConductorView,
 	type ViewBlock,
 } from "./policy";
@@ -248,6 +249,19 @@ test("foldable-kind gate: planEpoch never folds a user or a lone tool_call", () 
 	const plan = planEpoch(v, scores, stateOf(), DEFAULT_CFG);
 	expect(plan.folds.length).toBe(0);
 	expect(emitOps(plan, new Map(), v).filter((o) => o.kind === "replace").length).toBe(0);
+});
+
+test("custom messages are individually folded and labeled as extension messages", () => {
+	const custom = blk({ id: "c:42:abc", kind: "custom", tokens: 30_000, foldedTokens: 50, text: "Extension notice" });
+	const v = view([custom], { budget: 35_000, contextWindow: 35_000 });
+	const plan = planEpoch(v, new Map([[custom.id, 0.05]]), stateOf(), DEFAULT_CFG);
+	expect(plan.folds.flatMap((fold) => fold.ids)).toContain(custom.id);
+	expect(emitOps(plan, new Map(), v)).toContainEqual(expect.objectContaining({ kind: "replace", id: custom.id }));
+	const unit = buildUnits(v.blocks)[0];
+	expect(buildDigestPrompt(unit).prompt).toContain("[extension message]\nExtension notice");
+	const stratum = buildStratumPrompt([unit]);
+	expect(stratum.prompt).toContain("[extension message]\nExtension notice");
+	expect(stratum.system).toContain("Extension messages, assistant text");
 });
 
 test("signed thinking is never individually compressed", () => {

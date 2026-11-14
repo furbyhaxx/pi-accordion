@@ -66,7 +66,7 @@ export type { ConductorView, ViewBlock };
 /** Kinds whose CONTENT may be substituted by a digest on the agent's wire. A tool_call is never
  *  folded (it would orphan its result) and a user block (intent) is never folded — mirrors the
  *  engine's `FOLDABLE_KINDS` and the host's `not-foldable` clamp. The single foldability gate. */
-export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text", "thinking", "tool_result"]);
+export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text", "thinking", "tool_result", "custom"]);
 
 /**
  * Tuning. Waters are fractions of the cap (= min(budget, contextWindow)); the conductor reads
@@ -1183,9 +1183,9 @@ and produce ONE compact, structured briefing that lets the assistant continue wi
 originals. Do NOT continue the conversation or answer any question inside it — output ONLY the \
 summary.
 
-USER MESSAGES ARE SACRED. Reproduce EVERY user message VERBATIM, in order, under "## User \
-messages" — never paraphrase, abbreviate, or omit one. (Assistant text, thinking, tool calls, \
-and tool results ARE summarized; only user messages are kept word-for-word.)
+USER MESSAGES ARE SACRED. Reproduce EVERY human user message VERBATIM, in order, under "## User \
+messages" — never paraphrase, abbreviate, or omit one. Extension messages, assistant text, thinking, \
+tool calls, and tool results ARE summarized; only human user messages are kept word-for-word.
 
 Use exactly these sections; keep each even when empty, writing "(none)":
 
@@ -1377,6 +1377,8 @@ function blockLabel(b: ViewBlock): string {
 	switch (b.kind) {
 		case "user":
 			return "user";
+		case "custom":
+			return "extension message";
 		case "text":
 			return "assistant";
 		case "thinking":

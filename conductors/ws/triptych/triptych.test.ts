@@ -173,6 +173,27 @@ describe("TriptychConductor", () => {
 		for (let i = 14; i <= 27; i++) expect(host.get(idOf(i))!.folded).toBe(false);
 	});
 
+	it("summarizes aged extension messages while skeletonizing only middle code reads", async () => {
+		const blocks = buildBlocks();
+		blocks[3] = mkBlock("c:42:aged", 3, "custom", 200, "AGED EXTENSION NOTICE");
+		blocks[14] = mkBlock("c:43:middle", 14, "custom", 200, BIG_SOURCE);
+		const seen: string[] = [];
+		const { host } = setup({ blocks, skeletonOf: (path, source) => {
+			seen.push(source);
+			return `// skeleton of ${path}`;
+		} });
+		host.queueCompletion({ text: SUMMARY_A });
+		await flush();
+		await host.commitTurn();
+		await flush();
+
+		expect(host.completeLog[0].prompt).toContain("AGED EXTENSION NOTICE");
+		expect(host.truth.groups[0].memberIds).toContain("c:42:aged");
+		expect(host.get("c:43:middle")?.folded).toBe(false);
+		expect(host.get(idOf(11))?.folded).toBe(true);
+		expect(seen).toEqual([BIG_SOURCE]);
+	});
+
 	it("skeletonizes a single codemode code section with its provenance", async () => {
 		const blocks = buildBlocks();
 		blocks[10] = mkBlock(idOf(10), 10, "tool_call", 50, `codemode ${JSON.stringify({ code: 'text(await tools.read({path: "/proj/src/big.ts"}))' })}`, { toolName: "codemode", callId: "c1" });

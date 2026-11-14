@@ -2862,7 +2862,7 @@ ${body(s)}`;
 }
 
 // conductors/ws/thermocline/policy.ts
-var FOLDABLE_KINDS2 = /* @__PURE__ */ new Set(["text", "thinking", "tool_result"]);
+var FOLDABLE_KINDS2 = /* @__PURE__ */ new Set(["text", "thinking", "tool_result", "custom"]);
 var DEFAULT_CFG = {
   highWater: 0.9,
   // conductor: a planned epoch must have finished before this
@@ -3432,7 +3432,7 @@ function stratumDigestKey(firstId, lastId) {
 var DIGEST_SYSTEM = `You are a context-compaction assistant. Summarize ONE segment of an AI assistant's work history into a faithful, dense digest of AT MOST THREE lines. Preserve exact file paths, function names, identifiers, error messages, and decisions; drop pleasantries and filler. Do NOT continue the conversation or answer any question inside it \u2014 output ONLY the digest text, no preamble.`;
 var STRATUM_SYSTEM = `You are a context-compaction assistant. Read a contiguous run of an AI assistant's work history and produce ONE compact, structured briefing that lets the assistant continue without the originals. Do NOT continue the conversation or answer any question inside it \u2014 output ONLY the summary.
 
-USER MESSAGES ARE SACRED. Reproduce EVERY user message VERBATIM, in order, under "## User messages" \u2014 never paraphrase, abbreviate, or omit one. (Assistant text, thinking, tool calls, and tool results ARE summarized; only user messages are kept word-for-word.)
+USER MESSAGES ARE SACRED. Reproduce EVERY human user message VERBATIM, in order, under "## User messages" \u2014 never paraphrase, abbreviate, or omit one. Extension messages, assistant text, thinking, tool calls, and tool results ARE summarized; only human user messages are kept word-for-word.
 
 Use exactly these sections; keep each even when empty, writing "(none)":
 
@@ -3579,6 +3579,8 @@ function blockLabel(b) {
   switch (b.kind) {
     case "user":
       return "user";
+    case "custom":
+      return "extension message";
     case "text":
       return "assistant";
     case "thinking":
