@@ -88,13 +88,14 @@ function source(log: Log, groups: TGroup[] = []): TranscriptSource {
 	return { blocks: log.blocks.map((b) => ({ ...b, full: charges.get(b.id)!.full, live: charges.get(b.id)!.live })), groups, projection, verdict: () => undefined, threshold: null };
 }
 
-function doc(src: TranscriptSource, model = "test/model") {
+function doc(src: TranscriptSource, model = "test/model", compact?: boolean) {
 	return dumpDocument({
 		source: src,
 		meta: { sessionId: "s-1", model },
 		system: { tokens: 1000 },
 		totals: { full: 1000 + src.blocks.reduce((n, b) => n + b.full, 0), live: 1000 + src.blocks.reduce((n, b) => n + b.live, 0), budget: 800 },
 		generatedAt: new Date(2025, 10, 6, 9, 56, 12),
+		compact,
 	});
 }
 
@@ -240,6 +241,33 @@ describe("transcript dump", () => {
 		const parsed = Bun.YAML.parse(renderDump(snapshot, "yaml")) as { transcript: { metadata: DumpDoc["metadata"] } };
 		expect(parsed.transcript.metadata.task_lists).toEqual(lists);
 		expect(parsed.transcript.metadata.groups[0].handles).toEqual(group.handles);
+	});
+
+	it("omits inspection metadata in compact dumps without changing the wire", () => {
+		const { log, span } = oneTask();
+		log.user("unique unfolded tail");
+		const record = `${foldTag("g:span")} {"task":"l/1","title":"Parent","status":"done","outcome":"record on wire"}`;
+		const src = source(log, [folded(log, span, record)]);
+		src.lists = [{ slug: "l", title: "List", createdAt: "2026-01-01", updatedAt: "2026-01-01", claim: null,
+			tasks: Array.from({ length: 300 }, (_, i) => ({ id: String(i + 1), title: `Task ${i + 1}`, status: "done" as const,
+				updatedAt: "2026-01-01", report: { outcome: `metadata report ${i} ${"detail ".repeat(100)}` } })) }];
+		src.blocks.find((b) => b.id === span[0])!.details = { secret: "folded metadata body" };
+		const normal = doc(src);
+		const compact = doc(src, "test/model", true);
+		expect([...compact.orientation, ...compact.body, ...compact.tail].reduce((n, x) => n + x.tokens.live, compact.system!.tokens)).toBe(compact.totals.live);
+		expect(compact.wire.reduce((n, x) => n + x.tokens.live, compact.system!.tokens)).toBe(compact.totals.live);
+		for (const format of DUMP_FORMATS) {
+			const out = renderDump(compact, format);
+			expect(renderDump(doc(src, "test/model", false), format)).toBe(renderDump(normal, format));
+			expect(out).toContain(record);
+			expect(out.split("unique unfolded tail").length - 1).toBe(1);
+			expect(out).not.toContain("a.txt");
+			expect(out).not.toContain("metadata report");
+			expect(out).not.toContain("folded metadata body");
+			expect(out).not.toContain("member_ids");
+			expect(out).not.toContain("<members>");
+			expect(Buffer.byteLength(out) * 10).toBeLessThan(Buffer.byteLength(renderDump(normal, format)));
+		}
 	});
 
 	it("YAML round-trips indented, blank and trailing-newline text exactly", () => {

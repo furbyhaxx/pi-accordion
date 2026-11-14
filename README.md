@@ -194,6 +194,8 @@ they took off the wire. Split, composed and untracked records appear once per ac
 (goal, criteria, scoped pins, attachments and recovery handles), explicitly marked as inspection
 metadata, plus the transient working-set suffix and whether this snapshot would append it. Token
 totals include that suffix only when appended; provider/tool-schema overhead is not exported.
+Use `/accordion tasks dump-transcript --compact --formats all` to omit inspection metadata and
+folded-group member lists in every format. Wire text, including any reports on the wire, remains intact.
 When you resume a session that used a list, Accordion offers it back (or tells you which session
 holds it now) and tells the agent on your next prompt if its list changed or was replaced. Defaults live under `taskWidget` in `~/.accordion/config.json`:
 `{ "mode": "auto" | "off", "expanded": false, "maxRows": 12, "toggleKey": "alt+t" }`.

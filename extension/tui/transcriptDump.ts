@@ -130,6 +130,7 @@ export interface DumpDoc {
 	system: { tokens: number } | null;
 	totals: { full: number; live: number; budget: number };
 	generatedAt: string;
+	compact: boolean;
 	/** Inspection metadata, never counted as model-visible content. */
 	metadata: { task_lists: readonly TaskList[]; list_issues: readonly string[]; groups: { id: string; memberIds: readonly string[]; handles?: TGroup["handles"]; folded: boolean }[]; block_details: { id: string; details: unknown }[] };
 	orientation: DumpNode[];
@@ -145,6 +146,7 @@ export interface DumpInput {
 	system: { tokens: number } | null;
 	totals: { full: number; live: number; budget: number };
 	generatedAt: Date;
+	compact?: boolean;
 }
 
 const codeOf = (text: string): string | null => /^\{#([0-9a-z]{6}) FOLDED\}/.exec(text)?.[1] ?? null;
@@ -218,11 +220,13 @@ export function dumpDocument(input: DumpInput): DumpDoc {
 	};
 	for (const branch of taskForest(spans)) { const node = build(branch); if (node) body.push(node); }
 	body.sort((a, b) => (position.get(a) ?? 0) - (position.get(b) ?? 0));
-	const metadata = { task_lists: source.lists ?? [], list_issues: source.listIssues ?? [],
-		groups: source.groups.map((g) => ({ id: g.id, memberIds: g.memberIds, ...(g.handles ? { handles: g.handles } : {}), folded: g.folded })),
-		block_details: source.blocks.filter((b) => b.details !== undefined).map((b) => ({ id: b.id, details: b.details })) };
+	const metadata = input.compact
+		? { task_lists: [], list_issues: [], groups: [], block_details: [] }
+		: { task_lists: source.lists ?? [], list_issues: source.listIssues ?? [],
+			groups: source.groups.map((g) => ({ id: g.id, memberIds: g.memberIds, ...(g.handles ? { handles: g.handles } : {}), folded: g.folded })),
+			block_details: source.blocks.filter((b) => b.details !== undefined).map((b) => ({ id: b.id, details: b.details })) };
 	return { meta: input.meta, system: input.system, totals: input.totals, generatedAt: dumpStamp(input.generatedAt),
-		metadata, orientation, body, tail, wire: entries.map((e) => e.node) };
+		compact: input.compact ?? false, metadata, orientation, body, tail, wire: entries.map((e) => e.node) };
 }
 
 /* ── shared helpers ─────────────────────────────────────────────────────────── */
@@ -301,7 +305,7 @@ export function renderFlat(doc: DumpDoc): string {
 	for (const n of doc.wire) {
 		if (n.kind === "group") {
 			const key = taskKeyOfSummary(n.group.summary);
-			row(key && key !== "untracked" ? "GROUP (task record)" : "GROUP", n.tokens.live, n.wire, n.dropped ? "DROPPED (not sent)" : `${n.elidedMessages} messages elided`);
+			row(key && key !== "untracked" ? "GROUP (task record)" : "GROUP", n.tokens.live, n.wire, `${doc.compact ? `full ${n.tokens.full} tok · ` : ""}${n.dropped ? "DROPPED (not sent)" : `${n.elidedMessages} messages elided`}`);
 			continue;
 		}
 		const turn = `${n.block.turn ?? 0}:`;
@@ -352,7 +356,7 @@ export function renderYaml(doc: DumpDoc): string {
 			out.push(`${pad}- group: ${quote(n.group.id)}`);
 			out.push(`${pad}  tokens: { live: ${n.tokens.live}, full: ${n.tokens.full} }`);
 			out.push(`${pad}  dropped: ${n.dropped}`);
-			out.push(`${pad}  member_ids: ${json(n.memberIds)}`);
+			if (!doc.compact) out.push(`${pad}  member_ids: ${json(n.memberIds)}`);
 			if (n.code) out.push(`${pad}  code: ${n.code}`);
 			block("wire", n.wire, ind + 2);
 			out.push(`${pad}  elided_messages: ${n.elidedMessages}`);
@@ -423,7 +427,7 @@ export function renderXml(doc: DumpDoc): string {
 		if (n.kind === "group") {
 			out.push(`${ind(d)}<group id="${attr(n.group.id)}" live="${n.tokens.live}" full="${n.tokens.full}" dropped="${n.dropped}" elided="${n.elidedMessages}">`);
 			out.push(`${ind(d + 1)}<wire>${cdata(n.wire)}</wire>`);
-			out.push(`${ind(d + 1)}<members>${cdata(JSON.stringify(n.memberIds))}</members>`);
+			if (!doc.compact) out.push(`${ind(d + 1)}<members>${cdata(JSON.stringify(n.memberIds))}</members>`);
 			out.push(`${ind(d)}</group>`);
 			return;
 		}
@@ -482,7 +486,7 @@ export function renderMarkdown(doc: DumpDoc): string {
 			return;
 		}
 		if (n.kind === "group") {
-			out.push(`${"#".repeat(Math.min(6, depth))} GROUP ${n.group.id} · ${n.tokens.live} tok${n.dropped ? " · DROPPED (not sent)" : ""}`);
+			out.push(`${"#".repeat(Math.min(6, depth))} GROUP ${n.group.id} · ${doc.compact ? `${n.tokens.full} → ` : ""}${n.tokens.live} tok${n.dropped ? " · DROPPED (not sent)" : ""}`);
 			block(n.wire);
 			out.push(`*${n.elidedMessages} messages elided.*`);
 			return;

@@ -4201,8 +4201,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		const words = args.trim().split(/\s+/).filter(Boolean);
 		let spec: string | null = null;
 		let target: string | null = null;
-		const usage = "Usage: /accordion tasks dump-transcript [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]";
+		let compact = false;
+		const usage = "Usage: /accordion tasks dump-transcript [--compact] [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]";
 		for (let i = 0; i < words.length; i++) {
+			if (words[i] === "--compact") {
+				compact = true;
+				continue;
+			}
 			const flag = /^--(formats?)(?:=(.+))?$/.exec(words[i]);
 			if (flag) {
 				const value = flag[2] ?? words[++i];
@@ -4247,10 +4252,12 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				: path.resolve(cwd, formats.length > 1 ? withExtension(target, format) : target),
 		);
 		const source = transcriptSource(truth, () => undefined, null, { folding: foldingEnabled });
-		const scan = taskStoreFor(ctx).scan();
-		const relevant = new Set(transcriptSpans(source).map((span) => span.list));
-		source.lists = scan.lists.filter((list) => relevant.has(list.slug) || list.claim?.session === ctx.sessionManager.getSessionId());
-		source.listIssues = scan.invalid;
+		if (!compact) {
+			const scan = taskStoreFor(ctx).scan();
+			const relevant = new Set(transcriptSpans(source).map((span) => span.list));
+			source.lists = scan.lists.filter((list) => relevant.has(list.slug) || list.claim?.session === ctx.sessionManager.getSessionId());
+			source.listIssues = scan.invalid;
+		}
 		const system = source.blocks.find((b) => b.kind === "system");
 		const doc = dumpDocument({
 			source,
@@ -4258,6 +4265,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			system: system ? { tokens: system.full } : null,
 			totals: { full: source.blocks.reduce((n, b) => n + b.full, 0), live: source.blocks.reduce((n, b) => n + b.live, 0), budget: truth.budget },
 			generatedAt: at,
+			compact,
 		});
 		const written: string[] = [];
 		const failures: string[] = [];
@@ -4301,7 +4309,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				{ value: "tasks lists", label: "tasks lists", description: "Browse the project's task lists: attach, release, start one, or drill into tasks and their folds" },
 				{ value: "tasks tree", label: "tasks tree", description: "This session's transcript by task: spans, folds, kept user messages, untracked work" },
 				{ value: "tasks adopt", label: "tasks adopt", description: "Adopt a session recorded before task events so its finished tasks fold; --dry-run only reports" },
-				{ value: "tasks dump-transcript ", label: "tasks dump-transcript", description: "Write the outgoing projection to a file: [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]" },
+				{ value: "tasks dump-transcript ", label: "tasks dump-transcript", description: "Write the outgoing projection to a file: [--compact] [--format <tree|yaml|xml|md|flat> | --formats <a,b,…|all>] [file]" },
 				...["expand", "collapse", "hide", "show"].map((v) => ({ value: `tasks ${v}`, label: `tasks ${v}`, description: `${v[0].toUpperCase()}${v.slice(1)} the task list above the editor` })),
 			].filter((it) => it.value.startsWith(q));
 			return items.length ? items : null;
