@@ -4840,7 +4840,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	 */
 	async function noteFacts(): Promise<void> {
 		if (ledgerBusy || !settings.recall.ledger.enabled || !truth || !foldingEnabled) return;
-		const key = JSON.stringify(truth.groups.filter((g) => g.folded).flatMap((g) => (g.handles ?? []).filter((h) => h.id.startsWith("t:")).map((h) => h.id)));
+		// The budget is part of the key: a spent budget is idle until the setting or the folded tasks change.
+		const key = JSON.stringify([settings.recall.ledger.maxCalls, truth.groups.filter((g) => g.folded).flatMap((g) => (g.handles ?? []).filter((h) => h.id.startsWith("t:")).map((h) => h.id))]);
 		if (key === ledgerIdleKey) return;
 		ledgerBusy = true;
 		const session = sessionId;
@@ -4869,6 +4870,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 						latestCtx?.ui.notify(`Accordion fact extraction stopped after ${ledgerCalls} calls; recall still searches the full text`, "warning");
 						debug({ type: "tasks", event: "fact-ledger-budget", calls: ledgerCalls, maxCalls: settings.recall.ledger.maxCalls });
 					}
+					ledgerIdleKey = key;
 					return;
 				}
 				ledgerTried.add(next.task);
