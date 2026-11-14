@@ -68,7 +68,9 @@ export interface TaskSettings {
 	/** Point a fresh session at its list once, from `before_agent_start`. */
 	bootstrapNote: boolean;
 	/** When a leaf counts as large enough to be split, by budget share or tool results. */
-	largeLeaf: { budgetShare: number; toolResults: number; repeatEvery: number };
+	largeLeaf: { budgetShare: number; toolResults: number };
+	/** Tool calls after the last task event before an open task is reported stale. */
+	zombieSteps: number;
 	/** Whether leaves must carry checkable acceptance criteria, and their bounds. */
 	acceptanceCriteria: { required: boolean; min: number; max: number; maxChars: number };
 }
@@ -155,7 +157,8 @@ export const DEFAULT_SETTINGS: Readonly<AccordionSettings> = {
 		stopOnBlock: true,
 		resumeOnStop: true,
 		bootstrapNote: true,
-		largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
+		largeLeaf: { budgetShare: 0.15, toolResults: 25 },
+		zombieSteps: 40,
 		acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
 	},
 	taskfold: { timing: TASKFOLD_DEFAULTS.timing, leafForm: TASKFOLD_DEFAULTS.leafForm, recordTokens: TASKFOLD_DEFAULTS.recordTokens, floor: TASKFOLD_DEFAULTS.floor, untracked: { ...TASKFOLD_DEFAULTS.untracked }, steps: { ...TASKFOLD_DEFAULTS.steps } },
@@ -314,10 +317,10 @@ export function sanitizeTaskSettings(value: unknown): TaskSettings {
 		stopOnBlock: typeof raw.stopOnBlock === "boolean" ? raw.stopOnBlock : defaults.stopOnBlock,
 		resumeOnStop: typeof raw.resumeOnStop === "boolean" ? raw.resumeOnStop : defaults.resumeOnStop,
 		bootstrapNote: typeof raw.bootstrapNote === "boolean" ? raw.bootstrapNote : defaults.bootstrapNote,
+		zombieSteps: bounded(raw.zombieSteps, defaults.zombieSteps, 1, 10000),
 		largeLeaf: {
 			budgetShare: share(largeLeaf.budgetShare, defaults.largeLeaf.budgetShare),
 			toolResults: bounded(largeLeaf.toolResults, defaults.largeLeaf.toolResults, 1, 1000),
-			repeatEvery: bounded(largeLeaf.repeatEvery, defaults.largeLeaf.repeatEvery, 1, 1000),
 		},
 		acceptanceCriteria: {
 			required: typeof criteria.required === "boolean" ? criteria.required : defaults.acceptanceCriteria.required,

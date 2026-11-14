@@ -55,7 +55,7 @@ const RULES = {
 	"tasks.bootstrapNote": boolean,
 	"tasks.largeLeaf.budgetShare": fraction,
 	"tasks.largeLeaf.toolResults": number(1, 1000),
-	"tasks.largeLeaf.repeatEvery": number(1, 1000),
+	"tasks.zombieSteps": number(1, 10000),
 	"tasks.acceptanceCriteria.required": boolean,
 	"tasks.acceptanceCriteria.min": number(0, 8),
 	"tasks.acceptanceCriteria.max": number(0, 8),
@@ -89,7 +89,7 @@ export type SettingPath = keyof typeof RULES
 	| `privacyConsent.${string}`
 	| `calibration.priors.${string}`
 	| `modelDefaults.${string}.${"budget" | "protect" | "timing"}`
-	| `modelDefaults.${string}.tasks.${"enforce" | "orientationCalls" | "largeLeaf.budgetShare" | "largeLeaf.toolResults" | "largeLeaf.repeatEvery"}`;
+	| `modelDefaults.${string}.tasks.${"enforce" | "orientationCalls" | "largeLeaf.budgetShare" | "largeLeaf.toolResults"}`;
 
 /** Flat field edits; undefined removes an optional map entry or model override. */
 export type SettingsPatch = Partial<Record<SettingPath, unknown>>;
@@ -130,7 +130,7 @@ function field(name: string): Field | undefined {
 		parts: ["modelDefaults", defaults[1], defaults[2]],
 		rule: defaults[2] === "timing" ? value => value === undefined ? undefined : timing(value) : amount,
 	};
-	const taskDefault = /^modelDefaults\.(.+)\.tasks\.(enforce|orientationCalls|largeLeaf\.budgetShare|largeLeaf\.toolResults|largeLeaf\.repeatEvery)$/.exec(name);
+	const taskDefault = /^modelDefaults\.(.+)\.tasks\.(enforce|orientationCalls|largeLeaf\.budgetShare|largeLeaf\.toolResults)$/.exec(name);
 	if (taskDefault && safeKey(taskDefault[1]) && isModelPattern(taskDefault[1])) {
 		const key = taskDefault[2].split(".");
 		return {
@@ -163,7 +163,7 @@ export function settingPaths(settings: AccordionSettings): SettingPath[] {
 		const tasks = dials.tasks;
 		if (tasks?.enforce !== undefined) names.push(`modelDefaults.${pattern}.tasks.enforce`);
 		if (tasks?.orientationCalls !== undefined) names.push(`modelDefaults.${pattern}.tasks.orientationCalls`);
-		for (const key of ["budgetShare", "toolResults", "repeatEvery"] as const) {
+		for (const key of ["budgetShare", "toolResults"] as const) {
 			if (tasks?.largeLeaf?.[key] !== undefined) names.push(`modelDefaults.${pattern}.tasks.largeLeaf.${key}`);
 		}
 	}

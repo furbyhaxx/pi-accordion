@@ -17,7 +17,6 @@ export const DEFAULT_ORIENTATION_CALLS = 10;
 export interface LargeLeafTap {
 	budgetShare: number;
 	toolResults: number;
-	repeatEvery: number;
 }
 
 /** `coach` reminds, `gate` refuses with the repair, `off` says nothing. */
@@ -116,7 +115,7 @@ export class TaskCoach {
 		enforce: "coach",
 		gateFailOpenAfter: 3,
 		stopOnBlock: true,
-		largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
+		largeLeaf: { budgetShare: 0.15, toolResults: 25 },
 		budget: null,
 	};
 	/** Non-exempt calls since the last user prompt. */

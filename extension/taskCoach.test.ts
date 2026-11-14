@@ -184,7 +184,7 @@ describe("gate", () => {
 describe("large leaf", () => {
 	const setup = () => {
 		const c = new TaskCoach();
-		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 3, repeatEvery: 2 }, budget: 1000 });
+		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 3 }, budget: 1000 });
 		c.started("w", ["1"]);
 		c.setList(list([t("1", "doing", "Big")]));
 		return c;
@@ -216,7 +216,7 @@ describe("large leaf", () => {
 
 	test("gate mode delivers large-leaf and floor notes on an outer result", () => {
 		const c = setup();
-		c.setPolicy({ orientationCalls: 0, enforce: "gate", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 2, repeatEvery: 2 }, budget: 1000 });
+		c.setPolicy({ orientationCalls: 0, enforce: "gate", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 2 }, budget: 1000 });
 		c.floorTap(["w/1"]);
 		expect(c.toolResult(true, 0)).toBeNull();
 		const note = c.toolResult(false, 0);
@@ -227,7 +227,7 @@ describe("large leaf", () => {
 
 	test("stays quiet for a leaf with no ceiling, and inside a nested call's own result", () => {
 		const c = new TaskCoach();
-		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 2, repeatEvery: 1 }, budget: null });
+		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 2 }, budget: null });
 		c.started("w", ["1"]);
 		c.setList(list([t("1", "doing", "Big")]));
 		const notes = Array.from({ length: 4 }, () => { c.callStarted(false); return c.toolResult(false, 0); });
@@ -239,7 +239,7 @@ describe("large leaf", () => {
 describe("floor tap", () => {
 	test("names the current leaf only when a pressure fold touched its span", () => {
 		const c = new TaskCoach();
-		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 1, toolResults: 99, repeatEvery: 10 }, budget: null });
+		c.setPolicy({ orientationCalls: 0, enforce: "coach", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 1, toolResults: 99 }, budget: null });
 		c.started("w", ["1"]);
 		c.setList(list([t("1", "doing", "Big")]));
 		c.floorTap(["w/2", "w/1.1"]);

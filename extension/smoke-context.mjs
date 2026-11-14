@@ -605,7 +605,7 @@ check("a large leaf taps on the result threshold, then only at the repeat interv
 
 	// A per-model override lowers the threshold and shortens the interval for this session's model.
 	const config = path.join(home, ".accordion", "config.json");
-	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", modelDefaults: { "openrouter/*": { tasks: { largeLeaf: { toolResults: 3, repeatEvery: 2 } } } } }));
+	fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", modelDefaults: { "openrouter/*": { tasks: { largeLeaf: { toolResults: 3 } } } } }));
 	const over = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-large-model-"));
 	const r2 = runtime([{ role: "user", content: "Work", timestamp: 1 }], { cwd: over, sessionId: "large-model" });
 	try {
@@ -617,6 +617,42 @@ check("a large leaf taps on the result threshold, then only at the repeat interv
 		assert.equal(taps.length, 2, `the per-model threshold and interval apply: ${JSON.stringify(taps)}`);
 		assert.match(taps[1], /It is still open/);
 	} finally { r2.close(); fs.rmSync(over, { recursive: true, force: true }); fs.rmSync(config, { force: true }); }
+});
+
+check("tasks status reports stale spans using the configured threshold", async () => {
+	const config = path.join(home, ".accordion", "config.json");
+	for (const threshold of [40, 100]) {
+		fs.writeFileSync(config, JSON.stringify({ defaultConductor: "none", tasks: { zombieSteps: threshold } }));
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "accordion-stale-"));
+		const messages = [{ role: "user", content: "Work", timestamp: 1 }];
+		const r = runtime(messages, { cwd: dir, sessionId: `stale-${threshold}` });
+		const call = async (id, args) => {
+			const result = await r.tools.tasks.execute(id, args, undefined, undefined, r.ctx);
+			messages.push({ role: "assistant", responseId: id, timestamp: 2, content: [{ type: "toolCall", id, name: "tasks", arguments: args }] },
+				{ role: "toolResult", toolCallId: id, toolName: "tasks", timestamp: 3, ...result, isError: false });
+			await r.request(messages);
+			return JSON.parse(result.content[0].text);
+		};
+		try {
+			await r.open();
+			await call("create", { action: "create", list: "w", title: "W", goals: ["Done"], tasks: [{ title: "A", acceptanceCriteria: ["A holds"] }, { title: "B", acceptanceCriteria: ["B holds"] }] });
+			await call("start1", { action: "start", list: "w", id: "1" });
+			const synthetic = (id, args, event) => {
+				messages.push({ role: "assistant", responseId: id, timestamp: 4, content: [{ type: "toolCall", id, name: "tasks", arguments: args }] },
+					{ role: "toolResult", toolCallId: id, toolName: "tasks", timestamp: 5, content: [{ type: "text", text: '{"ok":true}' }], details: { taskEvents: [event] }, isError: false });
+			};
+			synthetic("start2", { action: "start", list: "w", id: "2" }, { action: "start", list: "w", id: "2", task: { id: "2", title: "B" } });
+			synthetic("end2", { action: "complete", list: "w", id: "2" }, { action: "complete", list: "w", id: "2", task: { id: "2", title: "B", report: { outcome: "Done" } } });
+			for (let i = 0; i < 41; i++) {
+				const id = `work${i}`;
+				messages.push({ role: "assistant", responseId: id, timestamp: 6, content: [{ type: "toolCall", id, name: "bash", arguments: {} }] },
+					{ role: "toolResult", toolCallId: id, toolName: "bash", timestamp: 7, content: [{ type: "text", text: "ok" }], isError: false });
+			}
+			await r.request(messages);
+			const status = await call("status", { action: "status", list: "w" });
+			assert.deepEqual(status.stale, threshold === 40 ? ["1"] : undefined);
+		} finally { r.close(); fs.rmSync(dir, { recursive: true, force: true }); fs.rmSync(config, { force: true }); }
+	}
 });
 
 check("a stale consent answer never attaches a conductor into the replacement session", async () => {

@@ -36,6 +36,9 @@ import { KeelLiteConductor } from "../keel-lite/keel-lite";
 import { isHistory, oneLine, parseCarrier, partCarrier, priorEntry, render, shrinkDeepest, stepsCarrier, stepsKeyOfSummary, taskKeyOfSummary, toHistory, untrackedCarrier, visibleTags, type HistoryObj, type RecordObj } from "./records";
 
 export { taskKeyOfSummary };
+/** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
+export const ZOMBIE_STEPS = 40;
+
 
 export interface TaskfoldOptions {
 	/** Start an epoch once live tokens reach `high · budget`. Default 0.8. */
@@ -60,6 +63,8 @@ export interface TaskfoldOptions {
 	untracked?: { enabled: boolean; minSteps: number };
 	/** Fold old finished steps inside still-open tasks when pressure remains, so one long task cannot fill the context. */
 	steps?: { enabled: boolean; minSteps: number };
+	/** Tool calls after the last task event before an open task is reported stale. Default 40. */
+	zombieSteps?: number;
 }
 
 export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
@@ -73,6 +78,7 @@ export const TASKFOLD_DEFAULTS: Readonly<Required<TaskfoldOptions>> = {
 	floor: false,
 	untracked: { enabled: true, minSteps: 8 },
 	steps: { enabled: true, minSteps: 4 },
+	zombieSteps: ZOMBIE_STEPS,
 	harnessPatterns: [/^\s*<system-reminder>/i, /^\s*<system>/i, /^\s*<task-notification>/i, /^\s*<subagent[-_ ]result/i],
 };
 
@@ -122,8 +128,6 @@ const NEIGHBOUR_CHARS = 600;
 /** An extraction that has not answered by now is abandoned and the message stays raw. */
 const ROUTE_TIMEOUT_MS = 45_000;
 const ROUTE_MAX_OUTPUT_TOKENS = 1500;
-/** Tool calls after a task's last own event, while other tasks moved, before it counts as stale (SPEC-0002 §5.3). */
-export const ZOMBIE_STEPS = 40;
 const FINISH: Record<string, "done" | "failed" | "abandoned"> = { complete: "done", fail: "failed", abandon: "abandoned" };
 const EDIT_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
 const CHECK_RE = /\b(test|tests|check|lint|build|tsc|typecheck|smoke|pytest|vitest|jest|cargo|clippy|just|make)\b/;
@@ -534,6 +538,7 @@ export class TaskfoldConductor implements Conductor {
 		if (!Number.isSafeInteger(k.keepRecentTasks) || k.keepRecentTasks < 0 || !Number.isSafeInteger(k.recordTokens) || k.recordTokens < 1) throw new RangeError("taskfold: invalid recent-task or record-token limit");
 		if (!Number.isSafeInteger(k.untracked.minSteps) || k.untracked.minSteps < 1 || typeof k.untracked.enabled !== "boolean" || typeof k.floor !== "boolean") throw new RangeError("taskfold: invalid pressure-floor or untracked-work settings");
 		if (!Number.isSafeInteger(k.steps.minSteps) || k.steps.minSteps < 1 || typeof k.steps.enabled !== "boolean") throw new RangeError("taskfold: invalid open-task step settings");
+		if (!Number.isSafeInteger(k.zombieSteps) || k.zombieSteps < 1) throw new RangeError("taskfold: invalid stale-task step limit");
 		if (!isFoldTiming(k.timing)) throw new RangeError("taskfold: invalid timing mode");
 		this.verdicts = verdicts;
 	}
@@ -864,7 +869,7 @@ export class TaskfoldConductor implements Conductor {
 			}
 			const blocks = host.blocks();
 			const scanned = scanTaskSpans(blocks, (b) => this.textOf(b));
-			const stale = staleSpans(scanned, blocks, ZOMBIE_STEPS).map((s) => s.key);
+			const stale = staleSpans(scanned, blocks, this.k.zombieSteps).map((s) => s.key);
 			const open = scanned.filter((s) => s.status === null).map((s) => ({ span: s, tokens: blocks.reduce((n, b, i) => n + (s.intervals.some((r) => r.start <= i && i <= r.end) ? (b.liveTokens ?? (b.folded ? b.foldedTokens : b.tokens)) : 0), 0) })).sort((a, b) => b.tokens - a.tokens)[0];
 			const holder = open ? `open task ${open.span.key} (~${open.tokens} tokens)` : "protected, held or otherwise ineligible context";
 			host.setStatus(`Taskfold saturated: ${holder}; no safe fold is available.${stale.length ? ` Stale open task${stale.length > 1 ? "s" : ""}: ${stale.join(", ")}.` : ""}`, { epochs: this.epochs, groups: this.groupKeys(host).size, level: "error" });
@@ -1005,7 +1010,7 @@ export class TaskfoldConductor implements Conductor {
 			const stepsSince = resultsAfter[span.end + 1] ?? 0;
 			return { key: span.key, reason, stepsSince };
 		});
-		const zombie = diagnostics.find((d) => d.stepsSince > ZOMBIE_STEPS && !d.reason.includes("planned") && !d.reason.includes("already-folded"));
+		const zombie = diagnostics.find((d) => d.stepsSince > this.k.zombieSteps && !d.reason.includes("planned") && !d.reason.includes("already-folded"));
 		this.rawWarning = zombie ? `Taskfold: ${zombie.key} still raw after ${zombie.stepsSince} steps (${zombie.reason}).` : null;
 		host.debug?.({ type: "epoch", pressure, timing: policy.timing, cold, cache: policy.cache, units: units.length, tasks: diagnostics });
 		return units;

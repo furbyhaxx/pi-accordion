@@ -15,7 +15,7 @@ export const DEFAULT_PROTECT_TOKENS = 20_000;
 export interface ModelTaskDials {
 	enforce?: "coach" | "gate" | "off";
 	orientationCalls?: number;
-	largeLeaf?: { budgetShare?: number; toolResults?: number; repeatEvery?: number };
+	largeLeaf?: { budgetShare?: number; toolResults?: number };
 }
 
 /** Model defaults: human token amounts, finished-task timing and task protocol overrides. */
@@ -133,13 +133,10 @@ function sanitizeModelTaskDials(value: unknown): ModelTaskDials | undefined {
 	if (typeof raw.orientationCalls === "number" && Number.isInteger(raw.orientationCalls) && raw.orientationCalls >= 0) out.orientationCalls = raw.orientationCalls;
 	const large = raw.largeLeaf;
 	if (large && typeof large === "object" && !Array.isArray(large)) {
-		const part: { budgetShare?: number; toolResults?: number; repeatEvery?: number } = {};
+		const part: { budgetShare?: number; toolResults?: number } = {};
 		const l = large as Record<string, unknown>;
 		if (typeof l.budgetShare === "number" && l.budgetShare > 0 && l.budgetShare <= 1) part.budgetShare = l.budgetShare;
-		for (const count of ["toolResults", "repeatEvery"] as const) {
-			const v = l[count];
-			if (typeof v === "number" && Number.isInteger(v) && v > 0) part[count] = v;
-		}
+		if (typeof l.toolResults === "number" && Number.isInteger(l.toolResults) && l.toolResults > 0) part.toolResults = l.toolResults;
 		if (Object.keys(part).length) out.largeLeaf = part;
 	}
 	return Object.keys(out).length ? out : undefined;

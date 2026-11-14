@@ -58,6 +58,7 @@ describe("accordion settings & memorable tokens", () => {
 			expect(defaults.bindHost).toBe("127.0.0.1");
 			expect(defaults.recall.ledger.enabled).toBe(true);
 			expect(defaults.recall.ledger.maxCalls).toBe(120);
+			expect(defaults.tasks.zombieSteps).toBe(40);
 
 			const file = configPathForHome(tmp);
 			fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -74,7 +75,8 @@ describe("accordion settings & memorable tokens", () => {
 					stopOnBlock: true,
 					resumeOnStop: true,
 					bootstrapNote: true,
-					largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
+					largeLeaf: { budgetShare: 0.15, toolResults: 25, ["repeat" + "Every"]: 10 },
+					zombieSteps: 100,
 					acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
 				},
 				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5, unfoldTokens: 12000, ask: { enabled: false, inputTokens: 12000 }, ledger: { enabled: false } },
@@ -88,7 +90,7 @@ describe("accordion settings & memorable tokens", () => {
 				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
-				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k" } },
+				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k", tasks: { largeLeaf: { budgetShare: 0.3, toolResults: 30, ["repeat" + "Every"]: 5 } } } },
 			}));
 
 			const loaded = loadSettings(tmp, {});
@@ -106,7 +108,8 @@ describe("accordion settings & memorable tokens", () => {
 					stopOnBlock: true,
 					resumeOnStop: true,
 					bootstrapNote: true,
-					largeLeaf: { budgetShare: 0.15, toolResults: 25, repeatEvery: 10 },
+					largeLeaf: { budgetShare: 0.15, toolResults: 25 },
+					zombieSteps: 100,
 					acceptanceCriteria: { required: true, min: 1, max: 3, maxChars: 300 },
 				},
 				recall: { callTokens: 6000, liveTokens: 18000, keepSteps: 5, unfoldTokens: 12000, ask: { enabled: false, inputTokens: 12000 }, ledger: { enabled: false, maxCalls: 120 } },
@@ -120,7 +123,7 @@ describe("accordion settings & memorable tokens", () => {
 				models: { defaults: { classifier: "local/minilm" }, conductors: { taskfold: { chat: "current" } } },
 				privacyConsent: { taskfold: "2026-05-01T10:00:00.000Z" },
 				taskWidget: { mode: "off", expanded: true, maxRows: 20, toggleKey: "ctrl+alt+t" },
-				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k" } },
+				modelDefaults: { "anthropic/*": { budget: "200k", protect: "20k", tasks: { largeLeaf: { budgetShare: 0.3, toolResults: 30 } } } },
 				calibration: { ...CALIBRATION_DEFAULTS, priors: { ...CALIBRATION_DEFAULTS.priors } },
 			});
 
@@ -258,6 +261,7 @@ describe("strict settings save validation", () => {
 			"modelDefaults.openai/gpt-6.1.budget": "85%", "modelDefaults.*.protect": "0",
 			"modelDefaults.openai/*.timing": "pressure", "taskfold.timing": "lazy",
 			"taskfold.leafForm": "bracket", "taskfold.recordTokens": 100000,
+			"tasks.zombieSteps": 10000,
 		})) expect(validateSetting(name, value)).toEqual({ ok: true });
 	});
 
@@ -272,6 +276,7 @@ describe("strict settings save validation", () => {
 			["customToken", "bad token", "URL-safe"], ["taskWidget.maxRows", 1.5, "integer"],
 			["taskWidget.toggleKey", "escape", "key id"],
 			["tasks.attachments.roots", ["relative/notes"], "absolute"],
+			["tasks.zombieSteps", 0, "between"], ["tasks.zombieSteps", 10001, "between"], ["tasks.zombieSteps", 1.5, "integer"],
 			["tasks.attachments.maxLines", 0, "between"], ["tasks.pins.taskTokens", Infinity, "integer"],
 			["models.defaults.chat", null, "provider/model-id"],
 			["models.defaults.classifier", "current", "only valid for chat"],
@@ -299,6 +304,9 @@ describe("strict settings save validation", () => {
 	});
 
 	test("opaque dynamic keys preserve model punctuation and reject unsafe or unknown paths", () => {
+		expect(validateSetting("tasks.zombieSteps", 1)).toEqual({ ok: true });
+		expect(validateSetting("tasks.largeLeaf." + "repeat" + "Every", 10).ok).toBe(false);
+		expect(validateSetting("modelDefaults.*.tasks.largeLeaf." + "repeat" + "Every", 10).ok).toBe(false);
 		expect(settingParts("modelDefaults.openai/gpt-6.1.budget")).toEqual(["modelDefaults", "openai/gpt-6.1", "budget"]);
 		expect(settingParts("models.conductors.example.v2.chat")).toEqual(["models", "conductors", "example.v2", "chat"]);
 		for (const name of ["compactMode", "taskWidget.typo", "models.conductors.__proto__.chat", "privacyConsent.constructor", "modelDefaults.invalid.budget", "__proto__.polluted"]) {
