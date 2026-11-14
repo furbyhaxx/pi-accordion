@@ -120,7 +120,7 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 		let meta: SessionMeta = { format: "pi", title: "", cwd: "", model: "" };
 		const listeners = new Set<(e: HostEvent) => void | Promise<void>>();
 		const pendingProposes = new Map<number, { ops: Op[]; resolve: (r: TxnResult) => void }>();
-		const pendingCompletes = new Map<number, { resolve: (r: CompletionResult) => void; reject: (e: unknown) => void }>();
+		const pendingCompletes = new Map<number, { resolve: (r: CompletionResult) => void; reject: (e: unknown) => void; removeAbort?: () => void }>();
 
 		let ws: WSLike;
 		try {
@@ -180,7 +180,8 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 		function sendCompleteRequest(req: CompletionRequest): Promise<CompletionResult> {
 			return new Promise<CompletionResult>((resolve, reject) => {
 				const id = ++reqId;
-				pendingCompletes.set(id, { resolve, reject });
+				const pending: { resolve: (r: CompletionResult) => void; reject: (e: unknown) => void; removeAbort?: () => void } = { resolve, reject };
+				pendingCompletes.set(id, pending);
 				send({
 					type: "completeRequest",
 					reqId: id,
@@ -198,11 +199,15 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 					const onAbort = (): void => {
 						if (!pendingCompletes.has(id)) return; // already resolved/rejected — nothing to cancel
 						pendingCompletes.delete(id);
+						pending.removeAbort?.();
 						send({ type: "cancelComplete", reqId: id });
 						reject(signal.reason instanceof Error ? signal.reason : new Error("remote conductor: completion aborted"));
 					};
 					if (signal.aborted) onAbort();
-					else signal.addEventListener("abort", onAbort, { once: true });
+					else {
+						signal.addEventListener("abort", onAbort, { once: true });
+						pending.removeAbort = () => signal.removeEventListener("abort", onAbort);
+					}
 				}
 			});
 		}
@@ -260,6 +265,7 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 			}
 			pendingProposes.clear();
 			for (const [, p] of pendingCompletes) {
+				p.removeAbort?.();
 				p.reject(new Error("remote conductor: connection closed before completion resolved"));
 			}
 			pendingCompletes.clear();
@@ -407,6 +413,7 @@ export function runRemoteConductor(conductor: Conductor, opts: RemoteConductorOp
 					const p = pendingCompletes.get(msg.reqId);
 					if (!p) return;
 					pendingCompletes.delete(msg.reqId);
+					p.removeAbort?.();
 					if (msg.ok) p.resolve({ text: msg.text ?? "", model: msg.model ?? "", inputTokens: msg.inputTokens, outputTokens: msg.outputTokens, ...(msg.stopReason ? { stopReason: msg.stopReason } : {}) });
 					else p.reject(new Error(msg.error ?? "remote conductor: completion failed"));
 					break;

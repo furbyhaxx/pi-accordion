@@ -481,6 +481,63 @@ describe("runRemoteConductor — completeRequest round trip", () => {
 });
 
 describe("runRemoteConductor — completeRequest abort forwarding (S7)", () => {
+	it("removes completion abort listeners on success, failure, abort, and connection drain", async () => {
+		const { server, host, run } = await attachedFixture();
+		const controller = new AbortController();
+		const signal = controller.signal;
+		const add = signal.addEventListener.bind(signal);
+		const remove = signal.removeEventListener.bind(signal);
+		let listeners = 0;
+		signal.addEventListener = ((type, listener, options) => {
+			if (type === "abort") listeners++;
+			add(type, listener, options);
+		}) as typeof signal.addEventListener;
+		signal.removeEventListener = ((type, listener, options) => {
+			if (type === "abort") listeners--;
+			remove(type, listener, options);
+		}) as typeof signal.removeEventListener;
+
+		for (let i = 0; i < 200; i++) {
+			const pending = host.complete({ prompt: "summary", signal });
+			const req = await server.next<CompleteRequestMessage>();
+			server.send({ type: "completeResult", reqId: req.reqId, ok: true, text: "ok", model: "m" } satisfies CompleteResultMessage);
+			await pending;
+		}
+		expect(listeners).toBe(0);
+		const failed = host.complete({ prompt: "failure", signal });
+		const rejection = expect(failed).rejects.toThrow("failed");
+		const req = await server.next<CompleteRequestMessage>();
+		server.send({ type: "completeResult", reqId: req.reqId, ok: false, error: "failed" } satisfies CompleteResultMessage);
+		await rejection;
+		expect(listeners).toBe(0);
+
+		const aborted = host.complete({ prompt: "abort", signal });
+		const abortRejection = expect(aborted).rejects.toThrow();
+		await server.next<CompleteRequestMessage>();
+		controller.abort();
+		await abortRejection;
+		await server.next<CancelCompleteMessage>();
+		expect(listeners).toBe(0);
+		server.closeClient();
+		await run;
+
+		const second = await attachedFixture();
+		const drainController = new AbortController();
+		let removed = false;
+		const drainRemove = drainController.signal.removeEventListener.bind(drainController.signal);
+		drainController.signal.removeEventListener = ((type, listener, options) => {
+			if (type === "abort") removed = true;
+			drainRemove(type, listener, options);
+		}) as typeof drainController.signal.removeEventListener;
+		const draining = second.host.complete({ prompt: "drain", signal: drainController.signal });
+		const drainRejection = expect(draining).rejects.toThrow(/connection closed/);
+		await second.server.next<CompleteRequestMessage>();
+		second.server.closeClient();
+		await second.run;
+		await drainRejection;
+		expect(removed).toBe(true);
+	});
+
 	it("aborting the signal sends cancelComplete for that reqId and rejects the local complete()", async () => {
 		const { server, host, run } = await attachedFixture();
 
