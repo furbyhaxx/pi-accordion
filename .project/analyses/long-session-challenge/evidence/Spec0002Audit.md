@@ -56,7 +56,7 @@ Nothing else checked differs: §2.1 limits (200/600/5/300/3/8/300/2000/12×1000,
 
 ## Spec-declared future/open items
 
-The spec names no TBD/“not yet”/open question; line 21 defers tracking to project tasks and `BACKLOG.md` (`B-0001`, `B-0003` are open). What it does leave conditional or unverified:
+The spec names no TBD/“not yet”/open question; line 21 defers tracking to project tasks and `BACKLOG.md` (two items were open at the time of the audit). What it does leave conditional or unverified:
 
 - §3 "Verify that the installed Pi prompt builder includes this guidance for the active tool; a replacement system prompt may omit it." — code relies on `promptGuidelines` (`extension/accordion.ts:4577-4584`); not verified here.
 - §5.1 "If Pi does not persist `details` for reloaded sessions, the scan falls back to the current prose regexes" — contigency; the regexes exist (`taskfold.ts:290-330`).

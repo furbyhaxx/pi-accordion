@@ -3,17 +3,17 @@ document:
   type: "analysis"
   id: "ANA-long-session-challenge"
   title: "Challenge pass: logic cost and long-session usability"
-  description: "Ranked findings of the 2026-11-14 challenge pass over Taskfold, the other conductors and the context hook, their status, and the replay numbers for sessions above 1M tokens"
-  status: "draft"
-  revision: 1
+  description: "Ranked findings of the 2026-11-14 challenge pass over Taskfold, the other conductors and the context hook, how each one was closed, task tracking per model family, and the replay numbers for sessions above 1M tokens"
+  status: "published"
+  revision: 2
   created_at: "2026-11-14T15:28:31+01:00"
-  updated_at: "2026-11-14T15:28:31+01:00"
+  updated_at: "2026-11-14T17:58:53+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 1
-      reason: "document creation"
-      changes: ["findings from four code reviews, three spec audits, one docs audit and one diverge round"]
+    - revision: 2
+      reason: "every finding is closed"
+      changes: ["status of every finding with its commit or reason", "task tracking by model family", "final replay numbers of both full sessions and of keel-lite"]
 ---
 
 # Challenge pass: logic cost and long-session usability
@@ -24,11 +24,12 @@ tasks, 1,500+ model requests, several resumes.
 Method: four read-only code reviews at `955b930` (Taskfold cost, hook and Truth, other conductors,
 long-session use), audits of SPEC-0001, SPEC-0002, SPEC-0003 and the docs against the code, one
 `diverge` round on the fold-unit question, and a replay of real Pi sessions through the real
-extension handlers (`extension/replay-session.mjs`). The full reviewer reports are in `evidence/`.
+extension handlers (`extension/replay-session.mjs`). The reviewer reports and the spec audits are in
+`evidence/`; the line numbers they cite are those of `955b930`.
 Magnitudes in the tables are estimates from reading unless the replay section states a measurement.
 
-Status values: `open` (carried by `.project/plans/0007-long-session-hardening/plan.md`),
-`fixed <commit>`, `backlog <id>` (stays, with the reason in that item), `no change` (with the reason).
+Status values: `fixed <commit>`, `no change` (with the reason), `dropped` (with the reason). No
+finding is open and none went to the backlog.
 
 ## Hot path (hook, Truth, wire)
 
@@ -105,7 +106,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | U11 | The task views rebuild the session tree on every render and key | `extension/tui/taskViews.ts:473-486`, `taskTranscript.ts:243-265` | fixed 1ea14be: ten builds of 300 tasks over 10,000 blocks took 1,152 ms, now 257 ms |
 | U12 | Fact extraction has per-task caps but no session budget; parents reread their children | `extension/accordion.ts:4792-4815`, `core/factLedger.ts:27-33` | fixed b28d6c1, 3576531: `recall.ledger.maxCalls` (default 120), own entries only, no rescan while the folded tasks are unchanged |
 | U13 | Every transcript dump format carries all task metadata; there is no compact export | `extension/tui/transcriptDump.ts:221-283` | fixed 4d102a3: `--compact` |
-| U14 | Agents declare only 56% of their work as tasks (Claude 0%, GLM rejects 96% under the gate); undeclared work folds only under pressure (B-0001) | `.project/plans/0006-taskfold-reliability/plan.md` | fixed 1969b98 for the cost side: undeclared work folds with the turn (U5). Full replay of the 2M-token session: live tokens mean 66,391 to 56,066, final 64,086 to 47,118, characters sent over all requests 2.61 G to 1.87 G (−28%), invalidated characters 37.7 M to 38.5 M, no request over budget before or after. How often each model family declares tasks is measured again for B-0001 |
+| U14 | Agents declare only 56% of their work as tasks (Claude 0%, GLM rejects 96% under the gate); undeclared work folds only under pressure | `conductors/in-process/taskfold/taskfold.ts` (`untracked`) | fixed 1969b98 for the cost side: undeclared work folds with the turn (U5). Full replay of session B: live tokens mean 66,391 to 56,066, final 64,086 to 47,118, characters sent over all requests 2.61 G to 1.87 G (−28%), invalidated characters 37.7 M to 38.5 M, no request over budget before or after. How often each model family declares tasks: section "Task tracking by model family" |
 | U15 | The agent is never told that nothing foldable is left; saturation is a footer status | `taskfold.ts:785` | fixed d488c9b, d41eb0a: the next tool result carries one note per saturation episode, naming the open task that holds the context and how to end it; at most one note per 50 tool results |
 | U16 | `complete` on a blocked task is refused; the agent must resume first | `extension/tasks.ts:887-890` | no change: SPEC-0001 §4.15 allows `complete` only from `doing`, and the refusal names the repair (`start`, then `complete`). One extra call does not justify changing the end-state contract in store, tool description, Taskfold and views |
 | U17 | `unfold` restores in place and rewrites an early part of the wire (diverge: deliver at the tail) | `core/agentView.ts`, `extension/accordion.ts` unfold tool | no change: measured over 74 sessions of November 2026, agents called `unfold` 0 times and `recall` 51 times (20 sessions). `recall` already delivers at the tail; `unfold` is capped at `recall.unfoldTokens` |
@@ -117,11 +118,11 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | Id | Finding | Where | Status |
 |---|---|---|---|
 | S1 | SPEC-0001 and the code differ in about 30 places: compaction (`dryRun` folds for real, undo ignores groups, no bake fallback on threshold, bake summary format), web parity (settings result, task tree, compact preview), panel rendering, footer | `evidence/Spec0001Audit.md` | fixed: code rows (compaction 2a7f65c, panel 9ca4f33, web f4e7102); spec text 50eb481. Of the seven rows left after that, the code changed in three (1012989: `→` cursor and bold label on the selected timeline row, `▣` in the group colour, the door, LAN and token words on the Settings Web UI rows) and the spec states four as built (be24bf4: context bar width and legend, Tasks row, plain-text URL, locked rows) |
-| S2 | SPEC-0002 and the code differ in about 25 places, mostly stale spec text; code gaps: `stale` reporting, `zombieSteps` setting, one stable fold code per task, dropped routing operations not logged, anchor-ref pin sources | `evidence/Spec0002Audit.md` | open: dropped routing operations logged 3514638; `tasks.zombieSteps` and `stale` in tool results 50e883f; `stale` in the widget and the panel list d5c4fa3; one task code for partly held spans dae3f5f; spec text is being rewritten |
+| S2 | SPEC-0002 and the code differ in about 25 places, mostly stale spec text; code gaps: `stale` reporting, `zombieSteps` setting, one stable fold code per task, dropped routing operations not logged, anchor-ref pin sources | `evidence/Spec0002Audit.md` | fixed: dropped routing operations logged 3514638; `tasks.zombieSteps` and `stale` in tool results 50e883f; `stale` in the widget and the panel list d5c4fa3; one task code for partly held spans dae3f5f; spec text 27714ad (contracts, records, metrics, widget rows and legacy wording as built, notices as custom blocks, no citations of analyses or plans) |
 | S3 | SPEC-0003 edge differences: unknown regex flags accepted, silent 200-character query cut, codeless overflow shape, tool descriptions narrower than the contract; `recall({ask})` bypasses `serveRecall` | `evidence/Spec0003DocsDrift.md` | fixed 8a37999 |
 | S4 | Docs drift: conductor count and list, "folding off by default" versus `autoArm: true`, six tabs documented as five, removed `ACCORDION_COMPLETION_LOG`, missing shims, stale `docs/` pages | `evidence/Spec0003DocsDrift.md` | fixed de83b38. Two pages under `docs/` are identical to the upstream project (`docs/conductor-rework-roadmap.md`, `docs/explorations/relevance-signals/README.md`) and stay as the upstream's history |
 | D1 | Seven TypeScript errors in the extension's strict check and no committed type-check command | `conductors/in-process/agedSummaryConductor.ts`, `extension/accordion.ts` | fixed bf817ce |
-| D2 | The orientation-modes harness imports symbols Taskfold no longer exports | `.project/analyses/orientation-modes/harness/` | open |
+| D2 | The orientation-modes harness imports symbols Taskfold no longer exports | the orientation-modes analysis (`harness/`) | fixed: the analysis and its harness are deleted with the other consumed analyses; its experiment branch was resolved before and its results are in SPEC-0002 |
 | D3 | Bug, found by the new type check: recall release and the unfold ceiling read `settings.taskfold.high`, a setting that no longer exists, so both compared against `NaN` and never acted | `extension/accordion.ts` (`taskfoldHigh`) | fixed ad8ed21 |
 | D4 | Carried over from the history-conductor analyses: a proposed held-out trial of keel-note as memory for a coordinator session in other projects | none | dropped: it is a trial plan for other projects' sessions and nothing in this repository waits for it. Its code findings are tracked here as C4 and C13 (fixed), C14 and U1 |
 
@@ -133,7 +134,7 @@ agent declaring its work. Six frames, 36 ideas. Position taken:
 - **Host-closed spans** (U5, U14): the host seals undeclared work itself on signals it can see (a new
   user message after a finished reply, a size cap) and folds it at the tail, where the cache miss is
   small. Taskfold already folds untracked runs and open-task steps, but only under pressure and only
-  in long uninterrupted runs. This is the lever for B-0001: coverage stops depending on discipline.
+  in long uninterrupted runs. This is the lever for task tracking: coverage stops depending on discipline.
 - **Tail delivery for unfold** (U17) and **anchor echo** (U18) attack the disown and re-read
   behaviour without touching the cached prefix.
 - Rejected as traps: waiting for pressure and then folding early history, per-turn verbosity decay of

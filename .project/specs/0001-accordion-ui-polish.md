@@ -5,23 +5,22 @@ document:
   title: "Accordion UI polish: panel, settings, compaction, task widget and web parity"
   description: "Decided design for the Pi-native Accordion terminal panel, synced and complete settings, the /compact redesign, the Taskfold widget and tool rows, and the matching web app surfaces."
   status: "published"
-  revision: 27
+  revision: 28
   created_at: "2026-11-05T09:30:40+01:00"
-  updated_at: "2026-11-14T17:22:00+01:00"
+  updated_at: "2026-11-14T17:58:53+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 27
-      reason: "align specification details with current implementation; the widget sketch is fully carried by §4"
-      changes: ["align panel, settings, compaction, footer, protocol and web behavior", "drop the citation of the user's widget sketch", "context bar width, Tasks row, Web UI URL and locked rows as built; the timeline's selected cell is inverse"]
+    - revision: 28
+      reason: "the gaps between this spec and the code are closed"
+      changes: ["drop the pointer to the hardening plan"]
 ---
 
 # Accordion UI polish
 
 Inputs: the approved chat wireframes of 2026-11-05 (reproduced here) and the house UI
 conventions (`~/.pig/agent/skills/extending-pig/references/ui-ux.md` and, for the panel,
-`references/dashboard-standard.md`). Open gaps between this spec and the code are carried by
-`.project/plans/0007-long-session-hardening/plan.md`.
+`references/dashboard-standard.md`).
 
 "MUST" marks a requirement an implementation is checked against. Everything else is explanation.
 

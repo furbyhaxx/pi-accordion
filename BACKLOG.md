@@ -1,2 +1,0 @@
-- B-0001 feature P2 — Taskfold reliability: token truth, sequential order, enforcement, prompts → .project/backlog/B-0001-taskfold-reliability.md
-- B-0005 debt P1 — Long-session hardening and spec conformance → .project/backlog/B-0005-long-session-hardening.md
