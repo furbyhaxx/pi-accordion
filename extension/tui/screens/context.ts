@@ -187,12 +187,12 @@ export function createContextTab(shell: Shell): PanelTab {
 		for (let i = 0; i < visible.length; i++) {
 			const row = visible[i]!;
 			const selected = top + i === rowIndex;
-			const mark = selected ? "›" : " ";
+			const mark = selected ? "→" : " ";
 			const turn = row.system ? "⛨" : String(row.turn);
 			const strip = timelineStrip(row, cols.blocks, selected ? cellIndex : -1, theme);
 			const segments = [
 				theme.fg(selected ? "accent" : "dim", `${mark}${turn.padStart(cols.turn - 1)}`),
-				...(cols.prompt ? [fitSegments([clean(row.label)], cols.prompt)] : []),
+				...(cols.prompt ? [fitSegments([selected ? theme.bold(clean(row.label)) : clean(row.label)], cols.prompt)] : []),
 				strip,
 				theme.fg("muted", formatCompactTokens(row.live).padStart(cols.live)),
 				...(cols.full ? [theme.fg("dim", formatCompactTokens(row.full).padStart(cols.full))] : []),
@@ -218,7 +218,7 @@ export function createContextTab(shell: Shell): PanelTab {
 	const timelineStrip = (row: TimelineRow, width: number, selectedCell: number, theme: ReturnType<Shell["theme"]>): string => {
 		const glyphs = row.cells.map((cell, i) => {
 			const group = cell.groupId ? host.truth()?.groups.find((g) => g.id === cell.groupId) : undefined;
-			const painted = cell.glyph === "▣" ? theme.fg("accent", "▣") : colorKind(cell.kind, cell.glyph, cell.folded, !!group?.folded);
+			const painted = colorKind(cell.kind, cell.glyph, cell.folded, cell.glyph === "▣" || !!group?.folded);
 			return `${cell.boundary ? theme.fg("warning", "┃") : ""}${i === selectedCell ? (theme.inverse?.(painted) ?? painted) : painted}${cell.bolted ? theme.fg("dim", "!") : ""}`;
 		});
 		const joined = glyphs.join("");

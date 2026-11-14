@@ -4529,6 +4529,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					bindHost: displayWebHost(),
 					port,
 					doorPort: resolvedDoorPort(),
+					door: doorHeld ? "held" : resolvedDoorPort() === null || doorForeign || !doorSecret ? "unavailable" : "other",
 					token: activeBrowserToken(),
 					clients: clients.size,
 				}),
