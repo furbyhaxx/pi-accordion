@@ -3,6 +3,7 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { Task, TaskList } from "../tasks";
 import { buildTaskTree, layoutTaskTree, summarizeTasks, type TaskRow } from "./taskTree";
 import { TaskWidgetController, TaskWidgetComponent, applyTaskWidgetHit, foldedTaskIds, formatDuration, pickTaskList, renderTaskWidget, type TaskWidgetView, type WidgetTheme } from "./taskWidget";
+import { Truth } from "../../core/truth";
 import type { TaskWidgetSettings } from "../settings";
 
 const T0 = Date.parse("2026-11-05T08:00:00Z");
@@ -214,6 +215,48 @@ describe("task widget", () => {
 		const l = list([task("1", "done", "P", 0, 60), task("1.1", "done", "ran", 0, 30), { ...task("1.2", "abandoned", "never ran"), report: { outcome: "x" } }, task("1.3", "abandoned", "ran, then dropped", 30, 40)]);
 		expect([...foldedTaskIds(l, new Map([["1", { full: 1, live: 1 }]]))]).toEqual(["1"]);
 		expect([...foldedTaskIds(l, new Map(["1", "1.1", "1.3"].map((id) => [id, { full: 1, live: 1 }])))].sort()).toEqual(["1", "1.1", "1.3"]);
+	});
+
+	test("marks an open task stale on its own row, within the width, computed once per model", () => {
+		let n = 0;
+		const bs: ConstructorParameters<typeof Truth>[0]["blocks"] = [];
+		const call = (tool: string, args: Record<string, unknown>, result: string) => {
+			const c = `c${++n}`, order = bs.length;
+			bs.push({ id: `a:${c}:p0`, kind: "tool_call", text: `${tool} ${JSON.stringify(args)}`, toolName: tool, callId: c, tokens: 10, turn: 0, order, override: null, autoFolded: false, by: null });
+			bs.push({ id: `r:${c}`, kind: "tool_result", text: result, toolName: tool, callId: c, tokens: 10, turn: 0, order: order + 1, override: null, autoFolded: false, by: null });
+		};
+		call("tasks", { action: "start", list: "secrets", id: "1" }, 'Started secrets/1 "Forgotten chore".');
+		call("tasks", { action: "start", list: "secrets", id: "2" }, 'Started secrets/2 "Quick".');
+		call("tasks", { action: "complete", list: "secrets", id: "2", report: { outcome: "ok" } }, "secrets/2 is done.");
+		call("tasks", { action: "start", list: "secrets", id: "3" }, 'Started secrets/3 "Running now".');
+		for (let i = 0; i < 41; i++) call("bash", { command: `echo ${i}` }, "ok");
+		const truth = new Truth({ meta: { format: "pi", title: "t", cwd: "", model: "" }, lineCount: 0, skipped: 0, blocks: bs });
+		truth.setProtect(0);
+		let builds = 0;
+		const projectContext = truth.projectContext.bind(truth);
+		truth.projectContext = (options) => { builds++; return projectContext(options); };
+		const tasks = [task("1", "doing", "Forgotten chore", 0), task("2", "done", "Quick", 1, 2), task("3", "doing", "Running now", 3)];
+		let component: TaskWidgetComponent | null = null;
+		const controller = new TaskWidgetController({
+			lists: () => [list(tasks)], session: () => "s1", truth: () => truth, enabled: () => true, staleAfter: () => 40,
+			settings: () => ({ mode: "auto", expanded: true, maxRows: 12, toggleKey: "alt+t" }),
+			saveExpanded() {},
+		});
+		controller.attach({ setWidget: (_key, factory) => { if (factory) component = factory({ requestRender() {} }, plain); } });
+		if (!component) throw new Error("widget was not installed");
+		for (const width of [36, 57, 80, 140]) {
+			const lines = (component as TaskWidgetComponent).render(width);
+			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
+			const row1 = lines.find((l) => l.includes("Forgotten"));
+			expect(row1).toBeDefined();
+			expect(row1).toContain("stale");
+			expect(lines.find((l) => l.includes("Running"))).not.toContain("stale");
+			expect(lines.find((l) => l.includes("Quick"))).not.toContain("stale");
+		}
+		const afterFirst = builds;
+		for (let i = 0; i < 10; i++) (component as TaskWidgetComponent).render(80);
+		expect(builds).toBe(afterFirst);
+		controller.detach();
 	});
 
 	test("an invalid list produces a visible cached warning even without a readable list", () => {

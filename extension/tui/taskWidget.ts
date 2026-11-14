@@ -6,7 +6,7 @@
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type { TuiMouseEvent, TuiMouseEventResult } from "@earendil-works/pi-tui";
 import type { Truth } from "../../core/truth";
-import { scanTaskSpans, taskKeyOfSummary } from "../../conductors/in-process/taskfold/taskfold";
+import { scanTaskSpans, staleSpans, taskKeyOfSummary, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import { blockLabel, currentBlock, type Task, type TaskList } from "../tasks";
 import type { TaskWidgetSettings } from "../settings";
 import { fitSegments } from "./chrome";
@@ -27,6 +27,8 @@ export interface TaskWidgetModel {
 	folded: ReadonlySet<string>;
 	/** Tokens of each folded task's own group(s), at full size and as sent; subtasks folded inside a parent have none. */
 	foldTokens?: ReadonlyMap<string, FoldTokens>;
+	/** Ids of this list's open tasks that went `zombieSteps` tool calls without a task event while other tasks ran. */
+	stale?: ReadonlySet<string>;
 	/** Tokens of this session's task spans at full size and as currently sent; null without spans. */
 	tokens: { full: number; live: number } | null;
 }
@@ -132,6 +134,9 @@ export function taskNote(task: Task): string {
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
+/** The row's trailing `stale` flag, in the elapsed-time position and separator. */
+export const staleFlag = (theme: WidgetTheme): string => theme.fg("warning", " · stale");
+
 const arrow = (f: FoldTokens) => `${formatCompactTokens(f.full)}→${formatCompactTokens(f.live)}`;
 
 /** Folded tasks among `ids` and their subtasks that own a group, with their summed tokens. */
@@ -158,7 +163,7 @@ function leafCounts(node: TaskNode): { done: number; failed: number; abandoned: 
 	return counts;
 }
 
-function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, theme: WidgetTheme, blinkOn: boolean, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
+function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, theme: WidgetTheme, blinkOn: boolean, folds: ReadonlyMap<string, FoldTokens> | undefined, stale: boolean): string {
 	const t = row.node.task;
 	const counts = leafCounts(row.node);
 	const inconsistent = isFinished(t) && counts.pending > 0;
@@ -175,7 +180,9 @@ function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, the
 	const short = [progress, inner?.count ? `${inner.count}≡` : ""].filter(Boolean);
 	const marker = parts.length ? theme.fg("muted", ` (${parts.join(" · ")})`) : "";
 	const shortMarker = short.length ? theme.fg("muted", ` (${short.join(" · ")})`) : "";
-	return fitRow(left, title, [duration + marker, noteText + marker, noteText + shortMarker, shortMarker], width);
+	if (!stale) return fitRow(left, title, [duration + marker, noteText + marker, noteText + shortMarker, shortMarker], width);
+	const flag = staleFlag(theme);
+	return fitRow(left, title, [duration + flag + marker, noteText + flag + marker, noteText + flag + shortMarker, flag + shortMarker, shortMarker], width);
 }
 
 function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme, folds: ReadonlyMap<string, FoldTokens> | undefined, capped: string | null): string {
@@ -199,7 +206,11 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 			const waiting = !sum.current && cur === sum.blocked;
 			const lead = sum.current ? "" : waiting ? `${theme.fg("warning", GLYPH.blocked)} ` : theme.fg("dim", "next ");
 			const left = `  ${theme.fg("dim", "⎿")} ${lead}${theme.fg("muted", cur.task.id)} `;
-			const meta = waiting ? [theme.fg("warning", ` · ${taskNote(cur.task)}`)] : d !== null ? [theme.fg("dim", ` · ${formatDuration(d)}`)] : [];
+			let meta = waiting ? [theme.fg("warning", ` · ${taskNote(cur.task)}`)] : d !== null ? [theme.fg("dim", ` · ${formatDuration(d)}`)] : [];
+			if (model.stale?.has(cur.task.id)) {
+				const flag = staleFlag(theme);
+				meta = meta.length ? [meta[0] + flag, flag, meta[0]] : [flag];
+			}
 			lines.push(fitRow(left, clean(cur.task.title), meta, width));
 		}
 		return { lines, hits: lines.map(() => ({ kind: "header" }) as const) };
@@ -217,7 +228,7 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 			lines.push(hiddenRowLine(row, width, theme, model.foldTokens, capped ? (view.toggleKey ?? "alt+t") : null));
 			hits.push(capped ? null : { kind: "reveal", ids: row.ids });
 		} else {
-			lines.push(taskRowLine(row, width, theme, blinkOn, model.foldTokens));
+			lines.push(taskRowLine(row, width, theme, blinkOn, model.foldTokens, !!model.stale?.has(row.node.task.id)));
 			hits.push(row.node.children.length ? { kind: "toggle", id: row.node.task.id, open: row.open } : null);
 		}
 	}
@@ -253,10 +264,9 @@ export function foldedTaskIds(list: TaskList, folds: ReadonlyMap<string, FoldTok
 }
 
 /** Tokens of each of `list`'s tasks that owns folded Taskfold groups, summed over its parts. */
-export function foldedTaskTokens(list: TaskList, truth: Truth): Map<string, FoldTokens> {
+export function foldedTaskTokens(list: TaskList, truth: Truth, spans: readonly TaskSpan[] = scanTaskSpans(truth.blocks, (b) => b.text)): Map<string, FoldTokens> {
 	const out = new Map<string, FoldTokens>();
 	const charges = new Map(truth.projectContext().flatMap((p) => p.members.map((b) => [b.id, b] as const)));
-	const spans = scanTaskSpans(truth.blocks, (b) => b.text);
 	for (const task of list.tasks) {
 		const key = `${list.slug}/${task.id}`;
 		const refs = taskFoldRefs(truth, key);
@@ -273,8 +283,8 @@ export function foldedTaskTokens(list: TaskList, truth: Truth): Map<string, Fold
 }
 
 /** Exact additive charges of this list's intervals and the carriers snapped around them. */
-export function taskSpanTokens(list: TaskList, truth: Truth): { full: number; live: number } | null {
-	const spans = scanTaskSpans(truth.blocks, (b) => b.text).filter((s) => s.list === list.slug);
+export function taskSpanTokens(list: TaskList, truth: Truth, allSpans: readonly TaskSpan[] = scanTaskSpans(truth.blocks, (b) => b.text)): { full: number; live: number } | null {
+	const spans = allSpans.filter((s) => s.list === list.slug);
 	if (!spans.length) return null;
 	const covered = new Set(truth.blocks.filter((_b, i) => spans.some((s) => spanContains(s, i))).map((b) => b.id));
 	let full = 0, live = 0;
@@ -363,6 +373,8 @@ export interface TaskWidgetDeps {
 	/** Whether the attached conductor provides the `tasks` tool. */
 	enabled(): boolean;
 	settings(): TaskWidgetSettings;
+	/** `tasks.zombieSteps`: tool calls without a task event after which an open task is stale; absent or 0 marks none. */
+	staleAfter?(): number;
 	/** The user expanded or collapsed the tree; the state is remembered for later sessions. */
 	saveExpanded(expanded: boolean): void;
 }
@@ -530,10 +542,13 @@ export class TaskWidgetController {
 		const list = this.list;
 		if (!list) return null;
 		const truth = this.deps.truth();
-		const key = `${list.slug}|${list.updatedAt}|${truth?.rev ?? -1}|${truth?.blocks.length ?? 0}`;
+		const steps = this.deps.staleAfter?.() ?? 0;
+		const key = `${list.slug}|${list.updatedAt}|${truth?.rev ?? -1}|${truth?.blocks.length ?? 0}|${steps}`;
 		if (this.cache?.key === key) return this.cache.model;
-		const foldTokens = truth ? foldedTaskTokens(list, truth) : new Map<string, FoldTokens>();
-		const model: TaskWidgetModel = { list, folded: foldedTaskIds(list, foldTokens), foldTokens, tokens: truth ? taskSpanTokens(list, truth) : null };
+		const spans = truth ? scanTaskSpans(truth.blocks, (b) => b.text) : [];
+		const foldTokens = truth ? foldedTaskTokens(list, truth, spans) : new Map<string, FoldTokens>();
+		const stale = truth && steps > 0 ? new Set(staleSpans(spans, truth.blocks, steps).filter((s) => s.list === list.slug).map((s) => s.id)) : new Set<string>();
+		const model: TaskWidgetModel = { list, folded: foldedTaskIds(list, foldTokens), foldTokens, stale, tokens: truth ? taskSpanTokens(list, truth, spans) : null };
 		this.cache = { key, model };
 		return model;
 	}

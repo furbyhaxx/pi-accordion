@@ -8,7 +8,7 @@ import { matchesKey, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { foldCode, wireFoldable } from "../../core/digest";
 import type { ClampReason, Op } from "../../core/ops";
 import type { Truth } from "../../core/truth";
-import { recordFacts, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
+import { recordFacts, staleSpans, type TaskSpan } from "../../conductors/in-process/taskfold/taskfold";
 import type { Verdict } from "../../conductors/in-process/taskfold/verdicts";
 import { blockLabel, claimState, type Task, type TaskList } from "../tasks";
 import { holderLabel } from "../taskBinding";
@@ -70,6 +70,8 @@ export interface TaskViewsHost {
 	truth(): Truth | null;
 	verdict(id: string): Verdict | undefined;
 	threshold(): number | null;
+	/** `tasks.zombieSteps`; absent or 0 marks no task stale. */
+	staleAfter?(): number;
 	lists(): TaskList[];
 	invalid?(): readonly string[];
 	folding?(): boolean;
@@ -89,6 +91,8 @@ export interface ViewData {
 	theme: WidgetTheme;
 	now: number;
 	charges?: ReadonlyMap<TaskSpan, Tokens>;
+	/** Keys (`<list>/<id>`) of open tasks reported stale. */
+	stale?: ReadonlySet<string>;
 }
 
 function spanOf(data: ViewData, key: string): TaskSpan | undefined {
@@ -118,15 +122,18 @@ export function listNodes(list: TaskList, truth: Truth | null, data: ViewData, f
 		const own = folds.get(task.id);
 		const inner = [...folds.entries()].filter(([id, f]) => id.startsWith(`${task.id}.`) && f.complete !== false);
 		const note = taskNote(task);
+		const stale = !!data.stale?.has(key);
 		const meta = [
+			stale ? t.fg("warning", "stale") : "",
 			note ? t.fg(task.status === "blocked" ? "warning" : "dim", note) : "",
 			n.children.length ? `${done}/${n.children.length}` : "",
 			ms !== null ? formatDuration(ms) : "",
 			own && own.complete !== false ? t.fg("muted", "≡") : inner.length ? t.fg("muted", `≡${inner.length}`) : "",
 			task.autoClosed ? t.fg("dim", "closed automatically") : "",
+			// the row drops meta from the end when narrow, so the stale flag leads
 		].filter(Boolean);
 		if (ms !== null && durations) {
-			const at = (note ? 1 : 0) + (n.children.length ? 1 : 0);
+			const at = (stale ? 1 : 0) + (note ? 1 : 0) + (n.children.length ? 1 : 0);
 			durations.push((now) => { const elapsed = taskDuration(task, now); if (elapsed !== null) meta[at] = formatDuration(elapsed); });
 		}
 		return {
@@ -406,7 +413,7 @@ export class TaskViews {
 	private stack: Screen[];
 	private stale = true;
 	private rows = 10;
-	private cache: { truth: Truth; rev: number; folding: boolean; data: { src: TranscriptSource; spans: TaskSpan[]; charges: Map<TaskSpan, Tokens> } } | null = null;
+	private cache: { truth: Truth; rev: number; folding: boolean; steps: number; data: { src: TranscriptSource; spans: TaskSpan[]; stale: ReadonlySet<string>; charges: Map<TaskSpan, Tokens> } } | null = null;
 	private listsSnapshot: TaskList[] = [];
 	private invalidLists: readonly string[] = [];
 	private byBlock = new Map<string, TBlock>();
@@ -442,14 +449,16 @@ export class TaskViews {
 			this.invalidLists = this.host.invalid?.() ?? [];
 			const truth = this.host.truth();
 			const folding = this.host.folding?.() ?? true;
-			const changed = !truth || this.cache?.truth !== truth || this.cache.rev !== truth.rev || this.cache.folding !== folding;
+			const steps = this.host.staleAfter?.() ?? 0;
+			const changed = !truth || this.cache?.truth !== truth || this.cache.rev !== truth.rev || this.cache.folding !== folding || this.cache.steps !== steps;
 			if (!truth) {
 				this.cache = null;
 				this.byBlock.clear();
 			} else if (changed) {
 				const src = transcriptSource(truth, (id) => this.host.verdict(id), this.host.threshold(), { folding, lists, listIssues: this.invalidLists });
 				const spans = transcriptSpans(src);
-				this.cache = { truth, rev: truth.rev, folding, data: { src, spans, charges: spanTokenIndex(src, spans) } };
+				const stale = new Set(steps > 0 ? staleSpans(spans, src.blocks, steps).map((s) => s.key) : []);
+				this.cache = { truth, rev: truth.rev, folding, steps, data: { src, spans, stale, charges: spanTokenIndex(src, spans) } };
 				this.byBlock = new Map(src.blocks.map((b) => [b.id, b]));
 			}
 			if (changed || lists !== previousLists) {
@@ -474,7 +483,7 @@ export class TaskViews {
 	private data(): ViewData {
 		const src = this.cache ? { ...this.cache.data.src, lists: this.listsSnapshot, listIssues: this.invalidLists,
 			verdict: (id: string) => this.host.verdict(id), threshold: this.host.threshold() } : null;
-		return { src, spans: this.cache?.data.spans ?? [], charges: this.cache?.data.charges, theme: this.ui.theme(), now: Date.now() };
+		return { src, spans: this.cache?.data.spans ?? [], charges: this.cache?.data.charges, stale: this.cache?.data.stale, theme: this.ui.theme(), now: Date.now() };
 	}
 
 	private list(slug: string): TaskList | undefined {
