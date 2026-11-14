@@ -105,6 +105,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | U16 | `complete` on a blocked task is refused; the agent must resume first | `extension/tasks.ts:887-890` | no change: SPEC-0001 §4.15 allows `complete` only from `doing`, and the refusal names the repair (`start`, then `complete`). One extra call does not justify changing the end-state contract in store, tool description, Taskfold and views |
 | U17 | `unfold` restores in place and rewrites an early part of the wire (diverge: deliver at the tail) | `core/agentView.ts`, `extension/accordion.ts` unfold tool | no change: measured over 74 sessions of November 2026, agents called `unfold` 0 times and `recall` 51 times (20 sessions). `recall` already delivers at the tail; `unfold` is capped at `recall.unfoldTokens` |
 | U18 | Agents re-read or redo folded work instead of recalling it (diverge: echo the fold code when a tool call touches a folded task's files) | none yet | no change: the folded task's record stays in the context and lists the changed and verified paths with its recall code, and reading the current file is the right action after a change. An extra line on each such read would repeat the record |
+| U19 | Carried over from the session-failures analysis: does a usage correction another extension makes at `message_end` reach Accordion's token receipt? | Pi `core/extensions/runner.js` (`emitMessageEnd`), `extension/accordion.ts` (`message_end`, `maybeObserveCalibration`) | no change: Pi chains `message_end` handlers in load order, so Accordion sees the correction only from an extension loaded before it. A receipt built from uncorrected numbers is judged by the ratio bounds in `extension/calibration.ts` and refused when it is out of range |
 
 ## Spec, docs and debt
 
@@ -117,6 +118,7 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | D1 | Seven TypeScript errors in the extension's strict check and no committed type-check command | `conductors/in-process/agedSummaryConductor.ts`, `extension/accordion.ts` | fixed bf817ce |
 | D2 | The orientation-modes harness imports symbols Taskfold no longer exports | `.project/analyses/orientation-modes/harness/` | open |
 | D3 | Bug, found by the new type check: recall release and the unfold ceiling read `settings.taskfold.high`, a setting that no longer exists, so both compared against `NaN` and never acted | `extension/accordion.ts` (`taskfoldHigh`) | fixed ad8ed21 |
+| D4 | Carried over from the history-conductor analyses: a proposed held-out trial of keel-note as memory for a coordinator session in other projects | none | dropped: it is a trial plan for other projects' sessions and nothing in this repository waits for it. Its code findings are tracked here as C4 and C13 (fixed), C14 and U1 |
 
 ## Diverge round
 
