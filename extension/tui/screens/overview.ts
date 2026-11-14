@@ -46,7 +46,7 @@ export function createOverviewTab(shell: Shell): PanelTab {
 	let focus: "context" | "tasks" = "context";
 	const line = (label: string, value: string, width: number, mark = " "): string => {
 		const theme = shell.theme();
-		return fitSegments([`${mark} ${theme.fg("muted", label.padEnd(9))}${value}`], width);
+		return fitSegments([`${mark} ${theme.fg("muted", label.padEnd(10))}${value}`], width);
 	};
 	const wrapped = (text: string, width: number, max: number): string[] => {
 		const room = Math.max(1, width - 2);

@@ -647,7 +647,7 @@ describe("accordion panel", () => {
 		for (const width of [36, 57, 80, 140]) {
 			const lines = s.panel.render(width);
 			expect(lines.every((line) => visibleWidth(line) <= width)).toBe(true);
-			expect(lines.find((line) => line.includes("Tasks   "))!.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).toBe(width < 57 ? "  Tasks    Plan 1/2 · 2 Second 界 t…" : "  Tasks    Plan 1/2 · 2 Second 界 task");
+			expect(lines.find((line) => line.includes("Tasks   "))!.replace(/\x1b\[[0-9;]*m/g, "").trimEnd()).toBe(width < 57 ? "  Tasks     Plan 1/2 · 2 Second 界 …" : "  Tasks     Plan 1/2 · 2 Second 界 task");
 		}
 		expect(s.screen()).toContain("enter context");
 		s.panel.handleInput(K.down);
