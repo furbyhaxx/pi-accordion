@@ -5,7 +5,7 @@
 	 * claims a saving it has not measured; a real pass reports back through the `compaction` toast.
 	 */
 	import type { CompactStrategy } from "$core/protocol";
-	import { hostSettings, runCompaction } from "$lib/live/liveClient.svelte";
+	import { compactionPreview, isController, runCompaction } from "$lib/live/liveClient.svelte";
 	import Icon from "$lib/ui/Icon.svelte";
 
 	let { store, onclose }: { store: { liveTokens: number; fullTokens: number }; onclose: () => void } = $props();
@@ -14,31 +14,30 @@
 	let strategy = $state<CompactStrategy | null>(null);
 
 	const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-	const saved = $derived(Math.max(0, store.fullTokens - store.liveTokens));
-	const conductorSaved = $derived.by(() => {
-		const snap = hostSettings.snapshot?.settings as Record<string, unknown> | undefined;
-		const saved = snap?.lastConductorSaved;
-		return typeof saved === "number" ? saved : null;
+
+	/** `…` until the host's dry-run reply (or a field of it) is here; the host measures, the dialog never estimates. */
+	const rows = $derived.by<{ strategy: CompactStrategy; label: string; projection: string }[]>(() => {
+		const { received, projection } = compactionPreview;
+		const aggressive = received && projection.aggressive !== null ? `−${k(projection.aggressive)} → ${k(Math.max(0, store.liveTokens - projection.aggressive))}` : "…";
+		const pass = !received ? "…" : projection.pass !== null ? `≈ −${k(projection.pass)}` : "Taskfold decides";
+		const bake = received && projection.bake !== null ? `summary ≈ ${k(projection.bake)} · permanent, no recall` : "…";
+		return [
+			{ strategy: "pass", label: "pass", projection: pass },
+			{ strategy: "aggressive", label: "aggressive", projection: aggressive },
+			{ strategy: "bake", label: "bake", projection: bake },
+			{ strategy: "native", label: "native", projection: "pi summarizes (model call) · unknown" },
+		];
 	});
 
-	const rows = $derived<{ strategy: CompactStrategy; label: string; projection: string }[]>([
-		{
-			strategy: "pass",
-			label: "pass",
-			projection: conductorSaved !== null ? `≈ −${k(conductorSaved)} (last epoch)` : "Taskfold decides",
-		},
-		{
-			strategy: "aggressive",
-			label: "aggressive",
-			projection: `−${k(saved)} → ${k(Math.max(0, store.liveTokens - saved))}`,
-		},
-		{ strategy: "bake", label: "bake", projection: "permanent summary, no recall" },
-		{ strategy: "native", label: "native", projection: "pi summarizes (model call) · unknown" },
-	]);
+	// A dry run on open and again when the strategy changes (SPEC-0001 §7.6); it applies nothing.
+	$effect(() => {
+		const chosen = strategy ?? "pass";
+		if (isController()) void runCompaction(chosen, undefined, true);
+	});
 
 	function run(): void {
 		if (!strategy) return;
-		runCompaction(strategy, instructions.trim() || undefined);
+		void runCompaction(strategy, instructions.trim() || undefined);
 		onclose();
 	}
 

@@ -5,7 +5,8 @@
 	import EditableNumber from "$lib/ui/EditableNumber.svelte";
 	import Icon from "$lib/ui/Icon.svelte";
 	import { folding } from "$lib/live/folding.svelte";
-	import { live, setArmed, conductorState, conductorStatus, controllerState, anotherSurfaceControls, claimController, hostSettings } from "$lib/live/liveClient.svelte";
+	import { live, setArmed, conductorState, conductorStatus, controllerState, anotherSurfaceControls, claimController, hostSettings, hostTasks } from "$lib/live/liveClient.svelte";
+	import { summarizeTasks } from "$lib/live/taskTree";
 	import { attemptSteer, flashBlockedHint, readOnlyTip } from "$lib/live/controllerUi.svelte";
 	import ConductorMenu from "./ConductorMenu.svelte";
 
@@ -53,6 +54,9 @@
 			? ""
 			: `folds at ${Math.round(highWater * 100)}% (${formatK(Math.round(highWater * store.budget))})`,
 	);
+	// Task summary (SPEC-0001 §9): shown once the host sent a task list.
+	const taskSummary = $derived(hostTasks.list ? summarizeTasks(hostTasks.list.tasks, hostTasks.folded) : null);
+	const taskLabel = $derived(taskSummary ? `${taskSummary.done}/${taskSummary.total}${taskSummary.folded ? ` · ≡${taskSummary.folded}` : ""}` : "");
 	function formatK(n: number): string {
 		return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 	}
@@ -349,6 +353,16 @@
 						PRESSURE
 					</span>
 					<span class="ctl-value mono tnum">{pressureLabel}</span>
+				</div>
+			{/if}
+
+			{#if taskLabel}
+				<div class="ctl-field" title="The attached task list: finished of all tasks, and how many run folded">
+					<span class="ctl-eyebrow mono">
+						<Icon name="activity" size={10} />
+						TASKS
+					</span>
+					<span class="ctl-value mono tnum">{taskLabel}</span>
 				</div>
 			{/if}
 
