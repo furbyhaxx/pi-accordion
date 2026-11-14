@@ -5,9 +5,9 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createScenario, scenarios } from "./scenarios.mjs";
 import { quote, sandboxArgs } from "./sandbox.mjs";
-import { auditSession, readJsonLines } from "../../../../../extension/audit-tasks.mjs";
+import { auditSession, readJsonLines } from "../../audit-tasks.mjs";
 
-const root = resolve(fileURLToPath(new URL("../../../../..", import.meta.url)));
+const root = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const auth = "/home/furbyhaxx/.pi/agent/git/github.com/furbyhaxx/pi-auth-plus/src/index.ts";
 
 function waitForExit(child) {

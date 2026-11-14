@@ -142,6 +142,33 @@ agent declaring its work. Six frames, 36 ideas. Position taken:
 - One-look tool results (skeleton a large result on the request after it arrived) is doorman's
   mechanism; it stays a separate conductor.
 
+## Task tracking by model family
+
+Four synthetic scenarios (refactor, bug, docs, decision) per family, coach mode, folding armed,
+`--thinking low`, at most 30 requests and six minutes each, 264 requests in total. "Tracked" is the
+share of work tool results that happened inside a started task. The harness is
+`extension/eval/tasks/` (`run.mjs`); rerun it after a change to the task prompts or the coach.
+
+| Family | Route | Tracked / work results | Behaviour passed |
+|---|---|---|---|
+| Claude | `claude/claude-sonnet-5-5` | 0 / 12 | 4 / 4 |
+| GPT | `openai/gpt-6.1-sol` | 44 / 48 | 3 / 4 |
+| DeepSeek | `synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017` | 25 / 48 | 3 / 4 |
+| GLM | `synthetic/hf:zai-org/GLM-5.3` | 6 / 39 | 4 / 4 |
+| Kimi | `synthetic/hf:moonshotai/Kimi-K3` | 52 / 55 | 1 / 4 |
+| All | | 127 / 202 (63%) | 15 / 20 |
+
+- Before the hardening the same scenarios tracked 76 of 135 results (56%), without Kimi.
+- Claude finishes these jobs in two to four tool results and opens no list for them. GLM and
+  DeepSeek open lists and then work outside them. Kimi tracks well and stops early: three of its
+  four runs ended before the job was done. GPT's failed run misses a cent rounding, an error of the
+  model.
+- The earlier target, at least 95% tracked results, is dropped as a release condition. Folding no
+  longer waits for the agent to declare its work (U5, U14): at the end of the two replayed sessions
+  11,861 of 12,138 blocks (A) and 11,228 of 11,293 blocks (B) are folded and no request is over
+  budget. Tracking still decides how good a fold record is: a tracked task folds into its outcome
+  and facts, untracked work into a plain recap of its steps.
+
 ## Replay of sessions above 1M tokens
 
 Harness: `node extension/replay-session.mjs <session.jsonl> [--conductor taskfold|none] [--limit-requests n] [--out file.json]`.
