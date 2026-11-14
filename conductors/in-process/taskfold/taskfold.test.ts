@@ -1160,6 +1160,22 @@ describe("taskfold", () => {
 		}
 	});
 
+	it("keeps once-opened tasks open below pressure after two newer roots", async () => {
+		const s = new Session();
+		s.user("Go.");
+		for (const id of ["1", "2", "3"]) {
+			s.start(id, `Task ${id}`);
+			s.work(2, id);
+			s.finish(id, { outcome: "done" });
+		}
+		const host = setup(s, 10);
+		const ledger = new VerdictLedger();
+		ledger.setUnfold("work/1", { count: 1, open: true });
+		new TaskfoldConductor({ keepRecentTasks: 0 }, ledger).attach(host);
+		await host.commitTurn();
+		expect(ledger.unfoldStates().get("work/1")).toEqual({ count: 1, open: true });
+	});
+
 	it("may refold a once-opened child after two newer roots, but not after a second unfold", async () => {
 		const s = new Session();
 		s.user("Go.");

@@ -800,7 +800,7 @@ export class TaskfoldConductor implements Conductor {
 		const stats = host.stats();
 		const allSpans = this.spans(blocks);
 		const contains = (outer: Span, inner: Span) => inner.key.startsWith(`${outer.key}.`);
-		if (!recompose) {
+		if (!recompose && pressure) {
 			const allRoots = allSpans.filter((s) => !allSpans.some((o) => contains(o, s)));
 			for (const [key, state] of this.verdicts.unfoldStates()) {
 				const root = allRoots.find((s) => key === s.key || key.startsWith(`${s.key}.`));
