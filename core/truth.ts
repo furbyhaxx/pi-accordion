@@ -139,6 +139,50 @@ function messageCountOfRun(run: readonly Block[]): number {
 	return n;
 }
 
+/** One wire shape per logical message, excluding the bolted system block, with its key. */
+export function wireShapesOf(blocks: readonly Pick<Block, "id" | "kind" | "callId">[]): { shapes: WireMsgShape[]; keys: string[] } {
+	const shapes: WireMsgShape[] = [];
+	const keys: string[] = [];
+	let curKey: string | null = null;
+	let ids: string[] = [];
+	let calls: string[] = [];
+	let results: string[] = [];
+	let hasNonDurable = false;
+	const flush = () => {
+		if (curKey === null) return;
+		shapes.push({ role: wireRoleOfId(ids[0]), ids, calls, results, hasNonDurable });
+		keys.push(curKey);
+	};
+	for (const b of blocks) {
+		// The `system` block is NOT a wire message. It rides the provider request's own `system`
+		// field; pi's `messages` array — the array `applyPlan` actually walks and hands to
+		// `computeDegradedDropRuns` — has no entry for it. Including it here would put a PHANTOM
+		// leading message in front of the real wire, and the role-validity floor's verdicts are
+		// position-sensitive: "would dropping this run leave the wire leading with a non-user
+		// message?" answers differently with a phantom message 0 in the way. That is exactly the
+		// host/accounting drift this whole reconstruction exists to make impossible, so the block is
+		// filtered out here rather than anywhere downstream.
+		if (isBolted(b)) continue;
+		const k = messageKey(b.id);
+		if (k !== curKey) {
+			flush();
+			curKey = k;
+			ids = [];
+			calls = [];
+			results = [];
+			hasNonDurable = false;
+		}
+		ids.push(b.id);
+		if (!isDurableId(b.id)) hasNonDurable = true;
+		if (b.callId) {
+			if (b.kind === "tool_call") calls.push(b.callId);
+			else if (b.kind === "tool_result") results.push(b.callId);
+		}
+	}
+	flush();
+	return { shapes, keys };
+}
+
 export class Truth {
 	readonly meta: SessionMeta;
 
@@ -966,46 +1010,7 @@ export class Truth {
 	 *  equivalent of `messages.map((m,i) => ({...messageInfo(m,i), role: m.role}))`, which is all
 	 *  `applyPlan` itself builds from real `PiMessage[]` before calling `computeDegradedDropRuns`. */
 	private buildWireShapes(): { shapes: WireMsgShape[]; keys: string[] } {
-		const shapes: WireMsgShape[] = [];
-		const keys: string[] = [];
-		let curKey: string | null = null;
-		let ids: string[] = [];
-		let calls: string[] = [];
-		let results: string[] = [];
-		let hasNonDurable = false;
-		const flush = () => {
-			if (curKey === null) return;
-			shapes.push({ role: wireRoleOfId(ids[0]), ids, calls, results, hasNonDurable });
-			keys.push(curKey);
-		};
-		for (const b of this.blockLog) {
-			// The `system` block is NOT a wire message. It rides the provider request's own `system`
-			// field; pi's `messages` array — the array `applyPlan` actually walks and hands to
-			// `computeDegradedDropRuns` — has no entry for it. Including it here would put a PHANTOM
-			// leading message in front of the real wire, and the role-validity floor's verdicts are
-			// position-sensitive: "would dropping this run leave the wire leading with a non-user
-			// message?" answers differently with a phantom message 0 in the way. That is exactly the
-			// host/accounting drift this whole reconstruction exists to make impossible, so the block is
-			// filtered out here rather than anywhere downstream.
-			if (isBolted(b)) continue;
-			const k = messageKey(b.id);
-			if (k !== curKey) {
-				flush();
-				curKey = k;
-				ids = [];
-				calls = [];
-				results = [];
-				hasNonDurable = false;
-			}
-			ids.push(b.id);
-			if (!isDurableId(b.id)) hasNonDurable = true;
-			if (b.callId) {
-				if (b.kind === "tool_call") calls.push(b.callId);
-				else if (b.kind === "tool_result") results.push(b.callId);
-			}
-		}
-		flush();
-		return { shapes, keys };
+		return wireShapesOf(this.blockLog);
 	}
 	/**
 	 * Classify a group's members for accounting + the wire. The durability/tool-pair fixpoint that

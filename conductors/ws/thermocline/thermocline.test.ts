@@ -18,8 +18,9 @@ import type { ConductorHost } from "../../../core/conductor/contract";
 import type { Block } from "../../../core/types";
 import type { Op, TxnResult } from "../../../core/ops";
 import { foldTag } from "../../../core/digest";
+import { linearize, roleFloorRecap, type PiMessage } from "../../../core/wire";
 import { ThermoclineConductor, reconcilePlan, planWithRealFoldTokens, planWithRealStratumTokens, dropOwnStrataOldestFirst, overflowStatusText } from "./thermocline";
-import { planEpoch, emitOps, DEFAULT_CFG, stratumDigestKey } from "./policy";
+import { planEpoch, emitOps, DEFAULT_CFG, stratumDigestKey, project } from "./policy";
 import type { Plan, ConductorView, ViewBlock } from "./policy";
 
 // ── helpers ───────────────────────────────────────────────────────────────────────────────────
@@ -99,6 +100,47 @@ test("replacement pricing respects receipt coverage through commit and top-up", 
 	await internals.commit(v, plan, digests);
 	expect(internals.appliedPlan?.projected).toBe(312);
 	expect(internals.appliedPlan?.irreducible).toBe(true);
+	conductor.detach();
+});
+
+test("a foreign DROP affects the planned DROP verdict on the real Truth wire", () => {
+	const messages: PiMessage[] = [
+		{ role: "user", content: "first", timestamp: 1 },
+		{ role: "assistant", responseId: "one", content: [{ type: "text", text: "foreign" }] },
+		{ role: "user", content: "planned".repeat(100), timestamp: 3 },
+		{ role: "assistant", responseId: "two", content: [{ type: "text", text: "last" }] },
+	];
+	const host = new TestHost();
+	host.setProtect(0);
+	host.appendBlocks(linearize(messages).map((b, order) => block({ ...b, order })));
+	const ids = host.blocks().map((b) => b.id);
+	expect(host.truth.apply([{ kind: "group", ids: [ids[1], ids[1]], summary: null }], "you").results[0].applied).toBe(true);
+	const v = viewOf(host);
+	const memberIds = [ids[2]];
+	const groupId = `g:${ids[2]}`;
+	const strata = [{ groupId, digestKind: "drop" as const, memberIds, summaryTokens: 0 }];
+	const context = { groups: host.groups(), wireComplete: true, countBlockTokens: (id: string, text: string) => host.countBlockTokens(id, text) };
+	const withForeign = project(v, { strata }, context);
+	const withoutForeign = project(v, { strata }, { ...context, groups: [] });
+	expect(host.truth.apply([{ kind: "group", ids: [ids[2], ids[2]], summary: null }], "auto").results[0].applied).toBe(true);
+	const wire = host.truth.serializeWire(messages);
+	const recap = roleFloorRecap(groupId, 1);
+	const kept = JSON.stringify(wire).includes(recap);
+	expect(withForeign - (v.liveTokens - v.blocks[2].tokens)).toBe(kept ? host.countBlockTokens(ids[2], recap) : 0);
+	expect(withForeign).not.toBe(withoutForeign);
+});
+
+test("materialize captures one group snapshot for projection", () => {
+	const host = new TestHost();
+	let calls = 0;
+	const groups = host.groups.bind(host);
+	host.groups = () => { calls++; return groups(); };
+	const conductor = new ThermoclineConductor({ scorer: emptyScorer, sessionKey: null });
+	conductor.attach(host);
+	const internals = conductor as unknown as { materialize(): ConductorView & { wireGroups: readonly unknown[]; projection: { groups: readonly unknown[] } } };
+	const snapshot = internals.materialize();
+	expect(calls).toBe(1);
+	expect(snapshot.projection.groups).toBe(snapshot.wireGroups);
 	conductor.detach();
 });
 

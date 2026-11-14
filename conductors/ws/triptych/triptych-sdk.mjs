@@ -503,6 +503,40 @@ function messageCountOfRun(run) {
   }
   return n;
 }
+function wireShapesOf(blocks) {
+  const shapes = [];
+  const keys = [];
+  let curKey = null;
+  let ids = [];
+  let calls = [];
+  let results = [];
+  let hasNonDurable = false;
+  const flush = () => {
+    if (curKey === null) return;
+    shapes.push({ role: wireRoleOfId(ids[0]), ids, calls, results, hasNonDurable });
+    keys.push(curKey);
+  };
+  for (const b of blocks) {
+    if (isBolted(b)) continue;
+    const k = messageKey(b.id);
+    if (k !== curKey) {
+      flush();
+      curKey = k;
+      ids = [];
+      calls = [];
+      results = [];
+      hasNonDurable = false;
+    }
+    ids.push(b.id);
+    if (!isDurableId(b.id)) hasNonDurable = true;
+    if (b.callId) {
+      if (b.kind === "tool_call") calls.push(b.callId);
+      else if (b.kind === "tool_result") results.push(b.callId);
+    }
+  }
+  flush();
+  return { shapes, keys };
+}
 var Truth = class _Truth {
   meta;
   // ── state ───────────────────────────────────────────────────────────────
@@ -1221,38 +1255,7 @@ var Truth = class _Truth {
    *  equivalent of `messages.map((m,i) => ({...messageInfo(m,i), role: m.role}))`, which is all
    *  `applyPlan` itself builds from real `PiMessage[]` before calling `computeDegradedDropRuns`. */
   buildWireShapes() {
-    const shapes = [];
-    const keys = [];
-    let curKey = null;
-    let ids = [];
-    let calls = [];
-    let results = [];
-    let hasNonDurable = false;
-    const flush = () => {
-      if (curKey === null) return;
-      shapes.push({ role: wireRoleOfId(ids[0]), ids, calls, results, hasNonDurable });
-      keys.push(curKey);
-    };
-    for (const b of this.blockLog) {
-      if (isBolted(b)) continue;
-      const k = messageKey(b.id);
-      if (k !== curKey) {
-        flush();
-        curKey = k;
-        ids = [];
-        calls = [];
-        results = [];
-        hasNonDurable = false;
-      }
-      ids.push(b.id);
-      if (!isDurableId(b.id)) hasNonDurable = true;
-      if (b.callId) {
-        if (b.kind === "tool_call") calls.push(b.callId);
-        else if (b.kind === "tool_result") results.push(b.callId);
-      }
-    }
-    flush();
-    return { shapes, keys };
+    return wireShapesOf(this.blockLog);
   }
   /**
    * Classify a group's members for accounting + the wire. The durability/tool-pair fixpoint that

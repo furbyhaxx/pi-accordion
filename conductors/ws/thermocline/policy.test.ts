@@ -127,6 +127,34 @@ test("project prices the replacement rather than the existing digest", () => {
 	expect(project(v, { foldedIds: new Set(["a"]), foldTokens: new Map([["a", 312]]) })).toBe(312);
 });
 
+test("role-floor recap keeps a dropped run above the hard cap", () => {
+	const blocks = [
+		blk({ id: "u:1", kind: "user", tokens: 100 }),
+		blk({ id: "a:2:p0", tokens: 150 }),
+		...["3", "4", "5"].map((id) => blk({ id: `u:${id}`, kind: "user", tokens: 200 })),
+		blk({ id: "a:6:p0", tokens: 150 }),
+	];
+	const v = view(blocks, { budget: 420 });
+	const strata = [{ groupId: "g:u:3", digestKind: "drop" as const, memberIds: blocks.slice(2, 5).map((b) => b.id), summaryTokens: 0 }];
+	const projection = { groups: [], wireComplete: true, countBlockTokens: () => 30 };
+	expect(project(v, { strata })).toBe(400);
+	expect(project(v, { strata }, projection)).toBe(430);
+	expect(project(v, { strata }, projection)).toBeGreaterThan(v.budget);
+});
+
+test("an incomplete wire conservatively prices an otherwise free drop", () => {
+	const blocks = [
+		blk({ id: "u:1", kind: "user", tokens: 100 }),
+		blk({ id: "a:2:p0", tokens: 200 }),
+		blk({ id: "a:3:p0", tokens: 100 }),
+	];
+	const v = view(blocks);
+	const strata = [{ groupId: "g:a:2:p0", digestKind: "drop" as const, memberIds: ["a:2:p0"], summaryTokens: 0 }];
+	const projection = { groups: [], wireComplete: true, countBlockTokens: () => 30 };
+	expect(project(v, { strata }, projection)).toBe(200);
+	expect(project(v, { strata }, { ...projection, wireComplete: false })).toBe(230);
+});
+
 // F1 (issue #11, ADR 0025 stage 2): `ConductorView.liveTokens`/`ViewBlock.tokens` are CALIBRATED
 // (real, provider-anchored numbers) — `project()` mixes them with `summaryTokens` in one expression
 // (`members − s.summaryTokens`), so `summaryTokens` must ALSO be calibrated or the subtraction is not

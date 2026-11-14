@@ -40,11 +40,12 @@ import type {
 	StateChange,
 	ViewBlock,
 	LockName,
+	GroupInfo,
 	Op,
 } from "../../../core/conductor/contract";
 import type { ConductorView } from "../../../core/conductor/view";
 import { isBolted, foldTag, LEADING_FOLD_TAG } from "../../../core/digest";
-import type { Config, Plan, PlanFold, PlanStratum, ThermoState, Applied, Unit } from "./policy";
+import type { Config, Plan, PlanFold, PlanStratum, ThermoState, Applied, Unit, ProjectionContext } from "./policy";
 import {
 	DEFAULT_CFG,
 	buildUnits,
@@ -62,6 +63,12 @@ import {
 	unitText,
 } from "./policy";
 import { scoreCandidates, tailTextFromView, type Scorer } from "./scorer";
+
+interface ThermoView extends ConductorView {
+	wireGroups: readonly GroupInfo[];
+	wireComplete: boolean;
+	projection: ProjectionContext;
+}
 
 const ID = "thermocline";
 /** Units scored per probe run: ~8 windows, about half a minute on a CPU probe. */
@@ -189,7 +196,7 @@ export class ThermoclineConductor implements Conductor {
 
 	// ── per-tick / bookkeeping ──
 	private gradAdvanced = false;
-	private lastView: ConductorView | null = null;
+	private lastView: ThermoView | null = null;
 	private restoredPendingValidation = false;
 	private lastAction: "hold" | "epoch" | "emergency" = "hold";
 	private lastFill = 0;
@@ -336,15 +343,16 @@ export class ThermoclineConductor implements Conductor {
 		this.lastView = view;
 		// Defense in depth — see `reconcileAppliedAgainstView`: this is another project()-computing
 		// site, and the wire may depart before a protect-triggered tick has had a chance to settle.
-		this.reconcileAppliedAgainstView();
-		if (project(view, this.appliedForProject()) > capOf(view)) {
+		this.reconcileAppliedAgainstView(view.wireGroups);
+		if (project(view, this.appliedForProject(), view.projection) > capOf(view)) {
 			await this.runEmergency(view);
 		}
 	}
 
 	// ── view + state adapters ─────────────────────────────────────────────────────
-	private materialize(): ConductorView {
+	private materialize(): ThermoView {
 		const stats = this.host.stats();
+		const wireGroups = this.host.groups();
 		// OUR OWN strata are re-plannable content, NOT buoys. The host reports `grouped: true` for a
 		// member of ANY folded group — including the strata WE committed last epoch — and every
 		// policy mover (Rung-1 deepen, Rung-3.5 ageBasedRuns, the Rung-5 force-fold/force-group floor)
@@ -360,10 +368,14 @@ export class ThermoclineConductor implements Conductor {
 		for (const s of this.appliedStrata) if (s.groupId) ownGroupIds.add(s.groupId);
 		const ownMembers = new Set<string>();
 		if (ownGroupIds.size) {
-			for (const g of this.host.groups()) if (ownGroupIds.has(g.id)) for (const id of g.memberIds) ownMembers.add(id);
+			for (const g of wireGroups) if (ownGroupIds.has(g.id)) for (const id of g.memberIds) ownMembers.add(id);
 		}
 		const blocks = this.host.blocks().map((b) => (b.grouped && ownMembers.has(b.id) ? { ...b, grouped: false } : b));
+		const wireComplete = blocks.length === stats.blockCount;
 		return {
+			wireGroups,
+			wireComplete,
+			projection: { groups: wireGroups, wireComplete, countBlockTokens: (id, text) => this.host.countBlockTokens(id, text) },
 			blocks: blocks as ViewBlock[],
 			budget: stats.budget,
 			contextWindow: stats.contextWindow,
@@ -437,6 +449,8 @@ export class ThermoclineConductor implements Conductor {
 			// so project() compares values measured under the host's current calibration.
 			strata: this.appliedStrata.map((s) => ({
 				memberIds: s.memberIds,
+				groupId: s.groupId ?? `g:${s.firstId}`,
+				digestKind: s.summary == null ? "drop" : "summary",
 				summaryTokens: s.summary == null ? 0 : this.host.countTokens(s.summary),
 			})),
 		};
@@ -478,7 +492,7 @@ export class ThermoclineConductor implements Conductor {
 	 * an empty/pre-epoch view (which could, for one, trip `validateRestoredStrata` before the first
 	 * real blocks have even landed).
 	 */
-	private reconcileAppliedAgainstView(): boolean {
+	private reconcileAppliedAgainstView(groups?: readonly GroupInfo[]): boolean {
 		let changed = false;
 		for (const [id] of this.appliedFolds) {
 			const b = this.host.get(id);
@@ -488,7 +502,7 @@ export class ThermoclineConductor implements Conductor {
 			}
 		}
 		if (this.appliedStrata.length) {
-			const liveGroupIds = new Set(this.host.groups().map((g) => g.id));
+			const liveGroupIds = new Set((groups ?? this.host.groups()).map((g) => g.id));
 			const kept = this.appliedStrata.filter((s) => s.groupId == null || liveGroupIds.has(s.groupId));
 			if (kept.length !== this.appliedStrata.length) {
 				this.appliedStrata = kept;
@@ -525,10 +539,10 @@ export class ThermoclineConductor implements Conductor {
 		this.validateRestoredStrata(view);
 		// See `reconcileAppliedAgainstView` — before every project()/fill read, drop any appliedFolds/
 		// appliedStrata entry the engine already healed/pruned out from under us (a protect-raise).
-		this.reconcileAppliedAgainstView();
+		this.reconcileAppliedAgainstView(view.wireGroups);
 
 		const cap = capOf(view);
-		let fill = cap > 0 ? project(view, this.appliedForProject()) / cap : 0;
+		let fill = cap > 0 ? project(view, this.appliedForProject(), view.projection) / cap : 0;
 
 		// everWarm tracks the latest scores on EVERY tick (before any graduation computation), so a
 		// unit that became hot this tick already needs 2K before the graduation decision reads it.
@@ -549,7 +563,7 @@ export class ThermoclineConductor implements Conductor {
 			// stale pre-emergency fill and thus kicked a redundant LLM epoch after every emergency — the
 			// "two cache misses in quick succession" the ADR flagged.) A PREPARE fires below only if the
 			// deterministic emergency could NOT bring us under warmWater (e.g. an oversized protected tail).
-			fill = cap > 0 ? project(view, this.appliedForProject()) / cap : fill;
+			fill = cap > 0 ? project(view, this.appliedForProject(), view.projection) / cap : fill;
 		} else {
 			// Under cap on the RAW baseline — a stale irreducible-overflow flag from an earlier tick no
 			// longer applies. Clear it here too (not just in commit()) so a config change that drops fill
@@ -605,7 +619,7 @@ export class ThermoclineConductor implements Conductor {
 	}
 
 	// ── EMERGENCY: deterministic plan, no LLM, immediate ─────────────────────────────
-	private async runEmergency(view: ConductorView): Promise<void> {
+	private async runEmergency(view: ThermoView): Promise<void> {
 		++this.prepareToken; // discard any in-flight prepare — the emergency commit is ground truth
 		this.preparing = false;
 		this.advanceGraduationOnce(view);
@@ -614,6 +628,7 @@ export class ThermoclineConductor implements Conductor {
 			graduated: this.grad.graduated,
 			keep: this.keptState(),
 			foldTokenCosts: foldPrices(view, "trim", undefined, this.host),
+			projection: view.projection,
 		});
 		await this.commit(view, plan, undefined); // undefined digests → deterministic fallbacks everywhere
 		// Report the emergency with the fill it LEFT (commit's own status went out before this label
@@ -621,14 +636,14 @@ export class ThermoclineConductor implements Conductor {
 		// label on the next tick that finds fill ≤ 100% — EMERGENCY names an event, not a standing state.
 		this.lastAction = "emergency";
 		const cap = capOf(view);
-		if (cap > 0) this.lastFill = project(view, this.appliedForProject()) / cap;
+		if (cap > 0) this.lastFill = project(view, this.appliedForProject(), view.projection) / cap;
 		this.sendStatus();
 	}
 
 	// ── PREPARE: score + LLM summaries + commit (async, off every hook path) ─────────
-	private async prepareEpoch(view: ConductorView, token: number): Promise<void> {
+	private async prepareEpoch(view: ThermoView, token: number): Promise<void> {
 		// 1. Plan (deterministic paths, no LLM yet). Graduation was advanced ONCE this tick.
-		const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "digest", this.digestCache, this.host) });
+		const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "digest", this.digestCache, this.host), projection: view.projection });
 
 		// 2. Fire host.complete for every digest/stratum not cached.
 		const units = buildUnits(view.blocks);
@@ -683,14 +698,14 @@ export class ThermoclineConductor implements Conductor {
 
 		// Re-plan on the LAST view (not the stale one) so the ops are fresh, then COMMIT atomically.
 		const lv = this.lastView ?? view;
-		const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(lv, "digest", this.digestCache, this.host) });
+		const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(lv, "digest", this.digestCache, this.host), projection: lv.projection });
 		if (this.attached) await this.commit(lv, freshPlan, this.digestCache);
 		this.preparing = false;
 		this.sendStatus();
 	}
 
 	// ── COMMIT: reconcile + real tokens + top-up, then propose ONE transaction ─────────
-	private async commit(view: ConductorView, plan: Plan, digests: Map<string, string> | undefined): Promise<void> {
+	private async commit(view: ThermoView, plan: Plan, digests: Map<string, string> | undefined): Promise<void> {
 		// (1) reconcile against reality: drop any fold/stratum the agent touched during PREPARE.
 		const touched = unionSet(this.agentTouched, this.recalledThisEpoch);
 		let working = reconcilePlan(plan, touched);
@@ -700,7 +715,7 @@ export class ThermoclineConductor implements Conductor {
 		working = planWithRealFoldTokens(working, view, digests, this.host, this.appliedFolds);
 		working = this.topUpToCap(working, view, working.cap || capOf(view), digests);
 
-		const finalProjected = project(view, appliedShapeOf(working));
+		const finalProjected = project(view, appliedShapeOf(working), view.projection);
 		const finalCap = working.cap || capOf(view);
 		working = { ...working, projected: finalProjected };
 
@@ -755,18 +770,18 @@ export class ThermoclineConductor implements Conductor {
 	 * Always terminates: the deterministic floor (folds + protected tail) is ≤ cap by planEpoch's
 	 * hard-cap guarantee. Mutates + returns `plan`.
 	 */
-	private topUpToCap(plan: Plan, view: ConductorView, cap: number, digests: Map<string, string> | undefined): Plan {
+	private topUpToCap(plan: Plan, view: ThermoView, cap: number, digests: Map<string, string> | undefined): Plan {
 		// settle() is the ONE exit path: it (re-)stamps `plan.irreducible` from the ACTUAL final
 		// projection every time topUpToCap returns, superseding whatever planEpoch guessed before real
 		// summary tokens/merges were known. This is the authoritative post-commit-math irreducibility
 		// check `commit()` reads (see setOverflowState) — it runs AFTER every deterministic top-up move
 		// this epoch could make, so a "true" here means genuinely un-winnable, not merely pending a move.
 		const settle = (): Plan => {
-			plan.irreducible = project(view, appliedShapeOf(plan)) > cap;
+			plan.irreducible = project(view, appliedShapeOf(plan), view.projection) > cap;
 			return plan;
 		};
 
-		if (project(view, appliedShapeOf(plan)) <= cap) return settle();
+		if (project(view, appliedShapeOf(plan), view.projection) <= cap) return settle();
 
 		const liveUnits = buildUnits(view.blocks);
 		const memberIdsOfUnit = new Map(liveUnits.map((u) => [u.id, u.ids]));
@@ -775,8 +790,8 @@ export class ThermoclineConductor implements Conductor {
 
 		const MAX_PASSES = 3;
 		for (let pass = 0; pass < MAX_PASSES; pass++) {
-			if (project(view, appliedShapeOf(plan)) <= cap) return settle();
-			const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "trim", digests, this.host) });
+			if (project(view, appliedShapeOf(plan), view.projection) <= cap) return settle();
+			const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "trim", digests, this.host), projection: view.projection });
 			let added = false;
 
 			// Merge NEW deterministic folds (unit not already claimed, no member already folded).
@@ -806,12 +821,12 @@ export class ThermoclineConductor implements Conductor {
 				added = true;
 			}
 
-			if (project(view, appliedShapeOf(plan)) <= cap) return settle();
+			if (project(view, appliedShapeOf(plan), view.projection) <= cap) return settle();
 			if (!added) break; // no NEW moves — fall through to dropping our own strata
 		}
 
 		// Last resort: drop our OWN strata oldest-first (frees real tokens) until ≤ cap.
-		dropOwnStrataOldestFirst(plan, view, cap);
+		dropOwnStrataOldestFirst(plan, view, cap, view.projection);
 		return settle();
 	}
 
@@ -1301,7 +1316,7 @@ function appliedShapeOf(plan: Plan): Applied {
 	return {
 		foldedIds: new Set(plan.folds.flatMap((f) => f.ids)),
 		foldTokens: new Map(plan.folds.flatMap((f) => [...(f.tokenCosts ?? [])])),
-		strata: plan.strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens })),
+		strata: plan.strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens, groupId: `g:${s.ids[0]}`, digestKind: s.digestKind })),
 	};
 }
 
@@ -1371,14 +1386,14 @@ export function planWithRealStratumTokens(
 }
 
 /** Convert a plan's OWN strata to drops OLDEST-FIRST (conversation order) until project() ≤ bound. */
-export function dropOwnStrataOldestFirst(plan: Plan, view: ConductorView, bound: number): boolean {
+export function dropOwnStrataOldestFirst(plan: Plan, view: ConductorView, bound: number, projection?: ProjectionContext): boolean {
 	const orderOf = new Map(view.blocks.map((b) => [b.id, b.order]));
 	const sorted = plan.strata
 		.map((s) => ({ s, ord: orderOf.get(s.ids[0]) ?? Infinity }))
 		.sort((a, b) => a.ord - b.ord);
 	let dropped = false;
 	for (const { s } of sorted) {
-		if (project(view, appliedShapeOf(plan)) <= bound) break;
+		if (project(view, appliedShapeOf(plan), projection) <= bound) break;
 		if (s.digestKind !== "drop") {
 			s.digestKind = "drop";
 			s.summaryTokens = 0;
