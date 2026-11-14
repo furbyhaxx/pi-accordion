@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { linearize, applyPlan, blockId, isDurableId, messageInfo, contentFingerprint, wireToBlock, thinkingIsSigned, type PiMessage } from "./wire";
+import { linearize, applyPlan, blockId, isDurableId, messageInfo, contentFingerprint, contentSignature, wireToBlock, thinkingIsSigned, type PiMessage } from "./wire";
 import { blockToWire } from "./replica";
 import type { GroupOp } from "./protocol";
 
@@ -115,6 +115,39 @@ describe("core/wire — messageInfo (now exported)", () => {
 		expect(messageInfo(ms[1], 1).calls).toEqual(["c1"]);
 		expect(messageInfo(ms[2], 2).results).toEqual(["c1"]);
 		expect(messageInfo(ms[0], 0).hasNonDurable).toBe(false);
+	});
+});
+
+describe("core/wire — contentSignature", () => {
+	it("detects length, shape, error and sampled-character changes", () => {
+		const base: PiMessage = { role: "toolResult", toolName: "read", content: [{ type: "text", text: "a".repeat(500) }], isError: false };
+		const signature = contentSignature(base);
+		expect(contentSignature({ ...base, content: [{ type: "text", text: "a".repeat(501) }] })).not.toBe(signature);
+		expect(contentSignature({ ...base, content: [{ type: "text", text: "a".repeat(500) }, { type: "text", text: "" }] })).not.toBe(signature);
+		expect(contentSignature({ ...base, isError: true })).not.toBe(signature);
+		expect(contentSignature({ ...base, content: [{ type: "text", text: "b" + "a".repeat(499) }] })).not.toBe(signature);
+	});
+	it("samples nested argument strings without scanning their unsampled middle", () => {
+		const text = "x".repeat(10_000);
+		const message = (new_text: string): PiMessage => ({
+			role: "assistant",
+			content: [{ type: "toolCall", id: "edit", name: "edit", arguments: { edits: [{ new_text }] } }],
+		});
+		const signature = contentSignature(message(text));
+		expect(contentSignature(message("y" + text.slice(1)))).not.toBe(signature);
+		expect(contentSignature(message(text.slice(0, 5001) + "y" + text.slice(5002)))).toBe(signature);
+	});
+	it("samples a one-megabyte argument in under one millisecond on average", () => {
+		const message: PiMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "edit", name: "edit", arguments: { edits: [{ new_text: "x".repeat(1_000_000) }] } }],
+		};
+		contentSignature(message);
+		const start = performance.now();
+		for (let i = 0; i < 100; i++) contentSignature(message);
+		const mean = (performance.now() - start) / 100;
+		console.log(`1 MB argument signature mean: ${mean.toFixed(4)} ms`);
+		expect(mean).toBeLessThan(1);
 	});
 });
 

@@ -55,11 +55,12 @@ extension, and the GUI is no longer where fold decisions live.
 
 `extension/accordion.ts`'s `context` handler does no IPC and no disk I/O. Per invocation:
 
-1. **Reconcile.** `ingestMessages` compares pi's `event.messages` against the last-seen array by a
-   cheap durable-id walk (`sameMessageIdentity`, comparing each message's block ids via
-   `messageInfo`). If it is the prior array plus a new suffix, only the suffix is linearized and
-   appended (`appendSuffix` — O(Δ) text work, not O(n)); if it diverges structurally (compaction,
-   fork, tree-nav, another extension rewriting `event.messages`), the Truth is rebuilt from scratch.
+1. **Reconcile.** `ingestMessages` compares durable block ids and sampled content signatures.
+   Length, part-shape and sampled-character changes, and any rewrite of the newest eight messages,
+   trigger a rebuild in the same hook. A rotating window of whole messages detects an older
+   same-length rewrite within `ceil(T / 262,144)` hooks, where `T` is the number of fingerprinted
+   characters outside the newest eight messages. Otherwise only a new suffix is linearized and
+   appended; a detected divergence rebuilds the Truth.
 2. **Wire-departing hold.** A named no-op seam (`// PHASE C: wire-departing hold`) where a
    conductor's last-moment fold plugs in — nothing occupies it yet (see ADR 0022).
 3. **Serialize, if armed.** If `foldingEnabled` (opt-in, off by default), `truth.serializeWire`

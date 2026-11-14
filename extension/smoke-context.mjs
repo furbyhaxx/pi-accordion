@@ -69,6 +69,58 @@ function runtime(messages = [], options = {}) {
 		close: () => handlers.session_shutdown({}, ctx),
 	};
 }
+check("ingest detects sampled, recent and rotating historical rewrites", async () => {
+	const text = "x".repeat(20_000);
+	const messages = Array.from({ length: 400 }, (_, i) => ({
+		role: "assistant", responseId: `history-${i}`, timestamp: i + 1,
+		content: [{ type: "text", text }],
+	}));
+	const r = runtime(messages);
+	try {
+		const host = await r.open();
+		await r.request(messages);
+		const rewrite = (index, value) => {
+			messages[index] = { ...messages[index], content: [{ type: "text", text: value }] };
+		};
+		const replaceAt = (value, at, replacement) => value.slice(0, at) + replacement + value.slice(at + replacement.length);
+		rewrite(399, replaceAt(text, 10_001, "recent"));
+		await r.request(messages);
+		assert.equal(host.truth().get("a:history-399:p0").text, messages[399].content[0].text);
+		rewrite(1, text + "longer");
+		await r.request(messages);
+		assert.equal(host.truth().get("a:history-1:p0").text, messages[1].content[0].text);
+		const updated = replaceAt(messages[1].content[0].text, 10_001, "needle");
+		rewrite(1, updated);
+		const bound = Math.ceil(messages.reduce((sum, m) => sum + m.content[0].text.length, 0) / 262_144);
+		let detected = false;
+		for (let i = 0; i < bound; i++) {
+			await r.request(messages);
+			if (host.truth().get("a:history-1:p0").text === updated) { detected = true; break; }
+		}
+		assert.equal(detected, true, "historical rewrite is detected within the rotation bound");
+		host.command({ kind: "setProtect", value: 0 });
+		host.command({ kind: "ops", ops: [{ kind: "fold", ids: ["a:history-1:p0"] }] });
+		await r.request(messages);
+		const found = await r.tools.recall.execute("rotation-recall", { query: '"needle"' }, undefined, undefined, r.ctx);
+		assert.match(found.content[0].text, /needle/);
+	} finally { r.close(); }
+});
+check("the rotating fingerprint window wraps to the head in the same hook", async () => {
+	const text = "x".repeat(150_000);
+	const messages = Array.from({ length: 11 }, (_, i) => ({
+		role: "assistant", responseId: `wrap-${i}`, timestamp: i + 1,
+		content: [{ type: "text", text: i < 3 ? text : "tail" }],
+	}));
+	const r = runtime(messages);
+	try {
+		const host = await r.open();
+		await r.request(messages);
+		const changed = text.slice(0, 50_001) + "z" + text.slice(50_002);
+		messages[0] = { ...messages[0], content: [{ type: "text", text: changed }] };
+		await r.request(messages);
+		assert.equal(host.truth().get("a:wrap-0:p0").text, changed);
+	} finally { r.close(); }
+});
 check("unfold respects the configured Taskfold high water", async () => {
 	const { foldCode } = await jiti.import("../core/digest.ts");
 	const messages = [
