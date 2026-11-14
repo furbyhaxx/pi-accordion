@@ -387,6 +387,88 @@ describe("keel-lite · roots", () => {
 });
 
 describe("keel-lite · stale reads (R2)", () => {
+	function analyze(s: Session) {
+		const host = new TestHost();
+		host.appendBlocks(s.blocks);
+		return new KeelLiteConductor()["analyze"](host.blocks()).stale;
+	}
+
+	it("keeps disjoint ranged reads fresh", () => {
+		const s = new Session();
+		const first = s.step({ calls: [read("src/a.ts", "first", { offset: 1, limit: 10 })] }).calls[0].result;
+		s.step({ calls: [read("src/a.ts", "second", { offset: 21, limit: 10 })] });
+		expect(analyze(s).has(first)).toBe(false);
+	});
+
+	it("marks an enclosed range stale", () => {
+		const s = new Session();
+		const first = s.step({ calls: [read("src/a.ts", "first", { start_line: 10, end_line: 20 })] }).calls[0].result;
+		s.step({ calls: [read("/work/src/a.ts", "second", { offset: 5, limit: 20 })] });
+		expect(analyze(s).has(first)).toBe(true);
+	});
+
+	it("treats codemode ranges with unknown bounds conservatively", () => {
+		const s = new Session();
+		const first = s.step({ calls: [read("src/a.ts", "first", { offset: 1, limit: 5 })] }).calls[0].result;
+		const nested = s.step({ calls: [{ tool: "codemode", args: { code: 'await tools.read({path: "src/a.ts", offset: 1, limit: 10})' }, out: "data" }] }).calls[0].result;
+		s.step({ calls: [read("src/a.ts", "last", { offset: 1, limit: 20 })] });
+		const stale = analyze(s);
+		expect(stale.has(first)).toBe(true);
+		expect(stale.has(nested)).toBe(false);
+		const s2 = new Session();
+		const original = s2.step({ calls: [read("src/a.ts", "first", { offset: 1, limit: 5 })] }).calls[0].result;
+		s2.step({ calls: [{ tool: "codemode", args: { code: 'await tools.read({path: "src/a.ts", offset: 1, limit: 10})' }, out: "data" }] });
+		expect(analyze(s2).has(original)).toBe(false);
+		s2.step({ calls: [edit("src/a.ts")] });
+		expect(analyze(s2).has(original)).toBe(true);
+	});
+
+	it("matches the old scan except for ranges not covered by a later read", () => {
+		type Event = { id: string; path: string; write: boolean; range?: { start: number; end: number } };
+		const events: Event[] = [];
+		const s = new Session();
+		let seed = 12345;
+		const random = (n: number) => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) % n);
+		for (let i = 0; i < 300; i++) {
+			const path = `${random(2) ? "/work/" : ""}src/file${random(20)}.ts`;
+			if (random(5) === 0) {
+				s.step({ calls: [edit(path)] });
+				events.push({ id: "", path, write: true });
+			} else {
+				const ranged = random(3) !== 0;
+				const start = 1 + random(50);
+				const limit = 1 + random(20);
+				const id = s.step({ calls: [read(path, "data", ranged ? { offset: start, limit } : {})] }).calls[0].result;
+				events.push({ id, path, write: false, range: ranged ? { start, end: start + limit - 1 } : undefined });
+			}
+		}
+		const samePath = (a: string, b: string) => a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`);
+		const oldStale = new Set(events.filter((r, i) => !r.write && events.slice(i + 1).some((o) =>
+			samePath(o.path, r.path) && (o.write || !o.range || !!r.range))).map((r) => r.id));
+		const actual = analyze(s);
+		for (let i = 0; i < events.length; i++) {
+			const r = events[i];
+			if (r.write) continue;
+			const later = events.slice(i + 1).filter((o) => samePath(o.path, r.path));
+			const corrected = r.range && !later.some((o) => o.write || !o.range ||
+				(o.range.start <= r.range!.start && o.range.end >= r.range!.end));
+			expect(actual.has(r.id)).toBe(oldStale.has(r.id) && !corrected);
+		}
+	});
+
+	it("analyzes 10,000 reads in under 300 ms", () => {
+		const s = new Session();
+		for (let i = 0; i < 10_000; i++) s.step({ calls: [read(`src/file${i % 100}.ts`, "data")] });
+		const host = new TestHost();
+		s.flush(host);
+		const blocks = host.blocks();
+		const conductor = new KeelLiteConductor();
+		const start = performance.now();
+		const stale = conductor["analyze"](blocks).stale;
+		expect(performance.now() - start).toBeLessThan(300);
+		expect(stale.size).toBe(9900);
+	});
+
 	it("folds a read that is later re-read or edited, and nothing fresher", async () => {
 		const s = new Session();
 		s.user("fix it");
