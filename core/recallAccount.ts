@@ -68,6 +68,11 @@ export class RecallAccount {
 		this.reserved.set(callId, tokens);
 	}
 
+	/** Drop a reservation when its call fails. */
+	release(callId: string): void {
+		this.reserved.delete(callId);
+	}
+
 	/** Forget reservations of calls that never produced a result block (an aborted turn). */
 	reset(): void {
 		this.reserved.clear();
@@ -95,23 +100,51 @@ export interface RecallServed {
 	view: RecallView | null;
 }
 
+function availableGrant(truth: Truth, account: RecallAccount, makeRoom?: () => void): number {
+	let grant = account.grant(truth);
+	if (grant < account.minGrant(truth) && makeRoom) {
+		makeRoom();
+		grant = account.grant(truth);
+	}
+	return grant >= account.minGrant(truth) ? grant : 0;
+}
+
+function reserveText(account: RecallAccount, callId: string, text: string): void {
+	account.reserve(callId, estTokens(text));
+}
+
 /** One `recall` call against the account: grant, render within the grant, reserve what was returned. */
 export function serveRecall(truth: Truth, account: RecallAccount, callId: string, req: Omit<RecallRequest, "budgetChars">, makeRoom?: () => void): RecallServed {
-	const attempt = (): RecallView | null => {
-		const grant = account.grant(truth);
-		if (grant < account.minGrant(truth)) return null;
+	const attempt = (grant: number): RecallView | null => {
+		if (!grant) return null;
 		const view = recallView(truth, { ...req, budgetChars: account.policy.callTokens * CHARS_PER_TOKEN, grantChars: grant * CHARS_PER_TOKEN });
-		// Nothing fitted what the account had left: that is a refusal, not a result to retry.
 		return view.skipped.length && !view.items.length ? null : view;
 	};
-	let view = attempt();
+	let grant = availableGrant(truth, account);
+	let view = attempt(grant);
 	if (!view && makeRoom) {
 		makeRoom();
-		view = attempt();
+		grant = availableGrant(truth, account);
+		view = attempt(grant);
 	}
 	if (!view) return { text: recallRefusal(account.outstanding(truth), account.policy), view: null };
-	account.reserve(callId, estTokens(view.text));
+	reserveText(account, callId, view.text);
 	return { text: view.text, view };
+}
+
+/** Reserve a grant before producing an asynchronous answer, then charge its actual size. */
+export async function serveRecallAnswer(truth: Truth, account: RecallAccount, callId: string, produce: (grantTokens: number) => Promise<string>, makeRoom?: () => void): Promise<{ text: string; refused: boolean }> {
+	const grant = availableGrant(truth, account, makeRoom);
+	if (!grant) return { text: recallRefusal(account.outstanding(truth), account.policy), refused: true };
+	account.reserve(callId, grant);
+	try {
+		const text = (await produce(grant)).slice(0, grant * CHARS_PER_TOKEN);
+		reserveText(account, callId, text);
+		return { text, refused: false };
+	} catch (error) {
+		account.release(callId);
+		throw error;
+	}
 }
 
 const CHARS_PER_TOKEN = 4;

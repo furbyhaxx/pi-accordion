@@ -29,6 +29,14 @@ function foldedTask(n: number, size: number, child = 0): Truth {
 }
 
 describe("recallView", () => {
+	it("rejects oversized queries and unknown regex flags and names unshown archive results", () => {
+		const truth = foldedTask(10, 500);
+		const code = foldCode(PARENT);
+		expect(recallView(truth, { codes: [code], query: "x".repeat(201) }).text).toContain("200-character limit");
+		expect(recallView(truth, { codes: [code], query: "/entry/g" }).text).toContain("allowed flags are i and s");
+		expect(recallView(truth, { codes: [], query: "entry", grantChars: 700 }).text).toContain("Not shown:");
+	});
+
 	it("reuses indexed member text across searches and pages until Truth changes", () => {
 		const truth = foldedTask(5000, 10);
 		const code = foldCode(PARENT);

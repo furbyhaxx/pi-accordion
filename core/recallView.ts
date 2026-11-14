@@ -98,7 +98,8 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 	// Sections are paged against the fixed page size, never the grant, so page N means the same in any call.
 	const pageSize = budget - NOTE_CHARS;
 	const room = grant - NOTE_CHARS;
-	const query = req.query?.trim().slice(0, MAX_QUERY_CHARS) || undefined;
+	if (req.query && req.query.length > MAX_QUERY_CHARS) return { text: `Query exceeds the ${MAX_QUERY_CHARS}-character limit.`, items: [], missing: [], skipped: [], truncated: false };
+	const query = req.query?.trim() || undefined;
 	const page = Math.max(1, Math.floor(req.page ?? 1));
 	const sections: string[] = [];
 	const items: RecallItem[] = [];
@@ -135,7 +136,7 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 	};
 	if (!req.codes.length && query) {
 		const section = querySection(truth, archive(truth), { codes: [], label: "all folded content", itemCode: "*" }, query, page, pageSize, req.facts);
-		if (section.text.length > room) return { text: "[budget reached] The search result does not fit this call.", items: [], missing: [], skipped: ["*"], truncated: true };
+		if (section.text.length > room) return { text: "[budget reached] Not shown: search results for all folded content. Recall them in a separate call.", items: [], missing: [], skipped: ["*"], truncated: true };
 		return { text: section.text, items: [section.item], missing: [], skipped: [], truncated: section.truncated };
 	}
 	place(false);

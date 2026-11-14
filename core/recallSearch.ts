@@ -33,6 +33,7 @@ function literal(word: string): Term {
 }
 
 function regex(source: string, flags: string): Term | string {
+	if (/[^is]/.test(flags)) return "Unknown regex flags; allowed flags are i and s.";
 	if (source.length > MAX_REGEX_CHARS) return `The pattern is longer than ${MAX_REGEX_CHARS} characters.`;
 	if (NESTED_QUANTIFIER.test(source)) return "The pattern repeats a group that itself contains a repetition; write it without the nested repetition.";
 	let re: RegExp;
@@ -62,7 +63,7 @@ function regex(source: string, flags: string): Term | string {
  */
 export function parseQuery(query: string): ParsedQuery {
 	const q = query.trim();
-	const re = /^\/(.+)\/([a-z]*)$/s.exec(q);
+	const re = /^\/(.+)\/([a-zA-Z]*)$/s.exec(q);
 	if (re) {
 		const term = regex(re[1], re[2]);
 		return typeof term === "string" ? { error: term } : { terms: [term] };

@@ -5,15 +5,15 @@ document:
   title: "Recall: bounded retrieval of folded content"
   description: "What the agent's recall tool returns for each kind of address, how one session account bounds everything recall adds to the context, the query language of archive search, expiry of recall results, the guard that clips oversized tool results, the bound on the agent's unfold, questions answered by a side model and the fact ledger written when a task is folded."
   status: "published"
-  revision: 9
+  revision: 10
   created_at: "2026-11-13T12:48:37+01:00"
-  updated_at: "2026-11-13T13:42:30+01:00"
+  updated_at: "2026-11-14T15:38:10+01:00"
   created_by: "orchestrator"
   updated_by: "orchestrator"
   changelog:
-    - revision: 9
-      reason: "enable fact extraction by default while preserving an explicit opt-out"
-      changes: ["§8 and §9: default-on ledger"]
+    - revision: 10
+      reason: "clarify bounded recall navigation and account handling"
+      changes: ["report paging and descendant ranges", "query and ask limits", "asynchronous answer reservations"]
 ---
 
 # Recall
@@ -42,6 +42,8 @@ Whatever codes, queries and pages the agent passes, in any number of calls, sequ
 | any other fold code | whole when it fits one call, else its index |
 | `query` with codes | matches inside those folds, in entry order |
 | `query` without codes | matches in all folded content, newest first |
+
+Queries are limited to 200 characters; longer queries are refused.
 
 - All sections of one call share `recall.callTokens`. An address that exists but does not fit is
   named in a `[budget reached] Not shown: …` line; an address that resolves to nothing is named as
@@ -77,6 +79,10 @@ Exact values: recall({codes:["k3m9qa"], query:"text"}) · entry list: recall({co
 - A resumed task has several spans; the last one supplies the report.
 - When the reports of one call do not fit together, all of them are rendered compact (items cut to
   160 characters, no criteria, 8 changed paths, 3 checks, no child outcomes) before any is left out.
+- Reports are paged at the call limit, with the exact next-page call on each non-final page.
+- All descendants appear indented by depth. A descendant with a visible tag has its own code;
+  otherwise its row shows `ancestor.N-M`, the inclusive range of ancestor entries containing its
+  span. Recall individual entries in that range as `ancestor.N`, `ancestor.N+1`, and so on.
 - A task code without a report (no span in the log) reads like any other fold code.
 
 ### 2.2 Search
@@ -172,6 +178,8 @@ in the panel and the web UI are not limited.
 `recall({ask: "question", codes?, query?})` returns a short answer written by a side model
 (`core/recallAsk.ts` plans, `answerRecall` in `extension/accordion.ts` runs it).
 
+Questions are cut to 1,000 characters.
+
 - Material, at most `recall.ask.inputTokens`: one third for the reports of the named tasks (all
   folded tasks, newest first, when no codes are given), the rest for search hits. The search uses
   `query` when given, otherwise one alternation of the question's up to eight longest non-stopword
@@ -185,8 +193,10 @@ in the panel and the web UI are not limited.
   an answer left without a citation says so.
 - No answer (ask turned off, nothing matches, no model, no consent, failed or empty completion):
   the result starts with `[no answer: <reason>.` and carries the search hits within the grant.
-- The account applies as to any call: refused below the minimum grant, the result is reserved, and
-  it expires like other recall results (the stub names the question).
+- The account applies as to any call: refused below the minimum grant, the full grant is reserved
+  before awaiting the model, then replaced with the size of the answer; failures release it.
+  Only the answer is charged, not material sent to the model. The result expires like other recall
+  results (the stub names the question).
 
 ## 8. Fact ledger
 
