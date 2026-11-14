@@ -38,7 +38,13 @@ export interface TaskWidgetView {
 	toggles: Map<string, boolean>;
 	revealed: Set<string>;
 	showLegend?: boolean;
+	/** Key that toggles the widget; named in the row that ends revealing. */
+	toggleKey?: string;
 }
+
+/** Hidden siblings one click reveals, and the most a view keeps revealed. */
+export const REVEAL_STEP = 10;
+export const REVEAL_CAP = 30;
 
 /** A folded span's size before and after folding. */
 export interface FoldTokens {
@@ -71,7 +77,7 @@ function headerLine(model: TaskWidgetModel, view: TaskWidgetView, width: number,
 	const counts = ` ${sum.done}/${sum.total}`;
 	const title = clean(model.list.title || model.list.slug);
 	const suffix = [
-		sum.folded ? theme.fg("muted", ` (≡${sum.folded})`) : "",
+		sum.folded ? `${sep}${theme.fg("muted", `≡${sum.folded}`)}` : "",
 		sum.durationMs !== null ? `${sep}${formatDuration(sum.durationMs)}` : "",
 		model.tokens ? `${sep}${theme.fg("muted", `${formatCompactTokens(model.tokens.full)} → ${formatCompactTokens(model.tokens.live)} tok`)}` : "",
 	].filter(Boolean);
@@ -126,7 +132,7 @@ export function taskNote(task: Task): string {
 
 const clean = (text: string): string => text.replace(/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/g, " ");
 
-const arrow = (f: FoldTokens) => `${formatCompactTokens(f.full)} → ${formatCompactTokens(f.live)}`;
+const arrow = (f: FoldTokens) => `${formatCompactTokens(f.full)}→${formatCompactTokens(f.live)}`;
 
 /** Folded tasks among `ids` and their subtasks that own a group, with their summed tokens. */
 function foldsWithin(ids: readonly string[], folds: ReadonlyMap<string, FoldTokens> | undefined, self: boolean): { count: number; tokens: FoldTokens } {
@@ -172,7 +178,8 @@ function taskRowLine(row: Extract<TaskRow, { kind: "task" }>, width: number, the
 	return fitRow(left, title, [duration + marker, noteText + marker, noteText + shortMarker, shortMarker], width);
 }
 
-function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme, folds: ReadonlyMap<string, FoldTokens> | undefined): string {
+function hiddenRowLine(row: Extract<TaskRow, { kind: "hidden" }>, width: number, theme: WidgetTheme, folds: ReadonlyMap<string, FoldTokens> | undefined, capped: string | null): string {
+	if (capped !== null) return truncateToWidth(`  ${theme.fg("dim", row.prefix)} ${theme.fg("dim", `… ${row.count} more · ${capped} Tasks`)}`, width, ELLIPSIS);
 	const parts = [`… ${row.count} ${row.finished ? "finished" : "upcoming"}`, row.durationMs !== null ? formatDuration(row.durationMs) : ""].filter(Boolean).join(" · ");
 	const within = foldsWithin(row.ids, folds, true);
 	const folded = row.folded ? ` (${row.folded}≡${within.count ? ` · ${arrow(within.tokens)}` : ""})` : "";
@@ -206,8 +213,9 @@ export function renderTaskWidget(model: TaskWidgetModel, view: TaskWidgetView, w
 	}
 	for (const row of rows) {
 		if (row.kind === "hidden") {
-			lines.push(hiddenRowLine(row, width, theme, model.foldTokens));
-			hits.push({ kind: "reveal", ids: row.ids });
+			const capped = view.revealed.size >= REVEAL_CAP;
+			lines.push(hiddenRowLine(row, width, theme, model.foldTokens, capped ? (view.toggleKey ?? "alt+t") : null));
+			hits.push(capped ? null : { kind: "reveal", ids: row.ids });
 		} else {
 			lines.push(taskRowLine(row, width, theme, blinkOn, model.foldTokens));
 			hits.push(row.node.children.length ? { kind: "toggle", id: row.node.task.id, open: row.open } : null);
@@ -221,7 +229,15 @@ export function applyTaskWidgetHit(view: TaskWidgetView, hit: TaskWidgetHit): bo
 	if (!hit) return false;
 	if (hit.kind === "header") view.expanded = !view.expanded;
 	else if (hit.kind === "toggle") view.toggles.set(hit.id, !hit.open);
-	else for (const id of hit.ids) view.revealed.add(id);
+	else {
+		const before = view.revealed.size;
+		const room = Math.min(REVEAL_STEP, REVEAL_CAP - before);
+		for (const id of hit.ids) {
+			if (view.revealed.size - before >= room) break;
+			view.revealed.add(id);
+		}
+		return view.revealed.size > before;
+	}
 	return true;
 }
 
@@ -380,7 +396,7 @@ export class TaskWidgetController {
 	private freshView(): TaskWidgetView {
 		const s = this.deps.settings();
 		const showLegend = s.expanded && !this.legendSeen;
-		return { expanded: s.expanded, maxRows: s.maxRows, toggles: new Map(), revealed: new Set(), showLegend };
+		return { expanded: s.expanded, maxRows: s.maxRows, toggles: new Map(), revealed: new Set(), showLegend, toggleKey: s.toggleKey };
 	}
 
 	/** Bind to a new session's UI; `ui` is null without an interactive terminal. */
@@ -411,6 +427,7 @@ export class TaskWidgetController {
 	/** Show, hide or redraw for the current state; cheap, safe to call on every change. */
 	sync(): void {
 		this.view.maxRows = this.deps.settings().maxRows;
+		this.view.toggleKey = this.deps.settings().toggleKey;
 		const want = !!this.ui && !this.hidden && this.suspensions.size === 0 && (!!this.list || !!this.problem) && this.deps.settings().mode === "auto" && this.deps.enabled();
 		if (want && !this.installed && !this.installing) {
 			if (this.view.showLegend) this.legendSeen = true;
