@@ -6,7 +6,7 @@ const t = (id: string, status: Task["status"], title = `T${id}`): Task => ({ id,
 const list = (tasks: Task[]): TaskList => ({ slug: "w", title: "W", createdAt: "", updatedAt: "", claim: null, tasks });
 
 describe("task coach", () => {
-	test("reminds once after the orientation allowance, naming the next task", () => {
+	test("reminds after the orientation allowance, naming the next task", () => {
 		const c = new TaskCoach();
 		c.setList(list([t("1", "done"), t("2", "todo", "Wire it")]));
 		const notes = Array.from({ length: 20 }, () => { c.callStarted(false); return c.toolResult(false); });
@@ -24,7 +24,7 @@ describe("task coach", () => {
 		expect([1, 2, 3].map(call).filter(Boolean)).toHaveLength(1);
 	});
 
-	test("reminds once about work that belongs to no list at all", () => {
+	test("reminds about work that belongs to no list at all", () => {
 		const c = new TaskCoach();
 		c.setPolicy({ orientationCalls: 1, enforce: "coach", gateFailOpenAfter: 3 });
 		const call = () => { c.callStarted(false); return c.toolResult(false); };
@@ -34,6 +34,33 @@ describe("task coach", () => {
 		c.userPrompt();
 		expect(call()).toBeNull();
 		expect(call()).toContain("no task list attached");
+	});
+
+	test("repeats at widening intervals, surviving start and resetting on tracked work or prompt", () => {
+		const c = new TaskCoach();
+		const call = () => { c.callStarted(false); return c.toolResult(false); };
+		const first = Array.from({ length: 11 }, call);
+		expect(first[10]).toContain("no task list attached");
+		const notes: Array<{ at: number; text: string }> = [];
+		for (let i = 1; i <= 775; i++) {
+			if (i === 10) c.started("w", ["1"]);
+			const text = call();
+			if (text) notes.push({ at: i, text });
+		}
+		expect(notes.map((note) => note.at)).toEqual([25, 75, 175, 375, 575, 775]);
+		for (const note of notes) {
+			expect(note.text).toContain("Still untracked:");
+			expect(note.text.split("\n")).toHaveLength(1);
+		}
+		c.setList(list([t("1", "doing")]));
+		expect(call()).toBeNull();
+		c.setList(list([t("2", "todo", "Next")]));
+		expect(call()).toContain('next to do: 2 "Next"');
+		for (let i = 0; i < 24; i++) expect(call()).toBeNull();
+		expect(call()).toContain('Start 2 "Next"');
+		c.userPrompt();
+		for (let i = 0; i < 10; i++) expect(call()).toBeNull();
+		expect(call()).toContain('next to do: 2 "Next"');
 	});
 
 	test("stays quiet inside a task, for nested calls, and when nothing is left to do", () => {
@@ -127,12 +154,15 @@ describe("gate", () => {
 		expect(c.callStarted(false).refuse).toBeDefined();
 	});
 
-	test("opens for the rest of the run after repeated refusals, and a prompt closes it", () => {
+	test("reopens after one refusal every 50 untracked calls, and a prompt closes it", () => {
 		const c = gate();
 		c.callStarted(false);
 		for (let i = 0; i < 3; i++) expect(c.callStarted(false).refuse).toBeDefined();
 		expect(c.callStarted(false)).toEqual({ opened: true });
-		expect(c.callStarted(false).refuse).toBeUndefined();
+		for (let i = 0; i < 49; i++) expect(c.callStarted(false)).toEqual({});
+		expect(c.callStarted(false).refuse).toBeDefined();
+		for (let i = 0; i < 50; i++) expect(c.callStarted(false)).toEqual({});
+		expect(c.callStarted(false).refuse).toBeDefined();
 		c.userPrompt();
 		c.callStarted(false);
 		expect(c.callStarted(false).refuse).toBeDefined();
@@ -160,14 +190,12 @@ describe("large leaf", () => {
 		return c;
 	};
 
-	test("taps once the result count is reached, then only after the repeat interval", () => {
+	test("taps when the leaf crosses the threshold and doubles in size", () => {
 		const c = setup();
-		const notes = Array.from({ length: 6 }, () => { c.callStarted(false); return c.toolResult(false, 0); });
+		const notes = Array.from({ length: 12 }, () => { c.callStarted(false); return c.toolResult(false, 0); });
+		expect(notes.map((n, i) => n ? i + 1 : 0).filter(Boolean)).toEqual([3, 6, 12]);
 		expect(notes[2]).toContain('Task 1 "Big"');
-		expect(notes.slice(0, 2)).toEqual([null, null]);
-		expect(notes[4]).toContain("It is still open");
-		expect(notes.slice(3, 4)).toEqual([null]);
-		expect(notes[5]).toBeNull();
+		expect(notes[5]).toContain("It is still open");
 	});
 
 	test("taps on the budget share of accumulated content, not only on result count", () => {
@@ -177,6 +205,24 @@ describe("large leaf", () => {
 		c.callStarted(false);
 		// 2,400 characters is 600 tokens: past half of the 1,000-token budget.
 		expect(c.toolResult(false, 2400)).toContain("625 tokens");
+	});
+
+	test("repeats when accumulated tokens double before the result count", () => {
+		const c = setup();
+		expect(c.toolResult(false, 100)).toBeNull();
+		expect(c.toolResult(false, 2400)).toContain("625 tokens");
+		expect(c.toolResult(false, 2500)).toContain("1250 tokens");
+	});
+
+	test("gate mode delivers large-leaf and floor notes on an outer result", () => {
+		const c = setup();
+		c.setPolicy({ orientationCalls: 0, enforce: "gate", gateFailOpenAfter: 3, stopOnBlock: true, largeLeaf: { budgetShare: 0.5, toolResults: 2, repeatEvery: 2 }, budget: 1000 });
+		c.floorTap(["w/1"]);
+		expect(c.toolResult(true, 0)).toBeNull();
+		const note = c.toolResult(false, 0);
+		expect(note).toContain("folded part of the span");
+		expect(note).toContain('Task 1 "Big"');
+		expect(c.toolResult(false, 0)).toBeNull();
 	});
 
 	test("stays quiet for a leaf with no ceiling, and inside a nested call's own result", () => {

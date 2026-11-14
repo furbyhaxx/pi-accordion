@@ -413,6 +413,13 @@ anything but the waiting task itself (or its subtasks) is refused with `The run 
 "<title>" waits (<label> — <detail>)`. With `false` later leaves run in order while the blocked
 interval stays closed, and a resumed leaf opens a new interval; no two leaves are ever `doing`.
 
+**Coaching and gate.** After the orientation allowance, coach mode reminds the agent about untracked
+work. Further reminders follow after 25, 50, 100, 200 and then every 200 more untracked results;
+tracked work or a new user prompt resets the recurrence. Gate mode refuses untracked work until
+`gateFailOpenAfter` refusals, then allows 50 untracked calls, refuses once, and repeats that cycle.
+Both modes report a floor fold affecting the current leaf and warn when a leaf first exceeds its
+size threshold and whenever its result count or token count doubles since the last warning.
+
 #### complete / fail / abandon
 
 ```js
@@ -1049,6 +1056,8 @@ Previously stored `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks`
 `conductorOptions.taskfold`; explicit new-path values win. Earlier valid values remain effective,
 even if outside the narrower editor ranges. Saves validate new edits against the registry bounds
 and require `low < high`. `roots` keeps absolute paths (`~/` expanded) and drops anything else.
+`tasks.largeLeaf.repeatEvery` is retained in settings but does not control the doubling-based
+large-leaf reminder. `gateFailOpenAfter` controls the refusals before the first gate opening.
 The extractor model resolves through `models` like other out-of-band calls.
 
 `/accordion fold eager|lazy|pressure` records a timing dial for this session and model in

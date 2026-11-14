@@ -27,7 +27,7 @@ export type EnforceMode = "coach" | "gate" | "off";
 export interface CoachPolicy {
 	orientationCalls: number;
 	enforce: EnforceMode;
-	/** Consecutive refusals after which the gate stays open for the rest of the run. */
+	/** Consecutive refusals before the gate first opens for 50 calls. */
 	gateFailOpenAfter: number;
 	/** A blocked task stops the run, so nothing else can be named as next. */
 	stopOnBlock: boolean;
@@ -121,17 +121,16 @@ export class TaskCoach {
 	};
 	/** Non-exempt calls since the last user prompt. */
 	private calls = 0;
-	/** Refusals in this run, and whether the gate already gave up on it. */
 	private refusals = 0;
 	private opened = false;
-	/** Once per run each: a reminder that repeats is noise, and gate mode carries the refusal. */
-	private remindedNoList = false;
-	private remindedNoLeaf = false;
+	private openCalls = 0;
+	private untracked = 0;
+	private lastReminder = 0;
+	private reminderInterval = 0;
 	/** `<list>/<id>` → tool results and assistant texts inside that task's span since this process saw it. */
 	private readonly work = new Map<string, number>();
-	/** `<list>/<id>` → estimated tokens of that span's content, and the work count at its last tap. */
 	private readonly spanTokens = new Map<string, number>();
-	private readonly tapped = new Map<string, number>();
+	private readonly tapped = new Map<string, { results: number; tokens: number }>();
 	/** A pressure fold that touched the current leaf, waiting for the next tool result to carry it. */
 	private floorNote: { task: string; slug: string; id: string; title: string } | null = null;
 
@@ -149,8 +148,10 @@ export class TaskCoach {
 		this.calls = 0;
 		this.refusals = 0;
 		this.opened = false;
-		this.remindedNoList = false;
-		this.remindedNoLeaf = false;
+		this.openCalls = 0;
+		this.untracked = 0;
+		this.lastReminder = 0;
+		this.reminderInterval = 0;
 	}
 
 	/** Tasks just started or resumed (with any auto-started parents). */
@@ -170,10 +171,19 @@ export class TaskCoach {
 		if (policy.enforce !== "gate") return {};
 		const list = this.list;
 		if (list && innermostDoing(list)) return {};
-		if (this.calls <= policy.orientationCalls || nested || this.opened) return {};
-		// The configured number of refusals is honoured, then the gate gives up rather than argue.
+		if (this.calls <= policy.orientationCalls) return {};
+		if (this.opened) {
+			if (this.openCalls < 50 || nested) {
+				this.openCalls++;
+				return {};
+			}
+			this.openCalls = 0;
+			return { refuse: list ? noLeafRefusal(list, this.calls) : noListRefusal(this.calls) };
+		}
+		if (nested) return {};
 		if (this.refusals >= policy.gateFailOpenAfter) {
 			this.opened = true;
+			this.openCalls = 1;
 			return { opened: true };
 		}
 		this.refusals++;
@@ -188,12 +198,7 @@ export class TaskCoach {
 		}
 	}
 
-	/**
-	 * The tap on the shoulder for a leaf that is getting too big to finish in one span: a share of
-	 * the budget, or a pile of tool results. It repeats every `repeatEvery` results, because a leaf
-	 * the agent deliberately keeps open — a long build, a migration — must not be nagged per call.
-	 * Nothing is split here: the agent decides what the span is.
-	 */
+	/** Remind when a leaf crosses a size threshold and when either measure doubles. */
 	private largeLeafNote(list: TaskList, current: Task): string | null {
 		const tap = this.policy.largeLeaf;
 		const key = `${list.slug}/${current.id}`;
@@ -202,13 +207,9 @@ export class TaskCoach {
 		const share = this.policy.budget ? this.policy.budget * tap.budgetShare : null;
 		const over = results >= tap.toolResults || (share !== null && tokens >= share);
 		const last = this.tapped.get(key);
-		if (over && last === undefined) {
-			this.tapped.set(key, results);
-			return largeLeafReminder(list.slug, current, { results, tokens, share, first: true });
-		}
-		if (over && last !== undefined && results - last >= tap.repeatEvery) {
-			this.tapped.set(key, results);
-			return largeLeafReminder(list.slug, current, { results, tokens, share, first: false });
+		if (over && (last === undefined || results >= last.results * 2 || (last.tokens > 0 && tokens >= last.tokens * 2))) {
+			this.tapped.set(key, { results, tokens });
+			return largeLeafReminder(list.slug, current, { results, tokens, share, first: last === undefined });
 		}
 		return null;
 	}
@@ -219,12 +220,10 @@ export class TaskCoach {
 		if (current && chars > TEXT_WORK_CHARS) this.countWork(this.list!, current, charsToTokens(chars));
 	}
 
-	/** Work still counts while coaching is off or gated; only the reminders are suppressed. */
-	private countOnly(chars = 0): null {
-		const list = this.list;
-		const current = list && innermostDoing(list);
-		if (list && current) this.countWork(list, current, charsToTokens(chars));
-		return null;
+	private resetUntracked(): void {
+		this.untracked = 0;
+		this.lastReminder = 0;
+		this.reminderInterval = 0;
 	}
 
 	/**
@@ -255,28 +254,35 @@ export class TaskCoach {
 	 * another tool) count as work but never carry a reminder of their own.
 	 */
 	toolResult(nested: boolean, chars = 0): string | null {
-		if (this.policy.enforce !== "coach") return this.countOnly(chars);
+		const list = this.list;
+		const current = list && innermostDoing(list);
+		if (list && current) {
+			this.resetUntracked();
+			this.countWork(list, current, charsToTokens(chars));
+			if (nested || this.policy.enforce === "off") return null;
+			const floor = this.floorNote;
+			this.floorNote = null;
+			return [floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
+		}
+		this.untracked++;
+		if (nested || this.policy.enforce === "off") return null;
 		const floor = this.floorNote;
 		this.floorNote = null;
-		const list = this.list;
-		if (list) {
-			const current = innermostDoing(list);
-			if (current) {
-				this.countWork(list, current, charsToTokens(chars));
-				return [floor && floorFoldNote(floor), this.largeLeafNote(list, current)].filter(Boolean).join("\n\n") || null;
-			}
-		}
 		if (floor) return floorFoldNote(floor);
-		// Nested calls count toward the allowance (they are work), but only the outer call may speak.
-		if (this.calls <= this.policy.orientationCalls || nested) return null;
-		if (!list) {
-			if (this.remindedNoList) return null;
-			this.remindedNoList = true;
-			return noListReminder(this.calls);
+		if (this.policy.enforce !== "coach" || this.calls <= this.policy.orientationCalls) return null;
+		const pick = list ? nextTask(list, this.policy.stopOnBlock) : null;
+		if (list && !pick) return null;
+		if (this.reminderInterval && this.untracked - this.lastReminder < this.reminderInterval) return null;
+		const first = this.reminderInterval === 0;
+		this.lastReminder = this.untracked;
+		this.reminderInterval = first ? 25 : Math.min(this.reminderInterval * 2, 200);
+		if (!first) {
+			const repair = list && pick
+				? `Start ${pick.resume ? "or resume " : ""}${pick.task.id} "${pick.task.title}" with tasks start {list: "${list.slug}", id: "${pick.task.id}"}.`
+				: "Create or claim a list with tasks create or tasks claim.";
+			return `[accordion tasks] Still untracked: ${this.untracked} tool results without a task. ${repair}`;
 		}
-		const pick = nextTask(list, this.policy.stopOnBlock);
-		if (!pick || this.remindedNoLeaf) return null;
-		this.remindedNoLeaf = true;
+		if (!list || !pick) return noListReminder(this.calls);
 		const next = pick.task;
 		return `[accordion tasks] ${this.calls} tool calls ran while no task of "${list.slug}" is in progress, so this work belongs to no task record. If it is part of a planned task, call tasks start {list: "${list.slug}", id: "<id>"} before continuing (${pick.resume ? `next: resume ${next.id} "${next.title}", which was waiting for ${currentBlock(next)?.on}` : `next to do: ${next.id} "${next.title}"`}); if it is new work, add a task for it first.`;
 	}
