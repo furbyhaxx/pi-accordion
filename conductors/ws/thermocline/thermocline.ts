@@ -841,8 +841,8 @@ export class ThermoclineConductor implements Conductor {
 			if (!u) continue;
 			const ids = foldableMemberIds(u, f.ids);
 			if (!ids.length) continue;
-			const body = foldBody(u, f.tier, digests);
-			for (const id of ids) folds.set(id, this.appliedFolds.get(id) ?? body);
+			let body: string | undefined;
+			for (const id of ids) folds.set(id, this.appliedFolds.get(id) ?? (body ??= foldBody(u, f.tier, digests)));
 		}
 		const strata = plan.strata.map((s) => {
 			const drop = s.digestKind === "drop";
