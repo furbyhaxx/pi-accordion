@@ -25,7 +25,7 @@
  */
 import { isFoldTiming, type ClassifierAnswer, type ClassifierQuestion, type Conductor, type ConductorHost, type FoldTiming, type FoldingPolicy, type GroupInfo, type HostEvent, type ViewBlock } from "../../../core/conductor/contract";
 import type { Op } from "../../../core/ops";
-import { foldTag } from "../../../core/digest";
+import { foldTag, hasOwnFoldTag } from "../../../core/digest";
 import { estTokens } from "../../../core/tokens";
 import { cacheProfileFor } from "../../../core/cacheProfiles";
 import { VerdictLedger } from "./verdicts";
@@ -1307,6 +1307,16 @@ export class TaskfoldConductor implements Conductor {
 		const ours = groups.filter((g) => owns(g.id) && !excludedGroups.has(g.id) && g.memberIds.some((id) => memberIds.has(id))).sort((a, b) => (positions.get(a.memberIds[0]) ?? 0) - (positions.get(b.memberIds[0]) ?? 0));
 
 		const included = new Set(viable.flatMap((r) => r.map((b) => b.id)));
+		const tagged = new Set<string>();
+		for (const g of groups) {
+			if (g.by !== "auto" || !g.folded || typeof g.summary !== "string" || !hasOwnFoldTag(g.summary, g.id) || ours.includes(g)) continue;
+			for (const id of g.memberIds) if (!planned.has(id)) tagged.add(id);
+		}
+		const reachable = (id: string) => {
+			const b = blocks[positions.get(id)!];
+			if (b.held || b.kind === "system") return false;
+			return included.has(id) || tagged.has(id) || (b.kind === "user" && !this.folds(b) && members.includes(b));
+		};
 		const hidden = new Set(viable.flatMap((run) => {
 			const keys = collapsibleMessageKeys(run, true);
 			return run.filter((b) => keys.has(messageKey(b.id))).map((b) => b.id);
@@ -1314,20 +1324,15 @@ export class TaskfoldConductor implements Conductor {
 		const spanHandle = (task: Span) => {
 			const memberIds: string[] = [];
 			for (const r of task.intervals) for (let i = r.start; i <= r.end && (!bracket || i <= hi); i++) memberIds.push(blocks[i].id);
-			return { id: `t:${task.key}`, memberIds };
+			return { id: `t:${task.key}`, memberIds: memberIds.filter(reachable) };
 		};
-		const covered = (h: { memberIds: string[] }) => h.memberIds.every((id) => included.has(id) || members.some((b) => b.id === id && b.kind === "user" && !this.folds(b)));
 		const rootHandle = spanHandle(span);
-		const handles = [...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] }))), ...(covered(rootHandle) ? [rootHandle] : []), ...children.filter((child) => child.intervals.length > 0).map(spanHandle)];
+		const rootHeld = rootHandle.memberIds.some((id) => included.has(id));
+		const childHandles = children.filter((child) => child.intervals.length > 0).map(spanHandle);
+		const present = new Set(childHandles.filter((h) => h.memberIds.some((id) => included.has(id))).map((h) => h.id.slice(2)));
+		const handles = [...ours.map((g) => ({ id: g.id, memberIds: g.memberIds.slice() })), ...ours.flatMap((g) => (g.handles ?? []).map((h) => ({ id: h.id, memberIds: [...h.memberIds] }))), ...(rootHeld ? [rootHandle] : []), ...childHandles.filter((h) => present.has(h.id.slice(2)))];
 		const unique = [...new Map(handles.map((h) => [h.id, h])).values()];
-		// A handle the carrier cannot fully own is dropped, not a veto: its child keeps a record without a recall code, or none when the carrier holds none of it.
-		const usable = unique.filter((h) => h.memberIds.length > 0 && covered(h));
-		const reach = new Map<string, "full" | "partial" | "none">();
-		for (const child of children) {
-			if (!child.intervals.length) continue;
-			const h = spanHandle(child);
-			reach.set(child.key, h.memberIds.length > 0 && covered(h) ? "full" : h.memberIds.some((id) => included.has(id)) ? "partial" : "none");
-		}
+		const usable = unique.filter((h) => h.memberIds.length > 0 && h.memberIds.every(reachable));
 		const prior = new Map<string, RecordObj | HistoryObj>();
 		for (const g of ours) {
 			const key = taskKeyOfSummary(g.summary);
@@ -1342,10 +1347,9 @@ export class TaskfoldConductor implements Conductor {
 				if (!prior.has(key)) prior.set(key, child);
 			}
 		}
-		const rootCovered = covered(rootHandle);
 		const lastRun = viable[viable.length - 1];
-		const tag = rootCovered ? foldTag(`t:${span.key}`) : foldTag(`g:${lastRun[0].id}`);
-		const entry = this.record(span, blocks, children, prior, included, reach, hidden);
+		const tag = rootHeld ? foldTag(`t:${span.key}`) : foldTag(`g:${lastRun[0].id}`);
+		const entry = this.record(span, blocks, children, prior, included, present, hidden);
 		const isRoot = !span.id.includes(".");
 		const carrier: RecordObj | HistoryObj = isRoot ? toHistory(entry) : entry;
 		while (!isHistory(carrier) && estTokens(JSON.stringify(carrier.children ?? [])) > this.k.recordTokens) {
@@ -1370,7 +1374,7 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	/** A span's record, omitting bracket reports whose closing calls remain visible. */
-	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>, reach?: ReadonlyMap<string, "full" | "partial" | "none">, hidden?: ReadonlySet<string>): RecordObj {
+	record(span: Span, blocks: readonly ViewBlock[], children: readonly Span[], prior: ReadonlyMap<string, RecordObj | HistoryObj> = new Map(), included?: ReadonlySet<string>, present?: ReadonlySet<string>, hidden?: ReadonlySet<string>): RecordObj {
 		const inside = (s: Span, i: number) => s.intervals.some((r) => r.start <= i && i <= r.end);
 		const reportVisible = (task: Span) => this.k.leafForm === "bracket" && hidden && task.closingCall !== undefined && !hidden.has(blocks[task.closingCall].id);
 		const own: ViewBlock[] = [];
@@ -1383,20 +1387,15 @@ export class TaskfoldConductor implements Conductor {
 			const ids = b.kind === "user" ? this.verdicts.get(b.id)?.routed?.ids : undefined;
 			return ids?.length ? [{ said: oneLine(this.textOf(b), USER_SAID_CHARS), ids }] : [];
 		});
-		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)) && reach?.get(c.key) !== "none");
+		const direct = children.filter((c) => !children.some((o) => o !== c && c.key.startsWith(`${o.key}.`)) && (!present || !c.intervals.length || present.has(c.key)));
 		const entries = direct.map((child): RecordObj | HistoryObj => {
-			const recallable = !reach || (reach.get(child.key) ?? "full") === "full";
 			const previous = prior.get(child.key);
 			if (previous && isHistory(previous)) {
 				const existing = { ...previous, outcome: reportVisible(child) ? undefined : previous.outcome ?? child.report.outcome };
-				if (!recallable) {
-					delete existing.recall;
-					return existing;
-				}
 				return !existing.recall && child.intervals.length ? { ...existing, recall: foldTag(`t:${child.key}`) } : existing;
 			}
-			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included, reach, hidden);
-			return child.intervals.length && recallable ? { task: full.task, title: full.title, status: full.status, recall: foldTag(`t:${child.key}`), ...rest(full) } : full;
+			const full = this.record(child, blocks, children.filter((c) => c.key.startsWith(`${child.key}.`)), prior, included, present, hidden);
+			return child.intervals.length ? { task: full.task, title: full.title, status: full.status, recall: foldTag(`t:${child.key}`), ...rest(full) } : full;
 		});
 		const { outcome, decisions, open } = reportVisible(span) ? {} : span.report;
 		return {

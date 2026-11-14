@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 42
+  revision: 43
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T16:20:08+01:00"
+  updated_at: "2026-11-14T16:29:26+01:00"
   created_by: "orchestrator"
   updated_by: "coder"
   changelog:
-    - revision: 42
-      reason: "seal untracked turns and report stale task spans"
-      changes: ["specify timing and token thresholds for untracked folds", "retain newest document reads under pressure", "configure stale-task threshold and remove unused large-leaf repeat setting"]
+    - revision: 43
+      reason: "keep task recall codes stable for partially held spans"
+      changes: ["describe the reachable members of task handles"]
 ---
 
 # Taskfold
@@ -719,6 +719,7 @@ Evidence: `.project/analyses/fold-representations/README.md` §3.1–3.3, §4.
   conductor groups; a human group keeps the role of its run's first message). Its text starts with the task's own tag (`{#code FOLDED}`, the tag is the handle), then one
   line of compact JSON. Adjacent carriers stay separate messages; each is append-only.
 - One fold code per task: `foldCode("t:<list>/<id>")` (§7.3). The group's own code is not shown.
+- A task handle names the task's blocks held by its carrier and other coded groups, plus intervening visible user messages; other live or held blocks are not included.
 
 ### 6.2 Record (S)
 
@@ -801,6 +802,7 @@ task 1 record (1.1 → 1.1.1 composed) → G(1)
   must contain the handle's exact tag. Cross-group sources are created before the carrier.
 - Handle id: `t:<list>/<id>`. Its fold code is `foldCode("t:<list>/<id>")`, stable across
   recompiles.
+- Task handles include the task's blocks in the carrier and other coded groups, and intervening visible user messages, but not other live or held blocks.
 - `resolveRecall` resolves a handle code to its members' raw content. What the `recall` tool returns
   for it, and the session account that bounds all recall output, are specified in SPEC-0003: a task
   code returns the task's report, its transcript is reached by search or entry address.

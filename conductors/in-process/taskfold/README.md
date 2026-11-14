@@ -92,9 +92,10 @@ order and no empty keys.
 `outcome`, `decisions` and `open` come from the agent's `report` in the finishing call. `changed`
 and `verified` come from the task's own `edit`/`write` calls and check-like `bash` commands,
 excluding child spans. `user` links each routed user message inside the span to the list items it
-produced. Each child carries its own tag in `recall`. One code per task is derived from its id, so
-it stays stable when the planner recompiles. `recall` returns its folded source; bracket tails
-remain visible rather than being duplicated. `unfold` opens that source, and taskfold re-folds siblings around the
+produced. Each folded child carries its own tag in `recall`. One code per task is derived from its id, so
+it stays stable when the planner recompiles. Its handle includes task blocks in the carrier and other
+coded groups, plus intervening visible user messages; other live or held blocks remain outside it.
+Bracket tails remain visible rather than being duplicated. `unfold` opens the folded source, and taskfold re-folds siblings around the
 requested child. `taskfold.recordTokens` (default 1,500) budgets raw-estimated descendant content,
 not the task's own report: deepest children become history until it fits or none remain.
 Outcomes (up to 2,000 chars) stay whole, including in history; decision/open lists each allow
