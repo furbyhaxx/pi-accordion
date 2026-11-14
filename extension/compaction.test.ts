@@ -48,6 +48,17 @@ describe("compaction strategies", () => {
 		expect(summary).toContain("discarded");
 		expect(summary).not.toContain("kept");
 	});
+	test("bake emits a folded task record once and digests ungrouped results", () => {
+		const t = truthOf([blk("a:b0:p0", "user", 0, 1), blk("a:b1:p0", "text", 1, 1), blk("a:b2:p0", "text", 2, 2)], { protect: 0 });
+		const record = '{#abc123 FOLDED} {"task":"demo/1","title":"Survey","status":"done","outcome":"found it"}';
+		t.apply([{ kind: "group", ids: ["a:b0:p0", "a:b1:p0"], summary: record }], "auto");
+		const summary = buildBakeSummary(t.blocks, { capTokens: 10000, truth: t });
+		expect(summary).toContain('── task demo/1 "Survey" done');
+		expect(summary.match(/found it/g)).toHaveLength(1);
+		expect(summary).not.toContain("FOLDED}");
+		expect(summary).not.toContain(t.blocks[2].text);
+	});
+
 
 	test("threshold remains saturated when a pass saves tokens but misses the reserve", () => {
 		expect(needsSaturationFallback("threshold", 1000, 900, 1000, 200)).toBe(true);
