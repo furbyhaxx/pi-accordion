@@ -13,7 +13,7 @@ import { foldCode, foldTag } from "../../../core/digest";
 import { resolveRecall, resolveUnfold } from "../../../core/agentView";
 import type { Block } from "../../../core/types";
 import { parseExtraction } from "../../../extension/taskRouting";
-import type { ConductorHost, FoldTiming } from "../../../core/conductor/contract";
+import type { ClassificationResult, ConductorHost, FoldTiming } from "../../../core/conductor/contract";
 import { cacheProfileFor } from "../../../core/cacheProfiles";
 import type { TaskEvent } from "../../../core/taskEvents";
 import { entryById } from "../../../core/conductor/registry";
@@ -768,6 +768,35 @@ describe("taskfold", () => {
 		expect(resolveRecall(host.truth, [foldCode(steps[0].id)]).missing).toEqual([]);
 	});
 
+	it("keeps open task delivery results live through steps and floor pressure", async () => {
+		for (const floor of [false, true]) {
+			const s = new Session();
+			s.user("Go.");
+			const claim = s.call("tasks", { action: "claim", list: "work" }, "claim ".repeat(350));
+			const start = s.call("tasks", { action: "start", list: "work", id: "1" }, `Started work/1 "Task".\n${"criteria ".repeat(250)}`);
+			const pin = s.call("tasks", { action: "pin", list: "work" }, "pin ".repeat(500));
+			const attachment = s.call("tasks", { action: "attach", list: "work", id: "1" }, "attachment ".repeat(200));
+			s.work(12, "open");
+			const host = setup(s, 0.3);
+			const c = new TaskfoldConductor({ keepRecentTasks: 0, floor });
+			host.truth.setLocks(c.locks, c.label, c.tailTokens);
+			c.attach(host);
+			await host.commitTurn();
+			expect(host.groups().length + host.truth.blocks.filter((b) => host.truth.isFolded(b)).length).toBeGreaterThan(0);
+			for (const { result } of [claim, start, pin, attachment]) {
+				expect(groupOf(host, result)).toBeUndefined();
+				expect(host.truth.isFolded(host.truth.get(result)!)).toBe(false);
+			}
+			const more = new Session();
+			Object.assign(more, { order: s.blocks.length, resp: 100, turn: 3 });
+			more.finish("1", { outcome: "done" });
+			more.work(3, "tail");
+			host.appendBlocks(more.blocks);
+			await host.commitTurn();
+			expect(groupOf(host, start.result)).toBeDefined();
+		}
+	});
+
 	it("absorbs an open task's step carriers into its record when it finishes", async () => {
 		const s = new Session();
 		s.user("Go.");
@@ -787,6 +816,21 @@ describe("taskfold", () => {
 		expect(records.length).toBeGreaterThan(0);
 	});
 
+	it("clears saturation status once pressure subsides", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Long task");
+		s.work(12, "open");
+		const host = setup(s, 0.3);
+		const c = new TaskfoldConductor({ steps: { enabled: false, minSteps: 4 } });
+		c.attach(host);
+		await host.commitTurn();
+		expect(host.statusLog.at(-1)?.metrics?.level).toBe("error");
+		host.setBudget(host.stats().liveTokens * 10);
+		await host.commitTurn();
+		expect(host.statusLog.at(-1)?.metrics?.level).toBeUndefined();
+	});
+
 	it("reports the largest open task when step folding is off and nothing else can relieve pressure", async () => {
 		const s = new Session();
 		s.user("Go.");
@@ -800,6 +844,56 @@ describe("taskfold", () => {
 		const last = host.statusLog.at(-1);
 		expect(last?.text).toContain("open task work/1");
 		expect(last?.metrics?.level).toBe("error");
+	});
+
+	it("classifies twelve messages with bounded concurrency and retries capacity errors", async () => {
+		const s = new Session();
+		s.user("Goal");
+		const ids = Array.from({ length: 12 }, (_, i) => s.user(`Message ${i}`));
+		const host = new TestHost();
+		const ledger = new VerdictLedger();
+		let active = 0;
+		let maximum = 0;
+		let capacityFailures = 0;
+		host.classifier = async () => {
+			active++;
+			maximum = Math.max(maximum, active);
+			try {
+				if (active > 2 || capacityFailures++ < 2) throw new Error("too many concurrent model calls in flight (max 4)");
+				await Promise.resolve();
+				return { answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test" };
+			} finally {
+				active--;
+			}
+		};
+		new TaskfoldConductor({}, ledger).attach(host);
+		host.appendBlocks(s.blocks);
+		for (let i = 0; i < 100 && ids.some((id) => !ledger.has(id)); i++) await Promise.resolve();
+		expect(maximum).toBeLessThanOrEqual(2);
+		expect(ids.map((id) => ledger.get(id)?.source)).toEqual(ids.map(() => "classifier"));
+	});
+
+	it("ignores classifier results and errors after detach", async () => {
+		for (const fail of [false, true]) {
+			const s = new Session();
+			s.user("Goal");
+			const id = s.user("Steer");
+			const host = new TestHost();
+			const ledger = new VerdictLedger();
+			const deferred = Promise.withResolvers<ClassificationResult>();
+			host.classifier = () => deferred.promise;
+			const c = new TaskfoldConductor({}, ledger);
+			c.attach(host);
+			host.appendBlocks(s.blocks);
+			expect(host.classifyLog).toHaveLength(1);
+			c.detach();
+			if (fail) deferred.reject(new Error("failed"));
+			else deferred.resolve({ answers: { loss: { type: "score", score: 0.1, confidence: 0.9 } }, model: "test" });
+			await deferred.promise.catch(() => {});
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(ledger.get(id)).toBeUndefined();
+		}
 	});
 
 	it("keeps an unclassified user message verbatim and splits the span around it", async () => {
@@ -1158,6 +1252,22 @@ describe("taskfold", () => {
 			expect(host.truth.get(first)?.by).toBe("you");
 			expect(groupOf(host, second)).toBeDefined();
 		}
+	});
+
+	it("keeps once-opened tasks open below pressure after two newer roots", async () => {
+		const s = new Session();
+		s.user("Go.");
+		for (const id of ["1", "2", "3"]) {
+			s.start(id, `Task ${id}`);
+			s.work(2, id);
+			s.finish(id, { outcome: "done" });
+		}
+		const host = setup(s, 10);
+		const ledger = new VerdictLedger();
+		ledger.setUnfold("work/1", { count: 1, open: true });
+		new TaskfoldConductor({ keepRecentTasks: 0 }, ledger).attach(host);
+		await host.commitTurn();
+		expect(ledger.unfoldStates().get("work/1")).toEqual({ count: 1, open: true });
 	});
 
 	it("may refold a once-opened child after two newer roots, but not after a second unfold", async () => {

@@ -484,6 +484,8 @@ export class TaskfoldConductor implements Conductor {
 	/** User block id → verdict; computed once and never recomputed, kept across resumes by the ledger. */
 	private readonly verdicts: VerdictLedger;
 	private readonly classifying = new Set<string>();
+	private readonly classifyQueue: { id: string; state: Record<string, string>; retries: number }[] = [];
+	private classifierActive = 0;
 	/** Messages routing was attempted for this process, and those whose extraction is in flight. */
 	private readonly routeTried = new Set<string>();
 	private readonly routing = new Set<string>();
@@ -521,6 +523,8 @@ export class TaskfoldConductor implements Conductor {
 		this.host?.setStatus(null);
 		this.host = null;
 		this.classifying.clear();
+		this.classifyQueue.length = 0;
+		this.classifierActive = 0;
 		this.consentQueue.clear();
 		this.routeTried.clear();
 		this.routing.clear();
@@ -651,8 +655,10 @@ export class TaskfoldConductor implements Conductor {
 			}
 			// Only a message that has not reached the model yet is new; a resumed session's history is born sent.
 			if (!b.sent) void this.routeOne(b.id, text);
-			void this.classifyOne(b.id, state);
+			this.classifying.add(b.id);
+			this.classifyQueue.push({ id: b.id, state, retries: 0 });
 		}
+		this.drainClassifiers();
 	}
 
 	/** The classifier's view of a user message, shaped like the calibration data; null for the session's opening message. */
@@ -720,12 +726,22 @@ export class TaskfoldConductor implements Conductor {
 		if (this.host === host) void this.evaluate();
 	}
 
-	private async classifyOne(id: string, state: Record<string, string>): Promise<void> {
+	private drainClassifiers(): void {
+		while (this.host?.classify && this.classifierActive < 2 && this.classifyQueue.length) {
+			const item = this.classifyQueue.shift()!;
+			this.classifierActive++;
+			void this.classifyOne(item);
+		}
+	}
+
+	private async classifyOne(item: { id: string; state: Record<string, string>; retries: number }): Promise<void> {
+		const { id, state } = item;
 		const host = this.host;
 		if (!host?.classify) return;
-		this.classifying.add(id);
+		let retry = false;
 		try {
 			const res = await host.classify({ state, questions: USER_QUESTIONS });
+			if (this.host !== host) return;
 			const a = res.answers.loss as ClassifierAnswer | undefined;
 			const answers: Record<string, number> = {};
 			for (const [k, v] of Object.entries(res.answers)) if (k !== "loss" && v?.type === "bool") answers[k] = v.probability;
@@ -735,12 +751,23 @@ export class TaskfoldConductor implements Conductor {
 					? { loss: a.score, source: "classifier", confidence: a.confidence, answers, model: res.model, at: new Date().toISOString() }
 					: { loss: null, source: "error" },
 			);
-		} catch {
+		} catch (error) {
+			if (this.host !== host) return;
+			if (error instanceof Error && /^too many concurrent model calls in flight \(max \d+\)$/.test(error.message) && item.retries < 3) {
+				item.retries++;
+				this.classifyQueue.push(item);
+				retry = true;
+				return;
+			}
 			// Unclassified stays verbatim. Remember the failure so a broken classifier is visible.
 			this.verdicts.set(id, { loss: null, source: "error" });
 			this.classifyFailures++;
 		} finally {
-			this.classifying.delete(id);
+			if (this.host === host) {
+				if (!retry) this.classifying.delete(id);
+				this.classifierActive--;
+				this.drainClassifiers();
+			}
 		}
 		if (this.host === host) void this.evaluate();
 	}
@@ -775,6 +802,10 @@ export class TaskfoldConductor implements Conductor {
 		if (!plan.length) {
 			if (!pressure) {
 				if (this.rawWarning) host.setStatus(this.rawWarning, { level: "warning" });
+				else if (!this.awaitingConsent) host.setStatus(`Epoch ${this.epochs}: no fold operations needed.`, {
+					epochs: this.epochs, groups: this.groupKeys(host).size, live_tokens: stats.liveTokens, budget: stats.budget,
+					...(this.classifyFailures ? { level: "warning" } : {}),
+				});
 				return;
 			}
 			const blocks = host.blocks();
@@ -800,7 +831,7 @@ export class TaskfoldConductor implements Conductor {
 		const stats = host.stats();
 		const allSpans = this.spans(blocks);
 		const contains = (outer: Span, inner: Span) => inner.key.startsWith(`${outer.key}.`);
-		if (!recompose) {
+		if (!recompose && pressure) {
 			const allRoots = allSpans.filter((s) => !allSpans.some((o) => contains(o, s)));
 			for (const [key, state] of this.verdicts.unfoldStates()) {
 				const root = allRoots.find((s) => key === s.key || key.startsWith(`${s.key}.`));
@@ -945,9 +976,32 @@ export class TaskfoldConductor implements Conductor {
 		return [...touched];
 	}
 
+	private deliveryOwners(blocks: readonly ViewBlock[], spans: readonly TaskSpan[]): Set<string> {
+		const open = spans.filter((s) => s.status === null);
+		const calls = new Map<string, Record<string, unknown>>();
+		for (const b of blocks) {
+			if (b.kind === "tool_call" && b.toolName === "tasks" && b.callId) {
+				const args = parseCall(this.textOf(b));
+				if (args) calls.set(b.callId, args);
+			}
+		}
+		const protectedIds = new Set<string>();
+		for (const b of blocks) {
+			if (b.kind !== "tool_result" || b.toolName !== "tasks" || !b.callId) continue;
+			const args = calls.get(b.callId);
+			if (!args || typeof args.list !== "string" || typeof args.action !== "string") continue;
+			const owner = args.action === "claim" || ((args.action === "pin" || args.action === "attach") && args.id === undefined)
+				? open.some((s) => s.list === args.list)
+				: ["start", "resume", "pin", "attach"].includes(args.action) && typeof args.id === "string" && open.some((s) => s.key === `${args.list}/${args.id}`);
+			if (owner) protectedIds.add(b.id);
+		}
+		return protectedIds;
+	}
+
 	private floor(host: ConductorHost, blocks: readonly ViewBlock[], live: number, target: number, planned: ReadonlySet<string>, scope: "open" | "untracked"): Unit | null {
 		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
 		const coverage = taskCoverage(blocks.length, spans);
+		const deliveries = this.deliveryOwners(blocks, spans);
 		const positions = new Map(blocks.map((b, i) => [b.id, i]));
 		const userTail = userTailFrom(blocks, host.stats().protectTokens);
 		const documents = new Set<string>();
@@ -959,7 +1013,7 @@ export class TaskfoldConductor implements Conductor {
 		const mask = (b: ViewBlock): ViewBlock => {
 			const i = positions.get(b.id) ?? -1;
 			const allowed = i >= 0 && (scope === "open" ? !!coverage.open[i] && !coverage.finished[i] : !coverage.open[i] && !coverage.finished[i]);
-			return !allowed || i >= userTail || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
+			return !allowed || deliveries.has(b.id) || i >= userTail || planned.has(b.id) || (b.callId && documents.has(b.callId)) ? { ...b, held: true } : b;
 		};
 		const proxy: ConductorHost = {
 			on: () => () => {}, get: (id) => { const b = host.get(id); return b ? mask(b) : undefined; },
@@ -978,8 +1032,10 @@ export class TaskfoldConductor implements Conductor {
 	}
 
 	private untracked(host: ConductorHost, blocks: readonly ViewBlock[], need: number, planned: ReadonlySet<string>): Unit[] {
-		const coverage = taskCoverage(blocks.length, scanTaskSpans(blocks, (b) => this.textOf(b)));
-		return this.foldRuns(host, blocks, need, planned, this.k.untracked.minSteps, (i) => (!coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
+		const spans = scanTaskSpans(blocks, (b) => this.textOf(b));
+		const coverage = taskCoverage(blocks.length, spans);
+		const deliveries = this.deliveryOwners(blocks, spans);
+		return this.foldRuns(host, blocks, need, planned, this.k.untracked.minSteps, (i) => (!deliveries.has(blocks[i].id) && !coverage.open[i] && !coverage.finished[i] ? "" : null), (tag, _key, members, label, facts) => untrackedCarrier(tag, label, facts.changed, facts.verified));
 	}
 
 	/**
@@ -992,13 +1048,14 @@ export class TaskfoldConductor implements Conductor {
 		const open = spans.filter((s) => s.status === null).sort((a, b) => a.key.split(".").length - b.key.split(".").length || a.start - b.start);
 		if (!open.length) return [];
 		const coverage = taskCoverage(blocks.length, spans);
+		const deliveries = this.deliveryOwners(blocks, spans);
 		const owner = new Array<string | undefined>(blocks.length);
 		const anchors = new Set<string>();
 		for (const s of open) {
 			for (const r of s.intervals) for (let i = Math.max(0, r.start); i <= Math.min(blocks.length - 1, r.end); i++) owner[i] = s.key;
 			for (const i of [s.start, s.lastEvent]) if (blocks[i]) anchors.add(messageKey(blocks[i].id));
 		}
-		return this.foldRuns(host, blocks, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
+		return this.foldRuns(host, blocks, need, planned, this.k.steps.minSteps, (i) => (owner[i] !== undefined && !deliveries.has(blocks[i].id) && !coverage.finished[i] && !anchors.has(messageKey(blocks[i].id)) ? owner[i]! : null), (tag, key, members, label, facts) => stepsCarrier(tag, key, label, new Set(members.filter((b) => b.kind === "tool_call" || b.kind === "text").map((b) => messageKey(b.id))).size, facts.changed, facts.verified));
 	}
 
 	/** Group maximal runs of whole messages sharing one non-null `ownerOf` key into recallable carriers, oldest first, until `need` is met. */
