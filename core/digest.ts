@@ -38,14 +38,15 @@ export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text"
 
 /**
  * The ONE foldability predicate, shared by the view and the wire. A block may be folded —
- * its content substituted by a digest on the agent's wire — iff its KIND is foldable. This
+ * its content substituted by a digest on the agent's wire — iff its KIND is foldable and it is
+ * not a signed thought (below). This
  * is the single gate `Truth.canFold()` / `isFolded` AND the wire
  * (`computeFoldOps` / `resolveUnfold`) all consult, so the screen can NEVER show a per-block
  * fold the wire would refuse. That refusal is the "UI lie" this predicate exists to make impossible: a folded
  * `tool_call` whose tile recesses and whose tokens are counted as saved, while the agent
  * still receives the block whole.
  *
- * KIND ONLY — deliberately content- and id-independent. The durable-id guard (`isDurableId`)
+ * Id-independent. The durable-id guard (`isDurableId`)
  * is a LIVE-WIRE EMIT concern, NOT part of foldability: the on-disk / demo / Claude Code parse
  * assigns non-durable ids (`<eventId>:p<j>`), and those read-only sessions must still fold by
  * kind in every mode (preview === steering — see AGENTS.md). So durable-id stays where it
@@ -53,9 +54,14 @@ export const FOLDABLE_KINDS: ReadonlySet<BlockKind> = new Set<BlockKind>(["text"
  * (ADR 0006) is a SEPARATE mechanism — structural whole-message removal with its own rules —
  * and may legitimately include `tool_call`/`user`; this predicate governs only per-block
  * content folding, never group collapse.
+ *
+ * SIGNED THINKING is never folded per block. The provider's seal is replayed with the part, so a
+ * rewritten text either fails verification (Anthropic, Bedrock, Gemini) or never leaves at all
+ * (OpenAI Responses replays the opaque item and ignores the text, which would count a saving the
+ * wire does not have). A group still takes a signed thought, because it removes the whole message.
  */
 export function wireFoldable(b: Block): boolean {
-	return FOLDABLE_KINDS.has(b.kind);
+	return FOLDABLE_KINDS.has(b.kind) && !(b.kind === "thinking" && b.signed === true);
 }
 
 /**

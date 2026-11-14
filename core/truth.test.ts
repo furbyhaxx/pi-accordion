@@ -947,6 +947,38 @@ describe("Truth — non-durable-id fold gate (S1)", () => {
 	});
 });
 
+describe("Truth — signed thinking is never folded per block", () => {
+	const signed = () => blk("a:b0:p0", "thinking", 0, 1000, { signed: true });
+
+	it("refuses fold and replace from every actor, and the wire emits no fold for it", () => {
+		const t = live();
+		t.wireAttached = true;
+		t.append([signed(), blk("a:b1:p0", "thinking", 1, 1000), blk("a:b2:p0", "text", 2, 1000)]);
+		t.setProtect(0);
+		const b = t.get("a:b0:p0")!;
+
+		expect(t.canFold(b, "you")).toBe(false);
+		expect(t.canFold(b, "auto")).toBe(false);
+		expect(t.apply([{ kind: "fold", ids: [b.id] }], "you").results[0].clamped).toBe("not-foldable");
+		expect(t.apply([{ kind: "fold", ids: [b.id] }], "auto").results[0].clamped).toBe("not-foldable");
+		expect(t.apply([{ kind: "replace", id: b.id, content: "x" }], "auto").results[0].clamped).toBe("not-foldable");
+		expect(t.isFolded(b)).toBe(false);
+		expect(t.computeFoldOps()).toEqual([]);
+
+		// an unsigned thought beside it still folds
+		expect(t.apply([{ kind: "fold", ids: ["a:b1:p0"] }], "auto").results[0].applied).toBe(true);
+		expect(t.computeFoldOps().map((o) => o.id)).toEqual(["a:b1:p0"]);
+	});
+
+	it("a group still takes a signed thought with its whole message", () => {
+		const t = bulk([blk("u:1", "user", 0), signed(), blk("a:b0:p1", "text", 1), blk("u:2", "user", 2), blk("a:b3:p0", "text", 3)]);
+		t.setProtect(0);
+		const r = t.apply([{ kind: "group", ids: ["u:1", "a:b0:p0", "a:b0:p1"], summary: "recap" }], "auto");
+		expect(r.results[0].applied).toBe(true);
+		expect(t.isFolded(t.get("a:b0:p0")!)).toBe(true);
+	});
+});
+
 // ── F6 (S4): a strategy `unfold` (by:"auto") used to take the human hold-open branch, writing an
 // `unfolded` override that `canFold`/`opAuto` then refuse — the strategy wedged itself out of its
 // own block. A strategy unfold now behaves exactly like `auto`.

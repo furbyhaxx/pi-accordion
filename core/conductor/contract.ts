@@ -94,9 +94,9 @@ export interface ViewBlock {
 	sent: boolean;
 	/**
 	 * A `thinking` block sealed by a provider signature that is replayed with it (Anthropic, Gemini,
-	 * OpenAI Responses; not DeepSeek, whose "signature" only names the field). A fold or `replace`
-	 * rewrites the text but keeps the signature, so the API may reject the request: a strategy that
-	 * rewrites thinking should leave these alone. Absent means unsigned.
+	 * OpenAI Responses; not DeepSeek, whose "signature" only names the field). `Truth` refuses a
+	 * per-block `fold` or `replace` of one as `not-foldable`; a group may still contain it. Absent
+	 * means unsigned.
 	 */
 	signed?: boolean;
 	/** Full content (always present in-process). */

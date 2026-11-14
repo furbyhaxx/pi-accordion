@@ -52,10 +52,10 @@ const REASONING_FIELD_MARKERS: ReadonlySet<string> = new Set(["reasoning", "reas
 /**
  * Does this thinking part carry a provider seal that is replayed with it? Anthropic (and Bedrock)
  * send `signature` back and verify it against the text; Gemini replays `thoughtSignature`; OpenAI
- * Responses and OpenRouter `reasoning_details` replay an opaque item instead of the text. `foldOne`
- * keeps the signature when it swaps the text, so a rewritten signed block can be rejected by the
- * API, or silently ignored. Conservative: any non-empty signature that is not a field-name marker
- * counts, as does redacted reasoning.
+ * Responses and OpenRouter `reasoning_details` replay an opaque item instead of the text. A
+ * rewritten signed block can be rejected by the API, or silently ignored, so `wireFoldable`
+ * refuses to fold one per block. Conservative: any non-empty signature that is not a field-name
+ * marker counts, as does redacted reasoning.
  */
 export function thinkingIsSigned(p: PiThinkingPart): boolean {
 	if (p.redacted === true) return true;
