@@ -137,13 +137,9 @@ export class TriptychConductor extends AgedSummaryConductor {
 		this.skelCache = new Map();
 		super.attach(host);
 		this.offCacheEvents = host.on((event) => {
-			if (this.skelCache.size === 0) return;
-			if (event.type === "resync") {
-				const ids = new Set(host.blocks().filter((block) => !block.grouped).map((block) => block.id));
-				for (const id of this.skelCache.keys()) if (!ids.has(id)) this.skelCache.delete(id);
-			} else if (event.type === "state-changed") {
-				for (const block of host.blocks()) if (block.grouped) this.skelCache.delete(block.id);
-			}
+			if (event.type !== "resync" || this.skelCache.size === 0) return;
+			const ids = new Set(host.blocks().filter((block) => !block.grouped).map((block) => block.id));
+			for (const id of this.skelCache.keys()) if (!ids.has(id)) this.skelCache.delete(id);
 		});
 		// Kick the (idempotent) engine init off-path; when it resolves, re-run so the middle band
 		// materializes without waiting for the next turn. Init failure degrades to summaries-only.
@@ -294,7 +290,11 @@ export class TriptychConductor extends AgedSummaryConductor {
 		const out: Command[] = [];
 		for (let i = 0; i < limit; i++) {
 			const b = view.blocks[i];
-			if (b.kind !== "tool_result" || b.held || b.grouped) continue;
+			if (b.grouped) {
+				this.skelCache.delete(b.id);
+				continue;
+			}
+			if (b.kind !== "tool_result" || b.held) continue;
 			if (b.tokens < MIN_SKELETON_TOKENS) continue;
 			if (this.coveredIds.has(b.id) && this.includeInGroup(b)) continue; // the summary group's, not ours
 			let content = this.skelCache.get(b.id);

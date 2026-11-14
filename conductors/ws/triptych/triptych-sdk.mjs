@@ -3933,13 +3933,9 @@ var TriptychConductor = class extends AgedSummaryConductor {
     this.skelCache = /* @__PURE__ */ new Map();
     super.attach(host);
     this.offCacheEvents = host.on((event) => {
-      if (this.skelCache.size === 0) return;
-      if (event.type === "resync") {
-        const ids = new Set(host.blocks().filter((block) => !block.grouped).map((block) => block.id));
-        for (const id of this.skelCache.keys()) if (!ids.has(id)) this.skelCache.delete(id);
-      } else if (event.type === "state-changed") {
-        for (const block of host.blocks()) if (block.grouped) this.skelCache.delete(block.id);
-      }
+      if (event.type !== "resync" || this.skelCache.size === 0) return;
+      const ids = new Set(host.blocks().filter((block) => !block.grouped).map((block) => block.id));
+      for (const id of this.skelCache.keys()) if (!ids.has(id)) this.skelCache.delete(id);
     });
     void this.skel.init().then(
       () => this.rerun(),
@@ -4060,7 +4056,11 @@ var TriptychConductor = class extends AgedSummaryConductor {
     const out = [];
     for (let i = 0; i < limit; i++) {
       const b = view.blocks[i];
-      if (b.kind !== "tool_result" || b.held || b.grouped) continue;
+      if (b.grouped) {
+        this.skelCache.delete(b.id);
+        continue;
+      }
+      if (b.kind !== "tool_result" || b.held) continue;
       if (b.tokens < MIN_SKELETON_TOKENS) continue;
       if (this.coveredIds.has(b.id) && this.includeInGroup(b)) continue;
       let content = this.skelCache.get(b.id);

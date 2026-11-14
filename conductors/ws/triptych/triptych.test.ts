@@ -317,6 +317,8 @@ describe("TriptychConductor", () => {
 		await host.commitTurn();
 		await flush(30);
 		expect(ids.every((id) => host.truth.groups.some((group) => group.memberIds.includes(id)))).toBe(true);
+		await host.commitTurn();
+		await flush(20);
 		expect(ids.filter((id) => cache.has(id))).toHaveLength(0);
 		conductor.detach();
 	});
