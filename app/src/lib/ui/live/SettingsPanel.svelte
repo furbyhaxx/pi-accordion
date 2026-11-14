@@ -14,6 +14,7 @@
 	let staged = $state<Record<string, string>>({});
 	let error = $state("");
 	let saved = $state("");
+	let saving = $state(false);
 
 	const snapshot = $derived(hostSettings.snapshot);
 	const settings = $derived((snapshot?.settings ?? {}) as Record<string, unknown>);
@@ -57,11 +58,16 @@
 		return source === "env" || source === "flag" ? source : null;
 	}
 
-	function save(): void {
+	/**
+	 * Staged values stay until the host answers: success clears the ones it saved, an error or a
+	 * conflict keeps them all and shows the host's text.
+	 */
+	async function save(): Promise<void> {
 		error = "";
 		saved = "";
+		const sent = { ...staged };
 		const patch: Record<string, unknown> = {};
-		for (const [path, text] of Object.entries(staged)) {
+		for (const [path, text] of Object.entries(sent)) {
 			const parsed = parse(text);
 			if (!parsed.ok) {
 				error = `${path}: not valid JSON`;
@@ -70,8 +76,16 @@
 			patch[path] = parsed.value;
 		}
 		if (!Object.keys(patch).length) return;
-		saveHostSettings(patch);
-		staged = {};
+		saving = true;
+		const result = await saveHostSettings(patch);
+		saving = false;
+		if (result.refused === "read-only") error = "Another surface steers; take control to save.";
+		else if (result.error) error = result.conflict ? `Conflict: ${result.error}` : result.error;
+		else if (result.conflict) error = "Conflict: another surface changed these settings first.";
+		if (error) return;
+		const rest = { ...staged };
+		for (const [path, text] of Object.entries(sent)) if (rest[path] === text) delete rest[path];
+		staged = rest;
 		saved = "Saved to the session host.";
 	}
 
@@ -125,8 +139,8 @@
 		{#if error}<p class="mono err">{error}</p>{/if}
 		{#if saved}<p class="mono ok">{saved}</p>{/if}
 		<footer>
-			<button class="mono" disabled={!dirty || !isController()} onclick={() => (staged = {})}>Discard</button>
-			<button class="mono primary" disabled={!dirty || !isController()} onclick={save}>Save</button>
+			<button class="mono" disabled={!dirty || !isController() || saving} onclick={() => (staged = {})}>Discard</button>
+			<button class="mono primary" disabled={!dirty || !isController() || saving} onclick={save}>{saving ? "Saving…" : "Save"}</button>
 		</footer>
 	{/if}
 </div>
@@ -202,8 +216,8 @@
 		cursor: default;
 	}
 	.err {
-		color: var(--muted);
-		border-left: 2px solid var(--line-strong);
+		color: var(--danger);
+		border-left: 2px solid var(--danger);
 		padding-left: 8px;
 	}
 	.ok {

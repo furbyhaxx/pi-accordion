@@ -22,6 +22,7 @@ import {
 	isServerMessage,
 	isWireBlock,
 	type ServerMessage,
+	type CommandResultMessage,
 	type HelloMessage,
 	type SnapshotState,
 	type WireCommand,
@@ -135,14 +136,34 @@ export const controllerState = $state<{ info: ControllerInfo | null }>({ info: n
 export const hostSettings = $state<{ snapshot: SettingsWireSnapshot | null }>({ snapshot: null });
 
 /** The session's task projection (additive `tasks` message), or null when no list is attached. */
-export const hostTasks = $state<{ list: WireTaskList | null; folded: string[]; tokens: { full: number; live: number } | null }>({
+export const hostTasks = $state<{ list: WireTaskList | null; folded: string[]; foldTokens: Record<string, { full: number; live: number }>; tokens: { full: number; live: number } | null }>({
 	list: null,
 	folded: [],
+	foldTokens: {},
 	tokens: null,
 });
 
 /** The last compaction the host reported, for the toast and its undo action. */
 export const lastCompaction = $state<{ record: CompactRecord | null }>({ record: null });
+
+/** Token estimates per strategy from the host's last dry-run reply (SPEC-0001 §7.6); each field is
+ *  null when the host sent none or cannot estimate it. `received` is false until a reply arrives. */
+export interface CompactionProjection { pass: number | null; aggressive: number | null; bake: number | null; native: number | null }
+export const compactionPreview = $state<{ received: boolean; projection: CompactionProjection }>({
+	received: false,
+	projection: { pass: null, aggressive: null, bake: null, native: null },
+});
+
+function numberOrNull(v: unknown): number | null {
+	return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+/** Read a dry-run `compaction` message defensively: `dryRun` marks it, `projection` may lack any field. */
+function adoptDryRun(msg: { projection?: unknown }): void {
+	const p = msg.projection && typeof msg.projection === "object" ? (msg.projection as Record<string, unknown>) : {};
+	compactionPreview.projection = { pass: numberOrNull(p.pass), aggressive: numberOrNull(p.aggressive), bake: numberOrNull(p.bake), native: numberOrNull(p.native) };
+	compactionPreview.received = true;
+}
 
 /** This surface's per-tab id (sessionStorage-backed, with a duplicate-tab BroadcastChannel dedupe
  *  guard) lives in `surfaceId.ts` and is re-exported above. */
@@ -223,15 +244,40 @@ function resetConductorState(): void {
 	dismissNotice(); // drop any generic notice toast left over from a prior connection (v17)
 }
 
-/** Send a remote-control command to the host (guarded on socket state). */
-function sendCommand(cmd: WireCommand): void {
-	const ws = socket;
-	if (!ws || ws.readyState !== WebSocket.OPEN) return;
-	try {
-		ws.send(JSON.stringify({ type: "command", seq: ++commandSeq, cmd }));
-	} catch {
-		/* socket gone — the next attach re-snapshots and re-syncs */
+/** Commands awaiting their `commandResult`, by `seq`; settled by the reply or when their socket dies. */
+const pendingCommands = new Map<number, { ws: WebSocket; resolve: (r: CommandResultMessage) => void }>();
+
+function localFailure(seq: number, error: string): CommandResultMessage {
+	return { type: "commandResult", seq, results: [], rev: 0, error };
+}
+
+/** Fail every command still waiting on `ws`: its reply can no longer arrive. */
+function settlePending(ws: WebSocket): void {
+	for (const [seq, entry] of pendingCommands) {
+		if (entry.ws !== ws) continue;
+		pendingCommands.delete(seq);
+		entry.resolve(localFailure(seq, "Connection to the session host closed before it answered."));
 	}
+}
+
+/**
+ * Send a remote-control command to the host (guarded on socket state). The promise resolves with the
+ * host's `commandResult` for this command, or with a synthesized one carrying `error` when the
+ * socket is not open or dies first; it never rejects. Callers that only steer may ignore it.
+ */
+function sendCommand(cmd: WireCommand): Promise<CommandResultMessage> {
+	const seq = ++commandSeq;
+	const ws = socket;
+	if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(localFailure(seq, "Not connected to the session host."));
+	const { promise, resolve } = Promise.withResolvers<CommandResultMessage>();
+	pendingCommands.set(seq, { ws, resolve });
+	try {
+		ws.send(JSON.stringify({ type: "command", seq, cmd }));
+	} catch {
+		pendingCommands.delete(seq);
+		resolve(localFailure(seq, "Could not send the command; the connection is gone."));
+	}
+	return promise;
 }
 
 /** Ask the host for a fresh snapshot (rev gap / reset recovery). Suppresses event replay until it lands. */
@@ -266,16 +312,21 @@ export function selectConductor(id: string | null): void {
 	sendCommand({ kind: "selectConductor", id });
 }
 
-/** Save a settings patch against the revision the client has seen; a stale one is a conflict. */
-export function saveHostSettings(patch: SettingsWirePatch): void {
+/**
+ * Save a settings patch against the revision the client has seen. The result is the host's verdict:
+ * `error` on a rejected patch, plus `conflict` when another surface changed the same field first.
+ * Different fields saved against one revision merge on the host.
+ */
+export function saveHostSettings(patch: SettingsWirePatch): Promise<CommandResultMessage> {
 	const rev = hostSettings.snapshot?.rev;
-	if (!rev) return;
-	sendCommand({ kind: "updateSettings", patch, baseRev: rev });
+	if (!rev) return Promise.resolve(localFailure(0, "The session host has not sent its settings yet."));
+	return sendCommand({ kind: "updateSettings", patch, baseRev: rev });
 }
 
-/** Run a compaction from the web surface; `dryRun` asks for projections only. */
-export function runCompaction(strategy: CompactStrategy, instructions?: string, dryRun = false): void {
-	sendCommand({ kind: "compact", strategy, ...(instructions ? { instructions } : {}), ...(dryRun ? { dryRun } : {}) });
+/** Run a compaction from the web surface; `dryRun` asks for projections only (the reply is `compactionPreview`). */
+export function runCompaction(strategy: CompactStrategy, instructions?: string, dryRun = false): Promise<CommandResultMessage> {
+	if (dryRun) compactionPreview.received = false;
+	return sendCommand({ kind: "compact", strategy, ...(instructions ? { instructions } : {}), ...(dryRun ? { dryRun } : {}) });
 }
 
 /** Reverse the last compaction the host reported. */
@@ -376,7 +427,9 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 	hostSettings.snapshot = null;
 	hostTasks.list = null;
 	hostTasks.folded = [];
+	hostTasks.foldTokens = {};
 	hostTasks.tokens = null;
+	compactionPreview.received = false;
 	session.error = "";
 
 	let ws: WebSocket;
@@ -480,16 +533,25 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 			hostSettings.snapshot = msg.snapshot;
 		} else if (msg.type === "tasks") {
 			hostTasks.list = msg.list;
-			hostTasks.folded = msg.folded;
+			hostTasks.folded = Array.isArray(msg.folded) ? msg.folded : [];
+			hostTasks.foldTokens = msg.foldTokens && typeof msg.foldTokens === "object" ? msg.foldTokens : {};
 			hostTasks.tokens = msg.tokens;
 		} else if (msg.type === "compaction") {
-			lastCompaction.record = msg.record;
+			// A dry run is a preview, never a card with an Undo: it only fills the dialog's projections.
+			const reply: typeof msg & { dryRun?: unknown; projection?: unknown } = msg;
+			if (reply.dryRun === true || msg.record?.dryRun === true) adoptDryRun(reply);
+			else lastCompaction.record = msg.record;
 		} else if (msg.type === "notice") {
 			if (typeof msg.text === "string" && msg.text) showNotice(msg.text);
 		} else if (msg.type === "recall") {
 			// The live agent read folded content (a pure host-side read, no state change). Surfaced
 			// for conductors (Phase C); the GUI has nothing to mutate, so this is observational only.
 		} else if (msg.type === "commandResult") {
+			const waiting = pendingCommands.get(msg.seq);
+			if (waiting) {
+				pendingCommands.delete(msg.seq);
+				waiting.resolve(msg);
+			}
 			// No optimistic apply — state arrives via the event stream. Clamp UX could read `results`.
 			// v16: the server is the REAL boundary for READ-ONLY enforcement — the client-side gate
 			// (`attemptSteer`) is a mirror, not a guarantee (a race: we thought we were the controller
@@ -519,6 +581,7 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 	};
 
 	ws.onclose = () => {
+		settlePending(ws);
 		ghostClearAll();
 		// Only the ACTIVE socket may touch shared status. A superseded socket whose close fires
 		// after connectLive() swapped in a new one must NOT clobber the new socket's state.
@@ -540,6 +603,7 @@ export function connectLive(port: number = DEFAULT_PORT, opts: { host?: string; 
 export function disconnectLive(): void {
 	manualClose = true;
 	awaitingSnapshot = false;
+	if (socket) settlePending(socket);
 	ghostClearAll();
 	resetConductorState();
 	orphanReplica();

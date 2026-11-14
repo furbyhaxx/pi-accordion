@@ -54,7 +54,7 @@ import { Type } from "typebox";
 import { BLOCK_REASONS, TASK_ACTIONS, TaskError, TaskStore, runTasksTracked, type TaskList, type TasksArgs } from "./tasks";
 import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
-import { TaskWidgetController } from "./tui/taskWidget";
+import { TaskWidgetController, foldedTaskIds, foldedTaskTokens } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
 import { aggressiveProjection, applyUndo, bakeMessageBlocks, buildBakeSummary, needsSaturationFallback, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
 import { compactCardLines, compactCardTitle } from "./compactCard";
@@ -1376,14 +1376,15 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		};
 	}
 	/** The session's task projection for the web views, built from the same scan the widget reads. */
-	function taskProjection(): { list: import("../core/protocol").WireTaskList | null; folded: string[]; tokens: { full: number; live: number } | null } {
+	function taskProjection(): { list: import("../core/protocol").WireTaskList | null; folded: string[]; foldTokens: Record<string, { full: number; live: number }>; tokens: { full: number; live: number } | null } {
 		const project = typeof latestCtx?.cwd === "string" ? path.resolve(latestCtx.cwd) : null;
 		const lists = project && taskListSnapshot?.project === project ? taskListSnapshot?.lists ?? [] : [];
 		const list = lists.find((l) => l.claim?.session === sessionId) ?? lists[0] ?? null;
 		const t = truth;
-		const folded = t ? t.groups.filter((g) => g.folded).map((g) => g.id) : [];
+		const foldTokens = t && list ? foldedTaskTokens(list, t) : new Map<string, { full: number; live: number }>();
+		const folded = list ? [...foldedTaskIds(list, foldTokens)] : [];
 		const tokens = t ? { full: t.stats().fullTokens, live: t.stats().liveTokens } : null;
-		return { list: list ? { slug: list.slug, title: list.title, claim: list.claim ? { session: list.claim.session, ...(list.claim.name ? { surface: list.claim.name } : {}) } : null, tasks: list.tasks.map((task) => ({ id: task.id, title: task.title, status: task.status, ...(task.goals ? { goals: task.goals } : {}), ...(task.acceptanceCriteria ? { acceptanceCriteria: task.acceptanceCriteria } : {}), ...(task.report ? { report: task.report } : {}), ...(task.startedAt ? { startedAt: task.startedAt } : {}), ...(task.endedAt ? { endedAt: task.endedAt } : {}), ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}) })) } : null, folded, tokens };
+		return { list: list ? { slug: list.slug, title: list.title, claim: list.claim ? { session: list.claim.session, ...(list.claim.name ? { surface: list.claim.name } : {}) } : null, tasks: list.tasks.map((task) => ({ id: task.id, title: task.title, status: task.status, ...(task.goals ? { goals: task.goals } : {}), ...(task.acceptanceCriteria ? { acceptanceCriteria: task.acceptanceCriteria } : {}), ...(task.report ? { report: task.report } : {}), ...(task.startedAt ? { startedAt: task.startedAt } : {}), ...(task.endedAt ? { endedAt: task.endedAt } : {}), ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}) })) } : null, folded, foldTokens: Object.fromEntries(folded.map((id) => [id, { full: foldTokens.get(id)!.full, live: foldTokens.get(id)!.live }])), tokens };
 	}
 	let tasksBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 	/** Debounced: the widget's triggers fire in bursts (a task call, its notices, a Truth event). */
@@ -2740,6 +2741,13 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					const cmd = sanitizeCommand(msg.cmd);
 					if (!cmd) {
 						send(ws, { type: "commandResult", seq: msg.seq, results: [], rev: truth ? truth.rev : 0 });
+					} else if (cmd.kind === "updateSettings") {
+						// Async: the commandResult carries the SettingsStore verdict. A stale baseRev is not
+						// refused here — the store merges different fields and reports the same one (SPEC-0001 §6.3).
+						const seq = msg.seq;
+						void saveSettingsPatch(cmd.patch as SettingsPatch, cmd.baseRev).then(result => {
+							send(ws, { type: "commandResult", seq, results: [], rev: truth ? truth.rev : 0, ...(result.ok ? {} : { error: result.error, ...(result.conflict ? { conflict: true } : {}) }) });
+						});
 					} else {
 						const { results, rev, conflict, error } = applyCommand(cmd);
 						send(ws, { type: "commandResult", seq: msg.seq, results, rev, ...(conflict ? { conflict: true } : {}), ...(error ? { error } : {}) });
@@ -3190,16 +3198,6 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			case "setFolding":
 				setFolding(!!cmd.value);
 				return { results: [], rev: truth.rev };
-			case "updateSettings": {
-				// Controller-only, like every other write: the caller already checked the lease. The save is
-				// async, so the command reports the outcome through commandResult and the settings broadcast.
-				const rev = settingsStore.current().rev;
-				if (cmd.baseRev !== rev) return { results: [], rev: truth.rev, conflict: true, error: "settings changed; reload and stage again" };
-				void saveSettingsPatch(cmd.patch as SettingsPatch, cmd.baseRev).then(result => {
-					if (!result.ok) broadcast({ type: "notice", text: `Settings not saved: ${result.error}` });
-				});
-				return { results: [], rev: truth.rev };
-			}
 			case "compact": {
 				if ((cmd.strategy === "bake" || cmd.strategy === "native") && !cmd.dryRun) {
 					const ctx = latestCtx;
@@ -4015,6 +4013,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		debugLog = null;
 		taskfoldRouting.current = null;
 		taskWidget.detach();
+		if (tasksBroadcastTimer) {
+			clearTimeout(tasksBroadcastTimer);
+			tasksBroadcastTimer = null;
+		}
 		taskSession?.dispose();
 		taskSession = null;
 		releaseTaskClaims();

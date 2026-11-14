@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { connectLive, disconnectLive, setArmed, live, conductors, conductorState, conductorStatus, selectConductor, mySurfaceId, hostSettings, hostTasks, lastCompaction, saveHostSettings, runCompaction } from "./liveClient.svelte";
+import { connectLive, disconnectLive, setArmed, live, conductors, conductorState, conductorStatus, selectConductor, mySurfaceId, hostSettings, hostTasks, lastCompaction, saveHostSettings, runCompaction, compactionPreview } from "./liveClient.svelte";
 import { _resetSurfaceIdForTests } from "./surfaceId";
 import { notice } from "./notice.svelte";
 import { folding } from "./folding.svelte";
@@ -140,17 +140,80 @@ describe("liveClient — settings, tasks and compaction", () => {
 	it("adopts the host's settings, tasks and compaction, and stages a patch against the revision it saw", () => {
 		const ws = connectHelloSnapshot();
 		ws.emit({ type: "settings", snapshot: { settings: { autoArm: true }, sources: { autoArm: "file" }, rev: "r1" } });
-		ws.emit({ type: "tasks", list: { slug: "p", title: "Plan", claim: null, tasks: [{ id: "1", title: "One", status: "doing" }] }, folded: ["g1"], tokens: { full: 10, live: 5 } });
+		ws.emit({ type: "tasks", list: { slug: "p", title: "Plan", claim: null, tasks: [{ id: "1", title: "One", status: "doing" }] }, folded: ["1"], foldTokens: { "1": { full: 900, live: 40 } }, tokens: { full: 10, live: 5 } });
 		ws.emit({ type: "compaction", record: { id: "c1", at: 1, trigger: "command", strategy: "pass", conductor: null, before: 100, after: 60, durationMs: 5, folded: { blocks: 1, groups: 0, byKind: {} }, undo: [], message: "done" } });
 		expect(hostSettings.snapshot?.rev).toBe("r1");
 		expect(hostTasks.list?.slug).toBe("p");
+		expect(hostTasks.folded).toEqual(["1"]);
+		expect(hostTasks.foldTokens).toEqual({ "1": { full: 900, live: 40 } });
 		expect(hostTasks.tokens).toEqual({ full: 10, live: 5 });
 		expect(lastCompaction.record?.strategy).toBe("pass");
-		saveHostSettings({ autoArm: false });
+		void saveHostSettings({ autoArm: false });
 		const sent = JSON.parse(ws.sent[ws.sent.length - 1]!);
 		expect(sent.cmd).toEqual({ kind: "updateSettings", patch: { autoArm: false }, baseRev: "r1" });
-		runCompaction("aggressive");
+		void runCompaction("aggressive");
 		expect(JSON.parse(ws.sent[ws.sent.length - 1]!).cmd).toEqual({ kind: "compact", strategy: "aggressive" });
+	});
+});
+
+describe("liveClient — a command resolves with its commandResult", () => {
+	const result = (seq: number, over: Record<string, unknown> = {}) => ({ type: "commandResult", seq, results: [], rev: 5, ...over });
+
+	it("resolves each command with the result carrying its own seq, in any order", async () => {
+		const ws = connectHelloSnapshot();
+		ws.emit({ type: "settings", snapshot: { settings: { autoArm: true, debug: false }, sources: {}, rev: "r1" } });
+		const first = saveHostSettings({ autoArm: false });
+		const second = saveHostSettings({ debug: true });
+		const [a, b] = ws.framesOfType("command").map((f) => f.seq as number);
+		ws.emit(result(b!, { error: "debug: no", conflict: true }));
+		ws.emit(result(a!));
+		expect(await second).toMatchObject({ seq: b, error: "debug: no", conflict: true });
+		const ok = await first;
+		expect(ok.seq).toBe(a);
+		expect(ok.error).toBeUndefined();
+	});
+
+	it("resolves with an error when the socket is not open, there is no snapshot yet, or it closes first", async () => {
+		hostSettings.snapshot = null;
+		expect((await saveHostSettings({ autoArm: false })).error).toMatch(/not sent its settings/);
+		expect((await runCompaction("pass")).error).toMatch(/Not connected/);
+		const ws = connectHelloSnapshot();
+		ws.emit({ type: "settings", snapshot: { settings: { autoArm: true }, sources: {}, rev: "r1" } });
+		const pending = saveHostSettings({ autoArm: false });
+		ws.close();
+		expect((await pending).error).toMatch(/closed before it answered/);
+	});
+
+	it("still flags a read-only refusal for the steering hint", async () => {
+		const ws = connectHelloSnapshot();
+		const pending = runCompaction("pass");
+		ws.emit(result(ws.framesOfType("command")[0].seq, { refused: "read-only" }));
+		expect((await pending).refused).toBe("read-only");
+	});
+});
+
+describe("liveClient — dry-run compaction preview", () => {
+	const dryRun = (extra: Record<string, unknown>) => ({ type: "compaction", dryRun: true, record: { id: "c", at: 1, trigger: "command", strategy: "pass", dryRun: true, conductor: null, before: 1, after: 1, durationMs: 0, folded: { blocks: 0, groups: 0, byKind: {} }, undo: null, message: "preview" }, ...extra });
+
+	it("reads the projections defensively and never shows a preview as a compaction", () => {
+		lastCompaction.record = null;
+		const ws = connectHelloSnapshot();
+		void runCompaction("aggressive", undefined, true);
+		expect(ws.framesOfType("command")[0].cmd).toEqual({ kind: "compact", strategy: "aggressive", dryRun: true });
+		expect(compactionPreview.received).toBe(false);
+		ws.emit(dryRun({ projection: { pass: null, aggressive: 1200, bake: "x", native: null } }));
+		expect(compactionPreview.received).toBe(true);
+		expect(compactionPreview.projection).toEqual({ pass: null, aggressive: 1200, bake: null, native: null });
+		expect(lastCompaction.record).toBeNull();
+	});
+
+	it("accepts a reply without a projection and resets on the next dry run", () => {
+		const ws = connectHelloSnapshot();
+		ws.emit(dryRun({}));
+		expect(compactionPreview.received).toBe(true);
+		expect(compactionPreview.projection.aggressive).toBeNull();
+		void runCompaction("pass", undefined, true);
+		expect(compactionPreview.received).toBe(false);
 	});
 });
 
