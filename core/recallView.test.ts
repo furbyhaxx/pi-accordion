@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { Truth } from "./truth";
 import { foldCode, foldTag } from "./digest";
 import { resolveRecall } from "./agentView";
@@ -29,6 +29,23 @@ function foldedTask(n: number, size: number, child = 0): Truth {
 }
 
 describe("recallView", () => {
+	it("reuses indexed member text across searches and pages until Truth changes", () => {
+		const truth = foldedTask(5000, 10);
+		const code = foldCode(PARENT);
+		const lower = vi.spyOn(String.prototype, "toLowerCase");
+		try {
+			for (const [query, page] of [["entry", 1], ["entry", 2], ["entry", 3], ["entry", 4], ["needle", 1]] as const) {
+				recallView(truth, { codes: [code], query, page });
+			}
+			expect(lower.mock.instances.filter((s) => String(s).startsWith("entry "))).toHaveLength(5000);
+			truth.setBudget(100_000);
+			recallView(truth, { codes: [code], query: "entry" });
+			expect(lower.mock.instances.filter((s) => String(s).startsWith("entry "))).toHaveLength(10_000);
+		} finally {
+			lower.mockRestore();
+		}
+	});
+
 	it("pages long task reports with usable continuation calls", () => {
 		const truth = foldedTask(4, 100);
 		const code = foldCode(PARENT);

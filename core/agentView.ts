@@ -177,36 +177,50 @@ export function resolveUnfoldBounded(truth: Truth, codes: string[], limits: { ma
  * block's ORIGINAL full content (never the digest, never a mutation). Same match set as
  * `resolveUnfold` / the wire fold; a group returns its members' full text joined.
  */
+type RecallMetadata = Omit<RecallContent, "text">;
+const recallIndexes = new WeakMap<Truth, { rev: number; codes: Map<string, RecallMetadata[]> }>();
+
+/** Fold metadata indexed once per Truth revision, without materializing transcript text. */
+export function recallIndex(truth: Truth): Map<string, RecallMetadata[]> {
+	const cached = recallIndexes.get(truth);
+	if (cached?.rev === truth.rev) return cached.codes;
+	const codes = new Map<string, RecallMetadata[]>();
+	const add = (id: string, label: string, ids: string[]) => {
+		const code = foldCode(id);
+		const item = { code, label, ids };
+		const entries = codes.get(code);
+		if (entries) entries.push(item);
+		else codes.set(code, [item]);
+	};
+	for (const g of truth.groups) {
+		for (const h of g.handles ?? []) {
+			if (truth.canRecallHandle(g, h)) add(h.id, `task ${h.id}`, h.memberIds);
+		}
+		if (g.folded && groupAgentReachable(truth, g)) add(g.id, `group · ${g.memberIds.length} blocks`, g.memberIds);
+	}
+	for (const b of truth.blocks) {
+		if (truth.isFolded(b) && wireFoldable(b) && isDurableId(b.id) && agentReachable(truth, b) && !truth.groupOf(b)?.folded) {
+			add(b.id, blockLabel(b), [b.id]);
+		}
+	}
+	recallIndexes.set(truth, { rev: truth.rev, codes });
+	return codes;
+}
+
 export function resolveRecall(truth: Truth, codes: string[]): { restored: RecallContent[]; missing: string[] } {
+	const index = recallIndex(truth);
 	const restored: RecallContent[] = [];
 	const missing: string[] = [];
 	for (const code of codes) {
-		let hit = false;
-		for (const g of truth.groups) {
-			for (const h of g.handles ?? []) {
-				if (foldCode(h.id) !== code || !truth.canRecallHandle(g, h)) continue;
-				const text = h.memberIds.map((id) => truth.get(id)?.text ?? "").filter((t) => t.length > 0).join("\n\n");
-				restored.push({ code, label: `task ${h.id}`, text, ids: h.memberIds.slice() });
-				hit = true;
-			}
-			if (g.folded && groupAgentReachable(truth, g) && foldCode(g.id) === code) {
-				const text = g.memberIds
-					.map((id) => truth.get(id)?.text ?? "")
-					.filter((t) => t.length > 0)
-					.join("\n\n");
-				restored.push({ code, label: `group · ${g.memberIds.length} blocks`, text, ids: g.memberIds.slice() });
-				hit = true;
-			}
+		const entries = index.get(code);
+		if (!entries) {
+			missing.push(code);
+			continue;
 		}
-		const matches = truth.blocks.filter(
-			(b) => truth.isFolded(b) && wireFoldable(b) && isDurableId(b.id) && agentReachable(truth, b) && foldCode(b.id) === code,
-		);
-		for (const b of matches) {
-			if (truth.groupOf(b)?.folded) continue; // the group branch already returns the whole range
-			restored.push({ code, label: blockLabel(b), text: truth.get(b.id)?.text ?? b.text, ids: [b.id] });
-			hit = true;
+		for (const entry of entries) {
+			const text = entry.ids.map((id) => truth.get(id)?.text ?? "").filter((t) => t.length > 0).join("\n\n");
+			restored.push({ ...entry, ids: entry.ids.slice(), text });
 		}
-		if (!hit) missing.push(code);
 	}
 	return { restored, missing };
 }

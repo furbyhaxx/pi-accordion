@@ -8,7 +8,7 @@
 import type { Block } from "./types";
 import type { Truth } from "./truth";
 import { foldCode } from "./digest";
-import { blockLabel, resolveRecall } from "./agentView";
+import { blockLabel, recallIndex } from "./agentView";
 import { clip } from "./tokens";
 import { parseQuery, type Term } from "./recallSearch";
 import { matchFacts, type FactRow } from "./factLedger";
@@ -134,7 +134,7 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 		}
 	};
 	if (!req.codes.length && query) {
-		const section = querySection(archive(truth), { codes: [], label: "all folded content", itemCode: "*" }, query, page, pageSize, req.facts);
+		const section = querySection(truth, archive(truth), { codes: [], label: "all folded content", itemCode: "*" }, query, page, pageSize, req.facts);
 		if (section.text.length > room) return { text: "[budget reached] The search result does not fit this call.", items: [], missing: [], skipped: ["*"], truncated: true };
 		return { text: section.text, items: [section.item], missing: [], skipped: [], truncated: section.truncated };
 	}
@@ -153,16 +153,16 @@ export function recallView(truth: Truth, req: RecallRequest): RecallView {
 }
 
 function sourceOf(truth: Truth, code: string): Source | null {
-	const res = resolveRecall(truth, [code]);
-	if (!res.restored.length) return null;
+	const restored = recallIndex(truth).get(code);
+	if (!restored?.length) return null;
 	// One code can match several carriers of the same task; each member is listed once.
-	const ids = [...new Set(res.restored.flatMap((r) => r.ids))];
+	const ids = [...new Set(restored.flatMap((r) => r.ids))];
 	const handle = truth.groups.flatMap((g) => g.handles ?? []).find((h) => h.id.startsWith("t:") && foldCode(h.id) === code);
 	const entries = ids
 		.map((id) => truth.get(id))
 		.filter((b): b is Block => !!b && b.text.length > 0)
 		.sort((a, b) => a.order - b.order);
-	return { code, label: res.restored[0].label, entries, ...(handle ? { taskKey: handle.id.slice(2) } : {}) };
+	return { code, label: restored[0].label, entries, ...(handle ? { taskKey: handle.id.slice(2) } : {}) };
 }
 
 function render(
@@ -181,10 +181,10 @@ function render(
 		const entry = src.entries[target - 1];
 		if (!entry) return null;
 		const label = `${blockLabel(entry)} · entry ${target} of #${src.code}`;
-		if (query) return querySection([{ address: `${src.code}.${target}`, block: entry }], { codes: [address], label, itemCode: address }, query, page, budget, facts);
+		if (query) return querySection(truth, [{ address: `${src.code}.${target}`, block: entry }], { codes: [address], label, itemCode: address }, query, page, budget, facts);
 		return entrySection(entry, address, label, page, budget);
 	}
-	if (query) return querySection(src.entries.map((block, i) => ({ address: `${src.code}.${i + 1}`, block })), { codes: [address], label: src.label, itemCode: address }, query, page, budget, facts);
+	if (query) return querySection(truth, src.entries.map((block, i) => ({ address: `${src.code}.${i + 1}`, block })), { codes: [address], label: src.label, itemCode: address }, query, page, budget, facts);
 	if (target === "entries") return indexSection(truth, src, address, page, budget);
 	// A task code returns its report, never its transcript.
 	const report = src.taskKey ? reportOf?.(src.taskKey) : null;
@@ -292,14 +292,25 @@ function factLines(candidates: Candidate[], terms: Term[], facts: readonly FactR
 	return { text: `Facts noted when the task was folded (values copied from the entry named):\n${lines.join("\n")}${more}`, ids: [...new Set(rows.slice(0, MAX_FACTS).map((r) => r.blockId))] };
 }
 
-function querySection(candidates: Candidate[], scope: Scope, query: string, page: number, budget: number, ledger?: readonly FactRow[]) {
+const lowerIndexes = new WeakMap<Truth, { rev: number; text: Map<string, string> }>();
+
+function querySection(truth: Truth, candidates: Candidate[], scope: Scope, query: string, page: number, budget: number, ledger?: readonly FactRow[]) {
 	const item = (ids: string[]): RecallItem => ({ code: scope.itemCode, label: scope.label, mode: "query", ids });
 	const where = scope.codes.length ? `#${scope.codes.join(", #")}` : "all folded content";
 	const parsed = parseQuery(query);
 	if ("error" in parsed) return { text: `[search ${where} for ${JSON.stringify(query)}] ${parsed.error}`, item: item([]), truncated: false };
 	const { terms } = parsed;
+	let index = lowerIndexes.get(truth);
+	if (!index || index.rev !== truth.rev) {
+		index = { rev: truth.rev, text: new Map() };
+		lowerIndexes.set(truth, index);
+	}
 	const found = candidates.map((c) => {
-		const lower = c.block.text.toLowerCase();
+		let lower = index.text.get(c.block.id);
+		if (lower === undefined) {
+			lower = c.block.text.toLowerCase();
+			index.text.set(c.block.id, lower);
+		}
 		return { c, per: terms.map((t) => t.find(c.block.text, lower)) };
 	});
 	let hits = found.filter((f) => f.per.every((m) => m.length));
