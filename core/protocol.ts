@@ -143,13 +143,14 @@
  *    `Truth.setCalibrationPrior`. Applying a prior to uncovered estimates changes the absolute
  *    numbers a peer derives from the same Truth state, so both sides must agree; a pre-v24 peer
  *    would report smaller estimates for the same blocks.
+ *  - v25: custom extension messages are represented as their own block kind.
  */
 import type { Actor, BlockKind, Group, Override } from "./types";
 import type { LockName } from "./locks";
 import { sanitizeOps, type Op, type OpResult } from "./ops";
 
 /** Bump on any breaking change to the message shapes below. */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 /**
  * The DOOR: a fixed, well-known loopback port that exactly ONE extension binds at a time as an
@@ -187,7 +188,7 @@ export const DEFAULT_PORT = DOOR_PORT;
  */
 export interface WireBlock {
 	id: string;
-	kind: "system" | "user" | "text" | "thinking" | "tool_call" | "tool_result";
+	kind: "system" | "user" | "custom" | "text" | "thinking" | "tool_call" | "tool_result";
 	turn: number;
 	order: number;
 	text: string;
@@ -863,7 +864,7 @@ export function isClientMessage(v: unknown): v is ClientMessage {
 	return CLIENT_TYPES.has((v as { type: unknown }).type as string);
 }
 
-const WIRE_KINDS = new Set(["system", "user", "text", "thinking", "tool_call", "tool_result"]);
+const WIRE_KINDS = new Set(["system", "user", "custom", "text", "thinking", "tool_call", "tool_result"]);
 
 /**
  * Element-level guard for a `WireBlock`. `isServerMessage` vets only the `type` tag, and an

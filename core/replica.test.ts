@@ -23,6 +23,26 @@ function live(): Truth {
 function seq(n: number, tokens = 1000): Block[] {
 	return Array.from({ length: n }, (_, i) => blk(`a:b${i}:p0`, i, tokens));
 }
+describe("replica — custom messages", () => {
+	it("preserves the kind in snapshots and appended events", () => {
+		const host = live();
+		const first: Block = { ...blk("c:1:abc", 0), kind: "custom" };
+		host.append([first]);
+		const replica = hydrateSnapshot(META, serializeSnapshot(host, false));
+		expect(replica.get(first.id)).toEqual(host.get(first.id));
+		const events: WireEvent[] = [];
+		const off = host.onEvent((event) => {
+			const wire = wireEventFromTruthEvent(event);
+			if (wire) events.push(wire);
+		});
+		const second: Block = { ...blk("c:2:def", 1), kind: "custom" };
+		host.append([second]);
+		off();
+		for (const event of events) applyWireEvent(replica, event);
+		expect(replica.get(second.id)).toEqual(host.get(second.id));
+	});
+});
+
 
 describe("replica — birthFolded round trip (protocol v12)", () => {
 	it("serializeSnapshot → hydrateSnapshot preserves birth-fold membership, so a grown tail does NOT heal it — while a stale format (birthFolded lost) WOULD heal it", () => {

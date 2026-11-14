@@ -34,6 +34,7 @@
 	const ROLE: Record<Block["kind"], string> = {
 		system: "System",
 		user: "You",
+		custom: "Extension message",
 		text: "Assistant",
 		thinking: "Thinking",
 		tool_call: "Tool call",

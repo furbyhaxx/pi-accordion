@@ -218,6 +218,8 @@ export function blockLabel(b: ViewBlock): string {
 			return "system prompt";
 		case "user":
 			return "user";
+		case "custom":
+			return "extension message";
 		case "text":
 			return "assistant";
 		case "thinking":

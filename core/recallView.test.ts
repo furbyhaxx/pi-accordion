@@ -29,6 +29,16 @@ function foldedTask(n: number, size: number, child = 0): Truth {
 }
 
 describe("recallView", () => {
+	it("recalls a folded extension message under its own label", () => {
+		const block = blk("c:1:abc", "custom", 0, "extension notice");
+		const truth = new Truth({ meta: META, blocks: [block], lineCount: 0, skipped: 0 });
+		truth.setProtect(0);
+		expect(truth.apply([{ kind: "fold", ids: [block.id] }], "you").results[0].applied).toBe(true);
+		const result = recallView(truth, { codes: [foldCode(block.id)] });
+		expect(result.text).toContain("extension message");
+		expect(result.text).toContain("extension notice");
+	});
+
 	it("rejects oversized queries and unknown regex flags and names unshown archive results", () => {
 		const truth = foldedTask(10, 500);
 		const code = foldCode(PARENT);
