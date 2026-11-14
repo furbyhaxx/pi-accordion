@@ -2002,10 +2002,9 @@ await new Promise((r) => setTimeout(r, 50));
 			.filter(Boolean);
 	}
 	// Spin up a fresh extension instance (own mock pi, own model/modelRegistry ctx) and wait for its
-	// OWN registry entry to appear — found by diffing the directory listing, since other sessions
-	// (the main one above, or leftover door-test ones) may already be registered.
+	// OWN registry entry to appear. An earlier session's entry can land late under load, so the entry
+	// is matched by the start time inside its generated session id, not by diffing the directory.
 	async function spawnClogSession(dependencies) {
-		const before = registryFilesNow();
 		const h = {};
 		let command;
 		const mpi = {
@@ -2027,12 +2026,22 @@ await new Promise((r) => setTimeout(r, 50));
 			modelRegistry: { getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key", headers: {} }) },
 			getContextUsage: () => ({ tokens: 0, contextWindow: model.contextWindow }),
 		};
+		const startedFrom = Date.now();
 		h.session_start({ type: "session_start", reason: "startup" }, ctx);
+		const startedTo = Date.now();
 		await command("debug on", ctx);
-		await waitFor(() => registryFilesNow().length > before.length, 3000, "completion-log session registry entry");
-		const added = registryFilesNow().filter((f) => !before.includes(f));
-		if (added.length !== 1) throw new Error(`completion-log: expected exactly 1 new registry entry, found ${added.length}`);
-		const entry = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, added[0]), "utf8"));
+		const ownEntry = () => {
+			for (const f of registryFilesNow()) {
+				try {
+					const e = JSON.parse(fs.readFileSync(path.join(SESSIONS_DIR, f), "utf8"));
+					const at = Number(String(e.sessionId).split("-").at(-1));
+					if (at >= startedFrom && at <= startedTo) return e;
+				} catch { /* entry still being written */ }
+			}
+			return null;
+		};
+		await waitFor(() => ownEntry() !== null, 3000, "completion-log session registry entry");
+		const entry = ownEntry();
 		return { h, ctx, port: entry.port, log: path.join(HOME, ".accordion", "debug", `${entry.sessionId}.jsonl`) };
 	}
 	// Pump a large over-budget synthetic history (mirrors smoke-conductor.mjs's PAIRS/BIG shape) through
