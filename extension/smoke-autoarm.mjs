@@ -19,7 +19,7 @@ process.env.ACCORDION_HOME = HOME;
 process.env.ACCORDION_APP_PATH = path.join(HOME, "missing-accordion-app.exe");
 process.env.ATTN_PROBE_PYTHON = path.join(HOME, "no-such-python-binary");
 fs.mkdirSync(path.join(HOME, ".accordion"), { recursive: true });
-fs.writeFileSync(path.join(HOME, ".accordion", "config.json"), JSON.stringify({ autoArm: true, defaultConductor: "thermocline" }));
+fs.writeFileSync(path.join(HOME, ".accordion", "config.json"), JSON.stringify({ autoArm: true, defaultConductor: "thermocline", privacyConsent: { thermocline: "2026-01-01T00:00:00Z" } }));
 
 const fails = [];
 async function waitFor(predicate, ms, label) {
