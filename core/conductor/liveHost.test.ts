@@ -313,6 +313,49 @@ describe("select — a throwing attach() cleans up instead of stranding a lock (
 	});
 });
 
+describe("a failing event handler reaches the status line", () => {
+	it("reports a thrown and a rejected handler with level error, and ignores a detached conductor's late rejection", async () => {
+		const t = bulk(textSeq(2));
+		const h = makeDeps(t);
+		const host = new LiveConductorHost(h.deps);
+		let mode: "throw" | "reject" = "throw";
+		let rejectLate: (e: Error) => void = () => {};
+		const attachSpy = vi.spyOn(DoormanConductor.prototype, "attach").mockImplementation(function (this: DoormanConductor, ch: ConductorHost) {
+			ch.on((e) => {
+				if (e.type !== "turn-committed") return;
+				if (mode === "throw") throw new Error("plan boom");
+				return new Promise<void>((_, reject) => { rejectLate = reject; });
+			});
+		});
+		const last = () => h.broadcastLog.filter((m) => m.type === "conductorStatus").pop();
+		try {
+			host.select("doorman");
+			host.fireTurnCommitted(1, t.rev);
+			const thrown = last();
+			expect(thrown && thrown.type === "conductorStatus" && thrown.text).toBe("handler failed · plan boom");
+			expect(thrown && thrown.type === "conductorStatus" && thrown.metrics).toEqual({ level: "error" });
+
+			mode = "reject";
+			host.fireTurnCommitted(2, t.rev);
+			rejectLate(new Error("late boom"));
+			await Promise.resolve();
+			await Promise.resolve();
+			const rejected = last();
+			expect(rejected && rejected.type === "conductorStatus" && rejected.text).toBe("handler failed · late boom");
+
+			host.fireTurnCommitted(3, t.rev);
+			host.select(null);
+			const afterDetach = last();
+			rejectLate(new Error("stale boom"));
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(last()).toBe(afterDetach);
+		} finally {
+			attachSpy.mockRestore();
+		}
+	});
+});
+
 describe("select — a spawn conductor's locks are deferred to accept, not select (fix 2c)", () => {
 	it("does not touch Truth's locks at select time, only once the runner's socket is accepted", () => {
 		const t = bulk(textSeq(6));

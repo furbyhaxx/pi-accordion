@@ -924,24 +924,33 @@ export class LiveConductorHost implements ConductorHost {
 		};
 	}
 
+	/**
+	 * A conductor's event handler threw or rejected. Nothing else reports it, and a conductor that
+	 * fails on every event keeps its last healthy status while the session runs over budget, so the
+	 * status line carries the failure until the conductor publishes a status again.
+	 */
+	private handlerFailed(generation: number, err: unknown): void {
+		if (generation !== this.attachGeneration || !this.active) return;
+		const reason = (err instanceof Error ? err.message : String(err)).slice(0, 160);
+		this.setAndBroadcastStatus(`handler failed · ${reason}`, { level: "error" });
+	}
+
 	private dispatchToListeners(e: HostEvent): Array<void | Promise<void>> {
+		const generation = this.attachGeneration;
 		const rets: Array<void | Promise<void>> = [];
 		for (const fn of this.listeners) {
 			try {
-				rets.push(fn(e));
-			} catch {
-				/* a throwing listener must not break the hold */
+				const ret = fn(e);
+				if (isThenable(ret)) void Promise.resolve(ret).catch((err) => this.handlerFailed(generation, err));
+				rets.push(ret);
+			} catch (err) {
+				// a throwing listener must not break the hold
+				this.handlerFailed(generation, err);
 			}
 		}
 		return rets;
 	}
 	private fire(e: HostEvent): void {
-		for (const fn of this.listeners) {
-			try {
-				void fn(e);
-			} catch {
-				/* ignore */
-			}
-		}
+		this.dispatchToListeners(e);
 	}
 }
