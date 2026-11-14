@@ -1581,7 +1581,7 @@ check("host cache observations reset on model and session changes", async () => 
 	const selectTaskfold = async () => {
 		const host = await r.open();
 		await host.command({ kind: "selectConductor", id: "taskfold" });
-		await new Promise(resolve => setImmediate(resolve));
+		for (let i = 0; i < 200 && host.activeConductor()?.id !== "taskfold"; i++) await new Promise(resolve => setTimeout(resolve, 5));
 	};
 	try {
 		await r.command("debug on");
