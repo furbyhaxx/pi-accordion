@@ -330,69 +330,87 @@ function fnvContent(h: number, content: unknown): number {
 	return h;
 }
 
-/** Content fields used by reconciliation, in the same order as the full fingerprint. */
-function contentSegments(m: PiMessage): string[] {
-	const segments = [m.role];
-	const content = (value: PiMessage["content"]) => {
-		if (typeof value === "string") segments.push("string", value);
-		else if (Array.isArray(value)) {
-			segments.push("parts", String(value.length));
-			for (const part of value) {
-				const text = (part as { text?: unknown } | null)?.text;
-				segments.push(part?.type ?? "", typeof text === "string" ? text : "");
-			}
-		} else segments.push("empty");
-	};
-	switch (m.role) {
-		case "user":
-			content(m.content);
-			break;
-		case "assistant":
-			segments.push(m.model ?? "");
-			if (Array.isArray(m.content)) {
-				segments.push(String(m.content.length));
-				for (const part of m.content) {
-					segments.push(part?.type ?? "");
-					if (part?.type === "text") segments.push((part as PiTextPart).text || "");
-					else if (part?.type === "thinking") {
-						segments.push((part as PiThinkingPart).thinking || "", thinkingIsSigned(part as PiThinkingPart) ? "signed" : "");
-					} else if (part?.type === "toolCall") {
-						const call = part as PiToolCallPart;
-						segments.push(call.name || "", JSON.stringify(call.arguments ?? {}));
-					}
-				}
-			} else segments.push("0");
-			break;
-		case "toolResult": {
-			const details = spanDetails(m).details;
-			segments.push(m.isError ? "error" : "", m.toolName ?? "", details === undefined ? "" : JSON.stringify(details));
-			content(m.content);
-			break;
-		}
-		default:
-			segments.push(m.summary ?? "");
+function sampleText(h: number, text: string): number {
+	h = fnvStr(h, `${text.length}:`);
+	const n = text.length;
+	for (let i = 0; i < Math.min(64, n); i++) {
+		const c = text.charCodeAt(i);
+		h = fnvByte(fnvByte(h, c), c >>> 8);
 	}
-	return segments;
+	for (let i = Math.max(64, n - 64); i < n; i++) {
+		const c = text.charCodeAt(i);
+		h = fnvByte(fnvByte(h, c), c >>> 8);
+	}
+	for (let i = 0; i < 64 && n > 0; i++) {
+		const c = text.charCodeAt(Math.floor(i * (n - 1) / 63));
+		h = fnvByte(fnvByte(h, c), c >>> 8);
+	}
+	return h;
+}
+
+function sampleValue(h: number, v: unknown, depth: number): number {
+	if (depth > 8) return fnvStr(h, "depth;");
+	if (typeof v === "string") return sampleText(fnvStr(h, "string;"), v);
+	if (v === null || typeof v !== "object") return fnvStr(fnvStr(h, `${v === null ? "null" : typeof v}:`), `${String(v)};`);
+	if (Array.isArray(v)) {
+		h = fnvStr(h, `[${v.length}:`);
+		for (const item of v) h = sampleValue(h, item, depth + 1);
+		return fnvStr(h, "]");
+	}
+	h = fnvStr(h, "{");
+	for (const key of Object.keys(v)) {
+		h = fnvStr(h, `${key.length}:`);
+		h = fnvStr(h, key);
+		h = sampleValue(h, (v as Record<string, unknown>)[key], depth + 1);
+	}
+	return fnvStr(h, "}");
+}
+
+function sampleContent(h: number, value: PiMessage["content"]): number {
+	if (typeof value === "string") return sampleText(fnvStr(h, "string"), value);
+	if (!Array.isArray(value)) return fnvStr(h, "empty");
+	h = fnvStr(h, `parts:${value.length}:`);
+	for (const part of value) {
+		const text = (part as { text?: unknown } | null)?.text;
+		h = sampleText(h, part?.type ?? "");
+		h = sampleText(h, typeof text === "string" ? text : "");
+	}
+	return h;
 }
 
 /** A bounded sample of each content field, including its length and part structure. */
 export function contentSignature(m: PiMessage): number {
-	let h = 0x811c9dc5;
-	for (const text of contentSegments(m)) {
-		h = fnvStr(h, `${text.length}:`);
-		const n = text.length;
-		for (let i = 0; i < Math.min(64, n); i++) {
-			const c = text.charCodeAt(i);
-			h = fnvByte(fnvByte(h, c), c >>> 8);
-		}
-		for (let i = Math.max(64, n - 64); i < n; i++) {
-			const c = text.charCodeAt(i);
-			h = fnvByte(fnvByte(h, c), c >>> 8);
-		}
-		for (let i = 0; i < 64 && n > 0; i++) {
-			const c = text.charCodeAt(Math.floor(i * (n - 1) / 63));
-			h = fnvByte(fnvByte(h, c), c >>> 8);
-		}
+	let h = sampleText(0x811c9dc5, m.role);
+	switch (m.role) {
+		case "user":
+			h = sampleContent(h, m.content);
+			break;
+		case "assistant":
+			h = sampleText(h, m.model ?? "");
+			if (Array.isArray(m.content)) {
+				h = fnvStr(h, `${m.content.length}:`);
+				for (const part of m.content) {
+					h = sampleText(h, part?.type ?? "");
+					if (part?.type === "text") h = sampleText(h, (part as PiTextPart).text || "");
+					else if (part?.type === "thinking") {
+						h = sampleText(h, (part as PiThinkingPart).thinking || "");
+						h = fnvByte(h, thinkingIsSigned(part as PiThinkingPart) ? 1 : 0);
+					} else if (part?.type === "toolCall") {
+						const call = part as PiToolCallPart;
+						h = sampleText(h, call.name || "");
+						h = sampleValue(h, call.arguments ?? {}, 0);
+					}
+				}
+			} else h = fnvStr(h, "0:");
+			break;
+		case "toolResult":
+			h = fnvByte(h, m.isError ? 1 : 0);
+			h = sampleText(h, m.toolName ?? "");
+			h = sampleValue(h, spanDetails(m).details, 0);
+			h = sampleContent(h, m.content);
+			break;
+		default:
+			h = sampleText(h, m.summary ?? "");
 	}
 	return h >>> 0;
 }

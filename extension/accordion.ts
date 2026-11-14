@@ -3025,8 +3025,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		}
 		const prev = lastMessages;
 		let diverged = messages.length < prev.length;
-		const incomingFps = lastFps.slice();
-		const incomingSigs = lastSigs.slice();
+		const incomingFps = messages.length > prev.length ? lastFps.slice() : lastFps;
+		const incomingSigs = messages.length > prev.length ? lastSigs.slice() : lastSigs;
 		const olderEnd = Math.max(0, prev.length - 8);
 		for (let i = 0; !diverged && i < prev.length; i++) {
 			const sig = contentSignature(messages[i]);

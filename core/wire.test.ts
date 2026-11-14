@@ -127,6 +127,28 @@ describe("core/wire — contentSignature", () => {
 		expect(contentSignature({ ...base, isError: true })).not.toBe(signature);
 		expect(contentSignature({ ...base, content: [{ type: "text", text: "b" + "a".repeat(499) }] })).not.toBe(signature);
 	});
+	it("samples nested argument strings without scanning their unsampled middle", () => {
+		const text = "x".repeat(10_000);
+		const message = (new_text: string): PiMessage => ({
+			role: "assistant",
+			content: [{ type: "toolCall", id: "edit", name: "edit", arguments: { edits: [{ new_text }] } }],
+		});
+		const signature = contentSignature(message(text));
+		expect(contentSignature(message("y" + text.slice(1)))).not.toBe(signature);
+		expect(contentSignature(message(text.slice(0, 5001) + "y" + text.slice(5002)))).toBe(signature);
+	});
+	it("samples a one-megabyte argument in under one millisecond on average", () => {
+		const message: PiMessage = {
+			role: "assistant",
+			content: [{ type: "toolCall", id: "edit", name: "edit", arguments: { edits: [{ new_text: "x".repeat(1_000_000) }] } }],
+		};
+		contentSignature(message);
+		const start = performance.now();
+		for (let i = 0; i < 100; i++) contentSignature(message);
+		const mean = (performance.now() - start) / 100;
+		console.log(`1 MB argument signature mean: ${mean.toFixed(4)} ms`);
+		expect(mean).toBeLessThan(1);
+	});
 });
 
 describe("core/wire — contentFingerprint (E1, sol P1)", () => {
