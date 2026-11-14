@@ -541,6 +541,121 @@ describe("Truth — stats", () => {
 	});
 });
 
+describe("Truth — indexed accounting equivalence", () => {
+	it("matches naive membership and fresh sums through seeded mutations", () => {
+		let seed = 0x19c0ffee;
+		const random = (n: number) => {
+			seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+			return seed % n;
+		};
+		let t = bulk(seq(300, 50));
+		t.setProtect(0);
+		let nextId = 300;
+		for (let step = 0; step < 480; step++) {
+			const b = t.blocks[random(t.blocks.length)];
+			const group = t.groups.length ? t.groups[random(t.groups.length)] : undefined;
+			switch (step % 14) {
+				case 0: t.append([blk(`a:b${nextId}:p0`, "text", nextId++, 50)]); break;
+				case 1: {
+					const start = random(t.blocks.length - 3);
+					t.apply([{ kind: "group", ids: [t.blocks[start].id, t.blocks[start + 2].id] }], "auto");
+					break;
+				}
+				case 2: if (group) t.apply([{ kind: "unfoldGroup", groupId: group.id }], "auto"); break;
+				case 3: if (group) t.apply([{ kind: "foldGroup", groupId: group.id }], "auto"); break;
+				case 4: t.apply([{ kind: "fold", ids: [b.id] }], "auto"); break;
+				case 5: t.apply([{ kind: "unfold", ids: [b.id] }], "auto"); break;
+				case 6: t.apply([{ kind: "replace", id: b.id, content: "short recap", recoverable: false }], "auto"); break;
+				case 7: t.apply([{ kind: "freeze" }], "you"); break;
+				case 8: if (group) t.apply([{ kind: "ungroup", groupId: group.id }], "you"); break;
+				case 9: t.setProtect(random(250)); break;
+				case 10: t.setCalibration(0.5 + random(200) / 100); break;
+				case 11: {
+					const blocks = t.blocks.slice(0, -1).map((block) => ({ ...block }));
+					t = Truth.rebuildFrom(t, { meta: META, blocks, lineCount: 0, skipped: 0 });
+					break;
+				}
+				case 12: t.setProtect(0); break;
+				case 13: if (step % 70 === 13) t.apply([{ kind: "resetAll" }], "you"); break;
+			}
+			const naiveGroup = (block: Block) => t.groups.find((g) => g.memberIds.includes(block.id));
+			const naiveFoldedGroup = (id: string) => t.groups.some((g) => g.folded && g.memberIds.includes(id));
+			let live = 0, full = 0, coveredLive = 0, coveredFull = 0, rawLive = 0, rawFull = 0, folded = 0;
+			for (const block of t.blocks) {
+				expect(t.groupOf(block)).toBe(naiveGroup(block));
+				expect(t.inFoldedGroup(block.id)).toBe(naiveFoldedGroup(block.id));
+				const cost = t.effTokens(block);
+				live += cost;
+				full += block.tokens;
+				if (t.isFolded(block)) folded++;
+				if (t.isCalibrated(block)) { coveredLive += cost; coveredFull += block.tokens; }
+				else { rawLive += cost; rawFull += block.tokens; }
+			}
+			expect(t.liveTokens()).toBe(live);
+			expect(t.fullTokens()).toBe(full);
+			expect(t.foldedCount()).toBe(folded);
+			expect(t.stats()).toEqual({
+				rev: t.rev, liveTokens: Math.round(coveredLive * t.calibration + rawLive * t.calibrationPrior),
+				fullTokens: Math.round(coveredFull * t.calibration + rawFull * t.calibrationPrior),
+				budget: t.budget, contextWindow: t.contextWindow, protectTokens: t.protectTokens,
+				protectedFromIndex: t.protectedFromIndex(), blockCount: t.blocks.length,
+			});
+		}
+	});
+
+	it("preserves overlap semantics for groups installed through the raw overlay seam", () => {
+		const t = bulk(seq(3, 50));
+		t.setProtect(0);
+		const id = t.blocks[0].id;
+		t.setGroups([
+			{ id: "open", memberIds: [id], folded: false, by: "you" },
+			{ id: "folded", memberIds: [id], folded: true, by: "auto" },
+		]);
+		expect(t.groupOf(t.blocks[0])?.id).toBe("open");
+		expect(t.inFoldedGroup(id)).toBe(true);
+		t.setGroups([{ id: "open", memberIds: [id], folded: false, by: "you" }]);
+		expect(t.inFoldedGroup(id)).toBe(false);
+	});
+
+	it("replaces warmed caches when adopting another snapshot at the same revision", () => {
+		const a = bulk(seq(3, 50));
+		const b = bulk(seq(3, 100));
+		a.setProtect(0);
+		b.setProtect(0);
+		a.setGroups([{ id: "first", memberIds: [a.blocks[0].id], folded: true, by: "you" }]);
+		b.setGroups([{ id: "second", memberIds: [b.blocks[1].id], folded: true, by: "you" }]);
+		a.stats();
+		a.groupOf(a.blocks[0]);
+		const snapshot = serializeSnapshot(b, false);
+		const replacement = hydrateSnapshot(META, snapshot);
+		a.adoptSnapshot({
+			blocks: [...replacement.blocks], groups: [...replacement.groups], budget: replacement.budget,
+			contextWindow: replacement.contextWindow, protectTokens: replacement.protectTokens,
+			locks: replacement.locks, lockHolder: replacement.lockHolder, tailTokens: replacement.activeTailTokens,
+			sentThroughOrder: replacement.sentThroughOrder, wireAttached: replacement.wireAttached,
+			birthFolded: replacement.birthFoldedIds, carriedSent: replacement.carriedSentIds,
+			calibration: replacement.calibration, calibrationPrior: replacement.calibrationPrior,
+			calibrationThroughOrder: replacement.calibrationThroughOrder,
+			systemPromptCalibrated: replacement.systemPromptCalibrated, rev: replacement.rev,
+		});
+		expect(a.stats()).toEqual(b.stats());
+		expect(a.groupOf(a.blocks[0])).toBeUndefined();
+		expect(a.groupOf(a.blocks[1])?.id).toBe("second");
+	});
+
+	it("accounts for a large folded group within the timing guard", () => {
+		const t = bulk(seq(20_000, 1));
+		t.setProtect(0);
+		expect(t.apply([{ kind: "group", ids: [t.blocks[0].id, t.blocks[14_999].id] }], "auto").results[0].applied).toBe(true);
+		const start = performance.now();
+		t.computeFoldOps();
+		for (let i = 0; i < 50; i++) t.stats();
+		const elapsed = performance.now() - start;
+		console.log(`truth timing guard: ${elapsed.toFixed(1)} ms`);
+		expect(elapsed).toBeLessThan(500);
+	});
+});
+
 // A structural-divergence rebuild (tree-nav / compaction / another extension rewriting messages)
 // used to construct a bare `new Truth(...)`, silently dropping every human/host fold, pin, group,
 // and dial — even for block ids that survived the rebuild untouched. `Truth.rebuildFrom` is the
