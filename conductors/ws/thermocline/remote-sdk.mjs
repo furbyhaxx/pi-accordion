@@ -37,7 +37,7 @@ function firstLine(s, n = 100) {
 // core/digest.ts
 var FOLDABLE_KINDS = /* @__PURE__ */ new Set(["text", "thinking", "tool_result", "custom"]);
 function wireFoldable(b) {
-  return FOLDABLE_KINDS.has(b.kind);
+  return FOLDABLE_KINDS.has(b.kind) && !(b.kind === "thinking" && b.signed === true);
 }
 var BOLTED_KINDS = /* @__PURE__ */ new Set(["system"]);
 function isBolted(b) {
