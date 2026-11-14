@@ -508,6 +508,10 @@ var Truth = class _Truth {
   // ── state ───────────────────────────────────────────────────────────────
   blockLog = [];
   groupList = [];
+  groupsEpoch = 0;
+  memberGroup = null;
+  foldedMembers = null;
+  shapeCache = /* @__PURE__ */ new WeakMap();
   budgetTok = 7e4;
   contextWindowTok = null;
   protectTokensTarget = 2e4;
@@ -594,6 +598,7 @@ var Truth = class _Truth {
   groupWireCache = { rev: -1, map: /* @__PURE__ */ new Map() };
   /** `degradedRunKeys()`'s memo — see that method's doc comment. */
   degradeCache = { rev: -1, keys: /* @__PURE__ */ new Set() };
+  aggregateCache = null;
   constructor(parsed) {
     this.meta = parsed.meta;
     this.blockLog = parsed.blocks.slice();
@@ -603,6 +608,28 @@ var Truth = class _Truth {
   reindex() {
     this.index.clear();
     for (let i = 0; i < this.blockLog.length; i++) this.index.set(this.blockLog[i].id, i);
+  }
+  groupsChanged() {
+    this.groupsEpoch++;
+    this.memberGroup = null;
+    this.foldedMembers = null;
+    this.groupWireCache.rev = -1;
+    this.degradeCache.rev = -1;
+    this.aggregateCache = null;
+  }
+  memberIndex() {
+    if (this.memberGroup) return this.memberGroup;
+    const members = /* @__PURE__ */ new Map();
+    const folded = /* @__PURE__ */ new Set();
+    for (const group of this.groupList) {
+      for (const id of group.memberIds) {
+        if (!members.has(id)) members.set(id, group);
+        if (group.folded) folded.add(id);
+      }
+    }
+    this.memberGroup = members;
+    this.foldedMembers = folded;
+    return members;
   }
   /**
    * Phase B replica hydration. Overwrite this Truth's ENTIRE state from a serialized host
@@ -629,6 +656,7 @@ var Truth = class _Truth {
     this.blockLog = s.blocks.slice();
     this.reindex();
     this.groupList = s.groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
+    this.groupsChanged();
     this.budgetTok = s.budget;
     this.contextWindowTok = s.contextWindow;
     this.protectTokensTarget = s.protectTokens;
@@ -649,6 +677,7 @@ var Truth = class _Truth {
     this.pfiCache = { rev: -1, value: 0 };
     this.groupWireCache = { rev: -1, map: /* @__PURE__ */ new Map() };
     this.degradeCache = { rev: -1, keys: /* @__PURE__ */ new Set() };
+    this.aggregateCache = null;
   }
   /**
    * Structural-DIVERGENCE rebuild (tree-nav / compaction / another extension rewriting
@@ -709,6 +738,7 @@ var Truth = class _Truth {
       const idxs = g.memberIds.map((id) => survivors.get(id)).sort((a, b) => a - b);
       return idxs.every((v, k) => k === 0 || v === idxs[k - 1] + 1);
     }).map((g) => ({ ...g, memberIds: g.memberIds.slice().sort((a, b) => survivors.get(a) - survivors.get(b)), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
+    next.groupsChanged();
     next.housekeep(/* @__PURE__ */ new Set());
     return next;
   }
@@ -822,10 +852,10 @@ var Truth = class _Truth {
     return Math.round(covered * this.calibrationMul + raw * this.calibrationPriorValue);
   }
   calibratedLiveTokens() {
-    return this.calibratedAggregate(this.blockLog, (b) => this.effTokens(b));
+    return this.aggregates().calLive;
   }
   calibratedFullTokens() {
-    return this.calibratedAggregate(this.blockLog, (b) => b.tokens);
+    return this.aggregates().calFull;
   }
   calibratedProtectedTokens() {
     return this.calibratedAggregate(this.blockLog.slice(this.protectedFromIndex()), (b) => b.tokens);
@@ -919,20 +949,40 @@ var Truth = class _Truth {
    * A session with no captured prompt has no `system` block at all, so the term is simply absent —
    * silent absence, never a zero-token placeholder.
    */
+  aggregates() {
+    if (this.aggregateCache?.rev === this.revCounter) return this.aggregateCache;
+    let live = 0, full = 0, folded = 0;
+    let coveredLive = 0, coveredFull = 0, rawLive = 0, rawFull = 0;
+    for (const b of this.blockLog) {
+      const cost = this.effTokens(b);
+      live += cost;
+      full += b.tokens;
+      if (this.isFolded(b)) folded++;
+      if (this.isCalibrated(b)) {
+        coveredLive += cost;
+        coveredFull += b.tokens;
+      } else {
+        rawLive += cost;
+        rawFull += b.tokens;
+      }
+    }
+    return this.aggregateCache = {
+      rev: this.revCounter,
+      live,
+      full,
+      folded,
+      calLive: Math.round(coveredLive * this.calibrationMul + rawLive * this.calibrationPriorValue),
+      calFull: Math.round(coveredFull * this.calibrationMul + rawFull * this.calibrationPriorValue)
+    };
+  }
   liveTokens() {
-    let n = 0;
-    for (const b of this.blockLog) n += this.effTokens(b);
-    return n;
+    return this.aggregates().live;
   }
   fullTokens() {
-    let n = 0;
-    for (const b of this.blockLog) n += b.tokens;
-    return n;
+    return this.aggregates().full;
   }
   foldedCount() {
-    let n = 0;
-    for (const b of this.blockLog) if (this.isFolded(b)) n++;
-    return n;
+    return this.aggregates().folded;
   }
   stats() {
     return {
@@ -1009,8 +1059,7 @@ var Truth = class _Truth {
   }
   // ── groups ──────────────────────────────────────────────────────────────
   groupOf(b) {
-    for (const g of this.groupList) if (g.memberIds.includes(b.id)) return g;
-    return void 0;
+    return this.memberIndex().get(b.id);
   }
   groupById(id) {
     return this.groupList.find((g) => g.id === id);
@@ -1024,8 +1073,8 @@ var Truth = class _Truth {
     return out;
   }
   inFoldedGroup(id) {
-    for (const g of this.groupList) if (g.folded && g.memberIds.includes(id)) return true;
-    return false;
+    this.memberIndex();
+    return this.foldedMembers.has(id);
   }
   isDropGroup(g) {
     return g.digest === null || g.digest === "";
@@ -1213,6 +1262,8 @@ var Truth = class _Truth {
    * same reason `computeDegradedDropRuns` lives in `core/wire.ts`).
    */
   classifyGroup(g) {
+    const cached = this.shapeCache.get(g);
+    if (cached && cached.epoch === this.groupsEpoch && cached.attached === this.wireAttached) return cached.shape;
     const members = [];
     for (const id of g.memberIds) {
       const b = this.get(id);
@@ -1235,7 +1286,9 @@ var Truth = class _Truth {
         run = null;
       }
     }
-    return { members, collapsedMembers, collapsed, stragglers, carrier: collapsedMembers[0]?.id ?? null, collapsedRuns };
+    const shape = { members, collapsedMembers, collapsed, stragglers, carrier: collapsedMembers[0]?.id ?? null, collapsedRuns };
+    this.shapeCache.set(g, { epoch: this.groupsEpoch, attached: this.wireAttached, shape });
+    return shape;
   }
   /**
    * Raw replace of the group overlay — a test / wire-apply seam that BYPASSES group-op validation
@@ -1245,6 +1298,7 @@ var Truth = class _Truth {
    */
   setGroups(groups) {
     this.groupList = groups.map((g) => ({ ...g, memberIds: g.memberIds.slice(), handles: g.handles?.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) }));
+    this.groupsChanged();
     this.revCounter++;
   }
   snappedRange(startId, endId) {
@@ -1272,6 +1326,7 @@ var Truth = class _Truth {
       fresh.push(b);
     }
     if (!fresh.length) return [];
+    if (this.groupList.length && fresh.some((b) => this.memberIndex().has(b.id))) this.groupsChanged();
     this.blockLog.push(...fresh);
     const touched = /* @__PURE__ */ new Set();
     this.housekeep(touched);
@@ -1324,6 +1379,7 @@ var Truth = class _Truth {
       const cur = this.blockLog[existingIdx];
       if (cur.text === text && cur.tokens === tok) return false;
       this.blockLog[existingIdx] = { ...cur, text, tokens: tok };
+      if (this.groupList.length && this.memberIndex().has(SYSTEM_BLOCK_ID)) this.groupsChanged();
       return true;
     }
     const fresh = {
@@ -1340,6 +1396,7 @@ var Truth = class _Truth {
     };
     this.blockLog.unshift(fresh);
     this.reindex();
+    if (this.groupList.length && this.memberIndex().has(SYSTEM_BLOCK_ID)) this.groupsChanged();
     return true;
   }
   /**
@@ -1534,7 +1591,10 @@ var Truth = class _Truth {
     }
     if (lockHuman && this.groupList.length) {
       const kept = this.groupList.filter((g) => g.by === "auto");
-      if (kept.length !== this.groupList.length) this.groupList = kept;
+      if (kept.length !== this.groupList.length) {
+        this.groupList = kept;
+        this.groupsChanged();
+      }
     }
   }
   // ── housekeeping ──────────────────────────────────────────────────────────
@@ -1549,6 +1609,7 @@ var Truth = class _Truth {
     if (kept.length !== this.groupList.length) {
       for (const g of this.groupList) if (!kept.includes(g)) touched.add(g.id);
       this.groupList = kept;
+      this.groupsChanged();
     }
   }
   /**
@@ -1639,6 +1700,7 @@ var Truth = class _Truth {
           const prior = revivable.get(revivedId);
           if (prior && !this.groupById(revivedId)) {
             this.groupList = [...this.groupList, prior.group];
+            this.groupsChanged();
             prior.ungroupResult.applied = false;
             prior.ungroupResult.detail = "regroup refused; ungroup reverted to avoid silent data loss";
             r.detail = r.detail ? `${r.detail} \u2014 original group restored` : "original group restored";
@@ -1911,13 +1973,14 @@ var Truth = class _Truth {
     }
     if (baseRev !== void 0 && memberIds.some((id) => this.stale(id, baseRev))) return this.clamp(op, "stale");
     if ((this.index.get(memberIds[memberIds.length - 1]) ?? Infinity) >= this.protectedFromIndex()) return this.clamp(op, "protected");
-    for (const id of memberIds) if (this.groupOf(this.get(id))) return this.clamp(op, "invalid-group", "overlaps an existing group");
+    for (const id of memberIds) if (this.memberIndex().has(id)) return this.clamp(op, "invalid-group", "overlaps an existing group");
     if (by !== "you" && memberIds.some((id) => this.get(id).override !== null)) return this.clamp(op, "human-override");
     const summary = by === "you" && typeof op.summary === "string" ? stripFoldTags(op.summary).trim() : op.summary;
     const g = { id: `g:${memberIds[0]}`, memberIds, folded: true, by, digest: summary, ...by === "auto" ? { autoOrigin: true } : {}, ...by === "auto" && op.role ? { role: op.role } : {}, ...op.handles?.length ? { handles: op.handles.map((h) => ({ id: h.id, memberIds: h.memberIds.slice() })) } : {} };
     if (g.handles && (by !== "auto" || new Set(g.handles.map((h) => h.id)).size !== g.handles.length || g.handles.some((h) => !this.canRecallHandle(g, h)))) return this.clamp(op, "invalid-group", "invalid or inaccessible group handle");
     if (this.classifyGroup(g).carrier === null) return this.clamp(op, "invalid-group", "nothing collapses (all stragglers)");
     this.groupList = [...this.groupList, g];
+    this.groupsChanged();
     for (const id of memberIds) touched.add(id);
     touched.add(g.id);
     return { op, applied: true, detail: g.id };
@@ -1928,6 +1991,7 @@ var Truth = class _Truth {
     if (!g) return this.clamp(op, "invalid-group", "no such group");
     if (this.stale(op.groupId, baseRev)) return this.clamp(op, "stale");
     this.groupList = this.groupList.filter((x) => x.id !== op.groupId);
+    this.groupsChanged();
     for (const id of g.memberIds) touched.add(id);
     touched.add(g.id);
     return { op, applied: true };
@@ -1940,6 +2004,7 @@ var Truth = class _Truth {
     if (g.folded) return this.clamp(op, "noop");
     g.folded = true;
     this.groupList = [...this.groupList];
+    this.groupsChanged();
     for (const id of g.memberIds) touched.add(id);
     touched.add(g.id);
     return { op, applied: true };
@@ -1953,6 +2018,7 @@ var Truth = class _Truth {
     if (!g.folded) return this.clamp(op, "noop");
     g.folded = false;
     this.groupList = [...this.groupList];
+    this.groupsChanged();
     for (const id of g.memberIds) touched.add(id);
     touched.add(g.id);
     return { op, applied: true };
@@ -1973,6 +2039,7 @@ var Truth = class _Truth {
     if (this.groupList.length) {
       for (const g of this.groupList) touched.add(g.id);
       this.groupList = [];
+      this.groupsChanged();
     }
     this.birthFolded.clear();
     if (!changed) return this.clamp(op, "noop");
@@ -2004,7 +2071,10 @@ var Truth = class _Truth {
         groupsChanged = true;
       }
     }
-    if (groupsChanged) this.groupList = [...this.groupList];
+    if (groupsChanged) {
+      this.groupList = [...this.groupList];
+      this.groupsChanged();
+    }
     if (!changed) return this.clamp(op, "noop");
     return { op, applied: true };
   }
@@ -2955,9 +3025,6 @@ function blockLabel(b) {
   }
 }
 var AgedSummaryConductor = class extends ViewConductor {
-  description;
-  locks;
-  tailTokens;
   /** May `b` be swallowed into the non-recoverable summary group? Default: every kind. Excluded
    *  blocks still feed the prompt as CONTEXT (via `newlyAged`) — they are only ever excluded from
    *  actually being folded away, splitting the group run around them. */
