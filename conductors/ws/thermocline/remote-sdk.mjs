@@ -2875,8 +2875,16 @@ function makeUnit(members) {
     grouped
   };
 }
+var blockMaps = /* @__PURE__ */ new WeakMap();
+function blocksById(view) {
+  const hit = blockMaps.get(view.blocks);
+  if (hit && hit.length === view.blocks.length) return hit.map;
+  const map = new Map(view.blocks.map((b) => [b.id, b]));
+  blockMaps.set(view.blocks, { length: view.blocks.length, map });
+  return map;
+}
 function project(view, applied) {
-  const byId = new Map(view.blocks.map((b) => [b.id, b]));
+  const byId = blocksById(view);
   let t = view.liveTokens;
   for (const id of applied.foldedIds ?? /* @__PURE__ */ new Set()) {
     const b = byId.get(id);

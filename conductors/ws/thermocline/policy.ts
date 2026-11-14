@@ -260,6 +260,17 @@ function makeUnit(members: ViewBlock[]): Unit {
 
 // ── projection: tokens under an explicit applied state ──────────────────────────────────────
 
+const blockMaps = new WeakMap<object, { length: number; map: Map<string, ConductorView["blocks"][number]> }>();
+
+/** A view's blocks by id, built once per view: the ladder asks for it on every move. */
+function blocksById(view: ConductorView): Map<string, ConductorView["blocks"][number]> {
+	const hit = blockMaps.get(view.blocks);
+	if (hit && hit.length === view.blocks.length) return hit.map;
+	const map = new Map(view.blocks.map((b) => [b.id, b]));
+	blockMaps.set(view.blocks, { length: view.blocks.length, map });
+	return map;
+}
+
 /**
  * The rendered token cost of the context if `applied` were the state. EXPLICIT-set arithmetic
  * (never inferred from view flags), so we never double-count: a block is discounted iff WE chose
@@ -270,7 +281,7 @@ function makeUnit(members: ViewBlock[]): Unit {
  *           − Σ strata ( Σ member.tokens − stratum.summaryTokens ) // each stratum's net saving
  */
 export function project(view: ConductorView, applied: Partial<Applied>): number {
-	const byId = new Map(view.blocks.map((b) => [b.id, b]));
+	const byId = blocksById(view);
 	let t = view.liveTokens;
 
 	for (const id of applied.foldedIds ?? new Set<string>()) {
