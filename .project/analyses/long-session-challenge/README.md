@@ -71,15 +71,15 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 | C1 | `blocks()` of the view adapter and the remote replica materialise the whole history with the quadratic group lookup of H1; doorman does it per fresh result | `core/conductor/view.ts:179`, `core/conductor/remote.ts:220`, `doorman.ts:129` | open: lookup fixed 05ef299; doorman still builds the whole view per fresh result (P12) |
 | C2 | Thermocline's ladder calls `project()` per move: O(blocks x moves) | `conductors/ws/thermocline/policy.ts:699-706` | open |
 | C3 | keel-lite reread detection compares every read with every read and write | `conductors/in-process/keel-lite/keel-lite.ts:729-731` | fixed 34061d4 |
-| C4 | Bug: thermocline replaces signed thinking blocks; the wire keeps the old signature | `policy.ts:928-930` | open |
+| C4 | Bug: thermocline replaces signed thinking blocks; the wire keeps the old signature | `policy.ts:928-930` | fixed cd2401c, 4b3c378 |
 | C5 | Bug: thermocline prices a new fold with the block's existing `foldedTokens`, not the text it will write | `policy.ts:276-278` | open |
 | C6 | Bug: thermocline prices DROP strata at zero although the role floor can keep a recap | `policy.ts:860-862` | open |
 | C7 | Thermocline HOLD recomputes `foldBody` for bodies it then discards | `thermocline.ts:844-845` | open |
 | C8 | keel-lite never consolidates its own recap groups; a long session saturates on them | `keel-lite.ts:444-446` | open |
-| C9 | Bug: a thermocline tool-pair unit never graduates because its tool call cannot be folded | `policy.ts:347-348` | open |
+| C9 | Bug: a thermocline tool-pair unit never graduates because its tool call cannot be folded | `policy.ts:347-348` | fixed bab78f7 |
 | C10 | Bug: keel-lite marks an earlier ranged read stale when a later read covers a different range | `keel-lite.ts:730` | fixed 34061d4 |
-| C11 | `remote.ts` never removes abort listeners of settled completions | `core/conductor/remote.ts:205` | open |
-| C12 | Triptych's skeleton cache grows with every skeleton ever built | `conductors/ws/triptych/triptych.ts:283-290` | open |
+| C11 | `remote.ts` never removes abort listeners of settled completions | `core/conductor/remote.ts:205` | fixed 4f79dce |
+| C12 | Triptych's skeleton cache grows with every skeleton ever built | `conductors/ws/triptych/triptych.ts:283-290` | fixed f11b380, 784b329 |
 | C13 | Bug: keel-note, compaction-naive, handoff, thermocline and triptych send session text to a model but declare no `privacy`, so they attach without consent | `core/conductor/registry.ts:225-249` | fixed 1669879 |
 | C14 | keel-lite's protected roots are the benchmark's file names (`AGENT_BRIEFING.md`, `spec_*.md`) | `keel-lite.ts:14-18,92-116` | open |
 
@@ -89,10 +89,10 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 |---|---|---|---|
 | U1 | Task notices are custom messages: Pi sends them to the model, Accordion has no block for them. They escape budget, folding, recall and dumps, and accumulate | `core/wire.ts:217-219`, `extension/accordion.ts:3549-3589` | open |
 | U2 | Root history keeps every outcome whole and is never condensed again: about 25k tokens at 300 roots with 200-character outcomes, 160k at the 2,000-character limit | `records.ts:138-150`, `taskfold.ts:909-924` | open |
-| U3 | A root's history lists only direct children; grandchild codes disappear, recall prints "(no code)" | `records.ts:141`, `taskfold.ts:1194-1196`, `core/recallView.ts:227-231` | open |
-| U4 | A task report is cut at the call limit and `page` repeats the first page | `core/recallView.ts:207-238` | open |
+| U3 | A root's history lists only direct children; grandchild codes disappear, recall prints "(no code)" | `records.ts:141`, `taskfold.ts:1194-1196`, `core/recallView.ts:227-231` | fixed 71b0a13 |
+| U4 | A task report is cut at the call limit and `page` repeats the first page | `core/recallView.ts:207-238` | fixed ce116c5 |
 | U5 | Untracked work folds only in runs of 8 uninterrupted assistant messages; short exchanges and document reads never fold | `taskfold.ts:1013-1042` | open |
-| U6 | Recall search resolves every fold and joins its full text per call and per page | `core/recallView.ts:155-166,365-386`, `core/agentView.ts:180-203` | open |
+| U6 | Recall search resolves every fold and joins its full text per call and per page | `core/recallView.ts:155-166,365-386`, `core/agentView.ts:180-203` | fixed 48860ee |
 | U7 | A changed resume sends the whole task tree (about 4,500 tokens at 300 tasks), each time | `extension/taskBinding.ts:107-126`, `extension/tasks.ts:1039-1046` | open |
 | U8 | Missing-list and missing-leaf coaching speak once per prompt, then stay silent for thousands of calls; the gate fails open for the rest of the run | `extension/taskCoach.ts:147-153,270-279` | open |
 | U9 | Gate mode suppresses large-leaf and floor notes; coach mode repeats the large-leaf text every ten results forever | `extension/taskCoach.ts:205-211,257-266` | open |
@@ -112,10 +112,11 @@ Status values: `open` (carried by `.project/plans/0007-long-session-hardening/pl
 |---|---|---|---|
 | S1 | SPEC-0001 and the code differ in about 30 places: compaction (`dryRun` folds for real, undo ignores groups, no bake fallback on threshold, bake summary format), web parity (settings result, task tree, compact preview), panel rendering, footer | `evidence/Spec0001Audit.md` | open |
 | S2 | SPEC-0002 and the code differ in about 25 places, mostly stale spec text; code gaps: `stale` reporting, `zombieSteps` setting, one stable fold code per task, dropped routing operations not logged, anchor-ref pin sources | `evidence/Spec0002Audit.md` | open |
-| S3 | SPEC-0003 edge differences: unknown regex flags accepted, silent 200-character query cut, codeless overflow shape, tool descriptions narrower than the contract; `recall({ask})` bypasses `serveRecall` | `evidence/Spec0003DocsDrift.md` | open |
+| S3 | SPEC-0003 edge differences: unknown regex flags accepted, silent 200-character query cut, codeless overflow shape, tool descriptions narrower than the contract; `recall({ask})` bypasses `serveRecall` | `evidence/Spec0003DocsDrift.md` | fixed 8a37999 |
 | S4 | Docs drift: conductor count and list, "folding off by default" versus `autoArm: true`, six tabs documented as five, removed `ACCORDION_COMPLETION_LOG`, missing shims, stale `docs/` pages | `evidence/Spec0003DocsDrift.md` | open |
-| D1 | Seven TypeScript errors in the extension's strict check and no committed type-check command | `conductors/in-process/agedSummaryConductor.ts`, `extension/accordion.ts` | open |
+| D1 | Seven TypeScript errors in the extension's strict check and no committed type-check command | `conductors/in-process/agedSummaryConductor.ts`, `extension/accordion.ts` | fixed bf817ce |
 | D2 | The orientation-modes harness imports symbols Taskfold no longer exports | `.project/analyses/orientation-modes/harness/` | open |
+| D3 | Bug, found by the new type check: recall release and the unfold ceiling read `settings.taskfold.high`, a setting that no longer exists, so both compared against `NaN` and never acted | `extension/accordion.ts` (`taskfoldHigh`) | fixed ad8ed21 |
 
 ## Diverge round
 
