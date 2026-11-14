@@ -437,7 +437,9 @@
 									? "Protected working tail — never folded"
 									: pinned
 										? "Pinned — unpin to fold"
-										: "Only text, thinking, tool results & extension messages can fold"}
+										: block?.kind === "thinking" && block.signed
+											? "Signed by the provider — folds only inside a group"
+											: "Only text, thinking, tool results & extension messages can fold"}
 					onclick={() => store.toggle(block!.id)}
 				>
 					<Icon name={folded ? "chevrons-up-down" : "chevrons-down-up"} size={14} />
