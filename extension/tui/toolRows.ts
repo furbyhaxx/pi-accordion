@@ -10,7 +10,7 @@ import type { TaskEvent } from "../../core/taskEvents";
 import { Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { blockLabel, type Renumbering, type TaskBlock, type TaskList, type TaskStatus } from "../tasks";
 import { taskDuration } from "./taskTree";
-import { formatDuration, type WidgetTheme } from "./taskWidget";
+import { formatDuration, type WidgetTheme, widgetTheme } from "./taskWidget";
 
 /** What a successful `tasks` call reports for its row. */
 export interface TasksDetails {
@@ -196,7 +196,8 @@ export function foldToolRow(theme: WidgetTheme, tool: "unfold" | "recall", args:
 }
 
 /** The transcript row for a task list note sent to the agent: its first sentence, all of it expanded. */
-export function noticeRow(theme: WidgetTheme, content: string, expanded: boolean): Text {
+export function noticeRow(host: WidgetTheme, content: string, expanded: boolean): Text {
+	const theme = widgetTheme(host);
 	const head = `${theme.fg("warning", "▲")} ${theme.bold("tasks")} ${theme.fg("dim", "note to the agent ·")} ${firstLine(content)}`;
 	return new Lines(expanded ? [head, ...content.split("\n").map((l) => theme.fg("dim", `  ${l}`))] : [head], 1);
 }
@@ -229,12 +230,12 @@ export function toolRowRenderers(build: (theme: WidgetTheme, args: Args, state: 
 	return {
 		renderShell: "self" as const,
 		renderCall(args: Args, theme: WidgetTheme, ctx: RenderContext) {
-			return ctx.isPartial ? new Lines(build(theme, args ?? {}, "pending", undefined, "", false), ctx.outputPad ?? 1) : empty();
+			return ctx.isPartial ? new Lines(build(widgetTheme(theme), args ?? {}, "pending", undefined, "", false), ctx.outputPad ?? 1) : empty();
 		},
 		renderResult(result: ToolResultLike, opts: { expanded: boolean; isPartial: boolean }, theme: WidgetTheme, ctx: RenderContext & { args: Args }) {
 			if (opts.isPartial) return empty();
 			const state = ctx.isError ? "error" : "ok";
-			return new Lines(build(theme, ctx.args ?? {}, state, result.details, textOf(result.content), opts.expanded), ctx.outputPad ?? 1);
+			return new Lines(build(widgetTheme(theme), ctx.args ?? {}, state, result.details, textOf(result.content), opts.expanded), ctx.outputPad ?? 1);
 		},
 	};
 }

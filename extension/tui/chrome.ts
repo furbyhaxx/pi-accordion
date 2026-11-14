@@ -22,6 +22,23 @@ export interface ChromeTheme {
 	getThinkingBorderColor?(level: never): (text: string) => string;
 }
 
+/** Bold as plain SGR; Pi styles bold through chalk, which can emit nothing while its colours still work. */
+export const sgrBold = (text: string): string => `\x1b[1m${text}\x1b[22m`;
+
+/** Reverse video as plain SGR, for the same reason as `sgrBold`. */
+export const sgrInverse = (text: string): string => `\x1b[7m${text}\x1b[27m`;
+
+/** The panel's theme over the host's: colours from the host, bold and reverse video as plain SGR. Pi styles those two through chalk, which can emit nothing while its colours still work, and the selected timeline cell has no other cue. */
+export function panelTheme(host: ChromeTheme): ChromeTheme {
+	const theme: ChromeTheme = { fg: (token, text) => host.fg(token, text), bold: sgrBold, inverse: sgrInverse };
+	if (host.colors) theme.colors = host.colors;
+	if (host.getBgAnsi) theme.getBgAnsi = (token) => host.getBgAnsi!(token);
+	if (host.getFgAnsi) theme.getFgAnsi = (token) => host.getFgAnsi!(token);
+	if (host.getColorMode) theme.getColorMode = () => host.getColorMode!();
+	if (host.getThinkingBorderColor) theme.getThinkingBorderColor = (level) => host.getThinkingBorderColor!(level);
+	return theme;
+}
+
 /** Key lookup against the user's bindings. */
 export interface ChromeKeys {
 	matches(data: string, binding: string): boolean;

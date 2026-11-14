@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { bindingHint, bodyRowsFor, CHROME_ROWS, type ChromeTheme, crumbText, hintRow, makeChrome, rawHint, renderFrame, ruleLine, tabBar } from "./chrome";
+import { bindingHint, bodyRowsFor, CHROME_ROWS, type ChromeTheme, crumbText, hintRow, makeChrome, panelTheme, rawHint, renderFrame, ruleLine, tabBar } from "./chrome";
 
 const theme: ChromeTheme = { fg: (_token, text) => text, bold: (text) => `*${text}*`, inverse: (text) => text };
 const chrome = makeChrome(theme, null);
@@ -73,5 +73,17 @@ describe("dashboard chrome", () => {
 		expect(bodyRowsFor(16)).toBe(4);
 		expect(bodyRowsFor(50)).toBe(20);
 		expect(bodyRowsFor(8)).toBe(3);
+	});
+});
+
+describe("panelTheme", () => {
+	test("gives bold and reverse video as plain SGR even when the host styles them to nothing, and delegates colours", () => {
+		const host: ChromeTheme = { fg: (token, text) => `<${token}>${text}`, bold: (text) => text, inverse: (text) => text, getColorMode: () => "256color" };
+		const wrapped = panelTheme(host);
+		expect(wrapped.bold("x")).toBe("\x1b[1mx\x1b[22m");
+		expect(wrapped.inverse!("x")).toBe("\x1b[7mx\x1b[27m");
+		expect(wrapped.fg("accent", "x")).toBe("<accent>x");
+		expect(wrapped.getColorMode!()).toBe("256color");
+		expect(wrapped.getBgAnsi).toBeUndefined();
 	});
 });

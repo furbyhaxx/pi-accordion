@@ -23,6 +23,9 @@ const BINDINGS: Record<string, string> = { "tui.select.up": "up", "tui.select.do
 const K = { home: "\x1b[H", end: "\x1b[F", up: "\x1b[A", down: "\x1b[B", right: "\x1b[C", left: "\x1b[D", enter: "\r", esc: "\x1b", tab: "\t", shiftTab: "\x1b[Z", f1: "\x1bOP", ctrlS: "\x13", ctrlC: "\x03", backspace: "\x7f", alt: (key: string) => `\x1b${key}` };
 const tick = async (n = 5) => { for (let i = 0; i < n; i++) await Promise.resolve(); };
 
+/** The panel writes bold and reverse video as plain SGR; most assertions read the text only. */
+const plain = (line: string): string => line.replace(/\x1b\[(?:1|7|22|27)m/g, "");
+
 function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsHost, terminalRows = 24, tagged = false) {
 	const truth = new Truth({ meta: { format: "pi", title: "test", cwd: "", model: "" }, blocks: [block("a", 0), block("b", 1)], lineCount: 0, skipped: 0 });
 	const commands: WireCommand[] = [];
@@ -105,7 +108,7 @@ function setup(delayed = false, start: PanelTabId = "context", tasks?: TaskTabsH
 	}), editor: async (_title: string, prefill: string) => { editorPrefill = prefill; editorHook(); return editorResult; }, confirm: async (title: string, message: string) => { confirmations.push(`${title} ${message}`); return confirmResult; } } } as unknown as ExtensionContext;
 	const opening = openAccordionPanel(ctx, host, start);
 	if (!component) throw new Error("panel did not open");
-	return { host, setOffMachine: (value: boolean) => { offMachine = value; }, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); return component; }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, compactStrategies: () => compactStrategies, compactInstructions: () => compactInstructions, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
+	return { host, setOffMachine: (value: boolean) => { offMachine = value; }, saveRevisions, failSettings: (message: string | null) => { settingsError = message; }, externalSettings: (patch: SettingsPatch) => { host.updateSettings!(patch, String(settingsRevision)); listener(); }, truth, conductor, commands, settings: () => settingsState, screen: (width = 100) => component!.render(width).map(plain).join("\n"), rawScreen: (width = 100) => component!.render(width).join("\n"), cursor: (width = 100) => component!.render(width).map(plain).find((line) => line.trimStart().startsWith("→")) ?? "", get panel() { if (!component) throw new Error("panel unavailable"); const c = component; return new Proxy(c, { get: (target, key) => (key === "render" ? (width: number) => target.render(width).map(plain) : Reflect.get(target, key)) }); }, opening, close: () => finish(), setEditor: (value: string | undefined) => { editorResult = value; }, compactStrategies: () => compactStrategies, compactInstructions: () => compactInstructions, onEditor: (fn: () => void) => { editorHook = fn; }, changeSession: () => { currentTruth = null; }, setConfirm: (value: boolean) => { confirmResult = value; }, confirmations: () => confirmations, editorPrefill: () => editorPrefill, update: () => listener(), setRefuse: () => { refuse = true; }, loseControl: () => { steering = false; listener(); }, disposed: () => disposed, renders: () => renders, resolveCommand: () => resolveCommand() };
 }
 
 function selectSetting(s: ReturnType<typeof setup>, label: string) {
@@ -1116,10 +1119,11 @@ describe("accordion panel", () => {
 		s.truth.apply([{ kind: "group", ids: ["a", "b"], summary: "group summary" }], "you");
 		s.truth.apply([{ kind: "foldGroup", groupId: s.truth.groups[0].id }], "you");
 		s.update();
-		const screen = s.screen(100);
+		const screen = s.rawScreen(100);
 		const selected = screen.split("\n").find((line) => line.includes("→"))!;
 		expect(selected).toContain("<accent>→");
-		expect(selected).toContain("<b>");
+		expect(selected).toContain("\x1b[1m");
+		expect(selected).toContain("\x1b[7m");
 		expect(selected).not.toContain("›");
 		expect(screen).toContain("▣");
 		expect(screen).not.toContain("<accent>▣");

@@ -323,14 +323,14 @@ describe("task widget", () => {
 		controller.sync();
 		const after = render();
 		expect(after.length).toBeLessThan(before.length);
-		expect(after[0]).toStartWith("▼ Tasks");
+		expect(after[0].replace(/\x1b\[\d+m/g, "")).toStartWith("▼ Tasks");
 		expect(after.join("\n")).toContain("… 6 upcoming");
 		prefs.mode = "off";
 		controller.sync();
 		expect(render()).toEqual([]);
 		prefs.mode = "auto";
 		controller.sync();
-		expect(render()[0]).toStartWith("▼ Tasks");
+		expect(render()[0].replace(/\x1b\[\d+m/g, "")).toStartWith("▼ Tasks");
 		controller.detach();
 	});
 	test("remembers the expanded state for later sessions", () => {
