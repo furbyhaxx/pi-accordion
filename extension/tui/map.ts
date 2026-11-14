@@ -16,7 +16,7 @@ const roles: Record<BlockKind, string> = {
 const KIND_RGB: Record<BlockKind, readonly [number, number, number]> = {
 	system: [255, 246, 164], // #FFF6A4
 	user: [4, 78, 255], // #044EFF
-	custom: [155, 214, 122],
+	custom: [155, 214, 122], // #9BD67A
 	text: [26, 166, 232], // #1AA6E8
 	thinking: [180, 128, 223], // #B480DF
 	tool_call: [33, 212, 193], // #21D4C1
@@ -80,6 +80,7 @@ export function buildContextBreakdown(truth: Truth): ContextBreakdown {
 	const order: { kind: BlockKind; label: string }[] = [
 		{ kind: "system", label: "System" },
 		{ kind: "user", label: "User" },
+		{ kind: "custom", label: "Extension" },
 		{ kind: "text", label: "Assistant" },
 		{ kind: "thinking", label: "Thinking" },
 		{ kind: "tool_call", label: "Tool Call" },

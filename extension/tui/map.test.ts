@@ -108,4 +108,19 @@ describe("context map", () => {
 			expect(coloredMap.lines.join("\n")).toContain("\x1b[38;2;");
 		}
 	});
+
+	test("an extension message has its own letter, colour and legend entry", () => {
+		const t = truth([block("u", 0, "user"), block("c:1:abc", 1, "custom", 400), block("a", 2)]);
+		t.setProtect(0);
+		const map = buildContextMap(t, "c:1:abc", 80, 5);
+		expect(map.lines[0]).toContain("[X");
+		expect(map.lines[0]).not.toContain("U1 ]");
+		const bd = buildContextBreakdown(t);
+		expect(bd.categories.find((c) => c.kind === "custom")).toMatchObject({ label: "Extension", blocks: 1 });
+		const [bar, legend] = renderCategoryBar(t, 120);
+		expect(legend).toContain("Extension");
+		expect(legend).toContain("\x1b[38;2;155;214;122m");
+		expect(bar).toContain("\x1b[38;2;155;214;122m");
+		expect(renderCategoryBar(truth([block("u", 0, "user")]), 120)[1]).not.toContain("Extension");
+	});
 });

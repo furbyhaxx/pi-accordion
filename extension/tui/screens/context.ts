@@ -207,7 +207,7 @@ export function createContextTab(shell: Shell): PanelTab {
 		return {
 			body,
 			crumbs: [],
-			description: "One row per turn: U user · A answer · H thinking · ▣ folded group · ! system · ┃ protected tail",
+			description: "One row per turn: U user · X ext · A answer · H thinking · ▣ folded group · ! system · ┃ protected tail",
 			hints: hints(block),
 			above: top,
 			below: Math.max(0, all.length - top - listRows),
@@ -243,7 +243,7 @@ export function createContextTab(shell: Shell): PanelTab {
 				const bar = rows >= 5 ? renderCategoryBar(truth, width, (text) => theme.fg("dim", text)) : [];
 				const map = buildContextMap(truth, selectedId, width, Math.max(1, rows - bar.length - 1), { colored: true });
 				mapColumns = map.columns;
-				return { body: [...bar, block ? row(block, true, width) : "  No blocks yet", ...map.lines], crumbs: [], description: "S system · U user · A answer · H thinking · C call · R result · lowercase folded · ! bolted · * pin · P tail · G group", hints: hints(block), above: 0, below: 0 };
+				return { body: [...bar, block ? row(block, true, width) : "  No blocks yet", ...map.lines], crumbs: [], description: "S system · U user · X ext · A answer · H thinking · C call · R result · lowercase folded · ! bolted · * pin · P tail · G group", hints: hints(block), above: 0, below: 0 };
 			}
 			mapColumns = 1;
 			const at = Math.max(0, visible.findIndex((b) => b.id === selectedId));
@@ -374,7 +374,7 @@ export function createContextTab(shell: Shell): PanelTab {
 		dirty: () => 0,
 		discard() {},
 		legend: () => [
-			"Map cells: S system, U user, A answer, H thinking, C call, R result; lowercase is folded.",
+			"Map cells: S system, U user, X extension message, A answer, H thinking, C call, R result; lowercase is folded.",
 			"The digit is the token weight (1 ≤100, 2 ≤500, 3 ≤1.5k, 4 ≤5k, 5 ≤15k, 6 above).",
 			"Flags: ! bolted, * pinned, P protected tail, G grouped. [ ] marks the selected cell.",
 			"Typing filters the block list by kind, id, tool name and text (substring match).",

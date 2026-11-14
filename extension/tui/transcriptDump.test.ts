@@ -369,4 +369,17 @@ describe("transcript dump", () => {
 		expect(renderDump(doc(source(log)), "tree")).toContain(`FOLDED {#${code}}`);
 		expect(renderDump(doc(source(log)), "xml")).toContain(`code="${code}"`);
 	});
+
+	it("prints an extension message as kind custom, without the human marker", () => {
+		const log = new Log();
+		log.user("Go.");
+		log.blocks.push({ id: "c:1:aa", kind: "custom", text: "ext-body-marker", turn: 1, full: 10, live: 10 });
+		const out = renderDump(doc(source(log)), "tree");
+		const line = out.split("\n").find((l) => l.includes("custom"))!;
+		expect(line).toBeDefined();
+		expect(line).not.toContain("●");
+		expect(line).toContain("·  10 tok");
+		expect(out).toContain("ext-body-marker");
+		expect(out.split("\n").find((l) => l.includes("user"))).toContain("●");
+	});
 });

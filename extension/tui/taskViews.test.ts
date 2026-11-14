@@ -372,4 +372,24 @@ describe("task views", () => {
 		expect(o.v.back()).toBe(false);
 		o.v.dispose();
 	});
+
+	it("labels an extension message `ext`, never as a user message", () => {
+		const b = blocks();
+		b.splice(1, 0, { id: "c:1:aa", kind: "custom", text: "lint report", full: 7, live: 7 });
+		b.splice(5, 0, { id: "c:2:bb", kind: "custom", text: "inside note", full: 7, live: 7 });
+		const src = source(b);
+		const nodes = transcriptNodes(sessionTranscript(src), data(src));
+		const rows = flattenTree(nodes, new Map(nodes.map((n) => [n.key, true] as const)));
+		const walk = (ns: typeof nodes): typeof nodes => ns.flatMap((n) => [n, ...walk(n.children ?? [])]);
+		const all = walk(nodes);
+		const ext = all.filter((n) => n.text?.includes("lint report") || n.text?.includes("inside note"));
+		expect(ext.length).toBeGreaterThan(0);
+		for (const n of ext) {
+			expect(n.label).toContain("ext ");
+			expect(n.data).not.toMatchObject({ type: "user" });
+			expect(n.label).not.toContain("●");
+			expect(n.label).not.toContain("○");
+		}
+		expect(rows.length).toBeGreaterThan(0);
+	});
 });

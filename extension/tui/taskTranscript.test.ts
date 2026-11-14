@@ -186,4 +186,25 @@ describe("task transcript", () => {
 		expect(recordForm(`${foldTag("g:x")} [task-record] l/1 "T"  status: done`)).toBeNull();
 		expect(recordForm("plain")).toBeNull();
 	});
+
+	it("keeps an extension message as an ordinary step inside a task and as untracked work outside", () => {
+		const log = new Log();
+		log.user("Go");
+		log.blocks.push({ id: "c:1:aa", kind: "custom", text: "ext before", full: 10, live: 10 });
+		log.start("1", "Task");
+		log.blocks.push({ id: "c:2:bb", kind: "custom", text: "ext inside", full: 10, live: 10 });
+		log.work("w");
+		log.finish("1", "done");
+		const src = source(log);
+		const tree = sessionTranscript(src);
+		expect(tree.some((n) => n.type === "user" && n.block.kind === "custom")).toBe(false);
+		expect(tree.filter((n) => n.type === "user").length).toBe(1);
+		const untracked = tree.find((n) => n.type === "untracked") as Extract<TNode, { type: "untracked" }>;
+		expect(untracked.blocks.map((b) => b.id)).toEqual(["c:1:aa"]);
+		const task = tree.find((n) => n.type === "task") as Extract<TNode, { type: "task" }>;
+		const body = spanTranscript(src, task.span);
+		const inside = body.filter((n): n is Extract<TNode, { type: "step" }> => n.type === "step" && n.block.kind === "custom");
+		expect(inside.map((n) => n.block.id)).toEqual(["c:2:bb"]);
+		expect(body.some((n) => n.type === "user")).toBe(false);
+	});
 });
