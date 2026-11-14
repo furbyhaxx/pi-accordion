@@ -141,6 +141,10 @@ Previously saved `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks` 
 `conductorOptions.taskfold` on the next save; explicit values at the new path take precedence.
 Settings edits validate the declared ranges and require `low < high`.
 
+`tasks.zombieSteps` sets the stale-task threshold in tool calls (default 40, range 1–10,000).
+When other tasks have progressed, an open task past that threshold appears in the next
+`tasks` result as a `stale` array of task IDs.
+
 Finished tasks fold at the first safe request by default (`taskfold.timing: "eager"`), independent
 of span length. `/accordion fold eager|lazy|pressure` records a session/model override. `lazy` waits
 for a cold/expired cache or high pressure, while `pressure` waits only for high pressure. Resolution

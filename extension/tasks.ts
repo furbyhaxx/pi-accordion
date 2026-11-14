@@ -1125,6 +1125,8 @@ export interface TaskResult {
 	noGoal?: true;
 	doing?: string[];
 	blocked?: { id: string; reason: StoredBlockReason; detail: string; on?: string }[];
+	/** Open task ids whose spans have gone stale while other tasks progressed. */
+	stale?: string[];
 	/** Unfinished leaves that still need acceptance criteria, with the call that adds them. */
 	criteriaMissing?: { id: string; title: string; has: number }[];
 }

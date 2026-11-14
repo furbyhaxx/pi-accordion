@@ -72,7 +72,7 @@ import { taskEventOf } from "./taskEvents";
 import { ADOPTED_ENTRY, adoptionOf, applyAdoption, deriveAdoption, needsAdoption, type Adoption } from "./taskAdoption";
 import { TaskEventQueue, withTaskEvents } from "../core/taskEvents";
 import { UNFOLD_ENTRY, VERDICT_ENTRY, taskfoldVerdicts, unfoldStatesOf, verdictsOf } from "../conductors/in-process/taskfold/verdicts";
-import { TASKFOLD_DEFAULTS, TaskfoldConductor } from "../conductors/in-process/taskfold/taskfold";
+import { TASKFOLD_DEFAULTS, TaskfoldConductor, scanTaskSpans, staleSpans } from "../conductors/in-process/taskfold/taskfold";
 import { taskfoldRouting } from "../conductors/in-process/taskfold/routing";
 import { createRouting } from "./taskRouting";
 import { nativeCompletion, type CompletionFunction } from "./nativeCompletion";
@@ -920,7 +920,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		truth: () => truth,
 		conductorOptions: (id) => settings.conductorOptions[id] ?? {},
 		createInProcess: (entry, options) => entry.id === "taskfold"
-			? new TaskfoldConductor({ ...settings.taskfold, ...options }, taskfoldVerdicts, undefined, () => modelConsentGranted(entry))
+			? new TaskfoldConductor({ ...settings.taskfold, ...options, zombieSteps: settings.tasks.zombieSteps }, taskfoldVerdicts, undefined, () => modelConsentGranted(entry))
 			: undefined,
 		foldPolicy: () => ({ timing: currentDials()?.timing ?? settings.taskfold.timing, cache: cacheProfileFor(modelSpec() ?? "*", observedTtl), now: Date.now(), lastRequestAt }),
 		broadcast,
@@ -4618,6 +4618,11 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	// block becomes standing-open (sticky, provenance "agent") and its content returns to the
 	// model on the NEXT `context` hook — it simply no longer appears in the fold serialization.
 
+	function staleTaskIds(slug: string): string[] {
+		if (!truth) return [];
+		return staleSpans(scanTaskSpans(truth.blocks, (b) => b.text), truth.blocks, settings.tasks.zombieSteps).filter((s) => s.list === slug).map((s) => s.id);
+	}
+
 	pi.registerTool({
 		name: "tasks",
 		label: "Tasks",
@@ -4721,6 +4726,10 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				const list = read();
 				// Task context rides once in the result that starts the work, so it folds with the span.
 				const result: Record<string, unknown> = { ...run.result };
+				if (list && args.list) {
+					const stale = staleTaskIds(args.list);
+					if (stale.length) result.stale = stale;
+				}
 				let delivered: string[] = [];
 				// Keys are scoped by list: pin and attachment ids repeat across lists.
 				const scoped = (key: string) => `${args.list}/${key}`;

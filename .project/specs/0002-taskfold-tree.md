@@ -5,15 +5,15 @@ document:
   title: "Taskfold: nested task lists, structured tool results, context delivery, composed records, history and floor"
   description: "Decided design for task list v3 (nested tree, multiple goals, acceptance criteria, pins, anchored attachments, move/insert), structured tasks tool results and delivered-once context, the tree planner that folds task spans eagerly into JSON records and root history, user-message routing, legacy session adoption, the folding floor, the task widget legibility changes, the tasks protocol fixes and the task-list authoring skill."
   status: "published"
-  revision: 40
+  revision: 41
   created_at: "2026-11-06T14:44:51+01:00"
-  updated_at: "2026-11-14T16:02:26+01:00"
+  updated_at: "2026-11-14T16:20:08+01:00"
   created_by: "orchestrator"
   updated_by: "coder"
   changelog:
-    - revision: 40
-      reason: "long-session task tooling"
-      changes: ["document the compact option for all dump formats", "describe compact task-list orientation", "describe coaching and gate recurrence"]
+    - revision: 41
+      reason: "report stale task spans"
+      changes: ["configure stale-task threshold and remove unused large-leaf repeat setting"]
 ---
 
 # Taskfold
@@ -1040,7 +1040,8 @@ the skill the lists were more compact (7 tasks versus 19 and 7 versus 12; the re
     "stopOnBlock": true,
     "resumeOnStop": true,
     "bootstrapNote": true,
-    "largeLeaf": { "budgetShare": 0.15, "toolResults": 25, "repeatEvery": 10 },
+    "largeLeaf": { "budgetShare": 0.15, "toolResults": 25 },
+    "zombieSteps": 40,
     "acceptanceCriteria": { "required": true, "min": 1, "max": 3, "maxChars": 300 }
   },
   "conductorOptions": {
@@ -1061,8 +1062,8 @@ Previously stored `taskfold.high`, `taskfold.low` and `taskfold.keepRecentTasks`
 `conductorOptions.taskfold`; explicit new-path values win. Earlier valid values remain effective,
 even if outside the narrower editor ranges. Saves validate new edits against the registry bounds
 and require `low < high`. `roots` keeps absolute paths (`~/` expanded) and drops anything else.
-`tasks.largeLeaf.repeatEvery` is retained in settings but does not control the doubling-based
-large-leaf reminder. `gateFailOpenAfter` controls the refusals before the first gate opening.
+`tasks.zombieSteps` is an integer from 1 to 10,000. `gateFailOpenAfter` controls the refusals
+before the first gate opening.
 The extractor model resolves through `models` like other out-of-band calls.
 
 `/accordion fold eager|lazy|pressure` records a timing dial for this session and model in

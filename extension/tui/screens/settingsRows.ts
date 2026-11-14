@@ -88,7 +88,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
 	{ section: "Tasks", path: "tasks.bootstrapNote", label: "Bootstrap note", kind: "toggle", description: "Point a fresh session at its claimed list once, from the first prompt." },
 	{ section: "Tasks", path: "tasks.largeLeaf.budgetShare", label: "Large leaf budget share", kind: "number", description: "Fraction of the budget after which a leaf is reminded to split." },
 	{ section: "Tasks", path: "tasks.largeLeaf.toolResults", label: "Large leaf tool results", kind: "number", description: "Tool results inside one leaf that trigger the reminder." },
-	{ section: "Tasks", path: "tasks.largeLeaf.repeatEvery", label: "Large leaf repeat", kind: "number", description: "Tool results between repeats of the reminder." },
+	{ section: "Tasks", path: "tasks.zombieSteps", label: "Stale after steps", kind: "number", description: "Tool calls after a task's last event before it is reported stale." },
 	{ section: "Tasks", path: "tasks.acceptanceCriteria.required", label: "Criteria required", kind: "toggle", description: "Leaves need checkable acceptance criteria." },
 	{ section: "Tasks", path: "tasks.acceptanceCriteria.min", label: "Criteria minimum", kind: "number", description: "Fewest criteria a leaf may carry." },
 	{ section: "Tasks", path: "tasks.acceptanceCriteria.max", label: "Criteria maximum", kind: "number", description: "Most criteria a leaf may carry." },
