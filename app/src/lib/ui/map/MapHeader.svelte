@@ -68,6 +68,7 @@
 		{ kind: "text", label: "replies" },
 		{ kind: "tool_call", label: "tool calls" },
 		{ kind: "user", label: "your messages" },
+		{ kind: "custom", label: "extension messages" },
 	];
 
 	const liveByKind = $derived.by(() => {
@@ -1099,6 +1100,7 @@
 	.seg:last-of-type { border-radius: 0 var(--radius-pill) var(--radius-pill) 0; }
 
 	.seg.k-user       { background: var(--k-user); }
+	.seg.k-custom     { background: var(--k-custom); }
 	.seg.k-text       { background: var(--k-text); }
 	.seg.k-thinking   { background: var(--k-thinking); }
 	.seg.k-tool_call  { background: var(--k-tool_call); }

@@ -83,7 +83,8 @@ Monochrome base carries everything. Five **spectrum** colors name conversational
 bolted system prompt uses a separate pale fixed-context yellow so its permanent floor reads apart
 from the conversation. The spectrum hues still form the brand gradient, with indigo retained as its
 bridge between user blue and thinking purple. Never set body text in a semantic hue, and never pair
-two semantic hues as foreground/background. Maintain 4.5:1 contrast for body copy.
+two semantic hues as foreground/background. Maintain 4.5:1 contrast for body copy. The `custom` kind green (`#9BD67A`) marks messages
+authored by extensions; user blue stays reserved for the user kind.
 
 | Token | Hex | RGB | CMYK (approx) | Role |
 |---|---|---|---|---|
@@ -96,6 +97,7 @@ two semantic hues as foreground/background. Maintain 4.5:1 contrast for body cop
 | White | `#FFFFFF` | 255, 255, 255 | 0,0,0,0 | Base canvas |
 | System | `#FFF6A4` | 255, 246, 164 | 0,4,36,0 | Block kind: bolted system prompt |
 | User | `#044EFF` | 4, 78, 255 | 98,69,0,0 | Block kind: user message |
+| Custom | `#9BD67A` | 155, 214, 122 | 28,0,43,16 | Block kind: extension message (`custom`) |
 | Reply | `#1AA6E8` | 26, 166, 232 | 89,28,0,9 | Block kind: assistant reply |
 | Thinking | `#B480DF` | 180, 128, 223 | 19,43,0,13 | Block kind: thinking |
 | Tool call | `#21D4C1` | 33, 212, 193 | 84,0,9,17 | Block kind: tool call |

@@ -34,6 +34,7 @@
 	/* block kinds — track the semantic brand palette (brand/accordion-brand-kit/brand.md).
 	   Names are load-bearing — do not rename. */
 	--k-user: #044EFF;
+	--k-custom: #9BD67A;       /* extension-authored messages (Pi custom_message) — never the user blue */
 	--k-text: #1AA6E8;         /* brand spectrum azure — the assistant-reply spine
 	                              (a real gradient stop, distinct from the 4 kinds; not gray) */
 	--k-thinking: #B480DF;

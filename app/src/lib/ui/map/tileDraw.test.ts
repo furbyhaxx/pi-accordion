@@ -13,7 +13,8 @@ import {
 } from "./tileDraw";
 
 type DrawCall = {
-  type: "drawImage" | "stroke" | "moveTo" | "lineTo";
+  type: "drawImage" | "stroke" | "moveTo" | "lineTo" | "fill";
+  fillStyle?: string | CanvasGradient | CanvasPattern;
   image?: CanvasImageSource;
   strokeStyle?: string | CanvasGradient | CanvasPattern;
   lineWidth?: number;
@@ -34,7 +35,7 @@ function recordingContext(): { ctx: CanvasRenderingContext2D; calls: DrawCall[] 
     restore() {},
     beginPath() {},
     closePath() {},
-    fill() {},
+    fill() { calls.push({ type: "fill", fillStyle: raw.fillStyle }); },
     clip() {},
     arc() {},
     arcTo() {},
@@ -164,6 +165,33 @@ describe("drawTile — system block visual grammar", () => {
       expect(call.x).toBeCloseTo(expectedMoves[index][0]);
       expect(call.y).toBeCloseTo(expectedMoves[index][1]);
     });
+  });
+});
+
+describe("drawTile — custom (extension message) tile", () => {
+  const base: TileSpec = {
+    id: "c:1:x",
+    kind: "custom",
+    face: 3,
+    folded: false,
+    pinned: false,
+    selected: false,
+    inrange: false,
+  };
+  const fillColors = (spec: TileSpec) => {
+    const { ctx, calls } = recordingContext();
+    drawTile(ctx, { x: 0, y: 0, w: 40, h: 40 }, spec, DRAW_PALETTE, new Map());
+    return calls.filter((c) => c.type === "fill").map((c) => c.fillStyle);
+  };
+
+  it("paints the extension-message green, never the user blue", () => {
+    const fills = fillColors(base);
+    expect(fills).toContain("#9BD67A");
+    expect(fills).not.toContain("#044EFF");
+  });
+
+  it("a user tile on the same palette still paints user blue", () => {
+    expect(fillColors({ ...base, id: "u:1", kind: "user" })).toContain("#044EFF");
   });
 });
 
