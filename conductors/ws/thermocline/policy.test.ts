@@ -305,6 +305,15 @@ describe("double-gate graduation", () => {
 		}
 	});
 
+	test("a cold tool pair graduates when its result stays folded", () => {
+		const v = view([
+			blk({ id: "call", kind: "tool_call", callId: "c" }),
+			blk({ id: "result", kind: "tool_result", callId: "c", folded: true }),
+		]);
+		const g = updateGraduation(stateOf({ dwell: new Map([["call", DEFAULT_CFG.K - 1]]) }), v, new Map([["result", 0.01]]));
+		expect(g.graduated.has("call")).toBe(true);
+	});
+
 	test("gate ②: an agent recall this epoch resets dwell and blocks graduation", () => {
 		_order = 0;
 		const v = view([blk({ id: "x", tokens: 3_000, order: 0, folded: true })]);

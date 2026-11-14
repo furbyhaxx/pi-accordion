@@ -343,9 +343,10 @@ export function updateGraduation(
 	return { dwell, graduated };
 }
 
-/** A unit is "folded" for graduation purposes iff EVERY member renders folded in the view. */
+/** A unit graduates only when its foldable members are folded. */
 function isUnitFolded(u: Unit): boolean {
-	return u.blocks.every((b) => b.folded);
+	const members = u.blocks.filter((b) => FOLDABLE_KINDS.has(b.kind));
+	return members.length > 0 && members.every((b) => b.folded);
 }
 
 // ── runs & sedimentation: graduated-cold → strata ───────────────────────────────────────────
