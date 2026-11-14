@@ -48,7 +48,9 @@
 //           ONLY these sets (never the view's per-block flags) so token accounting never
 //           double-counts an already-folded block or infers a fold the conductor didn't make.
 import type { Op } from "../../../core/ops";
-import type { ViewBlock } from "../../../core/conductor/contract";
+import type { GroupInfo, ViewBlock } from "../../../core/conductor/contract";
+import type { GroupOp } from "../../../core/protocol";
+import { computeDegradedDropRuns, roleFloorRecap } from "../../../core/wire";
 import type { BlockKind } from "../../../core/types";
 import type { ConductorView } from "../../../core/conductor/view";
 // The SINGLE remaining tag-authoring site imports the canonical tag builder — never a copy.
@@ -56,7 +58,7 @@ import { foldTag, isBolted } from "../../../core/digest";
 // The run-boundary snapper mirrors Truth's group snapping EXACTLY by importing the SAME messageKey
 // function the engine's `snappedRange` walks (core/truth.ts → opGroup), never a re-implementation —
 // so a run's member set is a provable fixed point of what Truth actually groups. See `safeRunFromUnits`.
-import { messageKey } from "../../../core/truth";
+import { messageKey, wireShapesOf } from "../../../core/truth";
 import { codemodeScript, codemodeScriptCalls, codemodeSummary, isCodemodeTool, parseCodemodeOutput, renderCodemode, type CodemodeCall, type CodemodeOutput } from "../../../core/codemode";
 
 export type { ConductorView, ViewBlock };
@@ -175,11 +177,18 @@ export interface ThermoState {
 	recalledThisEpoch?: Set<string>;
 }
 
+/** The context needed to price role-floor recaps against the outgoing wire. */
+export interface ProjectionContext {
+	groups: readonly GroupInfo[];
+	wireComplete: boolean;
+	countBlockTokens: (id: string, text: string) => number;
+}
+
 /** The project()-shape applied state: disjoint folded ids + strata. */
 export interface Applied {
 	foldedIds: Set<string>;
 	foldTokens?: ReadonlyMap<string, number>;
-	strata: { memberIds: string[]; summaryTokens: number }[];
+	strata: { memberIds: string[]; summaryTokens: number; groupId?: string; digestKind?: "summary" | "drop" }[];
 }
 
 // ── units: tool-pair atomicity ──────────────────────────────────────────────────────────────
@@ -282,9 +291,34 @@ function blocksById(view: ConductorView): Map<string, ConductorView["blocks"][nu
  *           − Σ folds  ( block.tokens − block.foldedTokens )      // each folded unit's saving
  *           − Σ strata ( Σ member.tokens − stratum.summaryTokens ) // each stratum's net saving
  */
-export function project(view: ConductorView, applied: Partial<Applied>): number {
+export function project(view: ConductorView, applied: Partial<Applied>, projection?: ProjectionContext): number {
 	const byId = blocksById(view);
 	let t = view.liveTokens;
+	const recapCosts = new Map<string, number>();
+	if (projection && applied.strata?.some((s) => s.digestKind === "drop" && s.groupId)) {
+		const strata = applied.strata;
+		const replaced = new Set(strata.map((s) => s.groupId));
+		const groups: GroupOp[] = projection.groups.filter((g) => g.folded && !replaced.has(g.id)).map((g) => ({
+			id: g.id, memberIds: [...g.memberIds], summaryText: g.summary === null || g.summary === "" ? null : g.summary ?? "summary", role: g.role,
+		}));
+		for (const s of strata) if (s.groupId) groups.push({
+			id: s.groupId, memberIds: s.memberIds, summaryText: s.digestKind === "drop" ? null : "summary",
+		});
+		const { shapes } = wireShapesOf(view.blocks);
+		const { owner, degradeStart } = computeDegradedDropRuns(shapes, groups);
+		const plannedDrops = new Set(strata.filter((s) => s.digestKind === "drop").map((s) => s.groupId));
+		for (let i = 0; i < owner.length;) {
+			const group = owner[i];
+			if (!group) { i++; continue; }
+			let end = i + 1;
+			while (end < owner.length && owner[end] === group) end++;
+			if (plannedDrops.has(group.id) && (!projection.wireComplete || degradeStart.has(i))) {
+				const cost = projection.countBlockTokens(shapes[i].ids[0], roleFloorRecap(group.id, end - i));
+				recapCosts.set(group.id, (recapCosts.get(group.id) ?? 0) + cost);
+			}
+			i = end;
+		}
+	}
 
 	for (const id of applied.foldedIds ?? new Set<string>()) {
 		const b = byId.get(id);
@@ -297,7 +331,8 @@ export function project(view: ConductorView, applied: Partial<Applied>): number 
 			const b = byId.get(id);
 			if (b) members += b.tokens;
 		}
-		t -= Math.max(0, members - s.summaryTokens);
+		const cost = s.digestKind === "drop" && s.groupId ? recapCosts.get(s.groupId) ?? s.summaryTokens : s.summaryTokens;
+		t -= projection && s.digestKind === "drop" ? members - cost : Math.max(0, members - cost);
 	}
 
 	return Math.max(0, t);
@@ -567,6 +602,7 @@ export interface PlanOpts {
 	deterministic?: boolean;
 	graduated?: Set<string>;
 	foldTokenCosts?: ReadonlyMap<string, number>;
+	projection?: ProjectionContext;
 	/**
 	 * APPEND-ONLY seed: the folds + strata the caller has ALREADY applied to the engine. They enter
 	 * the plan up front, claimed, so the ladder plans only the content they don't cover and a new
@@ -663,7 +699,7 @@ export function planEpoch(
 	const applied = (): Applied => ({
 		foldedIds,
 		foldTokens: foldTokens(),
-		strata: strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens })),
+		strata: strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens, groupId: `g:${s.ids[0]}`, digestKind: s.digestKind })),
 	});
 	// Units claimed ONLY by a per-block fold (the bridge candidates `ageBasedRuns` may absorb).
 	const foldOnlyUnits = (): Set<string> => new Set(folds.map((f) => f.unitId));
@@ -727,7 +763,7 @@ export function planEpoch(
 	// 3. Compose moves until the projection fits, or we run out of moves.
 	let ci = 0;
 	// Rung 1: deepen coldest-biggest units one at a time.
-	while (project(view, applied()) > targetTokens && ci < cands.length) {
+	while (project(view, applied(), opts.projection) > targetTokens && ci < cands.length) {
 		const u = cands[ci++];
 		const tier: "trim" | "digest" = deterministic ? "trim" : "digest";
 		const ids = u.ids.filter((id) => isMemberFoldable(byUnit.get(u.id)!, id));
@@ -743,7 +779,7 @@ export function planEpoch(
 	// Rung 3.5 — AGE-BASED LAST-RESORT COMPACTION. Engaged ONLY when still over budget after
 	// Rungs 1–3. This is the probe-independent safety net that makes the budget invariant hold even
 	// when scores is empty (no probe) or when attention-driven compaction was insufficient.
-	if (project(view, applied()) > targetTokens) {
+	if (project(view, applied(), opts.projection) > targetTokens) {
 		const claimedBeforeLastResort = new Set<string>([
 			...claimedByStratum,
 			...folds.flatMap((f) => byUnit.get(f.unitId)?.ids ?? []),
@@ -751,7 +787,7 @@ export function planEpoch(
 		const foldOnly = foldOnlyUnits();
 		const ageRuns = ageBasedRuns(units, view, claimedBeforeLastResort, cfg, cfg.minRunUnits, foldOnly);
 		for (const r of ageRuns) {
-			if (project(view, applied()) <= targetTokens) break;
+			if (project(view, applied(), opts.projection) <= targetTokens) break;
 			const alreadyClaimed = r.unitIds.some((id) => claimedBeforeLastResort.has(id) && !foldOnly.has(id));
 			if (alreadyClaimed) continue;
 			supersedeFolds(r.unitIds);
@@ -777,7 +813,7 @@ export function planEpoch(
 	// (3 wires in the live circuit_eval run). Fold the RESULT alone — the call stays on the wire, and
 	// the engine never folds a tool_call — biggest first, before any stratum is dropped for want of
 	// a move. Soft-target rung, so a HOT pair is spared exactly as Rung 1 spares a hot unit.
-	if (project(view, applied()) > targetTokens) {
+	if (project(view, applied(), opts.projection) > targetTokens) {
 		const claimedNow = new Set<string>([...strata.flatMap((s) => s.unitIds), ...folds.map((f) => f.unitId)]);
 		const stranded = units
 			.filter((u) => !u.foldable && !claimedNow.has(u.id) && !u.held && !u.protected && !u.grouped)
@@ -787,7 +823,7 @@ export function planEpoch(
 			})
 			.sort((a, b) => memberFoldSaving(b, opts.foldTokenCosts) - memberFoldSaving(a, opts.foldTokenCosts) || a.order - b.order);
 		for (const u of stranded) {
-			if (project(view, applied()) <= targetTokens) break;
+			if (project(view, applied(), opts.projection) <= targetTokens) break;
 			const ids = u.ids.filter((id) => isMemberFoldable(u, id));
 			folds.push({ unitId: u.id, ids, tier: deterministic ? "trim" : "digest", tokenCosts: tokenCostsFor(ids) });
 			for (const id of ids) foldedIds.add(id);
@@ -795,20 +831,20 @@ export function planEpoch(
 	}
 
 	// Rung 4: the DROP floor toward the SOFT target. Drop strata OLDEST-FIRST (hard delete).
-	dropStrataOldestFirst(strata, view, applied, targetTokens);
+	dropStrataOldestFirst(strata, view, applied, targetTokens, opts.projection);
 
 	// Rung 5 — the HARD-CAP FLOOR. Everything above seeks the SOFT lowWater target while SPARING
 	// hot / short / un-graduated content. This last rung is the unconditional guarantee behind the
 	// #1 product invariant — live tokens ≤ the HARD cap = min(budget, contextWindow) — and it is
 	// GATED on being over that HARD cap, so it is fully DORMANT whenever the soft-target rungs
 	// already brought us under cap. Once over the hard cap, budget beats attention-sparing.
-	if (project(view, applied()) > cap) {
+	if (project(view, applied(), opts.projection) > cap) {
 		const claimed = new Set<string>([...claimedByStratum, ...strata.flatMap((s) => s.unitIds)]);
 		for (const f of folds) claimed.add(f.unitId);
 
 		let prev = Infinity;
-		while (project(view, applied()) > cap) {
-			const before = project(view, applied());
+		while (project(view, applied(), opts.projection) > cap) {
+			const before = project(view, applied(), opts.projection);
 			if (before >= prev) break; // no progress last pass → irreducible floor reached
 			prev = before;
 
@@ -854,12 +890,12 @@ export function planEpoch(
 			}
 
 			// (c) Nothing left to fold or newly group — DROP strata oldest-first down to the cap.
-			const droppedAny = dropStrataOldestFirst(strata, view, applied, cap);
+			const droppedAny = dropStrataOldestFirst(strata, view, applied, cap, opts.projection);
 			if (!droppedAny) break; // only the protected tail + held buoys + fold residue remain — floor
 		}
 	}
 
-	const projected = project(view, applied());
+	const projected = project(view, applied(), opts.projection);
 	return {
 		folds,
 		strata,
@@ -882,17 +918,17 @@ export function planEpoch(
  * match conversation order, so a naive array walk could drop a newer graduated stratum before an
  * older age-stratum. Sorting by `firstId`'s block order guarantees correct drop order.
  */
-function dropStrataOldestFirst(strata: PlanStratum[], view: ConductorView, applied: () => Applied, bound: number): boolean {
+function dropStrataOldestFirst(strata: PlanStratum[], view: ConductorView, applied: () => Applied, bound: number, projection?: ProjectionContext): boolean {
 	const orderOf = new Map(view.blocks.map((b) => [b.id, b.order]));
 	const sorted = strata
 		.map((s, i) => ({ s, i, ord: orderOf.get(s.ids[0]) ?? Infinity }))
 		.sort((a, b) => a.ord - b.ord);
 	let droppedAny = false;
 	for (const { s } of sorted) {
-		if (project(view, applied()) <= bound) break;
+		if (project(view, applied(), projection) <= bound) break;
 		if (s.digestKind !== "drop") {
 			s.digestKind = "drop";
-			s.summaryTokens = 0; // a dropped run contributes nothing to the wire
+			s.summaryTokens = 0;
 			droppedAny = true;
 		}
 	}

@@ -502,6 +502,40 @@ function messageCountOfRun(run) {
   }
   return n;
 }
+function wireShapesOf(blocks) {
+  const shapes = [];
+  const keys = [];
+  let curKey = null;
+  let ids = [];
+  let calls = [];
+  let results = [];
+  let hasNonDurable = false;
+  const flush = () => {
+    if (curKey === null) return;
+    shapes.push({ role: wireRoleOfId(ids[0]), ids, calls, results, hasNonDurable });
+    keys.push(curKey);
+  };
+  for (const b of blocks) {
+    if (isBolted(b)) continue;
+    const k = messageKey(b.id);
+    if (k !== curKey) {
+      flush();
+      curKey = k;
+      ids = [];
+      calls = [];
+      results = [];
+      hasNonDurable = false;
+    }
+    ids.push(b.id);
+    if (!isDurableId(b.id)) hasNonDurable = true;
+    if (b.callId) {
+      if (b.kind === "tool_call") calls.push(b.callId);
+      else if (b.kind === "tool_result") results.push(b.callId);
+    }
+  }
+  flush();
+  return { shapes, keys };
+}
 var Truth = class _Truth {
   meta;
   // ── state ───────────────────────────────────────────────────────────────
@@ -1220,38 +1254,7 @@ var Truth = class _Truth {
    *  equivalent of `messages.map((m,i) => ({...messageInfo(m,i), role: m.role}))`, which is all
    *  `applyPlan` itself builds from real `PiMessage[]` before calling `computeDegradedDropRuns`. */
   buildWireShapes() {
-    const shapes = [];
-    const keys = [];
-    let curKey = null;
-    let ids = [];
-    let calls = [];
-    let results = [];
-    let hasNonDurable = false;
-    const flush = () => {
-      if (curKey === null) return;
-      shapes.push({ role: wireRoleOfId(ids[0]), ids, calls, results, hasNonDurable });
-      keys.push(curKey);
-    };
-    for (const b of this.blockLog) {
-      if (isBolted(b)) continue;
-      const k = messageKey(b.id);
-      if (k !== curKey) {
-        flush();
-        curKey = k;
-        ids = [];
-        calls = [];
-        results = [];
-        hasNonDurable = false;
-      }
-      ids.push(b.id);
-      if (!isDurableId(b.id)) hasNonDurable = true;
-      if (b.callId) {
-        if (b.kind === "tool_call") calls.push(b.callId);
-        else if (b.kind === "tool_result") results.push(b.callId);
-      }
-    }
-    flush();
-    return { shapes, keys };
+    return wireShapesOf(this.blockLog);
   }
   /**
    * Classify a group's members for accounting + the wire. The durability/tool-pair fixpoint that
@@ -2891,9 +2894,42 @@ function blocksById(view) {
   blockMaps.set(view.blocks, { length: view.blocks.length, map });
   return map;
 }
-function project(view, applied) {
+function project(view, applied, projection) {
   const byId = blocksById(view);
   let t = view.liveTokens;
+  const recapCosts = /* @__PURE__ */ new Map();
+  if (projection && applied.strata?.some((s) => s.digestKind === "drop" && s.groupId)) {
+    const strata = applied.strata;
+    const replaced = new Set(strata.map((s) => s.groupId));
+    const groups = projection.groups.filter((g) => g.folded && !replaced.has(g.id)).map((g) => ({
+      id: g.id,
+      memberIds: [...g.memberIds],
+      summaryText: g.summary === null || g.summary === "" ? null : g.summary ?? "summary",
+      role: g.role
+    }));
+    for (const s of strata) if (s.groupId) groups.push({
+      id: s.groupId,
+      memberIds: s.memberIds,
+      summaryText: s.digestKind === "drop" ? null : "summary"
+    });
+    const { shapes } = wireShapesOf(view.blocks);
+    const { owner, degradeStart } = computeDegradedDropRuns(shapes, groups);
+    const plannedDrops = new Set(strata.filter((s) => s.digestKind === "drop").map((s) => s.groupId));
+    for (let i = 0; i < owner.length; ) {
+      const group = owner[i];
+      if (!group) {
+        i++;
+        continue;
+      }
+      let end = i + 1;
+      while (end < owner.length && owner[end] === group) end++;
+      if (plannedDrops.has(group.id) && (!projection.wireComplete || degradeStart.has(i))) {
+        const cost = projection.countBlockTokens(shapes[i].ids[0], roleFloorRecap(group.id, end - i));
+        recapCosts.set(group.id, (recapCosts.get(group.id) ?? 0) + cost);
+      }
+      i = end;
+    }
+  }
   for (const id of applied.foldedIds ?? /* @__PURE__ */ new Set()) {
     const b = byId.get(id);
     if (b && !b.signed) t -= Math.max(0, b.tokens - (applied.foldTokens?.get(id) ?? b.foldedTokens));
@@ -2904,7 +2940,8 @@ function project(view, applied) {
       const b = byId.get(id);
       if (b) members += b.tokens;
     }
-    t -= Math.max(0, members - s.summaryTokens);
+    const cost = s.digestKind === "drop" && s.groupId ? recapCosts.get(s.groupId) ?? s.summaryTokens : s.summaryTokens;
+    t -= projection && s.digestKind === "drop" ? members - cost : Math.max(0, members - cost);
   }
   return Math.max(0, t);
 }
@@ -3081,7 +3118,7 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
   const applied = () => ({
     foldedIds,
     foldTokens: foldTokens(),
-    strata: strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens }))
+    strata: strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens, groupId: `g:${s.ids[0]}`, digestKind: s.digestKind }))
   });
   const foldOnlyUnits = () => new Set(folds.map((f) => f.unitId));
   const supersedeFolds = (unitIds) => {
@@ -3122,7 +3159,7 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     }
   }
   let ci = 0;
-  while (project(view, applied()) > targetTokens && ci < cands.length) {
+  while (project(view, applied(), opts.projection) > targetTokens && ci < cands.length) {
     const u = cands[ci++];
     const tier = deterministic ? "trim" : "digest";
     const ids = u.ids.filter((id) => isMemberFoldable(byUnit.get(u.id), id));
@@ -3132,7 +3169,7 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     }
   }
   mergeOverCeiling(strata, cap, cfg, byUnit, keptKeys);
-  if (project(view, applied()) > targetTokens) {
+  if (project(view, applied(), opts.projection) > targetTokens) {
     const claimedBeforeLastResort = /* @__PURE__ */ new Set([
       ...claimedByStratum,
       ...folds.flatMap((f) => byUnit.get(f.unitId)?.ids ?? [])
@@ -3140,7 +3177,7 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     const foldOnly = foldOnlyUnits();
     const ageRuns = ageBasedRuns(units, view, claimedBeforeLastResort, cfg, cfg.minRunUnits, foldOnly);
     for (const r of ageRuns) {
-      if (project(view, applied()) <= targetTokens) break;
+      if (project(view, applied(), opts.projection) <= targetTokens) break;
       const alreadyClaimed = r.unitIds.some((id) => claimedBeforeLastResort.has(id) && !foldOnly.has(id));
       if (alreadyClaimed) continue;
       supersedeFolds(r.unitIds);
@@ -3156,26 +3193,26 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     }
     mergeOverCeiling(strata, cap, cfg, byUnit, keptKeys);
   }
-  if (project(view, applied()) > targetTokens) {
+  if (project(view, applied(), opts.projection) > targetTokens) {
     const claimedNow = /* @__PURE__ */ new Set([...strata.flatMap((s) => s.unitIds), ...folds.map((f) => f.unitId)]);
     const stranded = units.filter((u) => !u.foldable && !claimedNow.has(u.id) && !u.held && !u.protected && !u.grouped).filter((u) => {
       const temp = scores.get(u.temperatureKey);
       return !(temp !== void 0 && temp >= cfg.coldThreshold) && memberFoldSaving(u, opts.foldTokenCosts) >= cfg.minFoldTokens;
     }).sort((a, b) => memberFoldSaving(b, opts.foldTokenCosts) - memberFoldSaving(a, opts.foldTokenCosts) || a.order - b.order);
     for (const u of stranded) {
-      if (project(view, applied()) <= targetTokens) break;
+      if (project(view, applied(), opts.projection) <= targetTokens) break;
       const ids = u.ids.filter((id) => isMemberFoldable(u, id));
       folds.push({ unitId: u.id, ids, tier: deterministic ? "trim" : "digest", tokenCosts: tokenCostsFor(ids) });
       for (const id of ids) foldedIds.add(id);
     }
   }
-  dropStrataOldestFirst(strata, view, applied, targetTokens);
-  if (project(view, applied()) > cap) {
+  dropStrataOldestFirst(strata, view, applied, targetTokens, opts.projection);
+  if (project(view, applied(), opts.projection) > cap) {
     const claimed = /* @__PURE__ */ new Set([...claimedByStratum, ...strata.flatMap((s) => s.unitIds)]);
     for (const f of folds) claimed.add(f.unitId);
     let prev = Infinity;
-    while (project(view, applied()) > cap) {
-      const before = project(view, applied());
+    while (project(view, applied(), opts.projection) > cap) {
+      const before = project(view, applied(), opts.projection);
       if (before >= prev) break;
       prev = before;
       const foldU = biggestForceFoldable(units, foldedIds, claimed, opts.foldTokenCosts);
@@ -3210,11 +3247,11 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
         for (const uid of best.unitIds) claimed.add(uid);
         continue;
       }
-      const droppedAny = dropStrataOldestFirst(strata, view, applied, cap);
+      const droppedAny = dropStrataOldestFirst(strata, view, applied, cap, opts.projection);
       if (!droppedAny) break;
     }
   }
-  const projected = project(view, applied());
+  const projected = project(view, applied(), opts.projection);
   return {
     folds,
     strata,
@@ -3227,12 +3264,12 @@ function planEpoch(view, scores, _state, cfg = DEFAULT_CFG, opts = {}) {
     irreducible: projected > cap
   };
 }
-function dropStrataOldestFirst(strata, view, applied, bound) {
+function dropStrataOldestFirst(strata, view, applied, bound, projection) {
   const orderOf = new Map(view.blocks.map((b) => [b.id, b.order]));
   const sorted = strata.map((s, i) => ({ s, i, ord: orderOf.get(s.ids[0]) ?? Infinity })).sort((a, b) => a.ord - b.ord);
   let droppedAny = false;
   for (const { s } of sorted) {
-    if (project(view, applied()) <= bound) break;
+    if (project(view, applied(), projection) <= bound) break;
     if (s.digestKind !== "drop") {
       s.digestKind = "drop";
       s.summaryTokens = 0;
@@ -3829,22 +3866,27 @@ var ThermoclineConductor = class {
   async onWireDeparting() {
     const view = this.materialize();
     this.lastView = view;
-    this.reconcileAppliedAgainstView();
-    if (project(view, this.appliedForProject()) > capOf(view)) {
+    this.reconcileAppliedAgainstView(view.wireGroups);
+    if (project(view, this.appliedForProject(), view.projection) > capOf(view)) {
       await this.runEmergency(view);
     }
   }
   // ── view + state adapters ─────────────────────────────────────────────────────
   materialize() {
     const stats = this.host.stats();
+    const wireGroups = this.host.groups();
     const ownGroupIds = /* @__PURE__ */ new Set();
     for (const s of this.appliedStrata) if (s.groupId) ownGroupIds.add(s.groupId);
     const ownMembers = /* @__PURE__ */ new Set();
     if (ownGroupIds.size) {
-      for (const g of this.host.groups()) if (ownGroupIds.has(g.id)) for (const id of g.memberIds) ownMembers.add(id);
+      for (const g of wireGroups) if (ownGroupIds.has(g.id)) for (const id of g.memberIds) ownMembers.add(id);
     }
     const blocks = this.host.blocks().map((b) => b.grouped && ownMembers.has(b.id) ? { ...b, grouped: false } : b);
+    const wireComplete = blocks.length === stats.blockCount;
     return {
+      wireGroups,
+      wireComplete,
+      projection: { groups: wireGroups, wireComplete, countBlockTokens: (id, text) => this.host.countBlockTokens(id, text) },
       blocks,
       budget: stats.budget,
       contextWindow: stats.contextWindow,
@@ -3912,6 +3954,8 @@ var ThermoclineConductor = class {
       // so project() compares values measured under the host's current calibration.
       strata: this.appliedStrata.map((s) => ({
         memberIds: s.memberIds,
+        groupId: s.groupId ?? `g:${s.firstId}`,
+        digestKind: s.summary == null ? "drop" : "summary",
         summaryTokens: s.summary == null ? 0 : this.host.countTokens(s.summary)
       }))
     };
@@ -3952,7 +3996,7 @@ var ThermoclineConductor = class {
    * an empty/pre-epoch view (which could, for one, trip `validateRestoredStrata` before the first
    * real blocks have even landed).
    */
-  reconcileAppliedAgainstView() {
+  reconcileAppliedAgainstView(groups) {
     let changed = false;
     for (const [id] of this.appliedFolds) {
       const b = this.host.get(id);
@@ -3962,7 +4006,7 @@ var ThermoclineConductor = class {
       }
     }
     if (this.appliedStrata.length) {
-      const liveGroupIds = new Set(this.host.groups().map((g) => g.id));
+      const liveGroupIds = new Set((groups ?? this.host.groups()).map((g) => g.id));
       const kept = this.appliedStrata.filter((s) => s.groupId == null || liveGroupIds.has(s.groupId));
       if (kept.length !== this.appliedStrata.length) {
         this.appliedStrata = kept;
@@ -3993,9 +4037,9 @@ var ThermoclineConductor = class {
     this.lastView = view;
     this.gradAdvanced = false;
     this.validateRestoredStrata(view);
-    this.reconcileAppliedAgainstView();
+    this.reconcileAppliedAgainstView(view.wireGroups);
     const cap = capOf(view);
-    let fill = cap > 0 ? project(view, this.appliedForProject()) / cap : 0;
+    let fill = cap > 0 ? project(view, this.appliedForProject(), view.projection) / cap : 0;
     const units = buildUnits(view.blocks);
     for (const u of units) {
       const temp = this.scores.get(u.temperatureKey);
@@ -4004,7 +4048,7 @@ var ThermoclineConductor = class {
     this.pruneMaps(view, units);
     if (fill > 1) {
       await this.runEmergency(view);
-      fill = cap > 0 ? project(view, this.appliedForProject()) / cap : fill;
+      fill = cap > 0 ? project(view, this.appliedForProject(), view.projection) / cap : fill;
     } else {
       this.irreducibleOverflow = false;
       this.overflowTokens = 0;
@@ -4047,17 +4091,18 @@ var ThermoclineConductor = class {
       deterministic: true,
       graduated: this.grad.graduated,
       keep: this.keptState(),
-      foldTokenCosts: foldPrices(view, "trim", void 0, this.host)
+      foldTokenCosts: foldPrices(view, "trim", void 0, this.host),
+      projection: view.projection
     });
     await this.commit(view, plan, void 0);
     this.lastAction = "emergency";
     const cap = capOf(view);
-    if (cap > 0) this.lastFill = project(view, this.appliedForProject()) / cap;
+    if (cap > 0) this.lastFill = project(view, this.appliedForProject(), view.projection) / cap;
     this.sendStatus();
   }
   // ── PREPARE: score + LLM summaries + commit (async, off every hook path) ─────────
   async prepareEpoch(view, token) {
-    const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "digest", this.digestCache, this.host) });
+    const plan = planEpoch(view, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "digest", this.digestCache, this.host), projection: view.projection });
     const units = buildUnits(view.blocks);
     const byUnit = new Map(units.map((u) => [u.id, u]));
     const jobs = [];
@@ -4093,7 +4138,7 @@ var ThermoclineConductor = class {
       }
     }
     const lv = this.lastView ?? view;
-    const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(lv, "digest", this.digestCache, this.host) });
+    const freshPlan = planEpoch(lv, this.scores, this.gradState(), this.cfg, { graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(lv, "digest", this.digestCache, this.host), projection: lv.projection });
     if (this.attached) await this.commit(lv, freshPlan, this.digestCache);
     this.preparing = false;
     this.sendStatus();
@@ -4105,7 +4150,7 @@ var ThermoclineConductor = class {
     working = planWithRealStratumTokens(working, digests, (t) => this.host.countTokens(t));
     working = planWithRealFoldTokens(working, view, digests, this.host, this.appliedFolds);
     working = this.topUpToCap(working, view, working.cap || capOf(view), digests);
-    const finalProjected = project(view, appliedShapeOf(working));
+    const finalProjected = project(view, appliedShapeOf(working), view.projection);
     const finalCap = working.cap || capOf(view);
     working = { ...working, projected: finalProjected };
     this.setOverflowState(working.irreducible === true, finalProjected, finalCap, view);
@@ -4144,18 +4189,18 @@ var ThermoclineConductor = class {
    */
   topUpToCap(plan, view, cap, digests) {
     const settle = () => {
-      plan.irreducible = project(view, appliedShapeOf(plan)) > cap;
+      plan.irreducible = project(view, appliedShapeOf(plan), view.projection) > cap;
       return plan;
     };
-    if (project(view, appliedShapeOf(plan)) <= cap) return settle();
+    if (project(view, appliedShapeOf(plan), view.projection) <= cap) return settle();
     const liveUnits = buildUnits(view.blocks);
     const memberIdsOfUnit = new Map(liveUnits.map((u) => [u.id, u.ids]));
     const claimedUnits = /* @__PURE__ */ new Set([...plan.folds.map((f) => f.unitId), ...plan.strata.flatMap((s) => s.unitIds)]);
     const foldedMembers = /* @__PURE__ */ new Set([...plan.folds.flatMap((f) => f.ids), ...plan.strata.flatMap((s) => s.memberIds)]);
     const MAX_PASSES = 3;
     for (let pass = 0; pass < MAX_PASSES; pass++) {
-      if (project(view, appliedShapeOf(plan)) <= cap) return settle();
-      const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "trim", digests, this.host) });
+      if (project(view, appliedShapeOf(plan), view.projection) <= cap) return settle();
+      const det = planEpoch(view, this.scores, this.gradState(), this.cfg, { deterministic: true, graduated: this.grad.graduated, keep: this.keptState(), foldTokenCosts: foldPrices(view, "trim", digests, this.host), projection: view.projection });
       let added = false;
       for (const f of det.folds) {
         if (claimedUnits.has(f.unitId)) continue;
@@ -4181,10 +4226,10 @@ var ThermoclineConductor = class {
         for (const uid of units) for (const mid of memberIdsOfUnit.get(uid) ?? []) foldedMembers.add(mid);
         added = true;
       }
-      if (project(view, appliedShapeOf(plan)) <= cap) return settle();
+      if (project(view, appliedShapeOf(plan), view.projection) <= cap) return settle();
       if (!added) break;
     }
-    dropOwnStrataOldestFirst(plan, view, cap);
+    dropOwnStrataOldestFirst(plan, view, cap, view.projection);
     return settle();
   }
   /** HOLD — re-derive the desired state from the committed plan against the CURRENT view and
@@ -4531,7 +4576,7 @@ function appliedShapeOf(plan) {
   return {
     foldedIds: new Set(plan.folds.flatMap((f) => f.ids)),
     foldTokens: new Map(plan.folds.flatMap((f) => [...f.tokenCosts ?? []])),
-    strata: plan.strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens }))
+    strata: plan.strata.map((s) => ({ memberIds: s.memberIds, summaryTokens: s.summaryTokens, groupId: `g:${s.ids[0]}`, digestKind: s.digestKind }))
   };
 }
 function reconcilePlan(plan, touched) {
@@ -4575,12 +4620,12 @@ function planWithRealStratumTokens(plan, digests, countTokens) {
   });
   return { ...plan, strata };
 }
-function dropOwnStrataOldestFirst(plan, view, bound) {
+function dropOwnStrataOldestFirst(plan, view, bound, projection) {
   const orderOf = new Map(view.blocks.map((b) => [b.id, b.order]));
   const sorted = plan.strata.map((s) => ({ s, ord: orderOf.get(s.ids[0]) ?? Infinity })).sort((a, b) => a.ord - b.ord);
   let dropped = false;
   for (const { s } of sorted) {
-    if (project(view, appliedShapeOf(plan)) <= bound) break;
+    if (project(view, appliedShapeOf(plan), projection) <= bound) break;
     if (s.digestKind !== "drop") {
       s.digestKind = "drop";
       s.summaryTokens = 0;
