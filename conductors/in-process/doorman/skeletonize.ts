@@ -219,16 +219,15 @@ export function maskSource(src: string, opts: MaskOpts): string {
       const q = c;
       let j = i + 3;
       while (j < n && !(src[j] === q && src[j + 1] === q && src[j + 2] === q)) j++;
-      const end = j < n ? j + 3 : n;
+      const closed = j < n;
+      const end = closed ? j + 3 : n;
       // keep the opening & closing triple-quote markers; blank the interior
-      copy(i);
-      copy(i + 1);
-      copy(i + 2);
-      blank(i + 3, Math.max(i + 3, end - 3));
-      if (end - 3 >= i + 3 && end <= n) {
-        if (end - 3 >= 0) copy(end - 3);
-        if (end - 2 >= 0 && end - 2 < n) copy(end - 2);
-        if (end - 1 >= 0 && end - 1 < n) copy(end - 1);
+      for (let k = i; k < Math.min(i + 3, n); k++) copy(k);
+      blank(i + 3, end);
+      if (closed) {
+        copy(end - 3);
+        copy(end - 2);
+        copy(end - 1);
       }
       i = end;
       continue;
@@ -242,10 +241,13 @@ export function maskSource(src: string, opts: MaskOpts): string {
         if (src[j] === "\\") j += 2;
         else j++;
       }
-      const end = j < n ? j + 1 : n; // include closing quote if present
+      // An unterminated string runs to the end of the source; every position still gets a mask
+      // character, so the mask keeps the source's line count.
+      const closed = j < n;
+      const end = closed ? j + 1 : n;
       copy(i); // keep the opening quote
-      blank(i + 1, Math.max(i + 1, end - 1));
-      if (end - 1 >= i + 1 && end <= n && src[end - 1] === q) copy(end - 1); // keep closing quote
+      blank(i + 1, end);
+      if (closed) copy(end - 1); // keep closing quote
       i = end;
       continue;
     }
@@ -257,10 +259,11 @@ export function maskSource(src: string, opts: MaskOpts): string {
         if (src[j] === "\\") j += 2;
         else j++;
       }
-      const end = j < n ? j + 1 : n;
+      const closed = j < n;
+      const end = closed ? j + 1 : n;
       copy(i);
-      blank(i + 1, Math.max(i + 1, end - 1));
-      if (end - 1 >= i + 1 && end <= n && src[end - 1] === "`") copy(end - 1);
+      blank(i + 1, end);
+      if (closed) copy(end - 1);
       i = end;
       continue;
     }

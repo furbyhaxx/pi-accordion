@@ -7,7 +7,7 @@
  * css, rust, generic); this file exists to pin the port, not re-litigate the design.
  */
 import { describe, it, expect } from "vitest";
-import { skeletonize, detectLang, type Lang } from "./skeletonize";
+import { skeletonize, detectLang, maskSource, MASK_OPTS, type Lang } from "./skeletonize";
 
 // ----------------------------------------------------------------------------------------
 // detectLang — a handful of extension + content-sniff cases
@@ -235,5 +235,30 @@ describe("skeletonize — determinism smoke", () => {
 		const b = skeletonize(PY_SAMPLE, "python");
 		expect(a.skeleton).toBe(b.skeleton);
 		expect(a).toEqual(b);
+	});
+});
+
+// ----------------------------------------------------------------------------------------
+// Sources cut mid-string (a ranged read, a truncated tool result)
+// ----------------------------------------------------------------------------------------
+
+describe("skeletonize — unterminated strings", () => {
+	it("keeps one mask line per source line when a string, template or docstring never closes", () => {
+		const cases: Array<[string, Lang]> = [
+			["function f(\n  a: 'x,\n  b\n", "ts"],
+			["const t = `open\nstill open\n", "ts"],
+			["s = \"\"\"doc\nmore\n", "python"],
+			["x = \"a\\", "ts"],
+		];
+		for (const [src, lang] of cases) {
+			const mask = maskSource(src, MASK_OPTS[lang]);
+			expect(mask.length).toBe(src.length);
+			expect(mask.split("\n").length).toBe(src.split("\n").length);
+		}
+	});
+	it("returns the signature of a callable whose parameter list holds the unterminated string", () => {
+		const r = skeletonize("function f(\n  a: 'x,\n  b\n", "ts");
+		expect(r.totalLines).toBe(4);
+		expect(r.skeleton).toContain("function f(");
 	});
 });
