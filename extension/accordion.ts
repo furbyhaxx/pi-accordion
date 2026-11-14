@@ -56,7 +56,7 @@ import { withSidecarLock, withSidecarLockRetry } from "./sidecarLock";
 import { CRITERIA_MAX, CRITERION_MAX, REPORT_ITEM_MAX, REPORT_ITEMS_MAX, REPORT_OUTCOME_MAX, TITLE_MAX } from "./taskSchema";
 import { TaskWidgetController } from "./tui/taskWidget";
 import { DIALS_ENTRY, describeSource, dialsRecordsOf, formatTokens, modelTaskDials, parseTokens, resolveDials, type DialKind, type DialValues, type NumericDialKind, type DialsRecord, type ResolvedDials } from "./dials";
-import { aggressiveProjection, applyUndo, buildBakeSummary, needsSaturationFallback, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
+import { aggressiveProjection, applyUndo, bakeMessageBlocks, buildBakeSummary, needsSaturationFallback, runCompaction, type CompactDeps, type CompactOutcome, type CompactRecord, type CompactRequest, type CompactStrategy } from "./compaction";
 import { compactCardLines, compactCardTitle } from "./compactCard";
 import { Text } from "@earendil-works/pi-tui";
 import { conservativeRatio, judgeReceipt, priorFor, shouldWarnUntrusted } from "./calibration";
@@ -3865,7 +3865,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 
 	pi.on("session_before_compact", async (event, ctx: ExtensionContext) => {
 		if (!foldingEnabled) return;
-		const ev = event as { reason?: string; customInstructions?: string; preparation?: { firstKeptEntryId?: string; tokensBefore?: number; messagesToSummarize?: unknown[]; settings?: { reserveTokens?: number } } };
+		const ev = event as { reason?: string; customInstructions?: string; preparation?: { firstKeptEntryId?: string; tokensBefore?: number; messagesToSummarize?: PiMessage[]; turnPrefixMessages?: PiMessage[]; previousSummary?: string; settings?: { reserveTokens?: number } } };
 		const reason = ev.reason;
 		const bake = takeRequestedBake();
 		const strategy: CompactStrategy =
@@ -3873,12 +3873,27 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		if (strategy === "native") return;
 		const instructions = typeof ev.customInstructions === "string" && ev.customInstructions.trim() ? ev.customInstructions.trim() : undefined;
 		const trigger = reason === "overflow" ? "overflow" : reason === "manual" ? "manual" : "threshold";
-		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}) }, { card: false });
+		const bakeRange = () => {
+			const prep = ev.preparation;
+			if (!truth || !prep?.messagesToSummarize || prep.turnPrefixMessages?.length || prep.previousSummary) return null;
+			return bakeMessageBlocks(truth, prep.messagesToSummarize, lastMessages);
+		};
+		const initialBakeBlocks = strategy === "bake" ? bakeRange() : undefined;
+		if (initialBakeBlocks === null) {
+			ctx.ui.notify("Accordion bake could not map the exact compaction range; falling back to native compaction.", "warning");
+			return;
+		}
+		const first = await compact({ trigger, strategy, ...(instructions ? { instructions } : {}), ...(initialBakeBlocks ? { bakeBlocks: initialBakeBlocks } : {}) }, { card: false });
 		const window = truth?.stats().contextWindow ?? contextWindow ?? 0;
 		const reserve = ev.preparation?.settings?.reserveTokens ?? 0;
 		const saturatedFallback = strategy === "pass" && needsSaturationFallback(trigger, first.record.before, first.record.after, window, reserve);
-		const { record } = saturatedFallback && settings.compact.onSaturated === "bake"
-			? await compact({ trigger, strategy: "bake", ...(instructions ? { instructions } : {}) }, { card: false })
+		const fallbackBakeBlocks = saturatedFallback && settings.compact.onSaturated === "bake" ? bakeRange() : undefined;
+		if (fallbackBakeBlocks === null) {
+			ctx.ui.notify("Accordion bake could not map the exact compaction range; falling back to native compaction.", "warning");
+			return;
+		}
+		const { record } = fallbackBakeBlocks
+			? await compact({ trigger, strategy: "bake", bakeBlocks: fallbackBakeBlocks, ...(instructions ? { instructions } : {}) }, { card: false })
 			: first;
 		// Without a known window we cannot prove saturation, so the pass's result stands.
 		const underBudget = window > 0 ? record.after <= window - reserve : true;
@@ -4466,8 +4481,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 				compactPreview: () => {
 					if (!truth) return null;
 					const window = truth.stats().contextWindow || 200_000;
-					const cap = Math.min(20_000, Math.max(1_000, Math.floor(0.1 * window)));
-					const summary = buildBakeSummary(truth.blocks, { capTokens: cap });
+					const cap = Math.min(20_000, Math.floor(0.1 * window));
+					const summary = buildBakeSummary(truth.blocks, { capTokens: cap, truth });
 					const saved = liveHost.cachedStatus()?.metrics?.saved;
 					return {
 						pass: typeof saved === "number" ? saved : null,

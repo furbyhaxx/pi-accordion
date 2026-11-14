@@ -10,7 +10,10 @@ import type { Op } from "../core/ops";
 import type { CompactRecord, CompactStrategy, CompactTrigger } from "../core/protocol";
 import type { Block, BlockKind, Group } from "../core/types";
 import type { Truth } from "../core/truth";
-import { wireFoldable } from "../core/digest";
+import { digest, wireFoldable } from "../core/digest";
+import { messageKey } from "../core/groupShape";
+import { parseCarrier } from "../conductors/in-process/taskfold/records";
+import { contentFingerprint, messageInfo, type PiMessage } from "../core/wire";
 
 export type { CompactRecord, CompactStrategy, CompactTrigger } from "../core/protocol";
 
@@ -20,6 +23,8 @@ export interface CompactRequest {
 	strategy: CompactStrategy;
 	instructions?: string;
 	dryRun?: boolean;
+	/** Exact source range supplied by Pi for bake. */
+	bakeBlocks?: readonly Block[];
 }
 
 /** The pass's view of the session; every field is owned by the extension. */
@@ -70,6 +75,33 @@ export function needsSaturationFallback(trigger: CompactTrigger, before: number,
 	return trigger === "threshold" && window > 0 && after > window - reserve;
 }
 
+/** Resolve Pi's summarized messages to the exact durable blocks in the current Truth. */
+export function bakeMessageBlocks(truth: Truth, messages: readonly PiMessage[], current: readonly PiMessage[]): Block[] | null {
+	const sources = new Map<string, number>();
+	for (const message of current) {
+		const info = messageInfo(message, 0);
+		if (info.hasNonDurable || !info.ids.length) continue;
+		for (const id of info.ids) {
+			if (sources.has(id)) return null;
+			sources.set(id, contentFingerprint(message));
+		}
+	}
+	const ids = new Set<string>();
+	for (const message of messages) {
+		const info = messageInfo(message, 0);
+		if (info.hasNonDurable || !info.ids.length) return null;
+		const fingerprint = contentFingerprint(message);
+		for (const id of info.ids) {
+			if (ids.has(id) || sources.get(id) !== fingerprint || !truth.get(id)) return null;
+			ids.add(id);
+		}
+	}
+	for (const group of truth.groups) {
+		if (group.folded && group.memberIds.some((id) => ids.has(id)) && group.memberIds.some((id) => !ids.has(id))) return null;
+	}
+	return truth.blocks.filter((block) => ids.has(block.id));
+}
+
 /** The `{#code FOLDED}` prefixes a bake must strip, since baked text can no longer be recalled. */
 const FOLD_TAG = /\{#[0-9a-z]{6} FOLDED\}\s*/g;
 
@@ -81,39 +113,54 @@ export function stripFoldTags(text: string): string {
 /** Bake's summary: one section per turn, capped by dropping the oldest sections first (§7.5). */
 export function buildBakeSummary(
 	blocks: readonly Block[],
-	opts: { instructions?: string; capTokens: number; countTokens?: (text: string) => number; contextWindow?: number | null } = { capTokens: 20_000 },
+	opts: { instructions?: string; capTokens: number; countTokens?: (text: string) => number; contextWindow?: number | null; truth?: Truth } = { capTokens: 20_000 },
 ): string {
 	const count = opts.countTokens ?? ((t: string) => Math.ceil(t.length / 4));
-	const turns = new Map<number, Block[]>();
+	const turns = new Map<number, string[]>();
+	const seenGroups = new Set<string>();
 	for (const b of blocks) {
-		const list = turns.get(b.turn);
-		if (list) list.push(b);
-		else turns.set(b.turn, [b]);
+		if (b.kind === "system") continue;
+		const lines = turns.get(b.turn) ?? [];
+		turns.set(b.turn, lines);
+		const group = opts.truth?.groupOf(b);
+		if (group?.folded) {
+			if (seenGroups.has(group.id)) continue;
+			seenGroups.add(group.id);
+			const summary = opts.truth!.groupSummary(group);
+			const carrier = parseCarrier(summary)?.obj;
+			const key = carrier?.task ?? carrier?.history ?? carrier?.part;
+			const label = typeof key === "string"
+				? `── task ${key}${typeof carrier?.title === "string" ? ` "${carrier.title}"` : ""}${typeof carrier?.status === "string" ? ` ${carrier.status}` : ""}`
+				: "── folded group";
+			lines.push(label, stripFoldTags(summary));
+		} else if (b.kind === "user") {
+			lines.push(`── turn ${b.turn} · user`, stripFoldTags(b.subst ?? b.text));
+		} else {
+			lines.push(`── turn ${b.turn} · results`, stripFoldTags(opts.truth?.isFolded(b) ? (b.subst ?? digest(b)) : digest(b)));
+		}
 	}
-	const sections = [...turns.entries()]
-		.sort((a, b) => a[0] - b[0])
-		.map(([turn, list]) => ({ turn, lines: sectionLines(turn, list) }));
-	const header = [`[accordion-bake v1] ${blocks.length} messages`, opts.instructions ? `instructions: ${stripFoldTags(opts.instructions)}` : null].filter((l): l is string => !!l);
+	const sections = [...turns.values()].filter((lines) => lines.length);
+	const before = blocks.reduce((sum, b) => sum + b.tokens, 0);
+	const messages = new Set(blocks.map((b) => messageKey(b.id))).size;
+	const cap = Math.min(opts.capTokens, 20_000, opts.contextWindow ? Math.floor(opts.contextWindow * 0.1) : 20_000);
 	let omitted = 0;
-	const render = () => [...header, ...(omitted ? [`… ${omitted} earlier turns omitted`] : []), ...sections.map((s) => s.lines.join("\n"))].join("\n");
+	const render = () => {
+		let after = 0;
+		let text = "";
+		for (;;) {
+			text = [`[accordion-bake v1] ${messages} messages · ${before} → ${after} tok`, ...(opts.instructions ? [`instructions: ${stripFoldTags(opts.instructions)}`] : []), ...(omitted ? [`… ${omitted} earlier turns omitted`] : []), ...sections.map((s) => s.join("\n"))].join("\n");
+			const next = count(text);
+			if (next === after) return text;
+			after = next;
+		}
+	};
 	let text = render();
-	while (sections.length && count(text) > opts.capTokens) {
+	while (sections.length && count(text) > cap) {
 		sections.shift();
 		omitted++;
 		text = render();
 	}
 	return text;
-}
-
-function sectionLines(turn: number, list: readonly Block[]): string[] {
-	const head = list.find((b) => b.kind === "user");
-	const out = [`── turn ${turn}${head ? " · user" : ""}`];
-	if (head) out.push(stripFoldTags(head.subst ?? head.text));
-	for (const b of list) {
-		if (b === head || b.kind === "user" || b.kind === "system") continue;
-		out.push(`· ${b.kind}${b.toolName ? ` ${b.toolName}` : ""}: ${stripFoldTags(b.subst ?? b.text).slice(0, 300)}`);
-	}
-	return out;
 }
 
 /** Run one compaction pass. */
@@ -126,8 +173,8 @@ export async function runCompaction(req: CompactRequest, deps: CompactDeps): Pro
 	const empty = { blocks: 0, groups: 0, byKind: {} };
 	if (!truth) return { record: { ...base, strategy: req.strategy, after: before, durationMs: 0, folded: empty, undo: null, message: "No context to compact." } };
 	if (req.dryRun) {
-		const cap = Math.min(20_000, Math.max(1_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000))));
-		const summary = buildBakeSummary(truth.blocks, { capTokens: cap, instructions: req.instructions });
+		const cap = Math.min(20_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000)));
+		const summary = buildBakeSummary(truth.blocks, { capTokens: cap, instructions: req.instructions, truth });
 		return {
 			record: { ...base, dryRun: true, strategy: req.strategy, after: before, durationMs: 0, folded: empty, undo: null, message: "Compaction preview." },
 			projection: { pass: deps.conductorSaved(), aggressive: aggressiveProjection(truth), bake: Math.ceil(summary.length / 4), native: null },
@@ -173,11 +220,14 @@ export async function runCompaction(req: CompactRequest, deps: CompactDeps): Pro
 		};
 	}
 	if (req.strategy === "bake") {
-		const { folded } = applyAggressive(truth);
-		const cap = Math.min(20_000, Math.max(1_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000))));
-		const summary = buildBakeSummary(truth.blocks, {
+		const range = req.bakeBlocks ?? truth.blocks;
+		const rangeIds = new Set(range.map((b) => b.id));
+		const { folded } = applyAggressive(truth, rangeIds);
+		const cap = Math.min(20_000, Math.floor(0.1 * (truth.stats().contextWindow || 200_000)));
+		const summary = buildBakeSummary(range, {
 			capTokens: cap,
 			instructions: req.instructions,
+			truth,
 			countTokens: (t) => Math.ceil(t.length / 4),
 		});
 		return {
@@ -191,8 +241,8 @@ export async function runCompaction(req: CompactRequest, deps: CompactDeps): Pro
 }
 
 /** Fold every eligible block and report what was actually applied. */
-function applyAggressive(truth: Truth): { folded: CompactRecord["folded"]; ids: string[] } {
-	const targets = aggressiveTargets(truth);
+function applyAggressive(truth: Truth, range?: ReadonlySet<string>): { folded: CompactRecord["folded"]; ids: string[] } {
+	const targets = range ? aggressiveTargets(truth).filter((id) => range.has(id)) : aggressiveTargets(truth);
 	if (!targets.length) return { folded: { blocks: 0, groups: 0, byKind: {} }, ids: [] };
 	const result = truth.apply([{ kind: "fold", ids: targets }], "auto");
 	const ids = result.results.filter((r) => r.applied && r.op.kind === "fold").flatMap((r) => (r.op.kind === "fold" ? r.op.ids : []));

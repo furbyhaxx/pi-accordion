@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Truth } from "../core/truth";
 import type { Block, ParsedSession } from "../core/types";
-import { buildBakeSummary, aggressiveProjection, applyUndo, needsSaturationFallback, runCompaction, stripFoldTags, type CompactDeps } from "./compaction";
+import { buildBakeSummary, aggressiveProjection, applyUndo, bakeMessageBlocks, needsSaturationFallback, runCompaction, stripFoldTags, type CompactDeps } from "./compaction";
+import { linearize, wireToBlock, type PiMessage } from "../core/wire";
 
 const META = { format: "pi" as const, title: "t", cwd: "", model: "" };
 
@@ -33,6 +34,21 @@ function deps(truth: Truth | null, over: Partial<CompactDeps> = {}): CompactDeps
 }
 
 describe("compaction strategies", () => {
+	test("bake maps only discarded messages and refuses unknown identities", () => {
+		const messages: PiMessage[] = [
+			{ role: "user", timestamp: 1, content: "discarded" },
+			{ role: "user", timestamp: 2, content: "kept" },
+		];
+		const t = truthOf(linearize(messages).map(wireToBlock), { protect: 0 });
+		const range = bakeMessageBlocks(t, messages.slice(0, 1), messages);
+		expect(range?.map((b) => b.text)).toEqual(["discarded"]);
+		expect(bakeMessageBlocks(t, [{ role: "user", content: "no identity" }], messages)).toBeNull();
+		const summary = buildBakeSummary(range!, { capTokens: 2000, truth: t });
+		expect(summary).toMatch(/^\[accordion-bake v1\] 1 messages · \d+ → \d+ tok/);
+		expect(summary).toContain("discarded");
+		expect(summary).not.toContain("kept");
+	});
+
 	test("threshold remains saturated when a pass saves tokens but misses the reserve", () => {
 		expect(needsSaturationFallback("threshold", 1000, 900, 1000, 200)).toBe(true);
 		expect(needsSaturationFallback("threshold", 1000, 800, 1000, 200)).toBe(false);
