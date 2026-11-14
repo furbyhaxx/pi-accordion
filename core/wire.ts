@@ -330,55 +330,53 @@ function fnvContent(h: number, content: unknown): number {
 	return h;
 }
 
+function fnvInt(h: number, n: number): number {
+	return fnvByte(fnvByte(fnvByte(fnvByte(h, n), n >>> 8), n >>> 16), n >>> 24);
+}
+
+/** A string's length and eight evenly spread characters, first and last included. */
 function sampleText(h: number, text: string): number {
-	h = fnvStr(h, `${text.length}:`);
 	const n = text.length;
-	for (let i = 0; i < Math.min(64, n); i++) {
-		const c = text.charCodeAt(i);
-		h = fnvByte(fnvByte(h, c), c >>> 8);
-	}
-	for (let i = Math.max(64, n - 64); i < n; i++) {
-		const c = text.charCodeAt(i);
-		h = fnvByte(fnvByte(h, c), c >>> 8);
-	}
-	for (let i = 0; i < 64 && n > 0; i++) {
-		const c = text.charCodeAt(Math.floor(i * (n - 1) / 63));
+	h = fnvInt(h, n);
+	if (n <= 8) return fnvStr(h, text);
+	for (let i = 0; i < 8; i++) {
+		const c = text.charCodeAt(Math.floor(i * (n - 1) / 7));
 		h = fnvByte(fnvByte(h, c), c >>> 8);
 	}
 	return h;
 }
 
 function sampleValue(h: number, v: unknown, depth: number): number {
-	if (depth > 8) return fnvStr(h, "depth;");
-	if (typeof v === "string") return sampleText(fnvStr(h, "string;"), v);
-	if (v === null || typeof v !== "object") return fnvStr(fnvStr(h, `${v === null ? "null" : typeof v}:`), `${String(v)};`);
+	if (depth > 8) return fnvByte(h, 1);
+	if (typeof v === "string") return sampleText(fnvByte(h, 2), v);
+	if (typeof v === "number") return Number.isInteger(v) ? fnvInt(fnvByte(h, 3), v) : fnvStr(fnvByte(h, 4), String(v));
+	if (v === null || typeof v !== "object") return fnvByte(fnvByte(h, 5), v === true ? 1 : v === false ? 2 : v === null ? 3 : 4);
 	if (Array.isArray(v)) {
-		h = fnvStr(h, `[${v.length}:`);
+		h = fnvInt(fnvByte(h, 6), v.length);
 		for (const item of v) h = sampleValue(h, item, depth + 1);
-		return fnvStr(h, "]");
+		return h;
 	}
-	h = fnvStr(h, "{");
-	for (const key of Object.keys(v)) {
-		h = fnvStr(h, `${key.length}:`);
-		h = fnvStr(h, key);
+	h = fnvByte(h, 7);
+	for (const key in v) {
+		h = fnvStr(fnvInt(h, key.length), key);
 		h = sampleValue(h, (v as Record<string, unknown>)[key], depth + 1);
 	}
-	return fnvStr(h, "}");
+	return fnvByte(h, 8);
 }
 
 function sampleContent(h: number, value: PiMessage["content"]): number {
-	if (typeof value === "string") return sampleText(fnvStr(h, "string"), value);
-	if (!Array.isArray(value)) return fnvStr(h, "empty");
-	h = fnvStr(h, `parts:${value.length}:`);
+	if (typeof value === "string") return sampleText(fnvByte(h, 1), value);
+	if (!Array.isArray(value)) return fnvByte(h, 2);
+	h = fnvInt(fnvByte(h, 3), value.length);
 	for (const part of value) {
 		const text = (part as { text?: unknown } | null)?.text;
 		h = sampleText(h, part?.type ?? "");
-		h = sampleText(h, typeof text === "string" ? text : "");
+		h = typeof text === "string" ? sampleText(h, text) : fnvByte(h, 0);
 	}
 	return h;
 }
 
-/** A bounded sample of each content field, including its length and part structure. */
+/** Structure, field lengths and a few characters per field: O(fields), independent of text size. */
 export function contentSignature(m: PiMessage): number {
 	let h = sampleText(0x811c9dc5, m.role);
 	switch (m.role) {
@@ -388,20 +386,21 @@ export function contentSignature(m: PiMessage): number {
 		case "assistant":
 			h = sampleText(h, m.model ?? "");
 			if (Array.isArray(m.content)) {
-				h = fnvStr(h, `${m.content.length}:`);
+				h = fnvInt(h, m.content.length);
 				for (const part of m.content) {
 					h = sampleText(h, part?.type ?? "");
 					if (part?.type === "text") h = sampleText(h, (part as PiTextPart).text || "");
 					else if (part?.type === "thinking") {
-						h = sampleText(h, (part as PiThinkingPart).thinking || "");
-						h = fnvByte(h, thinkingIsSigned(part as PiThinkingPart) ? 1 : 0);
+						const thinking = part as PiThinkingPart;
+						h = sampleText(h, thinking.thinking || "");
+						h = fnvInt(fnvByte(h, thinking.redacted === true ? 1 : 0), typeof thinking.thinkingSignature === "string" ? thinking.thinkingSignature.length : -1);
 					} else if (part?.type === "toolCall") {
 						const call = part as PiToolCallPart;
 						h = sampleText(h, call.name || "");
 						h = sampleValue(h, call.arguments ?? {}, 0);
 					}
 				}
-			} else h = fnvStr(h, "0:");
+			} else h = fnvInt(h, 0);
 			break;
 		case "toolResult":
 			h = fnvByte(h, m.isError ? 1 : 0);
