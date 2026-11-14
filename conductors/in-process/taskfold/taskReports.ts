@@ -30,9 +30,9 @@ export function taskReports(truth: Truth): (taskKey: string) => TaskReport | nul
 		const members = span.intervals.flatMap((iv) => blocks.slice(iv.start, iv.end + 1));
 		const facts = recordFacts(members, (b) => b.text);
 		const children = [...spans.values()]
-			.filter((s) => s.list === span.list && s.id.startsWith(`${span.id}.`) && !s.id.slice(span.id.length + 1).includes("."))
+			.filter((s) => s.list === span.list && s.id.startsWith(`${span.id}.`))
 			.sort((a, b) => idOrder(a.id, b.id))
-			.map((s) => ({ id: s.id, title: s.title, status: s.status, ...(s.report.outcome ? { outcome: s.report.outcome } : {}) }));
+			.map((s) => ({ id: s.id, title: s.title, status: s.status, memberIds: s.intervals.flatMap((iv) => blocks.slice(iv.start, iv.end + 1).map((b) => b.id)), ...(s.report.outcome ? { outcome: s.report.outcome } : {}) }));
 		return {
 			title: span.title,
 			status: span.status,

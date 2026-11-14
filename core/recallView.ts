@@ -56,8 +56,8 @@ export interface TaskReport {
 	open?: string[];
 	changed?: string[];
 	verified?: string[];
-	/** Direct subtasks, in list order. */
-	children?: { id: string; title: string; status: string | null; outcome?: string }[];
+	/** Descendants in list order, with their transcript members. */
+	children?: { id: string; title: string; status: string | null; outcome?: string; memberIds?: string[] }[];
 }
 
 export interface RecallItem {
@@ -200,7 +200,8 @@ function render(
 function reportSection(truth: Truth, src: Source, report: TaskReport, page: number, budget: number, compact: boolean) {
 	const cut = (s: string) => (compact ? clip(s, COMPACT_ITEM_CHARS) : s.replace(/\s+/g, " ").trim());
 	const list = (name: string, xs: string[] | undefined) => (xs?.length ? [`${name}:`, ...xs.map((x) => `- ${cut(x)}`)] : []);
-	const codes = new Map(childHandles(truth, src.code, new Set(src.entries.map((b) => b.id))).map((c) => [c.id, c]));
+	const codes = new Map(childHandles(truth, src.code, new Set(src.entries.map((b) => b.id)), false).map((c) => [c.id, c]));
+	const positions = new Map(src.entries.map((b, i) => [b.id, i + 1]));
 	const list0 = src.taskKey!.slice(0, src.taskKey!.indexOf("/"));
 	const total = src.entries.reduce((n, b) => n + b.tokens, 0);
 	const lines = [
@@ -214,11 +215,14 @@ function reportSection(truth: Truth, src: Source, report: TaskReport, page: numb
 		...list("verified", report.verified?.slice(compact ? -3 : -8)),
 	];
 	if (report.children?.length) {
-		lines.push("subtasks (recall a code for its report):");
+		lines.push("subtasks (recall a code for its report, or an entry in the shown range):");
 		for (const c of report.children) {
 			const h = codes.get(`t:${list0}/${c.id}`);
+			const entries = (c.memberIds ?? []).flatMap((id) => positions.has(id) ? [positions.get(id)!] : []);
+			const range = entries.length ? `#${src.code}.${Math.min(...entries)}-${Math.max(...entries)}` : "(no code)";
 			const outcome = !compact && c.outcome ? ` — ${clip(c.outcome, CHILD_OUTCOME_CHARS)}` : "";
-			lines.push(`  ${h ? `#${foldCode(h.id)}` : "(no code)"}  ${c.id} · ${c.status ?? "open"} · ${clip(c.title, 80)}${outcome}`);
+			const depth = c.id.split(".").length - src.taskKey!.slice(src.taskKey!.indexOf("/") + 1).split(".").length;
+			lines.push(`${"  ".repeat(Math.max(1, depth))}${h ? `#${foldCode(h.id)}` : range}  ${c.id} · ${c.status ?? "open"} · ${clip(c.title, 80)}${outcome}`);
 		}
 	}
 	lines.push(`Exact values: recall({codes:["${src.code}"], query:"text"}) · entry list: recall({codes:["${src.code}.entries"]}) · one entry: recall({codes:["${src.code}.N"]})`);
@@ -413,7 +417,7 @@ export function foldedTaskCodes(truth: Truth): string[] {
 }
 
 /** Recallable handles strictly inside `memberIds`, keeping only the outermost ones. */
-function childHandles(truth: Truth, code: string, memberIds: Set<string>): { id: string; memberIds: string[] }[] {
+function childHandles(truth: Truth, code: string, memberIds: Set<string>, outermost = true): { id: string; memberIds: string[] }[] {
 	const seen = new Map<string, string[]>();
 	for (const g of truth.groups) {
 		for (const h of g.handles ?? []) {
@@ -423,7 +427,7 @@ function childHandles(truth: Truth, code: string, memberIds: Set<string>): { id:
 		}
 	}
 	const all = [...seen].map(([id, ids]) => ({ id, memberIds: ids, set: new Set(ids) }));
-	const outer = all.filter((c) => !all.some((o) => o !== c && o.set.size > c.set.size && c.memberIds.every((id) => o.set.has(id))));
+	const outer = outermost ? all.filter((c) => !all.some((o) => o !== c && o.set.size > c.set.size && c.memberIds.every((id) => o.set.has(id)))) : all;
 	const first = (ids: string[]) => truth.get(ids[0])?.order ?? 0;
 	return outer.sort((a, b) => first(a.memberIds) - first(b.memberIds)).map(({ id, memberIds: ids }) => ({ id, memberIds: ids }));
 }
