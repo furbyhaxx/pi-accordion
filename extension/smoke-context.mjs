@@ -57,7 +57,7 @@ function runtime(messages = [], options = {}) {
 	};
 	handlers.session_start({ reason: "resume" }, ctx);
 	return {
-		handlers, ctx, tools, entries, sent,
+		handlers, ctx, tools, entries, sent, pi,
 		activeTools: () => activeTools.slice(),
 		open: async () => { await command("", ctx); return host; },
 		command: args => command(args, ctx),
@@ -1579,6 +1579,38 @@ check("a provider-only change and a late-learned model change both invalidate ca
 		await r.request(history(2));
 		assert.equal(t.calibration, 1);
 	} finally { r.close(); }
+});
+check("Taskfold verdict entries wait for the context hook and preserve production order", async () => {
+	const r = runtime([], { sessionId: "deferred-verdict-smoke" });
+	try {
+		const host = await r.open();
+		await host.command({ kind: "selectConductor", id: "taskfold" });
+		await new Promise(resolve => setImmediate(resolve));
+		host.command({ kind: "setFolding", value: true });
+		const calls = [];
+		const append = r.pi.appendEntry;
+		let pending = true;
+		r.pi.appendEntry = (type, data) => {
+			calls.push({ type, data, pending });
+			append(type, data);
+		};
+		const first = { role: "user", content: "<system-reminder>First harness message</system-reminder>", timestamp: 1 };
+		await r.handlers.context({ messages: [first] }, r.ctx);
+		pending = false;
+		assert.equal(calls.length, 0, "no session entries while context is pending");
+		const second = { role: "user", content: "<system-reminder>Second harness message</system-reminder>", timestamp: 2 };
+		r.handlers.message_end({ message: second }, r.ctx);
+		assert.equal(calls.length, 0, "later verdict stays behind the queued verdict");
+		await new Promise(resolve => setImmediate(resolve));
+		const verdicts = calls.filter(call => call.type === "accordion.taskfold.verdict");
+		assert.equal(verdicts.length, 2);
+		assert.ok(verdicts.every(call => !call.pending && call.data.source === "harness"));
+		const blocks = host.truth().blocks;
+		assert.deepEqual(verdicts.map(call => call.data.id), [
+			blocks.find(block => block.text === first.content).id,
+			blocks.find(block => block.text === second.content).id,
+		]);
+	} finally { await r.close(); }
 });
 check("debug records receipts and rejected tasks without synchronous writes on the context hook", async () => {
 	const r = runtime([], { sessionId: "debug-smoke" });

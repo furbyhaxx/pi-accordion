@@ -473,6 +473,20 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	function debug(record: DebugRecord): void {
 		if (debugOverride ?? settings.debug) debugLog?.record(record);
 	}
+	let hookDepth = 0;
+	const deferredEntries: { session: string; type: string; data: unknown }[] = [];
+	function persistEntry(type: string, data: unknown): void {
+		if (hookDepth === 0 && deferredEntries.length === 0) { pi.appendEntry(type, data); return; }
+		deferredEntries.push({ session: sessionId, type, data });
+	}
+	function flushDeferredEntries(): void {
+		for (const e of deferredEntries.splice(0)) {
+			if (e.session !== sessionId) continue;
+			try { pi.appendEntry(e.type, e.data); }
+			catch (err) { console.error("[accordion] deferred session entry failed:", err); }
+		}
+	}
+
 
 	function activeBindHost(): string { return settings.bindHost; }
 
@@ -1052,7 +1066,16 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			/* status API optional */
 		}
 	}
-	nativeListeners.add(refreshConductorPresentation);
+	let footerScheduled = false;
+	nativeListeners.add(() => {
+		if (footerScheduled) return;
+		footerScheduled = true;
+		const session = sessionId;
+		setImmediate(() => {
+			footerScheduled = false;
+			if (sessionId === session) refreshConductorPresentation();
+		});
+	});
 
 	// Conductor-declared tools are active only while that conductor is attached.
 	const conductorTools = new Set(catalogMeta().flatMap((e) => entryById(e.id)?.tools ?? []));
@@ -3432,9 +3455,9 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			ledgerCalls = 0;
 			ledgerBudgetWarned = false;
 			taskfoldVerdicts.reset(verdictsOf(entries), (id, v) => {
-				if (sessionId === sessionAtStart) pi.appendEntry(VERDICT_ENTRY, { id, ...v });
+				if (sessionId === sessionAtStart) persistEntry(VERDICT_ENTRY, { id, ...v });
 			}, unfoldStatesOf(entries), (key, state) => {
-				if (sessionId === sessionAtStart) pi.appendEntry(UNFOLD_ENTRY, { key, ...state });
+				if (sessionId === sessionAtStart) persistEntry(UNFOLD_ENTRY, { key, ...state });
 			});
 		} catch {
 			taskfoldVerdicts.reset(new Map(), null);
@@ -3710,6 +3733,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		// unmodified. Timing (below) still covers the whole guarded body, error or not.
 		let ret: { messages: AgentMessage[] } | undefined;
 		try {
+			hookDepth++;
 			latestCtx = ctx;
 			// Refresh model/usage in memory only — NO disk I/O on the model-call critical path.
 			refreshFromCtx(ctx);
@@ -3758,6 +3782,8 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 			console.error("[accordion] context hook failed; passing messages through unmodified:", err);
 			ret = undefined;
 		} finally {
+			hookDepth--;
+			if (deferredEntries.length) setImmediate(flushDeferredEntries);
 			// (d) markSent through the last block — GUARANTEED on both the success AND the error path
 			// (E3, external review round). Invariant: whatever this hook actually let through to the
 			// model counts as sent. On the happy path `ret` may hold the serialized replacement, but
@@ -4012,6 +4038,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 	});
 
 	pi.on("session_shutdown", () => {
+		flushDeferredEntries();
 		lastCompact = null;
 		lastBake = undefined;
 		pendingToolNotice = null;
