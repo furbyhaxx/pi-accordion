@@ -4468,7 +4468,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 					return {
 						pass: typeof saved === "number" ? saved : null,
 						aggressive: aggressiveProjection(truth),
-						bake: Math.max(0, truth.stats().liveTokens - Math.ceil(summary.length / 4)),
+						bake: Math.ceil(summary.length / 4),
 						native: null,
 					};
 				},
