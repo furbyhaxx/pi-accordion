@@ -3502,7 +3502,7 @@ export default function accordionLive(pi: ExtensionAPI, dependencies: RuntimeDep
 		taskCoach.setPolicy(coachPolicy());
 		const decision = taskCoach.callStarted(!!event.parentToolCallId);
 		if (decision.opened) {
-			const text = `accordion tasks: the gate opened for the rest of this run after ${settings.tasks.gateFailOpenAfter} refusals; continue, but this work is not recorded under any task.`;
+			const text = `accordion tasks: the gate opened for the next 50 calls after ${settings.tasks.gateFailOpenAfter} refusals; continue, but this work is not recorded under any task.`;
 			ctx.ui.notify(text, "warning");
 			broadcast({ type: "notice", text });
 		}
