@@ -787,6 +787,21 @@ describe("taskfold", () => {
 		expect(records.length).toBeGreaterThan(0);
 	});
 
+	it("clears saturation status once pressure subsides", async () => {
+		const s = new Session();
+		s.user("Go.");
+		s.start("1", "Long task");
+		s.work(12, "open");
+		const host = setup(s, 0.3);
+		const c = new TaskfoldConductor({ steps: { enabled: false, minSteps: 4 } });
+		c.attach(host);
+		await host.commitTurn();
+		expect(host.statusLog.at(-1)?.metrics?.level).toBe("error");
+		host.setBudget(host.stats().liveTokens * 10);
+		await host.commitTurn();
+		expect(host.statusLog.at(-1)?.metrics?.level).toBeUndefined();
+	});
+
 	it("reports the largest open task when step folding is off and nothing else can relieve pressure", async () => {
 		const s = new Session();
 		s.user("Go.");

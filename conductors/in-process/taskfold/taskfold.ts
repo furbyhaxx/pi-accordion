@@ -775,6 +775,10 @@ export class TaskfoldConductor implements Conductor {
 		if (!plan.length) {
 			if (!pressure) {
 				if (this.rawWarning) host.setStatus(this.rawWarning, { level: "warning" });
+				else if (!this.awaitingConsent) host.setStatus(`Epoch ${this.epochs}: no fold operations needed.`, {
+					epochs: this.epochs, groups: this.groupKeys(host).size, live_tokens: stats.liveTokens, budget: stats.budget,
+					...(this.classifyFailures ? { level: "warning" } : {}),
+				});
 				return;
 			}
 			const blocks = host.blocks();
